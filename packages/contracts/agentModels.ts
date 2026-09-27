@@ -6,9 +6,8 @@ import type {
 } from '@contracts/agent';
 export { ASSISTANT_KNOWN_EFFORTS } from '@contracts/agent';
 
-// Assistant sessions should start responsive, then let the user opt into deeper
-// reasoning or a slower service tier from the composer controls.
-export const ASSISTANT_DEFAULT_EFFORT = 'low' satisfies TAgentAssistantEffort;
+// Start with balanced reasoning; users can choose more depth or a slower tier.
+export const ASSISTANT_DEFAULT_EFFORT = 'medium' satisfies TAgentAssistantEffort;
 export const ASSISTANT_DEFAULT_SPEED_MODE = 'fast' satisfies TAgentAssistantSpeedMode;
 export const ASSISTANT_SPEED_MODES = [
     'fast',
@@ -104,44 +103,15 @@ export function getAssistantPreferredModelId(
         ?? getAssistantDefaultModelId(models, fallback);
 }
 
-// Keep the picker on the current GPT generation while allowing non-versioned
-// custom model slugs through unchanged.
-const CODEX_MINIMUM_GPT_MODEL = {
-    major: 5,
-    minor: 6,
-} as const;
-const CODEX_GPT_MODEL_VERSION_PATTERN = /^gpt-(\d+)(?:\.(\d+))?(?=[^0-9]|$)/u;
-
-export function isRemovedCodexAssistantModelId(model: string) {
-    const match = CODEX_GPT_MODEL_VERSION_PATTERN.exec(model.trim().toLowerCase());
-    if (!match) {
-        return false;
-    }
-
-    const major = Number(match[1]);
-    const minor = Number(match[2] ?? 0);
-    return major < CODEX_MINIMUM_GPT_MODEL.major
-        || (major === CODEX_MINIMUM_GPT_MODEL.major && minor < CODEX_MINIMUM_GPT_MODEL.minor);
-}
-
-// Canonical Claude model options. The default is resolved by preferred family
-// below, so version numbers live in fallback metadata rather than selection logic.
+// These rows are only used before the provider supplies its current model list.
 export const CLAUDE_ASSISTANT_MODELS = [
     {
-        id: 'fable',
-        label: 'Claude Fable 5.1',
-    },
-    {
         id: 'opus',
-        label: 'Claude Opus 5',
+        label: 'Opus',
     },
     {
-        id: 'sonnet',
-        label: 'Claude Sonnet 5',
-    },
-    {
-        id: 'haiku',
-        label: 'Claude Haiku 4.5',
+        id: 'fable',
+        label: 'Fable',
     },
 ] as const satisfies readonly IAgentAssistantModelOption[];
 
@@ -150,9 +120,11 @@ export const CLAUDE_ASSISTANT_DEFAULT_MODEL = getAssistantPreferredModelId(
     'opus',
 );
 
+const CODEX_ASSISTANT_FALLBACK_MODEL_ID = 'gpt-6-astra';
+
 export const CODEX_ASSISTANT_FALLBACK_MODELS = [{
-    id: 'gpt-5.6-sol',
-    label: 'GPT-5.6-Sol',
+    id: CODEX_ASSISTANT_FALLBACK_MODEL_ID,
+    label: `GPT-${CODEX_ASSISTANT_FALLBACK_MODEL_ID.slice(4).split('-').map(titleCaseEffortSegment).join('-')}`,
     reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
     defaultReasoningEffort: 'medium',
     serviceTiers: [

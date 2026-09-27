@@ -18,16 +18,15 @@ import { isRecord } from '@contracts/runtimeGuards';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
+    CLAUDE_ASSISTANT_MODELS,
     CODEX_ASSISTANT_FALLBACK_MODELS,
 } from '@contracts/agentModels';
 import {
-    CLAUDE_AGENT_MODELS,
     isClaudeAuthErrorMessage,
     getClaudeAgentSdkInfo,
     detectClaudeAuthState,
     shouldRefuseClaudeContextContinuation,
     shouldUseClaudeAssistantFastMode,
-    normalizeClaudeAssistantModel,
 } from '@electron/features/agent/claudeProviderMetadata';
 import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
 import type {
@@ -45,6 +44,7 @@ import {
     codexDefaultModelId,
     normalizeAssistantEffort,
     normalizeAssistantSpeedMode,
+    normalizeClaudeAssistantModel,
     normalizeCodexAssistantModel,
     resolveAssistantSelection,
     resolveCodexServiceTier,
@@ -114,7 +114,7 @@ class AssistantTurnSupersededError extends Error {
 }
 export interface IAgentAssistantSendMessageOptions { windowId?: number | null; }
 let codexAssistantModels: readonly TCodexAssistantModelOption[] = CODEX_ASSISTANT_FALLBACK_MODELS;
-let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_AGENT_MODELS;
+let claudeAssistantModels: readonly IAgentAssistantModelOption[] = CLAUDE_ASSISTANT_MODELS;
 const providerRuntimeStates = createAssistantProviderRuntimeStates();
 const codexProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'codex');
 const claudeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'claude');
@@ -237,7 +237,7 @@ function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) 
 }
 function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
     const scope = sessionStore.resolveRequestedScope(request);
-    const selection = resolveAssistantSelection(codexAssistantModels, request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     rememberStateScope(scope, selection);
     return scope ? sessionStore.getSession(scope, selection, { create: true }) : null;
 }
@@ -618,11 +618,10 @@ function createClaudeCallbacks(session: IAssistantChatSession) {
             if (providerThreadId) {
                 session.providerThreadId = providerThreadId;
             }
-            session.model = normalizeClaudeAssistantModel(info.model ?? session.model);
             if (info.models && info.models.length > 0) {
                 claudeAssistantModels = info.models;
-                session.model = normalizeClaudeAssistantModel(session.model);
             }
+            session.model = normalizeClaudeAssistantModel(claudeAssistantModels, info.model ?? session.model);
             claudeMcpToolCount = Math.max(claudeMcpToolCount, info.toolCount);
             claudeProviderRuntime.account = normalizeClaudeAssistantAccount(info.account);
             claudeProviderRuntime.authState = 'signed-in';
@@ -713,9 +712,9 @@ async function ensureClaudeAssistantSession(
         publishState(session.scope, session);
         throw new Error(error);
     }
-    const normalizedModel = normalizeClaudeAssistantModel(model);
-    const normalizedEffort = normalizeAssistantEffort(codexAssistantModels, 'claude', normalizedModel, effort);
-    const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode);
+    const normalizedModel = normalizeClaudeAssistantModel(claudeAssistantModels, model);
+    const normalizedEffort = normalizeAssistantEffort(codexAssistantModels, 'claude', normalizedModel, effort, claudeAssistantModels);
+    const normalizedSpeedMode = normalizeAssistantSpeedMode(codexAssistantModels, 'claude', normalizedModel, speedMode, claudeAssistantModels);
     const desiredFastMode = shouldUseClaudeAssistantFastMode(normalizedModel, normalizedSpeedMode);
     if (session.claudeSession) {
         if (session.claudeSession.isRetiring) {
@@ -810,7 +809,7 @@ export async function getAgentAssistantState(
     await assistantFeatureLifecycle.waitForShutdown();
     const session = getRequestChatSession(request);
     const scope = session?.scope ?? null;
-    const selection = resolveAssistantSelection(codexAssistantModels, request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     if (!(await isAssistantFeatureEnabled())) {
         await shutdownAgentAssistant();
         return currentState(scope, selection);
@@ -843,7 +842,7 @@ export async function sendAgentAssistantMessage(
         return createAssistantErrorResult(error);
     }
     const operationGeneration = assistantFeatureLifecycle.captureGeneration();
-    const selection = resolveAssistantSelection(codexAssistantModels, request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     const scope = normalizeAssistantScope(request.scope);
     rememberStateScope(scope, selection);
     if (!scope) {
@@ -1128,7 +1127,7 @@ export async function interruptAgentAssistant(
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
     const requestedSession = getRequestChatSession(request);
-    const selection = resolveAssistantSelection(codexAssistantModels, request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
     if (session?.provider === 'claude') {
@@ -1203,7 +1202,7 @@ export async function resetAgentAssistantChat(
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
     const session = getRequestChatSession(request);
-    const selection = resolveAssistantSelection(codexAssistantModels, request);
+    const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     abortActiveEmbeddedMcpRequests(
         session?.scopeBinding ?? (session ? getAssistantTurnScope(session.turnOwner) : null),
         'Assistant chat reset by the user.',

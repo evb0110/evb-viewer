@@ -86,7 +86,7 @@ function createReadyState(
     const state = createEmptyAssistantState({
         chatScope: stateScope,
         selectedProvider: 'codex',
-        selectedModel: 'gpt-5.4',
+        selectedModel: 'gpt-6-astra',
         selectedEffort: 'medium',
         selectedSpeedMode: 'standard',
     });
@@ -169,7 +169,7 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
             h('output', {class: 'installing'}, String(controller.isInstalling.value)),
             h('output', {class: 'can-send'}, String(controller.canSend.value)),
             h('output', {class: 'is-refreshing'}, String(controller.isRefreshingScope.value)),
-            h('output', {class: 'model'}, controller.selectedModel.value),
+            h('output', {class: 'model'}, controller.status.value.model),
             h('button', {
                 class: 'set-draft',
                 onClick: () => {
@@ -202,10 +202,6 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
             h('output', {class: 'state-error'}, controller.status.value.error ?? ''),
             h('output', {class: 'composer-error'}, controller.composerError.value),
             h('output', {class: 'failure'}, controller.assistantFailurePresentation.value?.description ?? ''),
-            h('button', {
-                class: 'set-retired-model',
-                onClick: () => controller.updateModel('gpt-5.5'),
-            }, 'Set retired model'),
             h('button', {
                 class: 'install',
                 onClick: controller.handleInstallCodex,
@@ -255,7 +251,7 @@ describe('mounted assistant panel lifecycle', () => {
         mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
         const harness = await mountHarness(null);
 
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-6-astra');
         harness.unmount();
     });
 
@@ -313,7 +309,7 @@ describe('mounted assistant panel lifecycle', () => {
         harness.unmount();
     });
 
-    it('replaces a persisted pre-5.6 Codex model before the first backend state resolves', async () => {
+    it('shows the current Codex fallback while an unavailable saved model waits for discovery', async () => {
         window.localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
             provider: 'codex',
             modelsByProvider: {codex: 'gpt-5.4'},
@@ -321,58 +317,7 @@ describe('mounted assistant panel lifecycle', () => {
         mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
         const harness = await mountHarness(null);
 
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
-        harness.unmount();
-    });
-
-    it('replaces a persisted GPT-5.5 selection before the first backend state resolves', async () => {
-        window.localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
-            provider: 'codex',
-            modelsByProvider: {codex: 'gpt-5.5'},
-        }));
-        mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
-        const harness = await mountHarness(null);
-
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
-        harness.unmount();
-    });
-
-    it('replaces a legacy persisted GPT-5.5 selection before the first backend state resolves', async () => {
-        window.localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
-            provider: 'codex',
-            model: 'gpt-5.5',
-        }));
-        mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
-        const harness = await mountHarness(null);
-
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
-        harness.unmount();
-    });
-
-    it('ignores attempts to select the retired GPT-5.5 model', async () => {
-        mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
-        const harness = await mountHarness(null);
-
-        (harness.host.querySelector('.set-retired-model') as HTMLButtonElement).click();
-        await nextTick();
-
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
-        expect(window.localStorage.getItem(STORAGE_KEYS.ASSISTANT_SELECTION)).toBeNull();
-        harness.unmount();
-    });
-
-    it('allows another provider to use the same opaque model ID', async () => {
-        window.localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
-            provider: 'claude',
-            modelsByProvider: {claude: 'claude-opus-4-6'},
-        }));
-        mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
-        const harness = await mountHarness(null);
-
-        (harness.host.querySelector('.set-retired-model') as HTMLButtonElement).click();
-        await nextTick();
-
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.5');
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-6-astra');
         harness.unmount();
     });
 

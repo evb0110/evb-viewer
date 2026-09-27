@@ -14,10 +14,6 @@ import {
 import { promisify } from 'node:util';
 import { app } from 'electron';
 import type { TAgentAssistantSpeedMode } from '@contracts/agent';
-import {
-    CLAUDE_ASSISTANT_DEFAULT_MODEL,
-    CLAUDE_ASSISTANT_MODELS,
-} from '@contracts/agentModels';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -28,71 +24,6 @@ const requireFromHere = createRequire(import.meta.url);
 const CLAUDE_CLI_DISCOVERY_TIMEOUT_MS = 5_000;
 
 export const CLAUDE_AGENT_INSTALL_URL = 'https://code.claude.com/docs/en/agent-sdk/overview';
-export const CLAUDE_AGENT_DEFAULT_MODEL = CLAUDE_ASSISTANT_DEFAULT_MODEL;
-export const CLAUDE_AGENT_MODELS = CLAUDE_ASSISTANT_MODELS;
-const CLAUDE_AGENT_MODEL_ALIASES = new Map<string, string>(Object.entries({
-    'fable-5.1': 'fable',
-    'claude-fable-5.1': 'fable',
-    'claude-fable-5-1': 'fable',
-    'anthropic.claude-fable-5.1': 'fable',
-    'anthropic.claude-fable-5-1': 'fable',
-    'claude-fable-5': 'fable',
-    'anthropic.claude-fable-5': 'fable',
-    'opus-5': 'opus',
-    'claude-opus-5': 'opus',
-    'claude-opus-5.0': 'opus',
-    'claude-opus-5-0': 'opus',
-    'anthropic.claude-opus-5': 'opus',
-    'anthropic.claude-opus-5.0': 'opus',
-    'anthropic.claude-opus-5-0': 'opus',
-    'claude-opus-4-8': 'opus',
-    'anthropic.claude-opus-4-8': 'opus',
-    'claude-opus-4-7': 'opus',
-    'anthropic.claude-opus-4-7': 'opus',
-    'claude-opus-4-6': 'opus',
-    'anthropic.claude-opus-4-6': 'opus',
-    'sonnet-5': 'sonnet',
-    'claude-sonnet-5': 'sonnet',
-    'claude-sonnet-5.0': 'sonnet',
-    'claude-sonnet-5-0': 'sonnet',
-    'anthropic.claude-sonnet-5': 'sonnet',
-    'anthropic.claude-sonnet-5.0': 'sonnet',
-    'anthropic.claude-sonnet-5-0': 'sonnet',
-    'claude-sonnet-4-6': 'sonnet',
-    'anthropic.claude-sonnet-4-6': 'sonnet',
-    'claude-sonnet-4-5': 'sonnet',
-    'anthropic.claude-sonnet-4-5': 'sonnet',
-    'claude-haiku-4-5': 'haiku',
-    'anthropic.claude-haiku-4-5': 'haiku',
-    'claude-haiku-4-5-20251001': 'haiku',
-    'anthropic.claude-haiku-4-5-20251001': 'haiku',
-}));
-const CLAUDE_AGENT_MODEL_IDS = new Set<string>(CLAUDE_AGENT_MODELS.map(model => model.id));
-const CLAUDE_AGENT_MODEL_LABELS = new Map<string, string>([
-    ...CLAUDE_AGENT_MODELS.map(model => [
-        model.id,
-        model.label,
-    ] as const),
-    ...Object.entries({
-        'claude-fable-5': 'Claude Fable 5',
-        'anthropic.claude-fable-5': 'Claude Fable 5',
-        'claude-opus-4-8': 'Claude Opus 4.8',
-        'anthropic.claude-opus-4-8': 'Claude Opus 4.8',
-        'claude-opus-4-7': 'Claude Opus 4.7',
-        'anthropic.claude-opus-4-7': 'Claude Opus 4.7',
-        'claude-opus-4-6': 'Claude Opus 4.6',
-        'anthropic.claude-opus-4-6': 'Claude Opus 4.6',
-        'claude-sonnet-4-6': 'Claude Sonnet 4.6',
-        'anthropic.claude-sonnet-4-6': 'Claude Sonnet 4.6',
-        'claude-sonnet-4-5': 'Claude Sonnet 4.5',
-        'anthropic.claude-sonnet-4-5': 'Claude Sonnet 4.5',
-        'claude-haiku-4-5': 'Claude Haiku 4.5',
-        'anthropic.claude-haiku-4-5': 'Claude Haiku 4.5',
-        'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
-        'anthropic.claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
-    }),
-] as const);
-const CLAUDE_MODEL_ID_PATTERN = /^(?:claude-[a-z0-9][a-z0-9-]*|[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._/-]*|(?:global|us|eu)\.anthropic\.claude-[a-z0-9][a-z0-9-]*)(?:\[\d+m\])?$/iu;
 export interface IClaudeAgentSdkInfoOptions {
     env?: NodeJS.ProcessEnv;
     resolveSdkPackageDir?: () => string | null;
@@ -460,36 +391,8 @@ export function isClaudeAuthErrorMessage(message: string) {
 }
 
 
-export function getClaudeAssistantModelLabel(model: string) {
-    const canonicalModel = CLAUDE_AGENT_MODEL_ALIASES.get(model);
-    return CLAUDE_AGENT_MODEL_LABELS.get(model)
-        ?? (canonicalModel ? CLAUDE_AGENT_MODEL_LABELS.get(canonicalModel) : undefined)
-        ?? model;
-}
-
-export function normalizeClaudeAssistantModel(model: string | null | undefined) {
-    const trimmed = model?.trim();
-    if (!trimmed) {
-        return CLAUDE_AGENT_DEFAULT_MODEL;
-    }
-
-    if (CLAUDE_AGENT_MODEL_IDS.has(trimmed) || CLAUDE_MODEL_ID_PATTERN.test(trimmed)) {
-        return trimmed;
-    }
-
-    const normalized = CLAUDE_AGENT_MODEL_ALIASES.get(trimmed) ?? trimmed;
-    return CLAUDE_AGENT_MODEL_IDS.has(normalized)
-        ? normalized
-        : CLAUDE_AGENT_DEFAULT_MODEL;
-}
-
 function isClaudeAssistantFastModeModel(model: string) {
-    const normalized = normalizeClaudeAssistantModel(model).toLowerCase();
-    return normalized === 'opus'
-        || normalized.startsWith('opus[')
-        || normalized.includes('claude-opus-')
-        || normalized.includes('/opus-')
-        || normalized.includes('.opus-');
+    return model.toLowerCase().includes('opus');
 }
 
 export function shouldUseClaudeAssistantFastMode(

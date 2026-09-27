@@ -5,7 +5,6 @@ import type {
 import {
     CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CODEX_ASSISTANT_DEFAULT_MODEL,
-    isRemovedCodexAssistantModelId,
 } from '@contracts/agentModels';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import {
@@ -25,14 +24,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function normalizeStoredModelValue(
-    value: unknown,
-    provider?: TAgentAssistantProviderId,
-) {
+function normalizeStoredModelValue(value: unknown) {
     const model = normalizeModelValue(value)?.trim();
-    if (model && provider === 'codex' && isRemovedCodexAssistantModelId(model)) {
-        return null;
-    }
     return model && model.length > 0 ? model : null;
 }
 
@@ -56,7 +49,7 @@ function parseAssistantModelPreferences(value: unknown): TAssistantModelPreferen
         'codex',
         'claude',
     ] as const) {
-        const model = normalizeStoredModelValue(value[provider], provider);
+        const model = normalizeStoredModelValue(value[provider]);
         if (model) {
             modelsByProvider[provider] = model;
         }
@@ -76,7 +69,7 @@ function parseAssistantSelectionPreference(value: unknown): IAssistantSelectionP
     }
 
     const modelsByProvider = parseAssistantModelPreferences(value.modelsByProvider);
-    const legacyModel = normalizeStoredModelValue(value.model, provider);
+    const legacyModel = normalizeStoredModelValue(value.model);
     if (legacyModel) {
         modelsByProvider[provider] = legacyModel;
     }
@@ -109,7 +102,7 @@ export function preferredAssistantModel(
     preference: IAssistantSelectionPreference | null,
     provider: TAgentAssistantProviderId,
 ) {
-    return normalizeStoredModelValue(preference?.modelsByProvider[provider], provider)
+    return normalizeStoredModelValue(preference?.modelsByProvider[provider])
         ?? fallbackAssistantModel(provider);
 }
 
@@ -127,7 +120,7 @@ export function persistAssistantSelection(
         provider,
         modelsByProvider: {
             ...currentPreference?.modelsByProvider,
-            [provider]: normalizeStoredModelValue(model, provider) ?? fallbackAssistantModel(provider),
+            [provider]: normalizeStoredModelValue(model) ?? fallbackAssistantModel(provider),
         },
     };
 
@@ -154,6 +147,11 @@ export function selectedAssistantModelForProvider(
     providers: readonly IAgentAssistantProviderStatus[],
     preference = readAssistantSelectionPreference(storage),
 ) {
-    return normalizeStoredModelValue(preference?.modelsByProvider[provider], provider)
+    const preferred = normalizeStoredModelValue(preference?.modelsByProvider[provider]);
+    const providerStatus = providers.find(candidate => candidate.id === provider);
+    if (!providerStatus) {
+        return preferred ?? fallbackAssistantModel(provider);
+    }
+    return providerStatus.models.find(model => model.id === preferred || model.resolvedModel === preferred)?.id
         ?? defaultAssistantModel(provider, providers);
 }

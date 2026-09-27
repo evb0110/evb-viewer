@@ -1,4 +1,4 @@
-export const PINNED_CODEX_CLI_VERSION = '0.150.1';
+export const PINNED_CODEX_CLI_VERSION = '0.157.1';
 export const PINNED_CODEX_CLI_RELEASE_TAG = `rust-v${PINNED_CODEX_CLI_VERSION}`;
 
 export interface IPinnedCodexCliArtifact {
@@ -27,7 +27,7 @@ export const PINNED_CODEX_CLI_ARTIFACTS: readonly IPinnedCodexCliArtifact[] = [
         archiveKind: 'tar.gz',
         assetName: 'codex-aarch64-apple-darwin.tar.gz',
         executableEntry: 'codex-aarch64-apple-darwin',
-        sha256: 'f66f1c45f1eda49d6a8aef86faee24121b0c8913cd9023f23ee44262606fc7b6',
+        sha256: '3c45b162b7a76f51325015b1d0a8112c73219b7a9b59cd5762c37c9ba55894fa',
     }),
     createArtifact({
         platform: 'darwin',
@@ -35,7 +35,7 @@ export const PINNED_CODEX_CLI_ARTIFACTS: readonly IPinnedCodexCliArtifact[] = [
         archiveKind: 'tar.gz',
         assetName: 'codex-x86_64-apple-darwin.tar.gz',
         executableEntry: 'codex-x86_64-apple-darwin',
-        sha256: 'd00bdeb113c2cb42b43fbe4916b681ab1405772ac38fc8ac7fa9cc0934d1d0aa',
+        sha256: '281a9b806b5f62b70d1e2b65101bda369095f2f72fa1231b8e0410f7901c9a20',
     }),
     createArtifact({
         platform: 'linux',
@@ -43,7 +43,7 @@ export const PINNED_CODEX_CLI_ARTIFACTS: readonly IPinnedCodexCliArtifact[] = [
         archiveKind: 'tar.gz',
         assetName: 'codex-aarch64-unknown-linux-musl.tar.gz',
         executableEntry: 'codex-aarch64-unknown-linux-musl',
-        sha256: '5bb1f75e1a1588845b4a31f2c98fb2b394be5c2a8d90a24a8ab0ebbae1169264',
+        sha256: '4c6b1c17c1c5fd0d4fb2951b7481867b95ea732b1feab269c98588b15db16253',
     }),
     createArtifact({
         platform: 'linux',
@@ -51,7 +51,7 @@ export const PINNED_CODEX_CLI_ARTIFACTS: readonly IPinnedCodexCliArtifact[] = [
         archiveKind: 'tar.gz',
         assetName: 'codex-x86_64-unknown-linux-musl.tar.gz',
         executableEntry: 'codex-x86_64-unknown-linux-musl',
-        sha256: 'ab308870bc7fc048c23dc49d03f6b8af9ce7fc99b9da882d6688be7a90155c7a',
+        sha256: 'e98c1e8e028e8137fa2d2415c82ec58e7b3701a627e3554aace5b3ca31454af2',
     }),
     createArtifact({
         platform: 'win32',
@@ -59,7 +59,7 @@ export const PINNED_CODEX_CLI_ARTIFACTS: readonly IPinnedCodexCliArtifact[] = [
         archiveKind: 'zip',
         assetName: 'codex-aarch64-pc-windows-msvc.exe.zip',
         executableEntry: 'codex-aarch64-pc-windows-msvc.exe',
-        sha256: '589e1c49d7b0fac369913c5f8195b49bd6fd458954ed47cd76c9b7e8f46eb056',
+        sha256: '823ee9c9cab2d0d157d5c646b4b5e4c12337bcb94cd8b5fcdaf2abe362ecfb17',
     }),
     createArtifact({
         platform: 'win32',
@@ -67,7 +67,7 @@ export const PINNED_CODEX_CLI_ARTIFACTS: readonly IPinnedCodexCliArtifact[] = [
         archiveKind: 'zip',
         assetName: 'codex-x86_64-pc-windows-msvc.exe.zip',
         executableEntry: 'codex-x86_64-pc-windows-msvc.exe',
-        sha256: '6b4b13811c2e0a2dc7a79ad94686b7b665e69407c9dc25cdbc2dadfc31dd8e19',
+        sha256: '9b0cbcd72bcbea43433d18b82a50c09a7065f6bd6c503a3d9606a539283b89bf',
     }),
 ] as const;
 

@@ -22,8 +22,8 @@ export function createAgentAssistantStatus(
                         label: 'Codex default',
                     },
                     {
-                        id: 'gpt-5.6-sol',
-                        label: 'GPT-5.6-Sol',
+                        id: 'gpt-6-astra',
+                        label: 'GPT-6-Astra',
                     },
                 ],
                 defaultModel: 'default',
@@ -34,7 +34,7 @@ export function createAgentAssistantStatus(
                     'medium',
                     'high',
                 ],
-                defaultEffort: 'low',
+                defaultEffort: 'medium',
                 activeEffort: 'low',
                 availableSpeedModes: [
                     'fast',
@@ -72,7 +72,7 @@ export function createAgentAssistantStatus(
                     'xhigh',
                     'max',
                 ],
-                defaultEffort: 'low',
+                defaultEffort: 'medium',
                 activeEffort: 'low',
                 availableSpeedModes: [
                     'fast',
@@ -96,8 +96,8 @@ export function createAgentAssistantStatus(
                 label: 'Codex default',
             },
             {
-                id: 'gpt-5.6-sol',
-                label: 'GPT-5.6-Sol',
+                id: 'gpt-6-astra',
+                label: 'GPT-6-Astra',
             },
         ],
         modelSwitchMode: 'in-session',

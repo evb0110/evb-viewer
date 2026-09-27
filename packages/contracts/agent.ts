@@ -426,6 +426,7 @@ const agentAssistantServiceTierOptionSchema = v.object({
 const agentAssistantModelOptionSchema = v.object({
     id: v.string(),
     label: v.string(),
+    resolvedModel: v.optional(v.string()),
     reasoningEfforts: v.optional(v.pipe(v.array(agentAssistantEffortOptionSchema), v.readonly())),
     defaultReasoningEffort: v.optional(v.nullable(v.string())),
     serviceTiers: v.optional(v.pipe(v.array(agentAssistantServiceTierOptionSchema), v.readonly())),

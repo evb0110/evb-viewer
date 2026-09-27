@@ -22,7 +22,11 @@ import type {
     TAgentAssistantKnownEffort,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-import { ASSISTANT_KNOWN_EFFORTS } from '@contracts/agent';
+import {
+    ASSISTANT_KNOWN_EFFORTS,
+    createAssistantEffortOptions,
+    normalizeAssistantEffortId,
+} from '@contracts/agentModels';
 import {
     isOneOf,
     isRecord,
@@ -43,11 +47,7 @@ import {
     type IClaudeAssistantToolActivity,
 } from '@electron/features/agent/claudeAssistantStreamPresentation';
 
-import {
-    getClaudeAssistantModelLabel,
-    normalizeClaudeAssistantModel,
-    shouldUseClaudeAssistantFastMode,
-} from '@electron/features/agent/claudeProviderMetadata';
+import {shouldUseClaudeAssistantFastMode} from '@electron/features/agent/claudeProviderMetadata';
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
     low: 'low',
@@ -145,10 +145,31 @@ class ClaudePromptQueue implements AsyncIterable<SDKUserMessage> {
     }
 }
 
-function getClaudeSdkModel(model: string) {
-    return normalizeClaudeAssistantModel(model);
+const CLAUDE_HIDDEN_MODEL_FAMILIES = [
+    'sonnet',
+    'haiku',
+] as const;
+
+const CLAUDE_RESOLVED_MODEL_PATTERN = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:\[[^\]]*\])?$/u;
+
+// SDK display names are bare families ("Opus", "Opus (1M context)"); the
+// resolved model id carries the version, so a new release labels itself.
+function labelClaudeSdkModel(id: string, resolvedModel: string, displayName: string) {
+    const match = CLAUDE_RESOLVED_MODEL_PATTERN.exec(resolvedModel);
+    if (!match) {
+        return displayName || id;
+    }
+    const [
+        , family = '',
+        major = '',
+        minor,
+    ] = match;
+    const name = `${family.slice(0, 1).toUpperCase()}${family.slice(1)} ${minor === undefined ? major : `${major}.${minor}`}`;
+    const qualifier = /\s(\([^)]*\))$/u.exec(displayName)?.[1];
+    return qualifier ? `${name} ${qualifier}` : name;
 }
 
+// The owner asked to avoid Sonnet and Haiku for now.
 function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOption | null {
     if (!isRecord(rawModel)) {
         return null;
@@ -159,12 +180,28 @@ function normalizeClaudeSdkModelInfo(rawModel: unknown): IAgentAssistantModelOpt
         return null;
     }
 
-    const label = typeof rawModel.displayName === 'string' && rawModel.displayName.trim()
-        ? rawModel.displayName.trim()
-        : getClaudeAssistantModelLabel(id);
+    const resolvedModel = typeof rawModel.resolvedModel === 'string' ? rawModel.resolvedModel.trim() : '';
+    const displayName = typeof rawModel.displayName === 'string' ? rawModel.displayName.trim() : '';
+    if ([
+        id,
+        resolvedModel,
+        displayName,
+    ].some(value => CLAUDE_HIDDEN_MODEL_FAMILIES.some(family => value.toLowerCase().includes(family)))) {
+        return null;
+    }
+
+    const label = labelClaudeSdkModel(id, resolvedModel, displayName);
+    const supportedEfforts = Array.isArray(rawModel.supportedEffortLevels)
+        ? createAssistantEffortOptions(rawModel.supportedEffortLevels.flatMap(value => {
+            const effort = normalizeAssistantEffortId(value);
+            return effort ? [effort] : [];
+        }))
+        : undefined;
     return {
         id,
         label,
+        ...(resolvedModel ? {resolvedModel} : {}),
+        ...(supportedEfforts ? {reasoningEfforts: supportedEfforts} : {}),
     };
 }
 
@@ -183,7 +220,10 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
         seen.add(model.id);
         models.push(model);
     }
-    return models;
+    // The SDK's "default" row repeats another row's model under an alias.
+    return models.filter(model => model.id !== 'default' || !models.some(other => (
+        other !== model && other.resolvedModel === model.resolvedModel
+    )));
 }
 
 function extractDataUrlBase64(dataUrl: string) {
@@ -367,7 +407,7 @@ export class ClaudeAgentAssistantSession {
     private readonly activeToolNames = new Map<string, string>();
 
     constructor(private readonly options: IClaudeAgentAssistantSessionOptions) {
-        this.currentModel = normalizeClaudeAssistantModel(options.model);
+        this.currentModel = options.model;
         this.currentEffort = toClaudeEffortLevel(options.effort);
         this.currentSpeedMode = options.speedMode;
         this.queryFastMode = shouldUseClaudeAssistantFastMode(this.currentModel, this.currentSpeedMode);
@@ -542,7 +582,6 @@ export class ClaudeAgentAssistantSession {
                 message: 'EVB Assistant may only use EVB Viewer MCP tools.',
             });
         }) satisfies CanUseTool;
-        const sdkModel = getClaudeSdkModel(this.currentModel);
         if (isStartupCanceled()) {
             throw new Error('Claude assistant session is closed.');
         }
@@ -551,7 +590,7 @@ export class ClaudeAgentAssistantSession {
             prompt: promptQueue,
             options: {
                 cwd: this.options.cwd,
-                ...(sdkModel ? { model: sdkModel } : {}),
+                model: this.currentModel,
                 effort: this.currentEffort,
                 ...(this.queryFastMode ? { settings: { fastMode: true } } : {}),
                 ...(this.options.executablePath ? { pathToClaudeCodeExecutable: this.options.executablePath } : {}),
@@ -608,13 +647,13 @@ export class ClaudeAgentAssistantSession {
     }
 
     private async setModel(model: string) {
-        const normalized = normalizeClaudeAssistantModel(model);
+        const normalized = model.trim();
         if (normalized === this.currentModel) {
             return;
         }
 
         if (this.query) {
-            await this.query.setModel(getClaudeSdkModel(normalized));
+            await this.query.setModel(normalized);
         }
         this.currentModel = normalized;
     }
@@ -768,7 +807,7 @@ export class ClaudeAgentAssistantSession {
     private handleInitMessage(message: SDKSystemMessage) {
         this.sessionId = message.session_id;
         if (message.model) {
-            this.currentModel = normalizeClaudeAssistantModel(message.model);
+            this.currentModel = message.model;
         }
         this.toolCount = message.tools.filter(tool => tool.startsWith(`mcp__${this.options.mcpServerName}__`)).length;
         this.publishInitialized();

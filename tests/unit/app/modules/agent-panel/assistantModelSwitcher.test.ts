@@ -88,7 +88,7 @@ function mountSwitcher(overrides: Partial<IHarnessState> = {}) {
     const state = reactive<IHarnessState>({
         providers,
         selectedProvider: 'codex',
-        selectedModel: 'gpt-5.6-sol',
+        selectedModel: 'gpt-6-astra',
         ...overrides,
     });
     const host = document.createElement('div');
@@ -145,7 +145,7 @@ describe('AssistantModelSwitcher', () => {
         expect(options.map(option => textOf(option.querySelector('.assistant-switcher-option-label'))))
             .toEqual([
                 'default',
-                'GPT-5.6-Sol',
+                'GPT-6-Astra',
                 'default',
             ]);
         expect(options.map(option => option.getAttribute('aria-pressed'))).toEqual([

@@ -1412,8 +1412,8 @@ describe('agent assistant opt-in gating', () => {
         mocks.installManagedCodex.mockResolvedValue({
             installed: true,
             path: '/Applications/Codex.app/Contents/Resources/codex',
-            version: '0.150.1',
-            minimumVersion: '0.150.1',
+            version: '0.157.1',
+            minimumVersion: '0.157.1',
             isVersionSupported: true,
             managedInstallDir: '/tmp/codex',
         });

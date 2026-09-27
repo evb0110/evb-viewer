@@ -61,6 +61,7 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
         options.codexModels,
         options.selection.provider,
         options.selection.model,
+        options.claudeModels,
     );
     const normalizedSelection = {
         provider: options.selection.provider,
@@ -70,12 +71,14 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
             options.selection.provider,
             normalizedModel,
             options.selection.effort,
+            options.claudeModels,
         ),
         speedMode: normalizeAssistantSpeedMode(
             options.codexModels,
             options.selection.provider,
             normalizedModel,
             options.selection.speedMode,
+            options.claudeModels,
         ),
     } as const satisfies IAssistantSelection;
     const session = options.getSessionForStatus(options.scope, normalizedSelection);
@@ -112,13 +115,15 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
         options.codexModels,
         normalizedSelection.provider,
         session?.model ?? normalizedSelection.model,
+        options.claudeModels,
     );
-    const effort = normalizeAssistantEffort(options.codexModels, normalizedSelection.provider, model, effortInput);
+    const effort = normalizeAssistantEffort(options.codexModels, normalizedSelection.provider, model, effortInput, options.claudeModels);
     const speedMode = normalizeAssistantSpeedMode(
         options.codexModels,
         normalizedSelection.provider,
         model,
         speedModeInput,
+        options.claudeModels,
     );
     const error = session?.lastError ?? activeProvider.error;
     return {
@@ -137,9 +142,9 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
         models: activeProvider.models,
         modelSwitchMode: activeProvider.modelSwitchMode,
         effort,
-        availableEfforts: getProviderEfforts(options.codexModels, normalizedSelection.provider, model),
+        availableEfforts: getProviderEfforts(options.codexModels, normalizedSelection.provider, model, options.claudeModels),
         speedMode,
-        availableSpeedModes: getProviderSpeedModes(options.codexModels, normalizedSelection.provider, model),
+        availableSpeedModes: getProviderSpeedModes(options.codexModels, normalizedSelection.provider, model, options.claudeModels),
         installState: activeProvider.installState,
         codexInstalled: installed,
         codexPath: options.codexInfo?.path ?? null,

@@ -540,7 +540,9 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             if (response.length > 0) {
                 options.setCodexModels(response);
                 const selection = options.sessionStore.getRememberedSelection();
-                options.sessionStore.updateRememberedSelection({ model: normalizeAssistantModel(response, selection.provider, selection.model) });
+                if (selection.provider === 'codex') {
+                    options.sessionStore.updateRememberedSelection({ model: normalizeAssistantModel(response, selection.provider, selection.model) });
+                }
             }
         } catch (error) {
             options.logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`);

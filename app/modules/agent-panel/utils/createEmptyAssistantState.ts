@@ -34,6 +34,15 @@ export function createEmptyAssistantState({
     selectedEffort,
     selectedSpeedMode,
 }: ICreateEmptyAssistantStateOptions): IAgentAssistantState {
+    const selectedModels = selectedProvider === 'claude'
+        ? CLAUDE_ASSISTANT_MODELS
+        : CODEX_ASSISTANT_FALLBACK_MODELS;
+    const selectedModelOption = selectedModels.find(model => model.id === selectedModel)
+        ?? selectedModels.find(model => model.id === (
+            selectedProvider === 'claude' ? CLAUDE_ASSISTANT_DEFAULT_MODEL : CODEX_ASSISTANT_DEFAULT_MODEL
+        ))
+        ?? selectedModels[0];
+    const activeModel = selectedModelOption?.id ?? selectedModel;
     return {
         scope: chatScope ? cloneAssistantScope(chatScope) : null,
         status: {
@@ -50,7 +59,7 @@ export function createEmptyAssistantState({
                     runtimeState: 'stopped',
                     models: [...CODEX_ASSISTANT_FALLBACK_MODELS],
                     defaultModel: CODEX_ASSISTANT_DEFAULT_MODEL,
-                    activeModel: CODEX_ASSISTANT_DEFAULT_MODEL,
+                    activeModel: selectedProvider === 'codex' ? activeModel : CODEX_ASSISTANT_DEFAULT_MODEL,
                     modelSwitchMode: 'in-session',
                     availableEfforts: [...CODEX_ASSISTANT_EFFORTS],
                     defaultEffort: ASSISTANT_DEFAULT_EFFORT,
@@ -73,7 +82,7 @@ export function createEmptyAssistantState({
                     runtimeState: 'stopped',
                     models: [...CLAUDE_ASSISTANT_MODELS],
                     defaultModel: CLAUDE_ASSISTANT_DEFAULT_MODEL,
-                    activeModel: CLAUDE_ASSISTANT_DEFAULT_MODEL,
+                    activeModel: selectedProvider === 'claude' ? activeModel : CLAUDE_ASSISTANT_DEFAULT_MODEL,
                     modelSwitchMode: 'in-session',
                     availableEfforts: [...CLAUDE_ASSISTANT_EFFORTS],
                     defaultEffort: ASSISTANT_DEFAULT_EFFORT,
@@ -89,11 +98,9 @@ export function createEmptyAssistantState({
                     account: null,
                 },
             ],
-            model: selectedModel,
-            modelLabel: selectedModel,
-            models: selectedProvider === 'claude'
-                ? [...CLAUDE_ASSISTANT_MODELS]
-                : [...CODEX_ASSISTANT_FALLBACK_MODELS],
+            model: activeModel,
+            modelLabel: selectedModelOption?.label ?? activeModel,
+            models: [...selectedModels],
             modelSwitchMode: 'in-session',
             effort: selectedEffort,
             availableEfforts: selectedProvider === 'claude'

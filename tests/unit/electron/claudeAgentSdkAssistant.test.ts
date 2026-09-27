@@ -12,10 +12,9 @@ import {
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import {
     getClaudeAgentSdkInfo,
-    getClaudeAssistantModelLabel,
-    normalizeClaudeAssistantModel,
     shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeProviderMetadata';
+import {normalizeClaudeAssistantModel} from '@electron/features/agent/assistantProviderStatus';
 
 const sdkMocks = vi.hoisted(() => ({
     getSessionInfo: vi.fn(),
@@ -104,30 +103,22 @@ describe('claudeAgentSdkAssistant', () => {
         sdkMocks.query.mockReset();
     });
 
-    it('keeps full versioned Claude model ids and labels known ids', () => {
-        expect(normalizeClaudeAssistantModel('fable-5.1')).toBe('fable');
-        expect(normalizeClaudeAssistantModel('claude-fable-5.1')).toBe('fable');
-        expect(normalizeClaudeAssistantModel('claude-fable-5-1')).toBe('claude-fable-5-1');
-        expect(normalizeClaudeAssistantModel('opus-5')).toBe('opus');
-        expect(normalizeClaudeAssistantModel('claude-opus-5')).toBe('claude-opus-5');
-        expect(normalizeClaudeAssistantModel('claude-opus-5.0')).toBe('opus');
-        expect(normalizeClaudeAssistantModel('claude-opus-4-8')).toBe('claude-opus-4-8');
-        expect(normalizeClaudeAssistantModel(' claude-fable-5 ')).toBe('claude-fable-5');
-        expect(normalizeClaudeAssistantModel('global.anthropic.claude-fable-5')).toBe('global.anthropic.claude-fable-5');
-        expect(normalizeClaudeAssistantModel('anthropic.claude-fable-5')).toBe('fable');
-        expect(getClaudeAssistantModelLabel('fable')).toBe('Claude Fable 5.1');
-        expect(getClaudeAssistantModelLabel('claude-fable-5-1')).toBe('Claude Fable 5.1');
-        expect(getClaudeAssistantModelLabel('opus')).toBe('Claude Opus 5');
-        expect(getClaudeAssistantModelLabel('claude-opus-5')).toBe('Claude Opus 5');
-        expect(getClaudeAssistantModelLabel('claude-opus-4-8')).toBe('Claude Opus 4.8');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-fable-5')).toBe('Claude Fable 5');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-opus-4-8')).toBe('Claude Opus 4.8');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-opus-4-7')).toBe('Claude Opus 4.7');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-opus-4-6')).toBe('Claude Opus 4.6');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-sonnet-4-6')).toBe('Claude Sonnet 4.6');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-sonnet-4-5')).toBe('Claude Sonnet 4.5');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-haiku-4-5')).toBe('Claude Haiku 4.5');
-        expect(getClaudeAssistantModelLabel('anthropic.claude-haiku-4-5-20251001')).toBe('Claude Haiku 4.5');
+    it('matches persisted Claude model ids to current provider rows', () => {
+        const models = [
+            {
+                id: 'opus',
+                resolvedModel: 'claude-opus-5-5',
+                label: 'Claude Opus 5.5',
+            },
+            {
+                id: 'fable',
+                resolvedModel: 'claude-fable-5-1',
+                label: 'Claude Fable 5.1',
+            },
+        ];
+        expect(normalizeClaudeAssistantModel(models, 'claude-opus-5-5')).toBe('opus');
+        expect(normalizeClaudeAssistantModel(models, 'removed-model')).toBe('opus');
+        expect(normalizeClaudeAssistantModel(models, null)).toBe('opus');
     });
 
     it('enables Claude fast mode only for Opus-family models', () => {
@@ -140,12 +131,66 @@ describe('claudeAgentSdkAssistant', () => {
         expect(shouldUseClaudeAssistantFastMode('claude-opus-4-8', 'standard')).toBe(false);
     });
 
+    it('labels Claude rows from their resolved model and drops the default alias', () => {
+        expect(normalizeClaudeSdkModelList([
+            {
+                value: 'default',
+                resolvedModel: 'claude-opus-5-5[1m]',
+                displayName: 'Default (recommended)',
+            },
+            {
+                value: 'opus[1m]',
+                resolvedModel: 'claude-opus-5-5[1m]',
+                displayName: 'Opus (1M context)',
+            },
+            {
+                value: 'fable',
+                resolvedModel: 'claude-fable-5-1',
+                displayName: 'Fable',
+            },
+            {
+                value: 'opus',
+                resolvedModel: 'claude-opus-5-5',
+                displayName: 'Opus',
+            },
+            {
+                value: 'custom',
+                resolvedModel: 'vendor-model',
+                displayName: 'Custom model',
+            },
+        ]).map(model => [
+            model.id,
+            model.label,
+        ])).toEqual([
+            [
+                'opus[1m]',
+                'Opus 5.5 (1M context)',
+            ],
+            [
+                'fable',
+                'Fable 5.1',
+            ],
+            [
+                'opus',
+                'Opus 5.5',
+            ],
+            [
+                'custom',
+                'Custom model',
+            ],
+        ]);
+    });
+
     it('normalizes Claude SDK supportedModels metadata', () => {
         expect(normalizeClaudeSdkModelList([
             {
                 value: 'claude-fable-5-1',
+                resolvedModel: 'claude-fable-5-1',
                 displayName: 'Claude Fable 5.1 Runtime',
-                description: 'Highest capability',
+                supportedEffortLevels: [
+                    'low',
+                    'medium',
+                ],
             },
             {
                 value: 'claude-fable-5-1',
@@ -153,7 +198,21 @@ describe('claudeAgentSdkAssistant', () => {
             },
             {
                 value: 'claude-sonnet-5',
-                displayName: '',
+                displayName: 'Claude Sonnet 5',
+            },
+            {
+                value: 'opus',
+                resolvedModel: 'claude-opus-5-5',
+                displayName: 'Claude Opus 5.5 Runtime',
+                supportedEffortLevels: [
+                    'medium',
+                    'high',
+                ],
+            },
+            {
+                value: 'future-model',
+                resolvedModel: 'claude-haiku-5-0',
+                displayName: 'Future model',
             },
             {
                 value: '',
@@ -162,11 +221,33 @@ describe('claudeAgentSdkAssistant', () => {
         ])).toEqual([
             {
                 id: 'claude-fable-5-1',
-                label: 'Claude Fable 5.1 Runtime',
+                label: 'Fable 5.1',
+                resolvedModel: 'claude-fable-5-1',
+                reasoningEfforts: [
+                    {
+                        id: 'low',
+                        label: 'Low',
+                    },
+                    {
+                        id: 'medium',
+                        label: 'Medium',
+                    },
+                ],
             },
             {
-                id: 'claude-sonnet-5',
-                label: 'Claude Sonnet 5',
+                id: 'opus',
+                label: 'Opus 5.5',
+                resolvedModel: 'claude-opus-5-5',
+                reasoningEfforts: [
+                    {
+                        id: 'medium',
+                        label: 'Medium',
+                    },
+                    {
+                        id: 'high',
+                        label: 'High',
+                    },
+                ],
             },
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);

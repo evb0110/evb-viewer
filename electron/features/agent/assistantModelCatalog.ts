@@ -6,12 +6,13 @@ import type {
 import {
     CODEX_ASSISTANT_DEFAULT_MODEL,
     getAssistantEffortFallbackLabel,
-    isRemovedCodexAssistantModelId,
     normalizeAssistantEffortId,
 } from '@contracts/agentModels';
 import { isRecord } from '@contracts/runtimeGuards';
 
 export type TCodexAssistantModelOption = IAgentAssistantModelOption & { isDefault?: boolean };
+
+const CODEX_GPT_MODEL_VERSION_PATTERN = /^gpt-(\d+)(?:\.(\d+))?(?:-|$)/iu;
 
 interface ICodexReasoningEffortMetadata {
     reasoningEfforts: IAgentAssistantEffortOption[] | null;
@@ -138,7 +139,7 @@ function normalizeCodexReasoningEfforts(
 }
 
 function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOption | null {
-    if (!isRecord(rawModel)) {
+    if (!isRecord(rawModel) || rawModel.visibility !== 'list') {
         return null;
     }
 
@@ -147,7 +148,7 @@ function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOptio
         : typeof rawModel.id === 'string' && rawModel.id.trim()
             ? rawModel.id.trim()
             : '';
-    if (!id || isRemovedCodexAssistantModelId(id)) {
+    if (!id) {
         return null;
     }
 
@@ -188,12 +189,35 @@ export function normalizeCodexModelListResponse(value: unknown) {
             seen.add(model.id);
             return true;
         });
-    return listedModels;
+    const versions = listedModels.flatMap(model => {
+        const match = CODEX_GPT_MODEL_VERSION_PATTERN.exec(model.id);
+        return match
+            ? [{
+                model,
+                major: Number(match[1]),
+                minor: Number(match[2] ?? 0),
+            }]
+            : [];
+    });
+    if (versions.length === 0) {
+        return listedModels;
+    }
+
+    const newest = versions.reduce((current, candidate) => (
+        candidate.major > current.major
+        || (candidate.major === current.major && candidate.minor > current.minor)
+            ? candidate
+            : current
+    ));
+    return listedModels.filter(model => {
+        const version = versions.find(candidate => candidate.model.id === model.id);
+        return !version || (version.major === newest.major && version.minor === newest.minor);
+    });
 }
 
 export function resolveCodexDefaultModelId(models: readonly TCodexAssistantModelOption[]) {
     return models.find(option => option.isDefault)?.id
-        ?? models.find(option => option.id === CODEX_ASSISTANT_DEFAULT_MODEL)?.id
+        ?? models.find(option => CODEX_GPT_MODEL_VERSION_PATTERN.test(option.id))?.id
         ?? models[0]?.id
         ?? CODEX_ASSISTANT_DEFAULT_MODEL;
 }

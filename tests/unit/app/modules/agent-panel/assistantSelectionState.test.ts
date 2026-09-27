@@ -370,7 +370,7 @@ describe('assistantSelectionState', () => {
         }], 'codex')).toBe('');
         expect(providerDefaultModel([], 'codex')).toBe('default');
         expect(providerDefaultEffort(providers, 'codex')).toBe('medium');
-        expect(providerDefaultEffort([], 'codex')).toBe('low');
+        expect(providerDefaultEffort([], 'codex')).toBe('medium');
         expect(providerDefaultSpeedMode(providers, 'codex')).toBe('standard');
         expect(providerDefaultSpeedMode([], 'codex')).toBe('fast');
     });

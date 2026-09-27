@@ -10,11 +10,17 @@ import {
 } from '@electron/features/agent/assistantModelCatalog';
 
 describe('agent assistant model catalog', () => {
-    it('keeps a runtime-discovered Codex default model and label', () => {
+    it('keeps visible entries from the newest GPT generation and uses the backend default', () => {
         const models = normalizeCodexModelListResponse({data: [
             {
                 model: 'gpt-5.6-sol',
-                displayName: 'GPT-5.6-Sol Live',
+                displayName: 'GPT-5.6-Sol',
+                visibility: 'list',
+            },
+            {
+                model: 'gpt-6-astra',
+                displayName: 'GPT-6-Astra Live',
+                visibility: 'list',
                 isDefault: true,
                 defaultServiceTier: 'fast',
                 serviceTiers: [
@@ -45,16 +51,27 @@ describe('agent assistant model catalog', () => {
                 ],
             },
             {
-                id: 'gpt-5.6-terra',
-                displayName: 'GPT-5.6-Terra',
+                id: 'gpt-6-sol',
+                displayName: 'GPT-6-Sol',
+                visibility: 'list',
                 additionalSpeedTiers: ['fast'],
+            },
+            {
+                id: 'gpt-7-luna',
+                visibility: 'hide',
+                isDefault: true,
+            },
+            {
+                id: 'custom-runtime-model',
+                displayName: 'Custom Runtime Model',
+                visibility: 'list',
             },
         ]});
 
         expect(models).toEqual([
             {
-                id: 'gpt-5.6-sol',
-                label: 'GPT-5.6-Sol Live',
+                id: 'gpt-6-astra',
+                label: 'GPT-6-Astra Live',
                 reasoningEfforts: [
                     {
                         id: 'low',
@@ -89,91 +106,90 @@ describe('agent assistant model catalog', () => {
                 isDefault: true,
             },
             {
-                id: 'gpt-5.6-terra',
-                label: 'GPT-5.6-Terra',
+                id: 'gpt-6-sol',
+                label: 'GPT-6-Sol',
                 serviceTiers: [{
                     id: 'fast',
                     label: 'Fast',
                 }],
             },
+            {
+                id: 'custom-runtime-model',
+                label: 'Custom Runtime Model',
+            },
         ]);
-        expect(resolveCodexModelStatus(models ?? [], 'missing-model')).toMatchObject({
-            defaultModel: 'gpt-5.6-sol',
-            activeModel: 'gpt-5.6-sol',
+        expect(resolveCodexModelStatus(models ?? [], 'gpt-5.6-sol')).toMatchObject({
+            defaultModel: 'gpt-6-astra',
+            activeModel: 'gpt-6-astra',
         });
     });
 
-    it('honors runtime isDefault and keeps default and active inside the model list', () => {
+    it('falls back to the first listed model of the newest generation when no backend default exists', () => {
         const models = normalizeCodexModelListResponse({data: [
             {
-                model: 'gpt-5.6-sol',
-                displayName: 'GPT-5.6-Sol',
+                model: 'custom-runtime-model',
+                visibility: 'list',
             },
             {
-                model: 'gpt-5.4',
-                displayName: 'GPT-5.4',
+                model: 'gpt-6-sol',
+                visibility: 'list',
+            },
+            {
+                model: 'gpt-6-astra',
+                visibility: 'list',
+            },
+            {
+                model: 'gpt-5.6-sol',
+                visibility: 'list',
                 isDefault: true,
             },
         ]}) ?? [];
 
-        const status = resolveCodexModelStatus(models, 'does-not-exist');
-
-        expect(status.defaultModel).toBe('gpt-5.6-sol');
-        expect(status.activeModel).toBe('gpt-5.6-sol');
-        expect(status.models.map(model => model.id)).toContain(status.defaultModel);
-        expect(status.models.map(model => model.id)).toContain(status.activeModel);
-        expect(normalizeCodexAssistantModelFromCatalog(models, 'gpt-5.6-sol')).toBe('gpt-5.6-sol');
+        expect(models.map(model => model.id)).toEqual([
+            'custom-runtime-model',
+            'gpt-6-sol',
+            'gpt-6-astra',
+        ]);
+        expect(resolveCodexModelStatus(models, 'gpt-5.6-sol')).toMatchObject({
+            defaultModel: 'gpt-6-sol',
+            activeModel: 'gpt-6-sol',
+        });
+        expect(normalizeCodexAssistantModelFromCatalog([], 'gpt-5.6-sol')).toBe('gpt-6-astra');
     });
 
-    it('deduplicates Codex runtime models and ignores blank records', () => {
+    it('deduplicates visible Codex models and ignores hidden, unmarked, and blank records', () => {
         expect(normalizeCodexModelListResponse({data: [
             {
-                model: 'gpt-5.6-sol',
-                displayName: 'GPT-5.6-Sol',
+                model: 'gpt-6-astra',
+                displayName: 'GPT-6-Astra',
+                visibility: 'list',
             },
             {
-                id: 'gpt-5.6-sol',
+                id: 'gpt-6-astra',
                 displayName: 'Duplicate',
+                visibility: 'list',
             },
-            {model: '   '},
+            {
+                model: 'gpt-99-hidden',
+                visibility: 'hide',
+            },
+            {model: 'gpt-6-sol'},
+            {
+                model: '   ',
+                visibility: 'list',
+            },
             null,
-            {id: 'gpt-5.4-mini'},
         ]})).toEqual([{
-            id: 'gpt-5.6-sol',
-            label: 'GPT-5.6-Sol',
+            id: 'gpt-6-astra',
+            label: 'GPT-6-Astra',
         }]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();
     });
 
-    it('removes Codex GPT models below 5.6 from the runtime model catalog', () => {
-        expect(normalizeCodexModelListResponse({data: [
-            {
-                model: 'gpt-5.5',
-                displayName: 'GPT-5.5',
-                isDefault: true,
-            },
-            {
-                model: 'gpt-5.4-mini',
-                displayName: 'GPT-5.4 Mini',
-            },
-            {
-                model: 'gpt-5.3-codex-spark',
-                displayName: 'GPT-5.3-Codex-Spark',
-            },
-            {
-                model: 'gpt-5.6-sol',
-                displayName: 'GPT-5.6-Sol',
-            },
-        ]})).toEqual([{
-            id: 'gpt-5.6-sol',
-            label: 'GPT-5.6-Sol',
-        }]);
-    });
-
     it('preserves arbitrary Codex reasoning efforts advertised by model/list', () => {
         const models = normalizeCodexModelListResponse({data: [{
-            model: 'gpt-test',
-            displayName: 'GPT Test',
+            model: 'custom-runtime-model',
+            visibility: 'list',
             defaultReasoningEffort: 'super-high',
             supportedReasoningEfforts: [
                 {
@@ -185,7 +201,7 @@ describe('agent assistant model catalog', () => {
         }]});
 
         expect(models?.[0]).toMatchObject({
-            id: 'gpt-test',
+            id: 'custom-runtime-model',
             reasoningEfforts: [
                 {
                     id: 'super-high',

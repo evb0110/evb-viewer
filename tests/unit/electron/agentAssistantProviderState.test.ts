@@ -147,8 +147,8 @@ describe('agent assistant provider state', () => {
                 executablePath: '/bin/claude',
             },
             codexModels: [{
-                id: 'gpt-5.6-sol',
-                label: 'GPT-5.6-Sol',
+                id: 'gpt-6-astra',
+                label: 'GPT-6-Astra',
             }],
             claudeModels: [{
                 id: 'opus',
@@ -168,8 +168,8 @@ describe('agent assistant provider state', () => {
                 type: 'chatgpt',
                 email: 'reader@example.com',
             },
-            activeModel: 'gpt-5.6-sol',
-            activeEffort: 'low',
+            activeModel: 'gpt-6-astra',
+            activeEffort: 'medium',
             error: 'Codex warning.',
         });
         expect(statuses.find(provider => provider.id === 'claude')).toMatchObject({

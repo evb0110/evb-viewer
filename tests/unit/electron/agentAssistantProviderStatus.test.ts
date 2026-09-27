@@ -27,31 +27,31 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
 describe('agent assistant provider status', () => {
     it('keeps Codex fast and slow modes visible when runtime model metadata omits service tiers', () => {
         const models = [{
-            id: 'gpt-5.6-sol',
-            label: 'GPT-5.6-Sol',
+            id: 'gpt-6-astra',
+            label: 'GPT-6-Astra',
         }];
 
-        expect(getProviderSpeedModes(models, 'codex', 'gpt-5.6-sol')).toEqual([
+        expect(getProviderSpeedModes(models, 'codex', 'gpt-6-astra')).toEqual([
             'fast',
             'standard',
         ]);
-        expect(resolveCodexServiceTier(models, 'gpt-5.6-sol', 'fast')).toBe('priority');
-        expect(resolveCodexServiceTier(models, 'gpt-5.6-sol', 'standard')).toBeUndefined();
+        expect(resolveCodexServiceTier(models, 'gpt-6-astra', 'fast')).toBe('priority');
+        expect(resolveCodexServiceTier(models, 'gpt-6-astra', 'standard')).toBeUndefined();
     });
 
     it('uses the fast service tier advertised by the Codex catalog', () => {
         const models = [
             {
-                id: 'gpt-5.6-sol',
-                label: 'GPT-5.6-Sol',
+                id: 'gpt-6-astra',
+                label: 'GPT-6-Astra',
                 serviceTiers: [{
                     id: 'priority',
                     label: 'Fast',
                 }],
             },
             {
-                id: 'gpt-5.4',
-                label: 'GPT-5.4',
+                id: 'gpt-6-sol',
+                label: 'GPT-6-Sol',
                 serviceTiers: [{
                     id: 'fast',
                     label: 'Fast',
@@ -59,11 +59,11 @@ describe('agent assistant provider status', () => {
             },
         ];
 
-        expect(resolveCodexServiceTier(models, 'gpt-5.6-sol', 'fast')).toBe('priority');
-        expect(resolveCodexServiceTier(models, 'gpt-5.4', 'fast')).toBe('fast');
+        expect(resolveCodexServiceTier(models, 'gpt-6-astra', 'fast')).toBe('priority');
+        expect(resolveCodexServiceTier(models, 'gpt-6-sol', 'fast')).toBe('fast');
     });
 
-    it('defaults Codex provider status to low reasoning and fast speed', () => {
+    it('defaults Codex provider status to medium reasoning and fast speed', () => {
         const status = buildCodexProviderStatus({
             platform: 'darwin',
             codexInfo: {
@@ -71,15 +71,16 @@ describe('agent assistant provider status', () => {
                 path: '/bin/codex',
                 version: '1.0.0',
                 isVersionSupported: true,
-                minimumVersion: '0.133.0',
+                minimumVersion: '0.157.1',
                 managedInstallDir: '/tmp/evb-viewer/codex',
             },
             models: [{
-                id: 'gpt-5.6-sol',
-                label: 'GPT-5.6-Sol',
+                id: 'gpt-6-astra',
+                label: 'GPT-6-Astra',
+                defaultReasoningEffort: 'medium',
             }],
-            model: 'gpt-5.6-sol',
-            effort: 'low',
+            model: 'gpt-6-astra',
+            effort: 'medium',
             speedMode: 'fast',
             authState: 'signed-in',
             runtimeState: 'ready',
@@ -92,16 +93,21 @@ describe('agent assistant provider status', () => {
         ]);
         expect(status.defaultSpeedMode).toBe('fast');
         expect(status.activeSpeedMode).toBe('fast');
+        expect(status.defaultEffort).toBe('medium');
     });
 
-    it('uses model-advertised Codex reasoning efforts instead of static provider values', () => {
+    it('uses the backend Codex reasoning default when it differs from the app default', () => {
         const models = [{
-            id: 'gpt-5.6-sol',
-            label: 'GPT-5.6-Sol',
+            id: 'gpt-6-astra',
+            label: 'GPT-6-Astra',
             reasoningEfforts: [
                 {
                     id: 'medium',
                     label: 'Medium',
+                },
+                {
+                    id: 'high',
+                    label: 'High',
                     isDefault: true,
                 },
                 {
@@ -113,13 +119,13 @@ describe('agent assistant provider status', () => {
                     label: 'Super High',
                 },
             ],
-            defaultReasoningEffort: 'medium',
+            defaultReasoningEffort: 'high',
         }];
         const status = buildCodexProviderStatus({
             platform: 'darwin',
             codexInfo: null,
             models,
-            model: 'gpt-5.6-sol',
+            model: 'gpt-6-astra',
             effort: 'xhigh',
             speedMode: 'fast',
             authState: 'signed-in',
@@ -127,22 +133,25 @@ describe('agent assistant provider status', () => {
             account: null,
         });
 
-        expect(getProviderEfforts(models, 'codex', 'gpt-5.6-sol')).toEqual([
-            'medium',
-            'xhigh',
-            'super-high',
-        ]);
+        expect(getProviderEfforts(models, 'codex', 'gpt-6-astra'))
+            .toEqual([
+                'medium',
+                'high',
+                'xhigh',
+                'super-high',
+            ]);
         expect(status.availableEfforts).toEqual([
             'medium',
+            'high',
             'xhigh',
             'super-high',
         ]);
-        expect(status.defaultEffort).toBe('medium');
+        expect(status.defaultEffort).toBe('high');
         expect(status.activeEffort).toBe('xhigh');
-        expect(normalizeAssistantEffort(models, 'codex', 'gpt-5.6-sol', 'not-advertised')).toBe('medium');
+        expect(normalizeAssistantEffort(models, 'codex', 'gpt-6-astra', 'not-advertised')).toBe('high');
     });
 
-    it('advertises Claude speed tiers on every model in the shared capability catalog', () => {
+    it('defaults Claude to the current Opus row and uses its advertised reasoning levels', () => {
         const status = buildClaudeProviderStatus({
             platform: 'darwin',
             claudeInfo: {
@@ -153,14 +162,25 @@ describe('agent assistant provider status', () => {
             models: [
                 {
                     id: 'opus',
-                    label: 'Claude Opus',
+                    resolvedModel: 'claude-opus-5-5',
+                    label: 'Claude Opus 5.5',
+                    reasoningEfforts: [
+                        {
+                            id: 'medium',
+                            label: 'Medium',
+                        },
+                        {
+                            id: 'high',
+                            label: 'High',
+                        },
+                    ],
                 },
                 {
-                    id: 'sonnet',
-                    label: 'Claude Sonnet',
+                    id: 'fable',
+                    label: 'Claude Fable 5.1',
                 },
             ],
-            model: 'opus',
+            model: 'removed-opus-selection',
             effort: 'low',
             speedMode: 'fast',
             authState: 'signed-in',
@@ -168,12 +188,24 @@ describe('agent assistant provider status', () => {
             account: null,
         });
 
+        expect(status.defaultModel).toBe('opus');
+        expect(status.activeModel).toBe('opus');
+        expect(status.models.map(model => model.id)).toEqual([
+            'opus',
+            'fable',
+        ]);
         expect(status.models.find(model => model.id === 'opus')?.serviceTiers?.map(tier => tier.id))
             .toEqual([
                 'fast',
                 'standard',
             ]);
-        expect(status.models.find(model => model.id === 'sonnet')?.serviceTiers?.map(tier => tier.id))
+        expect(status.models.find(model => model.id === 'fable')?.serviceTiers?.map(tier => tier.id))
             .toEqual(['standard']);
+        expect(status.availableEfforts).toEqual([
+            'medium',
+            'high',
+        ]);
+        expect(status.defaultEffort).toBe('medium');
+        expect(status.activeEffort).toBe('medium');
     });
 });

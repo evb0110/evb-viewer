@@ -23,7 +23,6 @@ import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
     ASSISTANT_SPEED_MODES,
-    isRemovedCodexAssistantModelId,
 } from '@contracts/agentModels';
 import {
     createSelectedAssistantStatus,
@@ -778,7 +777,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
         const nextModel = normalizeModelValue(value);
-        if (!nextModel || nextModel === selectedModel.value || (selectedProvider.value === 'codex' && isRemovedCodexAssistantModelId(nextModel))) {
+        if (!nextModel || nextModel === selectedModel.value) {
             return;
         }
         selectedModel.value = nextModel;
