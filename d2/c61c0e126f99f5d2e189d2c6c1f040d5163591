@@ -1,0 +1,66 @@
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_ab0620b68405ad::t_9ed55f5648a019 1272
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_ab0620b68405ad::t_04a30309edb877 679-680,688-689,695,747-759,768,772-773,897-899,939-941
+  s_ab0620b68405ad::t_2d1cf7102acdc3 274-275,279-291,307-308,371-372,390,604-607,625-626
+  s_ab0620b68405ad::t_ddbda1d211d30a 684-686,690-694,743-745,769-771,956-957
+  s_ab0620b68405ad::t_6f14070aecca44 971-974
+  s_ab0620b68405ad::t_c8128c7e73487e 681-683,687,742,746,760-767
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_ab0620b68405ad::t_30a83791139809 41,44-48,295-361,363-369,385-387
+  s_ab0620b68405ad::t_f98ff0c5b27632 234
+  s_ab0620b68405ad::t_4efd2c9bb7d084 362,480,555,692
+  s_ab0620b68405ad::t_b5bc30201f569d 18-20
+  s_ab0620b68405ad::t_704339c00c9783 537-541
+  s_ab0620b68405ad::t_6b17061c8d2461 388-479,536,542-550
+  s_ab0620b68405ad::t_f2aa145d7405d3 49,370-384
+  s_ab0620b68405ad::t_1b07b477214e4a 481-496,501-507,691,693
+  s_ab0620b68405ad::t_ddbda1d211d30a 497-500
+native/scan-cleanup/src/engine/staged_input.rs
+  s_ab0620b68405ad::t_55aa17d22a3e9c 48,52-58
+  s_ab0620b68405ad::t_23a26b40761031 29,222
+  s_ab0620b68405ad::t_df404aafca4b7b 30,97-100,103-108
+  s_ab0620b68405ad::t_ddbda1d211d30a 49-51,246
+  s_ab0620b68405ad::t_f98ff0c5b27632 755-756,774,1004-1005,1020
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_ab0620b68405ad::t_453ba950eb38ec 536-537
+  s_ab0620b68405ad::t_4a59d3a02b2929 66,80-81,359-360,395-396,531,535,538-540
+  s_ab0620b68405ad::t_04ead43421ac1f 429-434
+  s_ab0620b68405ad::t_ebe4445b5d3071 370-379,422-428,435-439
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_ab0620b68405ad::t_268e897c1b9256 1391,1403-1408,1429-1431,1434
+  s_ab0620b68405ad::t_7e0acc0a707401 2668,2702-2712
+  s_ab0620b68405ad::t_6144f10a093e47 2675-2687,3155
+  s_ab0620b68405ad::t_96ae0e915d6f04 2550,2556,2558-2570,2646-2647
+packages/contracts/scan-cleanup/nativeProtocolV3.ts
+  s_ab0620b68405ad::t_9f603b8b78c3cc 189-197,222-224
+  s_ab0620b68405ad::t_385248edfb0ba3 443,492
+native/scan-cleanup/src/engine/batch_reconciliation.rs
+  s_ab0620b68405ad::t_f98ff0c5b27632 649-650,666,848-849,865
+native/scan-cleanup/src/protocol/progress.rs
+  s_ab0620b68405ad::t_397362dba47d90 150,214-237
+native/scan-cleanup/src/engine/page_workflow.rs
+  s_ab0620b68405ad::t_f98ff0c5b27632 1217
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_ab0620b68405ad::t_0cf21b976eb323 28,285-294,500,537
+  s_ab0620b68405ad::t_f98ff0c5b27632 828,1272-1273,1289
+  s_ab0620b68405ad::t_790c5d11939dc5 295-305
+native/scan-cleanup/src/adapters/manifest_publication.rs
+  s_ab0620b68405ad::t_f98ff0c5b27632 359-360,376,480-481,496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d2c61c0e126f99f5d2e189d2c6c1f040d5163591",
+  "prompts": {},
+  "sessions": {
+    "s_ab0620b68405ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0dff3-7f64-7290-a8e3-09d00ed7839b",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
