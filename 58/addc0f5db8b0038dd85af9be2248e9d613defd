@@ -1,0 +1,35 @@
+tests/unit/electron/diagnosticsConsentSdk.test.ts
+  s_f13776eda7daf0::t_ca3bf5d7413705 151-237
+  s_f13776eda7daf0::t_490e5b386441ce 98,102
+  s_f13776eda7daf0::t_d32fece0b9081c 13-19,107-109,131-133
+  s_f13776eda7daf0::t_d72a6a7629925f 20,34-37,39,57,95,97,99,103
+  s_f13776eda7daf0::t_855b4484e57883 56,88-94,96,100-101
+  s_f13776eda7daf0::t_1a6b2f3e848cb3 10,29,55,104-106,110-130,134-148
+electron/features/diagnostics/sentry.ts
+  s_f13776eda7daf0::t_6cccd5329b2aca 15-18,80,93
+  s_f13776eda7daf0::t_e1f957197b0976 62-70
+  s_f13776eda7daf0::t_09aa109764e678 84-90
+app/utils/failureReporter.ts
+  s_f13776eda7daf0::t_d32fece0b9081c 57-60,164-167
+  s_f13776eda7daf0::t_330881008d6560 101,111-121,134,147-149,163,168-169
+electron/utils/captureMainFailure.ts
+  s_f13776eda7daf0::t_d32fece0b9081c 18-21,75-78
+  s_f13776eda7daf0::t_c388983359c835 2,16-17,22-27,37-65,73-74,79-81
+  s_f13776eda7daf0::t_43e78b7a900b29 28-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "58addc0f5db8b0038dd85af9be2248e9d613defd",
+  "prompts": {},
+  "sessions": {
+    "s_f13776eda7daf0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e47d-7cfa-7430-ac14-2465e42d8322",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
