@@ -205,7 +205,9 @@ jobs:
         run: node --import tsx scripts/fetchRuntimeBinaries.ts --target darwin-arm64
 
       - name: Install PDF test tools
-        run: brew install imagemagick
+        # The interop checks validate and render saved PDFs with independent
+        # qpdf and Poppler, as ci.yml installs them on Linux.
+        run: brew install imagemagick poppler qpdf
 
       - name: Install Playwright Chromium
         # annotationStrokeParity compares Electron with standalone Chromium.
