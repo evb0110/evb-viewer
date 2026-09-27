@@ -1578,9 +1578,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 reloadKind: 'path',
                 reloadPath: sessionAState.workingCopyPath,
             });
-            const sessionAPath = sessionAState.pdfSourceState?.reloadPath
-                ?? sessionAState.workingCopyPath
-                ?? stagedFixture.stagedPath;
+            const sessionAPath = stagedFixture.stagedPath;
             const baselineIndex = await timed(
                 telemetry,
                 'session-a-read-baseline-annotation-index',
@@ -1777,8 +1775,8 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 ...heartbeatBeforeReload,
             });
             activeHeartbeat = null;
-            await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(savedPath));
-            const savedContentHash = await hashPath(savedPath);
+            await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(saveEventPath));
+            const savedContentHash = await hashPath(saveEventPath);
             await timed(telemetry, 'fresh-renderer-reload', async () => {
                 await sessionB!.page.reload({waitUntil: 'domcontentloaded'});
                 activeHeartbeat = await startRendererHeartbeat(sessionB!.page);
@@ -1830,17 +1828,17 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             // A fresh renderer reload may rematerialize the disposable working
             // copy, so its path is not a durable identity. The saved bytes and
             // revision remain the real save/reopen contract.
-            expect(await hashPath(reopenedPath)).toBe(savedContentHash);
+            expect(await hashPath(saveEventPath)).toBe(savedContentHash);
             await waitForDetachedEditorLayers(sessionB.page);
             const finalIndex = await timed(
                 telemetry,
                 'fresh-renderer-read-final-annotation-index',
-                () => readPdfAnnotationIndex(reopenedPath),
+                () => readPdfAnnotationIndex(saveEventPath),
             );
             const finalStructuralSummary = await timed(
                 telemetry,
                 'fresh-renderer-read-final-structural-summary',
-                () => readStructuralObjectSummary(reopenedPath, finalIndex),
+                () => readStructuralObjectSummary(saveEventPath, finalIndex),
             );
             assertBoundedStructuralChange(
                 telemetry,
@@ -1851,7 +1849,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
             await timed(telemetry, 'fresh-renderer-read-annotation-objects', () => (
                 assertAnnotationObjectsContainTexts(
-                    reopenedPath,
+                    saveEventPath,
                     canonicalNotes,
                     [
                         canonicalNoteOne,

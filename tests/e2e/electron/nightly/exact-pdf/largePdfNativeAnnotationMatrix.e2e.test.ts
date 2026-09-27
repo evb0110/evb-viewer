@@ -8,11 +8,13 @@ import {
     constants,
     copyFileSync,
     mkdtempSync,
+    readFileSync,
     realpathSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
 import {execFile} from 'node:child_process';
+import {tmpdir} from 'node:os';
 import {
     dirname,
     join,
@@ -62,10 +64,15 @@ import {
 } from '@scripts/ci/stageExactPdfFixture';
 import type {Page} from 'puppeteer-core';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import {
+    getAppTempNamespacePath, getAppTempUserId,
+} from '@node-runtime/appTempNamespace';
+import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
 const NATIVE_SAVE_TIMEOUT_MS = 120_000;
-const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const MATRIX_PAGE_NUMBER = 25;
 const MATRIX_PAGE_INDEX = MATRIX_PAGE_NUMBER - 1;
 const PLACED_IMAGE_PAGE_NUMBER = 31;
@@ -163,63 +170,45 @@ async function waitForCrashCheckpoint(sessionName: string, expectedPath: string)
     return checkpointTab;
 }
 
-async function readWorkingCopyPath(page: Page) {
-    const state = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
-    if (typeof state.workingCopyPath !== 'string') {
-        throw new Error(`Native annotation matrix has no working copy: ${JSON.stringify(state)}`);
-    }
-    return requireDocumentRef(state.workingCopyPath);
-}
-
 async function readShapeIndex(page: Page, documentPath: string) {
-    const documentRef = requireDocumentRef(documentPath);
-    return page.evaluate(async (input: {
-        chunkBytes: number;
-        documentPath: TLegacyDocumentRef
-    }) => {
-        const files = window.electronAPI?.documentFiles;
-        if (
-            !files?.beginPdfEmbeddedShapeIndex
-            || !files.readPdfEmbeddedShapeIndexChunk
-            || !files.releasePdfEmbeddedShapeIndex
-        ) {
-            throw new Error('PDF embedded-shape index APIs are unavailable');
-        }
-        const revision = await files.getDocumentRevision(input.documentPath);
-        const session = await files.beginPdfEmbeddedShapeIndex(
-            input.documentPath,
-            {expectedDocumentRevisionToken: revision.token},
-        );
-        const entries: IPdfEmbeddedShapeIndexEntry[] = [];
-        let offset = 0;
-        let released = false;
-        try {
-            while (true) {
-                const chunk = await files.readPdfEmbeddedShapeIndexChunk(
-                    session.sessionId,
-                    offset,
-                    {chunkBytes: input.chunkBytes},
-                );
-                entries.push(...chunk.entries);
-                if (chunk.done) {
-                    break;
-                }
-                if (chunk.nextOffset === null || chunk.nextOffset <= offset) {
-                    throw new Error('Embedded-shape index offset did not advance');
-                }
-                offset = chunk.nextOffset;
-            }
-        } finally {
-            released = await files.releasePdfEmbeddedShapeIndex(session.sessionId);
-        }
-        if (!released) {
-            throw new Error('Embedded shape index session was not released');
-        }
-        return entries;
-    }, {
-        chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath: documentRef,
+    const pageOps = resolveNativeToolPath({
+        binaryName: process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops',
+        crateName: 'pdf-page-ops',
+        currentDir: process.cwd(),
+        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
+        isPackaged: false,
+        projectRoot: process.cwd(),
+        resourcesBase: join(process.cwd(), 'resources'),
     });
+    if (!pageOps) {
+        throw new Error('pdf-page-ops is required to read a PDF embedded shape index');
+    }
+    const directory = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'evb-shape-index-'));
+    const outputPath = join(directory, 'index.jsonl');
+    try {
+        await runNativeCommand(pageOps, [
+            'embedded-shape-index',
+            '--input',
+            documentPath,
+            '--output',
+            outputPath,
+            '--qpdf',
+            getPdfNativeToolPaths().qpdf,
+        ], {commandLabel: 'pdf-page-ops E2E embedded shape index'});
+        const [
+            ,
+            ...chunks
+        ] = readFileSync(outputPath, 'utf8')
+            .split('\n')
+            .filter(line => line.trim().length > 0)
+            .map(line => JSON.parse(line) as {entries?: IPdfEmbeddedShapeIndexEntry[]});
+        return chunks.flatMap(chunk => chunk.entries ?? []);
+    } finally {
+        rmSync(directory, {
+            force: true,
+            recursive: true,
+        });
+    }
 }
 
 async function readObject(documentPath: string, ref: IAnnotationRef) {
@@ -1074,9 +1063,8 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
         await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
-        const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const initialIndex = await readPdfAnnotationIndex(initialWorkingCopyPath);
-        const initialShapes = await readShapeIndex(session.page, initialWorkingCopyPath);
+        const initialIndex = await readPdfAnnotationIndex(documentPath);
+        const initialShapes = await readShapeIndex(session.page, documentPath);
 
         const beforeNote = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
         await createStickyNoteWithPointer(session.page, 'issue 192 canonical note', {
@@ -1223,10 +1211,8 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical annotation create save',
         );
-        const firstSavedPath = await readWorkingCopyPath(session.page);
-        expect(firstSavedPath).toBe(initialWorkingCopyPath);
-        const firstIndex = await readPdfAnnotationIndex(firstSavedPath);
-        const firstShapes = await readShapeIndex(session.page, firstSavedPath);
+        const firstIndex = await readPdfAnnotationIndex(documentPath);
+        const firstShapes = await readShapeIndex(session.page, documentPath);
         for (const [
             subtype,
             expectedDelta,
@@ -1329,9 +1315,8 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical annotation update delete recreate save',
         );
-        const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const secondIndex = await readPdfAnnotationIndex(secondWorkingCopyPath);
-        const secondShapes = await readShapeIndex(session.page, secondWorkingCopyPath);
+        const secondIndex = await readPdfAnnotationIndex(documentPath);
+        const secondShapes = await readShapeIndex(session.page, documentPath);
         expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
         expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
         expect(pageShapes(secondShapes)).toHaveLength(pageShapes(firstShapes).length);
@@ -1376,10 +1361,16 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
-        const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const initialIndex = await readPdfAnnotationIndex(initialWorkingCopyPath);
-        const imagePath = join(dirname(initialWorkingCopyPath), `issue-192-placed-image-${process.pid}.jpg`);
+        const initialIndex = await readPdfAnnotationIndex(documentPath);
+        const appTempDirectory = getAppTempNamespacePath(
+            electronUserDataPath(session.name),
+            tmpdir(),
+            getAppTempUserId(),
+            process.platform === 'win32',
+        );
+        const imagePath = join(appTempDirectory, `issue-192-placed-image-${process.pid}.jpg`);
         writeFileSync(imagePath, PLACED_IMAGE_JPEG);
+        exactFixtureArtifactDirectories.push(imagePath);
         await installManagedJpegClipboard(session.page, imagePath);
 
         const beforeImage = await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER);
@@ -1405,9 +1396,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image create save',
         );
-        const firstSavedPath = await readWorkingCopyPath(session.page);
-        expect(firstSavedPath).toBe(initialWorkingCopyPath);
-        const firstIndex = await readPdfAnnotationIndex(firstSavedPath);
+        const firstIndex = await readPdfAnnotationIndex(documentPath);
         const addedStamps = diffAnnotationEntries(initialIndex.entries, firstIndex.entries)
             .filter(entry => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp');
         expect(addedStamps).toHaveLength(1);
@@ -1436,8 +1425,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image update save',
         );
-        const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const secondIndex = await readPdfAnnotationIndex(secondWorkingCopyPath);
+        const secondIndex = await readPdfAnnotationIndex(documentPath);
         expect(secondIndex.entries.filter(entry => (
             entry.pageIndex === PLACED_IMAGE_PAGE_INDEX
             && entry.subtype === 'Stamp'
@@ -1459,8 +1447,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image delete save',
         );
-        const deletedWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const deletedIndex = await readPdfAnnotationIndex(deletedWorkingCopyPath);
+        const deletedIndex = await readPdfAnnotationIndex(documentPath);
         expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
         await assertAnnotationStoreClean(session.page);
 
