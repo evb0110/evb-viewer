@@ -904,7 +904,7 @@ describe('usePdfSearch', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
-            timestamp: requireEpochMs(123),
+            details: {timestamp: requireEpochMs(123)},
         };
         mockSearch.run.mockRejectedValue(new Error(encodeSerializableErrorEnvelope(envelope)));
         const search = await createPdfSearch();
@@ -1204,7 +1204,7 @@ describe('usePdfSearch', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied by fixture',
             retryable: false,
-            timestamp: requireEpochMs(123),
+            details: {timestamp: requireEpochMs(123)},
         };
         failedOperation.reject(new Error(encodeSerializableErrorEnvelope(envelope)));
         await expect(failed).resolves.toBe(false);

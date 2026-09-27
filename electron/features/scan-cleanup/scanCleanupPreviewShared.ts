@@ -18,6 +18,7 @@ import type {
     TScanCleanupPreviewWireResult,
     TScanCleanupDetectionJobState,
     TScanCleanupOutputMode,
+    IScanCleanupErrorEnvelope,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -57,10 +58,7 @@ import type {
 } from '@electron/features/ocr/publicNative';
 import type {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 
-import type {
-    IScanCleanupJobErrorEnvelope,
-    IScanCleanupRasterAdmissionPolicy,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
+import type {IScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 
 
 
@@ -474,7 +472,7 @@ export interface IDetectionResult {
     placementAnchorSummary?: TScanCleanupDetectionJobState['placementAnchorSummary'];
 }
 
-export type TDetectionError = IScanCleanupJobErrorEnvelope;
+export type TDetectionError = IScanCleanupErrorEnvelope;
 export type TDetectionSnapshot = TMainJobSnapshot<TScanCleanupDetectionJobState, IDetectionResult, TDetectionError>;
 export interface IScanCleanupDetectionSubscriber extends IMainJobSender {id: number;}
 

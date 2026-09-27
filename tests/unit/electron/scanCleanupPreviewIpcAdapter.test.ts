@@ -13,13 +13,12 @@ import {
     readFile, rm, writeFile,
 } from 'fs/promises';
 import {reactive} from 'vue';
-import {
-    type IScanCleanupPreviewRequest, isScanCleanupErrorEnvelope,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
     defaultDependencies, scanCleanupPreviewLifecycle,
@@ -483,7 +482,7 @@ export async function scenarioReportsPreviewWorkForASourceThisOwnerNeverHeldAsAF
     const error = await service.preview(sender(), request).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(Error);
-    expect(findSerializableErrorEnvelope(error, isScanCleanupErrorEnvelope)).toMatchObject({
+    expect(findSerializableErrorEnvelope(error, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA)).toMatchObject({
         code: 'internal',
         message: expect.stringMatching(/not managed by this owner/u),
     });
@@ -500,7 +499,7 @@ export async function scenarioSerializesNativePreviewErrorCodesThroughTheMessage
 
     const error = await previewOf(service, sender(), request).catch((caught: unknown) => caught);
 
-    expect(findSerializableErrorEnvelope(error, isScanCleanupErrorEnvelope)).toEqual({
+    expect(findSerializableErrorEnvelope(error, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA)).toEqual({
         code: 'too-large',
         message: 'Preview exceeds native limits',
     });

@@ -13,9 +13,8 @@ import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
     TScanCleanupStartResult,
-    TScanCleanupErrorCode,
     TScanCleanupJobState,
-    IScanCleanupScratchShortfall,
+    IScanCleanupErrorEnvelope,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -49,7 +48,6 @@ import {
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {
     createMainJobRegistry,
-    type IMainJobErrorEnvelope,
     type IMainJobRegistry,
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
@@ -107,10 +105,7 @@ interface IScanCleanupJobResult {
     summary: TScanCleanupSummary;
 }
 
-type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {
-    failure?: FailureReceipt;
-    scratchShortfall?: IScanCleanupScratchShortfall;
-};
+type TScanCleanupJobError = IScanCleanupErrorEnvelope & {failure?: FailureReceipt;};
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
@@ -444,11 +439,10 @@ function terminalProgress(
             status,
             error: error.message,
             errorCode: error.code,
-            ...(error.scratchShortfall === undefined
+            ...(error.details?.scratchShortfall === undefined
                 ? {}
-                : {scratchShortfall: error.scratchShortfall}),
+                : {scratchShortfall: error.details.scratchShortfall}),
             ...(error.failure === undefined ? {} : {failure: error.failure}),
-            ...(error.scratchShortfall === undefined ? {} : {scratchShortfall: error.scratchShortfall}),
         };
 }
 
@@ -480,7 +474,6 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
                 message,
                 ...scanCleanupScratchShortfall(cause),
                 ...(failure === undefined ? {} : {failure}),
-                ...scanCleanupScratchShortfall(cause),
             };
         },
         terminalProgress: {

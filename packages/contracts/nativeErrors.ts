@@ -2,7 +2,8 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
+import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
+import * as v from 'valibot';
 
 export const NATIVE_ERROR_CODES = [
     'encrypted',
@@ -19,12 +20,15 @@ export const NATIVE_ERROR_CODES = [
 
 export type TNativeErrorCode = typeof NATIVE_ERROR_CODES[number];
 
-export interface INativeErrorEnvelope extends ISerializableErrorEnvelope<TNativeErrorCode> {}
+export const NATIVE_ERROR_ENVELOPE_SCHEMA = v.object({
+    ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
+    code: v.picklist(NATIVE_ERROR_CODES),
+});
+
+export type INativeErrorEnvelope = v.InferOutput<typeof NATIVE_ERROR_ENVELOPE_SCHEMA>;
 
 export function isNativeErrorEnvelope(value: unknown): value is INativeErrorEnvelope {
-    return isRecord(value)
-        && isOneOf(NATIVE_ERROR_CODES, value.code)
-        && typeof value.message === 'string';
+    return v.safeParse(NATIVE_ERROR_ENVELOPE_SCHEMA, value, {abortEarly: true}).success;
 }
 
 export function hasNativeErrorCode(value: unknown): value is {code: TNativeErrorCode} {

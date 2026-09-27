@@ -2,15 +2,16 @@ import {dirname} from 'path';
 import {fileURLToPath} from 'url';
 import type {
     TScanCleanupErrorCode,
-    IScanCleanupScratchShortfall,
+    IScanCleanupErrorEnvelope,
     IScanCleanupOptions,
     TScanCleanupOutputModeSetting,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
-    decodeScanCleanupScratchShortfall,
     SCAN_CLEANUP_ERROR_CODES,
+    SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA,
 } from '@contracts/scan-cleanup/ipc';
 import {isRecord} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
@@ -29,7 +30,6 @@ import {
     SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
     resolveScanCleanupMatchedCanvasMaxPixels,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
-import type {IMainJobErrorEnvelope} from '@electron/operation-lifecycle/createMainJobRegistry';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
@@ -73,21 +73,20 @@ export function classifyScanCleanupPreviewError(error: unknown, aborted: boolean
     return 'internal';
 }
 
-export interface IScanCleanupJobErrorEnvelope extends IMainJobErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
-
 export function scanCleanupScratchShortfall(
     error: unknown,
-): Pick<IScanCleanupJobErrorEnvelope, 'scratchShortfall'> {
+): Pick<IScanCleanupErrorEnvelope, 'details'> {
     if (error instanceof ScanCleanupInsufficientScratchError) {
-        return {scratchShortfall: {
+        return {details: {scratchShortfall: {
             availableBytes: error.availableBytes,
             requiredBytes: error.requiredBytes,
-        }};
+        }}};
     }
     if (!isRecord(error)) {
         return {};
     }
-    const scratchShortfall = error.scratchShortfall ?? (
+    const detailsShortfall = isRecord(error.details) ? error.details.scratchShortfall : undefined;
+    const scratchShortfall = detailsShortfall ?? error.scratchShortfall ?? (
         error.code === 'insufficient-scratch'
             ? {
                 availableBytes: error.availableBytes,
@@ -98,11 +97,11 @@ export function scanCleanupScratchShortfall(
     if (scratchShortfall === undefined) {
         return {};
     }
-    try {
-        return {scratchShortfall: decodeScanCleanupScratchShortfall(scratchShortfall)};
-    } catch {
+    const parsed = v.safeParse(SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA, scratchShortfall, {abortEarly: true});
+    if (!parsed.success) {
         return {};
     }
+    return {details: {scratchShortfall: parsed.output}};
 }
 
 const SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE = 1;

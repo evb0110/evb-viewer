@@ -11,7 +11,7 @@ import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferab
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
-    isNativeErrorEnvelope,
+    NATIVE_ERROR_ENVELOPE_SCHEMA,
     type INativeErrorEnvelope,
 } from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -557,7 +557,7 @@ function readWasmFailure(resultCode: number, exports: IPdfImageCombineWasmExport
     const encodedError = readWasmError(exports);
     const error = decodeSerializableErrorEnvelope(
         encodedError,
-        isNativeErrorEnvelope,
+        NATIVE_ERROR_ENVELOPE_SCHEMA,
         {allowBareJsonString: true},
     ) ?? {
         code: 'native-failure' as const,

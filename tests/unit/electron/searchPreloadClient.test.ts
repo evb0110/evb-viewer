@@ -78,7 +78,7 @@ describe('derived Search preload client', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
-            timestamp: requireEpochMs(123),
+            details: {timestamp: requireEpochMs(123)},
         };
         const cause = new Error(
             `Error invoking remote method '${SEARCH_CHANNELS.run}': ${encodeSerializableErrorEnvelope(envelope)}`,
@@ -108,7 +108,7 @@ describe('derived Search preload client', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
-            timestamp: requireEpochMs(123),
+            details: {timestamp: requireEpochMs(123)},
         };
 
         expect(findSearchErrorEnvelope({errorEnvelope: envelope})).toEqual(envelope);

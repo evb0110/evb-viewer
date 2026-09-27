@@ -29,7 +29,7 @@ import {
     findSerializableErrorEnvelope,
     SerializableError,
 } from '@contracts/serializableError';
-import { isNativeErrorEnvelope } from '@contracts/nativeErrors';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import { createBrowserPdfCombineOutputError } from '@app/platform/browser-api/browserPdfCombineLimits';
 
@@ -358,7 +358,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
         } satisfies TBrowserPdfCombineWorkerResponse;
         self.postMessage(response, [data.data.buffer]);
     } catch (error) {
-        const errorEnvelope = findSerializableErrorEnvelope(error, isNativeErrorEnvelope);
+        const errorEnvelope = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
         const response = {
             id: request.id,
             ok: false,

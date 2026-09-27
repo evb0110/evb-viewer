@@ -1,14 +1,21 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    decodeSerializableErrorEnvelope,
+    SERIALIZABLE_ERROR_ENVELOPE_SCHEMA,
+} from '@contracts/serializableError';
+import * as v from 'valibot';
 
 export const MAIN_OPERATION_ERROR_PREFIX = 'EVB_MAIN_OPERATION_ERROR:';
 
 export type TMainOperationErrorCode = 'shutting-down';
 
-export interface IMainOperationErrorEnvelope {
-    code: TMainOperationErrorCode;
-    message: string;
-}
+export const MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA = v.object({
+    ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
+    code: v.literal('shutting-down'),
+});
+
+export type IMainOperationErrorEnvelope = v.InferOutput<typeof MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA>;
 
 export class MainOperationError extends Error {
     readonly errorEnvelope: IMainOperationErrorEnvelope;
@@ -29,22 +36,18 @@ function decodeMainOperationErrorMessage(message: string): IMainOperationErrorEn
     if (markerIndex < 0) {
         return null;
     }
-
-    const encoded = message.slice(markerIndex + MAIN_OPERATION_ERROR_PREFIX.length).trim();
-    try {
-        const parsed: unknown = JSON.parse(encoded);
-        if (!isRecord(parsed) || parsed.code !== 'shutting-down') {
-            return null;
-        }
-        return {
-            code: parsed.code,
-            message: typeof parsed.message === 'string' && parsed.message.length > 0
-                ? parsed.message
-                : 'Main process is shutting down',
-        };
-    } catch {
+    const envelope = decodeSerializableErrorEnvelope(
+        message.slice(markerIndex + MAIN_OPERATION_ERROR_PREFIX.length),
+        MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA,
+        {allowBareJsonString: true},
+    );
+    if (envelope === null) {
         return null;
     }
+    return {
+        ...envelope,
+        message: envelope.message.length > 0 ? envelope.message : 'Main process is shutting down',
+    };
 }
 
 export function getMainOperationErrorEnvelope(error: unknown): IMainOperationErrorEnvelope | null {
@@ -52,15 +55,9 @@ export function getMainOperationErrorEnvelope(error: unknown): IMainOperationErr
         return error.errorEnvelope;
     }
     if (isRecord(error)) {
-        if (
-            isRecord(error.errorEnvelope)
-            && error.errorEnvelope.code === 'shutting-down'
-            && typeof error.errorEnvelope.message === 'string'
-        ) {
-            return {
-                code: error.errorEnvelope.code,
-                message: error.errorEnvelope.message,
-            };
+        const parsedEnvelope = v.safeParse(MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA, error.errorEnvelope, {abortEarly: true});
+        if (parsedEnvelope.success) {
+            return parsedEnvelope.output;
         }
         const causeEnvelope = getMainOperationErrorEnvelope(error.cause);
         if (causeEnvelope) {

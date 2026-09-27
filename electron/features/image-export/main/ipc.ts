@@ -44,9 +44,9 @@ import {
 } from '@electron/features/image-export/main/djvuImageExport';
 import {
     createMainJobRegistry,
-    type IMainJobErrorEnvelope,
     type IMainJobRunContext,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 const logger = createLogger('image-export');
 
@@ -61,7 +61,7 @@ interface IImageExportResult {
     outputPath?: string;
     outputPaths?: string[];
 }
-type TImageExportError = IMainJobErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'>;
+type TImageExportError = ISerializableErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'>;
 type TImageExportJobContext = IMainJobRunContext<IImageExportProgress, IImageExportResult, TImageExportError>;
 interface IImageExportOperationContext {
     sender: WebContents;

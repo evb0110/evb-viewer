@@ -635,7 +635,7 @@ describe('feature IPC codec maps', () => {
             code: 'RUNTIME_UNAVAILABLE' as const,
             message: 'Provider unavailable.',
             retryable: false,
-            timestamp: 0,
+            details: {timestamp: 0},
         };
         const result = agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeResult({
             ok: false,

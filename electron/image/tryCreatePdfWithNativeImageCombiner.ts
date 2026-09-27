@@ -32,7 +32,7 @@ import {
     PDF_COMBINE_FILE_BACKED_OUTPUT_MODE,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
-import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     decodeSerializableErrorEnvelope,
@@ -755,7 +755,7 @@ async function runNativePdfImageCombine(
         const exitCode = typeof rawExitCode === 'number' ? String(rawExitCode) : '<unknown>';
         const nativeError = decodeSerializableErrorEnvelope(
             stderr.trim(),
-            isNativeErrorEnvelope,
+            NATIVE_ERROR_ENVELOPE_SCHEMA,
             {allowBareJsonString: true},
         );
         if (nativeError?.code === 'too-large') {

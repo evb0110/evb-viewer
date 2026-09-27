@@ -18,7 +18,7 @@ function createBrowserOcrUnavailableEnvelope(): IOcrErrorEnvelope {
         code: 'OCR_WORKER_UNAVAILABLE',
         message: BROWSER_OCR_UNAVAILABLE,
         retryable: false,
-        timestamp: createEpochMs(),
+        details: {timestamp: createEpochMs()},
     };
 }
 

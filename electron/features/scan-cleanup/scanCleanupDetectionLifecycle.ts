@@ -291,9 +291,9 @@ export function scanCleanupDetectionOwner(
                 // The renderer states this refusal in the user's language, so
                 // the figures behind it travel typed rather than in the
                 // English message.
-                ...(error.scratchShortfall === undefined
+                ...(error.details?.scratchShortfall === undefined
                     ? {}
-                    : {scratchShortfall: error.scratchShortfall}),
+                    : {scratchShortfall: error.details.scratchShortfall}),
                 updatedAtMs: createEpochMs(),
             }),
         },

@@ -19,6 +19,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
     isNativeErrorEnvelope,
+    NATIVE_ERROR_ENVELOPE_SCHEMA,
     type INativeErrorEnvelope,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
@@ -553,7 +554,7 @@ function readWasmFailure(
     const encodedError = readWasmError(exports);
     const error = decodeSerializableErrorEnvelope(
         encodedError,
-        isNativeErrorEnvelope,
+        NATIVE_ERROR_ENVELOPE_SCHEMA,
         {allowBareJsonString: true},
     ) ?? {
         code: 'native-failure' as const,

@@ -510,8 +510,10 @@ export function buildOcrErrorEnvelope(
         code,
         message,
         retryable: options.retryable ?? false,
-        timestamp: createEpochMs(),
-        ...(options.details ? {details: trimErrorDetails(options.details)} : {}),
+        details: {
+            timestamp: createEpochMs(),
+            ...(options.details ? {details: trimErrorDetails(options.details)} : {}),
+        },
     };
 }
 

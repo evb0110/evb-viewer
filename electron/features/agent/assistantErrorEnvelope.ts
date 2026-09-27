@@ -57,7 +57,7 @@ export function createAssistantErrorEnvelope(message: string): IAgentAssistantEr
         code: classified.code,
         message,
         retryable: classified.retryable,
-        timestamp: createEpochMs(),
+        details: {timestamp: createEpochMs()},
     };
 }
 

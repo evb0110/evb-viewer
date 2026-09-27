@@ -18,6 +18,7 @@ import {
 import {
     isEpochMs, type TEpochMs,
 } from '@contracts/timestamps';
+import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import * as v from 'valibot';
 
 export const OCR_PROGRESS_EVENT_CHANNEL = 'ocr:progress';
@@ -65,12 +66,17 @@ const pageNumberSchema = v.pipe(
     v.transform(value => requirePageNumber(value)),
 );
 
+const ocrErrorDetailsSchema = v.object({
+    timestamp: epochMsSchema,
+    details: v.optional(v.string()),
+});
+
 export const OCR_ERROR_ENVELOPE_SCHEMA = v.object({
+    ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
     code: v.picklist(OCR_ERROR_CODES),
     message: v.string(),
     retryable: v.boolean(),
-    timestamp: epochMsSchema,
-    details: v.optional(v.string()),
+    details: ocrErrorDetailsSchema,
 });
 export type IOcrErrorEnvelope = v.InferOutput<typeof OCR_ERROR_ENVELOPE_SCHEMA>;
 

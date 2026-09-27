@@ -4150,7 +4150,7 @@ describe('scan cleanup pipeline', () => {
             },
         };
         expect(classifyScanCleanupError(workerErrorFrame, false)).toBe('insufficient-scratch');
-        expect(scanCleanupScratchShortfall(workerErrorFrame)).toEqual({scratchShortfall: workerErrorFrame.scratchShortfall});
+        expect(scanCleanupScratchShortfall(workerErrorFrame)).toEqual({details: {scratchShortfall: workerErrorFrame.scratchShortfall}});
         expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');
         await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
     });

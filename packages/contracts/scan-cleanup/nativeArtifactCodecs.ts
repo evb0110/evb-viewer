@@ -319,7 +319,7 @@ const outputMetadataShapeSchema = v.looseObject({
     manualSkew: v.optional(v.boolean()),
     layoutClassification: v.message(isLayout, 'layoutClassification has an unknown discriminant'),
     layoutConfidence: v.optional(unit),
-    cutterXPx: v.nullable(finite),
+    cutterXPx: v.optional(v.nullable(finite)),
     splitGeometry: v.optional(v.pipe(v.array(polygonSchema), v.maxLength(MAX_PAGE_OUTPUTS))),
     splitSeam: v.optional(splitSeamSchema),
     sourceRegion: v.optional(pixelRectSchema),

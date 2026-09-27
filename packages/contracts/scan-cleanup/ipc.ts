@@ -4,7 +4,7 @@ import {
     NATIVE_ERROR_CODES,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
-import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
+import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import type {
     TScanCleanupBinarizationMethod,
     TScanCleanupContentTrimSide,
@@ -18,10 +18,6 @@ import {
     type INativeScanCleanupTextToneDiagnosticsV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import * as v from 'valibot';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
 import type {
     SCAN_CLEANUP_OWNER_CONTEXT_SCHEMA,
     SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA,
@@ -70,57 +66,25 @@ export const SCAN_CLEANUP_ERROR_CODES = [
     'internal',
 ] as const satisfies readonly TScanCleanupErrorCode[];
 
-/**
- * Free and required scratch space for an `insufficient-scratch` failure.
- *
- * The renderer owns every word the user reads, so the numbers travel typed
- * beside the error code instead of inside its English message.
- */
-export interface IScanCleanupScratchShortfall {
-    availableBytes: number | null;
-    requiredBytes: number | null;
-}
+/** The renderer localizes the figures instead of reading them from English text. */
+export const SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA = v.message(v.object({
+    availableBytes: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
+    requiredBytes: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
+}), 'invalid scan-cleanup scratch shortfall');
+export type IScanCleanupScratchShortfall = v.InferOutput<typeof SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA>;
 
-function decodeOptionalByteCount(value: unknown) {
-    if (value === null) {
-        return null;
-    }
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-        throw new Error('invalid scan-cleanup scratch shortfall');
-    }
-    return value;
-}
+export const SCAN_CLEANUP_ERROR_DETAILS_SCHEMA = v.object({scratchShortfall: v.optional(SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA)});
+export type TScanCleanupErrorDetails = v.InferOutput<typeof SCAN_CLEANUP_ERROR_DETAILS_SCHEMA>;
 
-/** Normalizes the two scratch figures, or rejects a payload that is not one. */
-export function decodeScanCleanupScratchShortfall(value: unknown): IScanCleanupScratchShortfall {
-    if (!isRecord(value)) {
-        throw new Error('invalid scan-cleanup scratch shortfall');
-    }
-    return {
-        availableBytes: decodeOptionalByteCount(value.availableBytes),
-        requiredBytes: decodeOptionalByteCount(value.requiredBytes),
-    };
-}
-
-export interface IScanCleanupErrorEnvelope extends ISerializableErrorEnvelope<TScanCleanupErrorCode> {scratchShortfall?: IScanCleanupScratchShortfall;}
+export const SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA = v.object({
+    ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
+    code: v.picklist(SCAN_CLEANUP_ERROR_CODES),
+    details: v.optional(SCAN_CLEANUP_ERROR_DETAILS_SCHEMA),
+});
+export type IScanCleanupErrorEnvelope = v.InferOutput<typeof SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA>;
 
 export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanupErrorEnvelope {
-    if (
-        !isRecord(value)
-        || !isOneOf(SCAN_CLEANUP_ERROR_CODES, value.code)
-        || typeof value.message !== 'string'
-    ) {
-        return false;
-    }
-    if (value.scratchShortfall === undefined) {
-        return true;
-    }
-    try {
-        decodeScanCleanupScratchShortfall(value.scratchShortfall);
-        return true;
-    } catch {
-        return false;
-    }
+    return v.safeParse(SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA, value, {abortEarly: true}).success;
 }
 
 export type IScanCleanupPreviewRequest = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA>;

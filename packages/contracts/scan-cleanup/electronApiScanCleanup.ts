@@ -7,6 +7,7 @@ export type * from '@contracts/scan-cleanup/outputMode';
 export type {IScanCleanupCapability} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 export {resolveScanCleanupEffectiveOutputMode} from '@contracts/scan-cleanup/outputMode';
 export {
+    SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA,
     isScanCleanupErrorEnvelope,
     SCAN_CLEANUP_ERROR_CODES,
 } from '@contracts/scan-cleanup/ipc';

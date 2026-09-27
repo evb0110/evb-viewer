@@ -37,6 +37,7 @@ import type {TTabId} from '@contracts/windowTabs';
 import {parseTabId} from '@contracts/windowTabs';
 import * as v from 'valibot';
 import {isAgentWorkspaceSnapshot} from '@contracts/isAgentWorkspaceSnapshot';
+import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 
 export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
@@ -353,10 +354,11 @@ const agentAssistantErrorCodeSchema = v.picklist(AGENT_ASSISTANT_ERROR_CODES);
 const agentAssistantPresetSchema = v.picklist(AGENT_ASSISTANT_PRESET_IDS);
 const agentAssistantErrorEnvelopeSchema = v.pipe(
     v.object({
+        ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
         code: agentAssistantErrorCodeSchema,
         message: v.string(),
         retryable: v.boolean(),
-        timestamp: agentEpochTimestampSchema,
+        details: v.object({timestamp: agentEpochTimestampSchema}),
     }),
     v.readonly(),
 );

@@ -1,22 +1,29 @@
 import {isRecord} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
 export const SERIALIZABLE_ERROR_PREFIX = 'EVB_SERIALIZABLE_ERROR:';
 
-export interface ISerializableErrorEnvelope<TCode extends string = string> {
-    code: TCode;
-    message: string;
-}
+export const SERIALIZABLE_ERROR_ENVELOPE_SCHEMA = v.object({
+    code: v.pipe(v.string(), v.minLength(1)),
+    message: v.string(),
+    details: v.optional(v.unknown()),
+    retryable: v.optional(v.boolean()),
+});
+
+type TSerializableErrorEnvelope = v.InferOutput<typeof SERIALIZABLE_ERROR_ENVELOPE_SCHEMA>;
+
+export type ISerializableErrorEnvelope<TCode extends string = string, TDetails = unknown> =
+    Readonly<Omit<TSerializableErrorEnvelope, 'code' | 'details'>> & {
+        code: TCode;
+        details?: TDetails;
+    };
 
 export function isSerializableErrorEnvelope(value: unknown): value is ISerializableErrorEnvelope {
-    return isRecord(value)
-        && typeof value.code === 'string'
-        && value.code.length > 0
-        && typeof value.message === 'string';
+    return v.safeParse(SERIALIZABLE_ERROR_ENVELOPE_SCHEMA, value, {abortEarly: true}).success;
 }
 
-type TSerializableErrorEnvelopeGuard<TEnvelope extends ISerializableErrorEnvelope> = (
-    value: unknown,
-) => value is TEnvelope;
+type TSerializableErrorEnvelopeSchema<TEnvelope extends ISerializableErrorEnvelope> =
+    v.GenericSchema<unknown, TEnvelope>;
 
 interface IDecodeSerializableErrorEnvelopeOptions {allowBareJsonString?: boolean;}
 
@@ -50,21 +57,22 @@ export function encodeSerializableErrorEnvelope(envelope: ISerializableErrorEnve
 
 export function decodeSerializableErrorEnvelope<TEnvelope extends ISerializableErrorEnvelope>(
     value: unknown,
-    isEnvelope: TSerializableErrorEnvelopeGuard<TEnvelope>,
+    schema: TSerializableErrorEnvelopeSchema<TEnvelope>,
     options: IDecodeSerializableErrorEnvelopeOptions = {},
 ): TEnvelope | null {
     const decoded = decodeSerializableErrorPayload(value, options);
-    return isEnvelope(decoded) ? decoded : null;
+    const result = v.safeParse(schema, decoded, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 export function findSerializableErrorEnvelope<TEnvelope extends ISerializableErrorEnvelope>(
     value: unknown,
-    isEnvelope: TSerializableErrorEnvelopeGuard<TEnvelope>,
+    schema: TSerializableErrorEnvelopeSchema<TEnvelope>,
 ): TEnvelope | null {
     const seen = new Set<object>();
     let candidate: unknown = value;
     while (candidate !== null && candidate !== undefined) {
-        const decoded = decodeSerializableErrorEnvelope(candidate, isEnvelope);
+        const decoded = decodeSerializableErrorEnvelope(candidate, schema);
         if (decoded) {
             return decoded;
         }
@@ -72,11 +80,11 @@ export function findSerializableErrorEnvelope<TEnvelope extends ISerializableErr
             return null;
         }
         seen.add(candidate);
-        const ownEnvelope = decodeSerializableErrorEnvelope(candidate.errorEnvelope, isEnvelope);
+        const ownEnvelope = decodeSerializableErrorEnvelope(candidate.errorEnvelope, schema);
         if (ownEnvelope) {
             return ownEnvelope;
         }
-        const messageEnvelope = decodeSerializableErrorEnvelope(candidate.message, isEnvelope);
+        const messageEnvelope = decodeSerializableErrorEnvelope(candidate.message, schema);
         if (messageEnvelope) {
             return messageEnvelope;
         }

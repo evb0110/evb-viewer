@@ -63,7 +63,7 @@ describe('useOcrErrorLocalizer', () => {
             code: 'OCR_QUEUE_BACKPRESSURE',
             message: 'Queue has 2048 pages waiting',
             retryable: true,
-            timestamp: 1,
+            details: {timestamp: 1},
         }, 'errors.ocr.start')).toBe(
             'errors.ocr.errorCode.queueBackpressure: Queue has 2048 pages waiting',
         );

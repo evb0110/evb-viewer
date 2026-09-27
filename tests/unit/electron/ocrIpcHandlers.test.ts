@@ -551,7 +551,10 @@ describe('OCR platform feature main bindings', () => {
             errorEnvelope?: {
                 code: string;
                 message: string;
-                details?: string;
+                details?: {
+                    timestamp: number;
+                    details?: string;
+                };
             };
         };
 
@@ -560,7 +563,7 @@ describe('OCR platform feature main bindings', () => {
             code: 'OCR_INTERNAL_ERROR',
             message: 'worker exploded with a private stack',
         });
-        expect(result.errorEnvelope).not.toHaveProperty('details');
+        expect(result.errorEnvelope?.details?.details).toBeUndefined();
     });
 
     it('returns typed invalid-request details for malformed OCR cancel payloads', async () => {

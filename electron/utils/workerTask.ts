@@ -6,13 +6,14 @@ import {
 } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
-    decodeScanCleanupScratchShortfall,
+    SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA,
     type IScanCleanupScratchShortfall,
 } from '@contracts/scan-cleanup/ipc';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
+import * as v from 'valibot';
 import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
@@ -130,11 +131,8 @@ function getScratchShortfallProperty(error: unknown): IScanCleanupScratchShortfa
     if (value === undefined) {
         return undefined;
     }
-    try {
-        return decodeScanCleanupScratchShortfall(value);
-    } catch {
-        return undefined;
-    }
+    const result = v.safeParse(SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA, value, {abortEarly: true});
+    return result.success ? result.output : undefined;
 }
 
 export function createWorkerTaskErrorFrame(

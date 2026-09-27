@@ -43,8 +43,10 @@ export function buildSearchErrorEnvelope(
         code,
         message,
         retryable: options.retryable ?? false,
-        timestamp: createEpochMs(),
-        ...(options.details ? {details: trimSearchErrorDetails(options.details)} : {}),
+        details: {
+            timestamp: createEpochMs(),
+            ...(options.details ? {details: trimSearchErrorDetails(options.details)} : {}),
+        },
     };
 }
 

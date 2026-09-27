@@ -1,4 +1,4 @@
-import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {
     findSerializableErrorEnvelope,
     SerializableError,
@@ -63,6 +63,6 @@ export function createPdfCombineOutputTooLargeError(
 }
 
 export function isPdfCombineOutputTooLargeError(error: unknown) {
-    const envelope = findSerializableErrorEnvelope(error, isNativeErrorEnvelope);
+    const envelope = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
     return envelope?.code === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode;
 }

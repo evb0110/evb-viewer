@@ -350,7 +350,7 @@ describe('assistant chat session store persistence', () => {
                         code: 'INTERNAL',
                         message: 'broken',
                         retryable: false,
-                        timestamp: Number.NaN,
+                        details: {timestamp: Number.NaN},
                     };
                 },
             },

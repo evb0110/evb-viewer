@@ -334,7 +334,8 @@ function isAssistantErrorEnvelope(value: unknown) {
         )
         && typeof value.message === 'string'
         && typeof value.retryable === 'boolean'
-        && isEpochMs(value.timestamp);
+        && isObject(value.details)
+        && isEpochMs(value.details.timestamp);
 }
 
 function isAssistantImageAttachment(value: unknown) {

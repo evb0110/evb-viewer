@@ -102,10 +102,10 @@ import { buildPrintablePdfPath } from '@electron/features/documents/public/build
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import {
     createMainJobRegistry,
-    type IMainJobErrorEnvelope,
     type IMainJobRunContext,
     type TMainJobSnapshot,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
+import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import {adoptDjvuViewingPath} from '@electron/features/djvu/main/viewing';
 import {
@@ -398,7 +398,7 @@ async function replaceFileAtomically(sourcePath: string, targetPath: string, sig
 
 type TDjvuProgressScope = Pick<IDjvuProgress, 'documentRef' | 'requestId'>;
 type TDjvuPublicJobResult = IDjvuConvertResult | IDjvuOpenResult | IDjvuPrintResult;
-type TDjvuJobError = IMainJobErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'> & {
+type TDjvuJobError = ISerializableErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'> & {
     failure?: FailureReceipt;
     expected?: ExpectedOutcome;
 };

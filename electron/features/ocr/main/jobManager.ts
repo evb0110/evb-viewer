@@ -23,13 +23,12 @@ import type {
     IOcrJobProjectionState,
     IOcrProgress,
     IOcrSearchablePdfOptions,
-    TOcrErrorCode,
     TOcrJobProjectionPhase,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import {
     OCR_COMPLETE_EVENT_CHANNEL,
-    OCR_ERROR_CODES,
+    OCR_ERROR_ENVELOPE_SCHEMA,
     OCR_PROGRESS_EVENT_CHANNEL,
 } from '@contracts/electronApiOcr';
 import {
@@ -48,6 +47,7 @@ import {
 } from '@contracts/documentRevision';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import * as v from 'valibot';
 import { runDetached } from '@electron/utils/runDetached';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import {
@@ -85,8 +85,7 @@ interface IOcrRegistryProgress extends IOcrProgress {projection: {
 };}
 
 /** Everything the renderer needs to hear about a job that ended without a PDF. */
-interface IOcrJobError extends Omit<IOcrErrorEnvelope, 'details'> {
-    details?: string;
+interface IOcrJobError extends IOcrErrorEnvelope {
     errors: string[];
     diagnostics?: IOcrCompleteResult['diagnostics'];
 }
@@ -137,16 +136,7 @@ function canonicalPathKey(path: string) {
 }
 
 function isOcrErrorEnvelope(cause: unknown): cause is IOcrErrorEnvelope {
-    return typeof cause === 'object'
-        && cause !== null
-        && 'code' in cause
-        && OCR_ERROR_CODES.includes(cause.code as TOcrErrorCode)
-        && 'message' in cause
-        && typeof cause.message === 'string'
-        && 'retryable' in cause
-        && typeof cause.retryable === 'boolean'
-        && 'timestamp' in cause
-        && typeof cause.timestamp === 'number';
+    return v.safeParse(OCR_ERROR_ENVELOPE_SCHEMA, cause, {abortEarly: true}).success;
 }
 
 function createOcrJobError(
@@ -154,12 +144,8 @@ function createOcrJobError(
     errors: string[],
     diagnostics?: IOcrCompleteResult['diagnostics'],
 ): IOcrJobError {
-    const {
-        details, ...fields
-    } = envelope;
     return {
-        ...fields,
-        ...(details === undefined ? {} : {details}),
+        ...envelope,
         errors,
         ...(diagnostics === undefined ? {} : {diagnostics}),
     };

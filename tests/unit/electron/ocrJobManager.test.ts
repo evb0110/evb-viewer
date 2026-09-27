@@ -158,7 +158,10 @@ describe('OCR job manager on the main job registry', () => {
             requestId: 'ocr-2',
             success: false,
             errors: ['OCR job was cancelled'],
-            errorEnvelope: {details: 'explicit cancel request'},
+            errorEnvelope: {details: {
+                details: 'explicit cancel request',
+                timestamp: expect.any(Number),
+            }},
         });
     });
 

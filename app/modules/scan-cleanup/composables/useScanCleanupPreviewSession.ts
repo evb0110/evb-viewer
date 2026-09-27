@@ -1,6 +1,6 @@
 import { getErrorMessage } from '@app/utils/error';
 import {
-    isScanCleanupErrorEnvelope,
+    SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA,
     resolveScanCleanupEffectiveOutputMode,
     type IScanCleanupOptions,
     type IScanCleanupDocumentPrior,
@@ -1070,13 +1070,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 if (requestSequence !== sequence || (caught instanceof Error && caught.name === 'AbortError')) {
                     return;
                 }
-                const envelope = findSerializableErrorEnvelope(caught, isScanCleanupErrorEnvelope);
+                const envelope = findSerializableErrorEnvelope(caught, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
                 if (envelope) {
                     error.value = formatScanCleanupErrorByCode(
                         t,
                         envelope.code,
                         envelope.message,
-                        envelope.scratchShortfall,
+                        envelope.details?.scratchShortfall,
                     );
                     errorCode.value = envelope.code;
                 } else {

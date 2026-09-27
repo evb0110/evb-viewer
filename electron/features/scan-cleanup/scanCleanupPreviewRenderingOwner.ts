@@ -12,13 +12,16 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import { createStableJobBrokerOwnerId } from '@electron/resources/jobBroker';
 import { getErrorMessage } from '@electron/utils/error';
-import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {
+    decodeSerializableErrorEnvelope,
+    encodeSerializableErrorEnvelope,
+} from '@contracts/serializableError';
+import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {createJobId} from '@contracts/shared';
 import {
     createMainJobRegistry,
     RENDERER_DESTROYED_CANCELLATION_REASON,
     RENDER_PROCESS_GONE_CANCELLATION_REASON,
-    type IMainJobErrorEnvelope,
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 
 import type {
@@ -77,8 +80,6 @@ interface IScanCleanupPreviewProgress {
     percent: number;
 }
 
-interface IScanCleanupPreviewError extends IMainJobErrorEnvelope, Pick<IScanCleanupErrorEnvelope, 'scratchShortfall'> {}
-
 export function scanCleanupPreviewRenderingOwner(
     dependencies: IScanCleanupRenderingDependencies,
     rawRasterRetention: IScanCleanupPreviewOwnerRetention,
@@ -120,7 +121,7 @@ export function scanCleanupPreviewRenderingOwner(
     const previewJobs = createMainJobRegistry<
         IScanCleanupPreviewProgress,
         TScanCleanupPreviewWireResult,
-        IScanCleanupPreviewError,
+        IScanCleanupErrorEnvelope,
         IScanCleanupDetectionSubscriber
     >({
         retention: {
@@ -565,12 +566,11 @@ export function scanCleanupPreviewRenderingOwner(
                     }
                     throw Object.assign(new Error(snapshot.error.message), snapshot.error);
                 }
-                const serialized = snapshot.error.message.match(/^EVB_SERIALIZABLE_ERROR:(.*)$/s)?.[1];
-                if (serialized !== undefined) {
-                    const error = JSON.parse(serialized) as IScanCleanupErrorEnvelope;
-                    throw new Error(encodeSerializableErrorEnvelope(error));
-                }
-                throw new Error(encodeSerializableErrorEnvelope(snapshot.error));
+                const envelope = decodeSerializableErrorEnvelope(
+                    snapshot.error.message,
+                    SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA,
+                );
+                throw new Error(encodeSerializableErrorEnvelope(envelope ?? snapshot.error));
             });
             const settledTail = tail.then(
                 async result => {

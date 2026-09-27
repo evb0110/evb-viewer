@@ -4,6 +4,7 @@ import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import {randomUUID} from 'node:crypto';
 import type {WebContents} from 'electron';
 import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
+import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     registerMainOperation,
     type IMainOperationRegistration,
@@ -23,13 +24,6 @@ import {
 export const RENDERER_DESTROYED_CANCELLATION_REASON = 'Renderer destroyed';
 export const RENDER_PROCESS_GONE_CANCELLATION_REASON = 'Renderer process gone';
 
-export interface IMainJobErrorEnvelope<TCode extends string = string> {
-    code: TCode;
-    message: string;
-    retryable?: boolean;
-    timestamp?: number;
-    details?: string;
-}
 export interface IMainJobSender {
     id: WebContents['id'];
     isDestroyed: WebContents['isDestroyed'];
@@ -61,7 +55,7 @@ interface IMainJobSnapshotBase<TProgress> {
     createdAtMs: number;
     updatedAtMs: number;
 }
-export type TMainJobSnapshot<TProgress, TResult, TError extends IMainJobErrorEnvelope> =
+export type TMainJobSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> =
     | IMainJobSnapshotBase<TProgress> & {status: 'queued' | 'running' | 'canceling' | 'committing'}
     | IMainJobSnapshotBase<TProgress> & {
         status: 'handoff';
@@ -76,17 +70,17 @@ export type TMainJobSnapshot<TProgress, TResult, TError extends IMainJobErrorEnv
         status: 'canceled' | 'failed';
         error: TError
     };
-export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends IMainJobErrorEnvelope> = Extract<TMainJobSnapshot<TProgress, TResult, TError>, {status: 'completed' | 'canceled' | 'failed'}>;
+export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> = Extract<TMainJobSnapshot<TProgress, TResult, TError>, {status: 'completed' | 'canceled' | 'failed'}>;
 export type TMainJobErrorKind = 'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized';
 export type TMainJobOwnerEndAction = IMainOperationLifecyclePolicy['destroyed'];
 export type IMainJobOwnerLifecyclePolicy = IMainOperationLifecyclePolicy;
 export interface IMainJobScratch {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;}
-export interface IMainJobTerminalController<TProgress, TResult, _TError extends IMainJobErrorEnvelope> {
+export interface IMainJobTerminalController<TProgress, TResult, _TError extends ISerializableErrorEnvelope> {
     complete(result: TResult, progress?: TProgress): boolean;
     cancel(cause?: unknown, progress?: TProgress): boolean;
     fail(cause: unknown, progress?: TProgress): boolean;
 }
-export interface IMainJobRunContext<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
+export interface IMainJobRunContext<TProgress, TResult, TError extends ISerializableErrorEnvelope> {
     jobId: string;
     signal: AbortSignal;
     scratch: IMainJobScratch;
@@ -98,7 +92,7 @@ export interface IMainJobRunContext<TProgress, TResult, TError extends IMainJobE
 export interface IMainJobStartOptions<
     TProgress,
     TResult,
-    TError extends IMainJobErrorEnvelope,
+    TError extends ISerializableErrorEnvelope,
     TSender extends IMainJobSender = WebContents,
 > {
     jobId?: string;
@@ -117,7 +111,7 @@ export interface IMainJobStartOptions<
      */
     run(context: IMainJobRunContext<TProgress, TResult, TError>): Promise<TResult>;
 }
-export interface IMainJobHandle<TProgress, TResult, TError extends IMainJobErrorEnvelope> {
+export interface IMainJobHandle<TProgress, TResult, TError extends ISerializableErrorEnvelope> {
     jobId: string;
     signal: AbortSignal;
     terminal: Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
@@ -127,7 +121,7 @@ export interface IMainJobHandle<TProgress, TResult, TError extends IMainJobError
 export interface IMainJobRegistryOptions<
     TProgress,
     TResult,
-    TError extends IMainJobErrorEnvelope,
+    TError extends ISerializableErrorEnvelope,
     TSender extends IMainJobSender = WebContents,
 > {
     retention: {
@@ -156,7 +150,7 @@ export interface IMainJobRegistryOptions<
 export interface IMainJobRegistry<
     TProgress,
     TResult,
-    TError extends IMainJobErrorEnvelope,
+    TError extends ISerializableErrorEnvelope,
     TSender extends IMainJobSender = WebContents,
 > {
     start(options: IMainJobStartOptions<TProgress, TResult, TError, TSender>): IMainJobHandle<TProgress, TResult, TError>;
@@ -178,7 +172,7 @@ export interface IMainJobRegistry<
 export function createMainJobRegistry<
     TProgress,
     TResult,
-    TError extends IMainJobErrorEnvelope = IMainJobErrorEnvelope,
+    TError extends ISerializableErrorEnvelope = ISerializableErrorEnvelope,
     TSender extends IMainJobSender = WebContents,
 >(
     options: IMainJobRegistryOptions<TProgress, TResult, TError, TSender>,

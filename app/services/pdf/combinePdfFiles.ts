@@ -21,7 +21,7 @@ import {
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     hasNativeErrorCode,
-    isNativeErrorEnvelope,
+    NATIVE_ERROR_ENVELOPE_SCHEMA,
 } from '@contracts/nativeErrors';
 
 export type TCombinePdfErrorCode = 'canceled' | 'invalid-input' | 'limit' | 'unsupported' | 'open-failed';
@@ -65,7 +65,7 @@ function classifyCombineError(error: unknown, signal?: AbortSignal): TCombinePdf
     if (signal?.aborted) {
         return 'canceled';
     }
-    const envelope = findSerializableErrorEnvelope(error, isNativeErrorEnvelope);
+    const envelope = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
     const code = envelope?.code ?? (hasNativeErrorCode(error) ? error.code : undefined);
     switch (code) {
         case 'too-large':

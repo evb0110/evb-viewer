@@ -46,7 +46,7 @@ describe('documentMutationGuards', () => {
         expect(isMissingRevisionError(caught)).toBe(true);
         expect(getDocumentMutationErrorPayload(caught)).toMatchObject({
             code: 'MISSING_REVISION',
-            documentRef: workingPath,
+            details: {documentRef: workingPath},
         });
         expect(mocks.assertWorkingCopyMutationAllowed).toHaveBeenCalledWith(workingPath);
         expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();

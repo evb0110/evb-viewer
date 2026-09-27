@@ -16,7 +16,7 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     findSerializableErrorEnvelope,
-    type ISerializableErrorEnvelope,
+    SERIALIZABLE_ERROR_ENVELOPE_SCHEMA,
 } from '@contracts/serializableError';
 import {
     isEpochMs,
@@ -215,43 +215,39 @@ function decodeProgress(value: unknown): IPdfSearchProgress | null {
 }
 
 
-export type TSearchErrorCode =
-    | 'SEARCH_INVALID_PAYLOAD'
-    | 'SEARCH_PATH_DENIED'
-    | 'SEARCH_WORKER_LIMIT'
-    | 'SEARCH_WORKER_PROTOCOL'
-    | 'SEARCH_TIMEOUT'
-    | 'SEARCH_WORKER_ERROR'
-    | 'SEARCH_INTERNAL';
+export const SEARCH_ERROR_CODES = [
+    'SEARCH_INVALID_PAYLOAD',
+    'SEARCH_PATH_DENIED',
+    'SEARCH_WORKER_LIMIT',
+    'SEARCH_WORKER_PROTOCOL',
+    'SEARCH_TIMEOUT',
+    'SEARCH_WORKER_ERROR',
+    'SEARCH_INTERNAL',
+] as const;
+export type TSearchErrorCode = typeof SEARCH_ERROR_CODES[number];
 
-export interface ISearchErrorEnvelope extends ISerializableErrorEnvelope<TSearchErrorCode> {
-    readonly retryable: boolean;
-    readonly timestamp: TEpochMs;
-    readonly details?: string;
-}
+const searchErrorDetailsSchema = v.object({
+    timestamp: v.custom<TEpochMs>(isEpochMs),
+    details: v.optional(v.string()),
+});
+
+export const SEARCH_ERROR_ENVELOPE_SCHEMA = v.object({
+    ...SERIALIZABLE_ERROR_ENVELOPE_SCHEMA.entries,
+    code: v.picklist(SEARCH_ERROR_CODES),
+    retryable: v.boolean(),
+    details: searchErrorDetailsSchema,
+});
+
+export type ISearchErrorEnvelope = v.InferOutput<typeof SEARCH_ERROR_ENVELOPE_SCHEMA>;
 
 export interface ISearchErrorEnvelopeCarrier {readonly errorEnvelope?: ISearchErrorEnvelope;}
 
 export function isSearchErrorEnvelope(value: unknown): value is ISearchErrorEnvelope {
-    return isRecord(value)
-        && typeof value.code === 'string'
-        && [
-            'SEARCH_INVALID_PAYLOAD',
-            'SEARCH_PATH_DENIED',
-            'SEARCH_WORKER_LIMIT',
-            'SEARCH_WORKER_PROTOCOL',
-            'SEARCH_TIMEOUT',
-            'SEARCH_WORKER_ERROR',
-            'SEARCH_INTERNAL',
-        ].includes(value.code)
-        && typeof value.message === 'string'
-        && typeof value.retryable === 'boolean'
-        && isEpochMs(value.timestamp)
-        && (value.details === undefined || typeof value.details === 'string');
+    return v.safeParse(SEARCH_ERROR_ENVELOPE_SCHEMA, value, {abortEarly: true}).success;
 }
 
 export function findSearchErrorEnvelope(value: unknown): ISearchErrorEnvelope | null {
-    return findSerializableErrorEnvelope(value, isSearchErrorEnvelope);
+    return findSerializableErrorEnvelope(value, SEARCH_ERROR_ENVELOPE_SCHEMA);
 }
 
 export interface ISearchMatchOptions {

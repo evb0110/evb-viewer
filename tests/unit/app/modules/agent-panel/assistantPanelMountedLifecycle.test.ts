@@ -106,7 +106,7 @@ function createReadyState(
             code: 'INTERNAL',
             message: 'No assistant signal received.',
             retryable: true,
-            timestamp: requireEpochMs(Date.now()),
+            details: {timestamp: requireEpochMs(Date.now())},
         };
     }
     state.messages = [
@@ -487,7 +487,7 @@ describe('mounted assistant panel lifecycle', () => {
             code: 'INTERNAL',
             message: 'Assistant is unavailable.',
             retryable: false,
-            timestamp: requireEpochMs(Date.now()),
+            details: {timestamp: requireEpochMs(Date.now())},
         };
         mocks.sendAssistantMessage.mockResolvedValueOnce({
             ok: false,
@@ -518,7 +518,7 @@ describe('mounted assistant panel lifecycle', () => {
             code: 'INTERNAL',
             message: 'Busy in another document.',
             retryable: false,
-            timestamp: requireEpochMs(Date.now()),
+            details: {timestamp: requireEpochMs(Date.now())},
         };
         mocks.sendAssistantMessage.mockResolvedValueOnce({
             ok: false,
@@ -560,7 +560,7 @@ describe('mounted assistant panel lifecycle', () => {
             code: 'INTERNAL',
             message: 'Provider failed after recording the turn.',
             retryable: true,
-            timestamp: requireEpochMs(Date.now()),
+            details: {timestamp: requireEpochMs(Date.now())},
         };
         mocks.sendAssistantMessage.mockResolvedValueOnce({
             ok: false,
@@ -607,7 +607,7 @@ describe('mounted assistant panel lifecycle', () => {
             code: 'RUNTIME_UNAVAILABLE',
             message: 'Provider unavailable.',
             retryable: false,
-            timestamp: requireEpochMs(Date.now()),
+            details: {timestamp: requireEpochMs(Date.now())},
         };
         mocks.sendAssistantMessage.mockReturnValueOnce(new Promise(resolve => {
             resolveSend = resolve;

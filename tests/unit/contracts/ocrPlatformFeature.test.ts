@@ -246,7 +246,7 @@ describe('OCR platform feature', () => {
                 code: 'OCR_QUEUE_BACKPRESSURE',
                 message: 'OCR queue is full',
                 retryable: true,
-                timestamp: 123,
+                details: {timestamp: 123},
             },
         });
         listeners.get(eventChannels.onComplete)?.({}, {
@@ -257,7 +257,7 @@ describe('OCR platform feature', () => {
                 code: 'OCR_INTERNAL_ERROR',
                 message: 'Malformed envelope',
                 retryable: 'no',
-                timestamp: 123,
+                details: {timestamp: 123},
             },
         });
         listeners.get(eventChannels.onComplete)?.({}, {
