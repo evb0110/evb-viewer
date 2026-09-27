@@ -6,7 +6,7 @@ import { open } from 'node:fs/promises';
  * no-op and every OCR catalog write fail there.
  */
 export async function fsyncFile(filePath: string) {
-    const handle = await open(filePath, 'r+');
+    const handle = await open(filePath, process.platform === 'win32' ? 'r+' : 'r');
     try {
         await handle.sync();
     } finally {
