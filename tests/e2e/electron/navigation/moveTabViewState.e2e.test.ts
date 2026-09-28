@@ -107,14 +107,17 @@ describe('Move Tab to New Window view state', () => {
         const zoomButton = await session.page.$('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)');
         if (!zoomButton) throw new Error('Custom zoom control was not available');
         await zoomButton.click();
-        const zoomInput = await session.page.waitForSelector('.zoom-dropdown input', {
+        await session.page.waitForSelector('.zoom-dropdown input', {
             visible: true,
             timeout: 10_000,
         });
-        await zoomInput!.click();
-        await session.page.keyboard.down('Control');
-        await session.page.keyboard.press('A');
-        await session.page.keyboard.up('Control');
+        await waitForFunctionInPage(session.page, () => {
+            const input = document.querySelector<HTMLInputElement>('.zoom-dropdown input');
+            return input !== null
+                && document.activeElement === input
+                && input.selectionStart === 0
+                && input.selectionEnd === input.value.length;
+        }, {timeout: 10_000});
         await session.page.keyboard.type('137');
         await session.page.keyboard.press('Enter');
         await waitForFunctionInPage(session.page, () => {
