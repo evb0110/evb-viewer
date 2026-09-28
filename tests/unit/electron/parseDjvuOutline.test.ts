@@ -26,6 +26,20 @@ describe('parseDjvuOutline', () => {
         }]);
     });
 
+    it('resolves component ID targets through the DjVu document page map', () => {
+        const pageComponents = new Map([
+            [
+                'p0001.djvu',
+                0,
+            ],
+            [
+                'p0002.djvu',
+                1,
+            ],
+        ]);
+        expect(parseDjvuOutline('(bookmarks ("Second" "#p0002.djvu"))', pageComponents)[0]?.pageIndex).toBe(1);
+    });
+
     it('rejects outlines deeper than the interactive nesting limit', () => {
         const outline = `${'('.repeat(65)}bookmarks${')'.repeat(65)}`;
 

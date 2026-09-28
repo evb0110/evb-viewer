@@ -70,6 +70,22 @@ export async function getDjvuOutline(filePath: string, options: IDjvuMetadataOpt
     }
 }
 
+export async function getDjvuPageComponentMap(filePath: string, options: IDjvuMetadataOptions = {}) {
+    const result = await runDjvused([
+        filePath,
+        '-e',
+        'ls',
+    ], options);
+    const components = new Map<string, number>();
+    for (const line of result.stdout.split(/\r?\n/u)) {
+        const match = line.match(/^\s*(\d+)\s+P\s+\d+\s+(\S+)/u);
+        if (match?.[1] && match[2]) {
+            components.set(match[2], Number(match[1]) - 1);
+        }
+    }
+    return components;
+}
+
 export async function getDjvuMetadata(
     filePath: string,
     options: IDjvuMetadataOptions = {},
