@@ -67,10 +67,9 @@ const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-le
 // A sparse document above half a gibibyte, so the working copy, geometry and
 // PDF.js paths run on a file larger than the renderer may hold in memory.
 const NATIVE_LARGE_PDF_FIXTURE_BYTES = 513 * 1024 * 1024;
-// Above the shape-scan cap, so the annotation-save lane covers saving a document
-// whose embedded shape layer is too large to scan, and far below the oversized
-// fixture so it stays quick to generate.
-const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES * 2;
+// One MiB above the strict-greater-than shape-scan cap, so the saved document
+// remains unambiguously on the unscanned input path without doubling the padding.
+const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES + 1024 * 1024;
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
 const TRACKED_DJVU_CORPUS_FIXTURE = resolve(
