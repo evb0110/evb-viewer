@@ -901,15 +901,21 @@ async function refreshReleaseData() {
 }
 
 @media (width <= 40rem) {
-  /* The actions move under the brand instead of scrolling out of view. */
+  /* One row: the brand on the left, the icon-only actions on the right. */
   .home-topbar {
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding-bottom: 0.75rem;
     overflow-x: visible;
   }
 
+  .home-brand {
+    gap: 0.6rem;
+    min-width: 0;
+  }
+
   .home-actions {
-    flex-wrap: wrap;
-    width: 100%;
+    gap: 0.125rem;
   }
 
   .home-grid,

@@ -395,10 +395,6 @@ a {
   flex: 0 0 auto;
 }
 
-.language-switcher-trigger {
-  max-width: min(12rem, 42vw);
-}
-
 .language-switcher-menu {
   display: flex;
   flex-direction: column;

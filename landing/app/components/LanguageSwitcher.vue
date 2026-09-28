@@ -4,13 +4,15 @@
       v-model:open="open"
       :content="{ align: 'end', sideOffset: 8 }"
     >
+      <!-- The flag alone marks the current language; the menu lists the names. -->
       <UButton
-        :label="activeLanguage.name"
         :icon="activeLanguage.icon"
+        :aria-label="activeLanguage.name"
+        :title="activeLanguage.name"
         color="neutral"
         variant="ghost"
         size="md"
-        class="language-switcher-trigger"
+        square
       />
 
       <template #content>
