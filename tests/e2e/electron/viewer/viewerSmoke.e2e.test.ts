@@ -3831,10 +3831,23 @@ describe('Electron E2E - Viewer Smoke', () => {
             )).sort((left, right) => Number(left.dataset.thumbnailPage) - Number(right.dataset.thumbnailPage));
             const rows = items.map((item) => {
                 const rect = item.getBoundingClientRect();
+                const frame = item.querySelector<HTMLElement>('[data-document-thumbnail-frame]')!;
+                const canvas = frame.querySelector('canvas');
+                const frameRect = frame.getBoundingClientRect();
+                const canvasRect = canvas?.getBoundingClientRect();
+                const style = getComputedStyle(frame);
                 return {
                     bottom: rect.bottom,
                     page: Number(item.dataset.thumbnailPage),
                     top: rect.top,
+                    // A full-page thumbnail must fit inside the padded frame,
+                    // including a tall portrait page in a fixed portrait slot.
+                    contentOverflow: canvasRect ? Math.max(
+                        frameRect.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) - canvasRect.left,
+                        frameRect.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop) - canvasRect.top,
+                        canvasRect.right - frameRect.right + parseFloat(style.borderRightWidth) + parseFloat(style.paddingRight),
+                        canvasRect.bottom - frameRect.bottom + parseFloat(style.borderBottomWidth) + parseFloat(style.paddingBottom),
+                    ) : null,
                 };
             });
             return {
@@ -3844,6 +3857,10 @@ describe('Electron E2E - Viewer Smoke', () => {
         });
         expect(thumbnailGeometry.rows).toHaveLength(4);
         expect(thumbnailGeometry.overlaps, JSON.stringify(thumbnailGeometry)).toEqual([]);
+        for (const row of thumbnailGeometry.rows) {
+            expect(row.contentOverflow, `page ${row.page} has a rendered thumbnail`).not.toBeNull();
+            expect(row.contentOverflow, `page ${row.page} fits its thumbnail frame`).toBeLessThanOrEqual(1);
+        }
 
         await session.page.click('.editor-pane.is-active [data-thumbnail-page="2"]');
         await waitForWorkspaceToolbarSnapshot(
