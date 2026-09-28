@@ -38,6 +38,7 @@ async function readToolbar(page: Page) {
         });
         return {
             height: rect ? Math.round(rect.height) : 0,
+            viewportWidth: window.innerWidth,
             controls,
             rightControls,
         };
@@ -48,6 +49,10 @@ describe('empty workspace toolbar contract', () => {
     it('keeps document controls visible and disabled, without shifting the toolbar when a document opens', async () => {
         const session = sessions.getSession();
         await session.page.waitForSelector('#editor-global-toolbar-host [role="toolbar"]', {timeout: 20_000});
+        await session.command('windowResize', [
+            900,
+            700,
+        ]);
         const empty = await readToolbar(session.page);
         const evidence = mkdtempSync(join(tmpdir(), 'evb-e2e-empty-toolbar-'));
         await session.page.screenshot({path: join(evidence, 'empty-workspace.png')});
@@ -74,6 +79,8 @@ describe('empty workspace toolbar contract', () => {
         expect(empty.controls.some(item => /page/i.test(`${item.label} ${item.text}`)), 'page navigation is visible').toBe(true);
         expect(empty.controls.some(item => /zoom|fit width|fit height|%/i.test(`${item.label} ${item.text}`)), 'zoom is visible').toBe(true);
         expect(empty.rightControls.length).toBeGreaterThan(0);
+        expect(empty.viewportWidth, 'measure the supported 900 px window after its native bounds settle').toBe(900);
+        expect(documentToolbar.viewportWidth, 'opening a document must keep the same settled window width').toBe(900);
         expect(documentToolbar.height).toBe(empty.height);
         expect(documentToolbar.rightControls.map(item => item.label)).toEqual(empty.rightControls.map(item => item.label));
         expect(documentToolbar.rightControls.map(item => item.right)).toEqual(empty.rightControls.map(item => item.right));
