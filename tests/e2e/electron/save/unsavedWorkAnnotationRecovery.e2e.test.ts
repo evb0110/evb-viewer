@@ -1,5 +1,5 @@
 import {
-    copyFileSync, existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync,
+    copyFileSync, readFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -21,9 +21,7 @@ import {
     hasWorkspaceCrashCheckpoint, readWorkspaceRecoveryRecords,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
-import {
-    electronUserDataPath, sessionDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
 
@@ -42,10 +40,8 @@ describe('checkpointed annotation recovery', () => {
     });
 
     it('restores committed FreeText through restart and Save As', async () => {
-        const evidenceDirectory = resolve(process.cwd(), '.devkit/project12/871');
-        mkdirSync(evidenceDirectory, {recursive: true});
-        const sourcePath = join(evidenceDirectory, 'annotation-source.pdf');
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-annotation-recovery-'));
+        const sourcePath = join(outputDirectory, 'annotation-source.pdf');
         const destinationPath = join(outputDirectory, 'annotation-recovered-save-as.pdf');
         copyFileSync(FIXTURE_PATH, sourcePath);
         const sourceBytes = readFileSync(sourcePath);
@@ -105,8 +101,6 @@ describe('checkpointed annotation recovery', () => {
             expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
             expect(readFileSync(sourcePath)).toEqual(sourceBytes);
         } finally {
-            const logPath = join(sessionDir(session.name), 'session.log');
-            if (existsSync(logPath)) copyFileSync(logPath, join(evidenceDirectory, 'session.log'));
             await session.stop();
         }
     }, 240_000);
