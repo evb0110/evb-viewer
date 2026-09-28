@@ -1,0 +1,20 @@
+tests/e2e/electron/save/unsavedWorkDraftRecovery.e2e.test.ts
+  s_17dc647d8d0097::t_eb7c69c23c575c 22
+  s_17dc647d8d0097::t_8cd0001addaa8d 2,4,25-26,84-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d775b15ffdecd608f6a25f9e600d6f0fc283e94c",
+  "prompts": {},
+  "sessions": {
+    "s_17dc647d8d0097": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e887-0846-7463-b44f-1ae405eb537a",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
