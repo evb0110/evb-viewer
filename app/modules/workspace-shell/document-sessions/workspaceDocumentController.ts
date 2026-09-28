@@ -343,12 +343,14 @@ export function createWorkspaceDocumentController(options: {
         }
         const sameLogicalDocument = identityHasDocument(current)
             && getLogicalDocumentSignature(current) === getLogicalDocumentSignature(next);
+        const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
+            && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
         const identity = {
             ...next,
             documentSessionKey: sameLogicalDocument
                 ? current.documentSessionKey
                 : createDocumentSessionKey(tabId, next.documentRef),
-            documentInstanceId: sameLogicalDocument
+            documentInstanceId: sameLogicalDocument || resumesCheckpointWorkingCopy
                 ? current.documentInstanceId
                 : createDocumentInstanceId(),
         };
@@ -363,6 +365,8 @@ export function createWorkspaceDocumentController(options: {
         if (!transaction) {
             return;
         }
+        const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
+            && snapshot.value.recoveryWorkingCopyPath === snapshot.value.identity.workingCopyPath;
         // A new open is a new document instance even for the same file;
         // a restore resumes the instance the tab already owned.
         update({
@@ -371,7 +375,7 @@ export function createWorkspaceDocumentController(options: {
             openingLabel: null,
             failure: null,
             recoveryWorkingCopyPath: null,
-            ...(transaction.kind === 'open'
+            ...(transaction.kind === 'open' && !resumesCheckpointWorkingCopy
                 ? {identity: {
                     ...snapshot.value.identity,
                     documentInstanceId: createDocumentInstanceId(),
