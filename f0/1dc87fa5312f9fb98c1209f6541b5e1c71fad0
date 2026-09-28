@@ -1,0 +1,22 @@
+tests/e2e/electron/save/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_87b9a25009e8a5::t_95ce2019ee9f2a 2,39,512-516,518-521,523-526,528-532,555-556,561,563-564,566-582,584-586
+  s_87b9a25009e8a5::t_71f9be4fa0ddc3 536-539,541-542,545,547-554
+native/pdf-page-ops/src/page_geometry.rs
+  s_87b9a25009e8a5::t_d10c8962f44aa7 187-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f01dc87fa5312f9fb98c1209f6541b5e1c71fad0",
+  "prompts": {},
+  "sessions": {
+    "s_87b9a25009e8a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e738-fd67-7b52-b72f-e97a8ad206de",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
