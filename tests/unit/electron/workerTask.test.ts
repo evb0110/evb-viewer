@@ -421,7 +421,7 @@ describe('workerTask', () => {
         );
     });
 
-    it('does not mark a canceled worker after a terminal acknowledgement', async () => {
+    it('classifies a cooperatively canceled worker below error level after acknowledgement', async () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('acknowledged cancellation');
@@ -446,10 +446,20 @@ describe('workerTask', () => {
             type: 'result',
             ok: false,
             error: 'canceled',
+            errorFrame: {
+                message: 'canceled',
+                canceled: true,
+                retryable: false,
+            },
         });
 
         await expect(taskPromise).rejects.toBe(abortReason);
         expect(getUnprovenNativeTerminationDetail(abortReason)).toBeUndefined();
+        expect(mocks.logged).toContainEqual(expect.objectContaining({
+            level: 'info',
+            message: 'Worker reported cancellation',
+        }));
+        expect(mocks.logged.some(entry => entry.level === 'error')).toBe(false);
     });
 
     it('waits for force termination of a non-cooperative worker before settling', async () => {

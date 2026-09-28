@@ -1,0 +1,146 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import {
+    mkdirSync, readFileSync, statSync, watch, writeFileSync,
+} from 'node:fs';
+import {randomBytes} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {resolve} from 'node:path';
+import {PDFDocument} from 'pdf-lib';
+import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
+import {
+    openPdfInApp,
+    triggerOpenPathInApp,
+    waitForActiveDocumentSource,
+    waitForPdfLoaded,
+} from '@tests/e2e/electron/helpers/viewerCore';
+
+const CONFORMANCE_WORKER = 'pdfConformanceWorker.js';
+const CONFORMANCE_WORKER_START_TIMEOUT_MS = 90_000;
+const MATERIALIZED_PDF_BYTES = 48 * 1024 * 1024;
+const MATERIALIZED_PDF_PAGE_COUNT = 8_000;
+
+function readAppLog(sessionName: string) {
+    return readFileSync(resolve(electronFileLogDir(sessionName), 'app.ndjson'), 'utf8');
+}
+
+function readWorkerTaskErrors(sessionName: string) {
+    return readAppLog(sessionName).split(/\r?\n/u)
+        .filter(Boolean)
+        .map(line => JSON.parse(line) as {
+            level?: string;
+            scope?: string;
+            msg?: string;
+        })
+        .filter(entry => entry.level === 'error' && entry.scope === 'worker-task');
+}
+
+async function createLargeConformancePdf() {
+    const evidenceDirectory = resolve('.devkit/project12/879');
+    mkdirSync(evidenceDirectory, {recursive: true});
+    const unencryptedPath = resolve(evidenceDirectory, 'conformance-cancellation-unencrypted-8000-pages.pdf');
+    const filePath = resolve(evidenceDirectory, 'conformance-cancellation-materialized-8000-pages.pdf');
+    const pdf = await PDFDocument.create();
+    for (let page = 0; page < MATERIALIZED_PDF_PAGE_COUNT; page += 1) {
+        pdf.addPage([
+            612,
+            792,
+        ]);
+    }
+    await pdf.attach(randomBytes(MATERIALIZED_PDF_BYTES), 'conformance-payload.bin', {
+        mimeType: 'application/octet-stream',
+        description: 'Large payload for PDF conformance close coverage',
+        creationDate: new Date('2026-01-01T00:00:00.000Z'),
+        modificationDate: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    writeFileSync(unencryptedPath, await pdf.save());
+    const qpdfPath = getPdfNativeToolPaths().qpdf;
+    expect(qpdfPath).toBeTruthy();
+    execFileSync(qpdfPath!, [
+        '--encrypt',
+        '',
+        'conformance-close-test-owner',
+        '256',
+        '--',
+        unencryptedPath,
+        filePath,
+    ]);
+    return filePath;
+}
+
+describe('Electron E2E - PDF Conformance Cancellation', () => {
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-pdf-conformance-cancellation-${Date.now()}`});
+
+    it('keeps conformance analysis quiet when its working copy is closed', async () => {
+        const session = sessionFixture.getSession();
+        const stablePdf = resolve('tests/fixtures/electron/generated-text.pdf');
+        const largePdf = await createLargeConformancePdf();
+        expect(statSync(largePdf).size).toBeGreaterThan(MATERIALIZED_PDF_BYTES);
+        expect(statSync(largePdf).size).toBeLessThan(64 * 1024 * 1024);
+
+        const logPath = resolve(electronFileLogDir(session.name), 'app.ndjson');
+        const initialLog = readFileSync(logPath, 'utf8');
+        const observer = await observeRendererErrors(session.page);
+        try {
+            await openPdfInApp(session.page, stablePdf);
+            await expect.poll(() => readAppLog(session.name).slice(initialLog.length), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toMatch(new RegExp(`"msg":"Worker completed".*${CONFORMANCE_WORKER}|${CONFORMANCE_WORKER}.*"msg":"Worker completed"`, 'u'));
+
+            const stableLog = readAppLog(session.name).slice(initialLog.length);
+            const largeAnalysisStart = initialLog.length + stableLog.length;
+            let startWatcher: ReturnType<typeof watch> | null = null;
+            const pressCloseOnAnalysisStart = new Promise<void>((resolveStart, rejectStart) => {
+                let clickStarted = false;
+                const tryClick = () => {
+                    if (clickStarted) {
+                        return;
+                    }
+                    const chunk = readAppLog(session.name).slice(largeAnalysisStart);
+                    if (!chunk.includes('"msg":"Worker online"') || !chunk.includes(CONFORMANCE_WORKER)) {
+                        return;
+                    }
+                    clickStarted = true;
+                    startWatcher?.close();
+                    void session.page.click('.tab-list .tab.is-active .tab-close')
+                        .then(() => resolveStart(), rejectStart);
+                };
+                startWatcher = watch(logPath, {persistent: false}, tryClick);
+                tryClick();
+                setTimeout(() => {
+                    startWatcher?.close();
+                    rejectStart(new Error('PDF conformance worker did not start before the close deadline'));
+                }, CONFORMANCE_WORKER_START_TIMEOUT_MS).unref();
+            });
+            await triggerOpenPathInApp(session.page, largePdf, CONFORMANCE_WORKER_START_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, CONFORMANCE_WORKER_START_TIMEOUT_MS);
+            await pressCloseOnAnalysisStart;
+            await waitForActiveDocumentSource(session.page, stablePdf, 15_000);
+            await waitForPdfLoaded(session.page, 15_000);
+            await expect.poll(() => {
+                const analysisLog = readAppLog(session.name).slice(largeAnalysisStart);
+                return analysisLog.includes('"msg":"Worker reported cancellation"')
+                    || analysisLog.includes('"msg":"Worker reported failure"');
+            }, {timeout: 30_000}).toBe(true);
+            const visibleErrors = (await observer.collect()).visibleErrorSurfaces;
+            const workerTaskErrors = readWorkerTaskErrors(session.name);
+            expect({
+                visibleErrors,
+                workerTaskErrors,
+            }).toEqual({
+                visibleErrors: [],
+                workerTaskErrors: [],
+            });
+            expect(readAppLog(session.name).slice(largeAnalysisStart)).toContain('"msg":"Worker reported cancellation"');
+            const remainingLog = readAppLog(session.name).slice(initialLog.length);
+            writeFileSync(resolve('.devkit/project12/879/repro-current.ndjson'), remainingLog);
+            expect(remainingLog).toContain('"msg":"Worker completed"');
+        } finally {
+            observer.dispose();
+        }
+    }, 150_000);
+});
