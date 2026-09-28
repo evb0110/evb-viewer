@@ -184,8 +184,18 @@ fn validate_crop_revision_postconditions(
             CropRevisionExpectation::RestoreMediaBox => media_box,
         };
         let actual_crop_box = resolve_inherited_box(&revision, page_id, b"CropBox")?;
-        if !pdf_rects_equal(actual_crop_box, expected_crop_box) {
-            return Err(format!("Crop postcondition failed for page {page_number}").into());
+        // Compare in the PDF number representation used by the writer. Real
+        // coordinates are stored as f32, while the margin arithmetic uses f64.
+        // Exact comparison against the unencoded result rejects ordinary crops.
+        for (actual, expected) in [
+            (actual_crop_box.x1, expected_crop_box.x1),
+            (actual_crop_box.y1, expected_crop_box.y1),
+            (actual_crop_box.x2, expected_crop_box.x2),
+            (actual_crop_box.y2, expected_crop_box.y2),
+        ] {
+            if actual != object_to_f64(&number_object(expected))? {
+                return Err(format!("Crop postcondition failed for page {page_number}").into());
+            }
         }
     }
 

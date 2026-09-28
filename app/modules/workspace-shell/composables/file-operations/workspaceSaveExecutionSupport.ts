@@ -34,6 +34,7 @@ import type {
 } from '@app/types/pdfUi';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
+import {collectDirtyState} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
 import {readDocumentBytes} from '@app/utils/documentBytes';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
@@ -546,10 +547,10 @@ export function createPageMutationWriterSave(deps: {
 }) {
     return async function saveAnnotationsForPageMutation() {
         const saveDeps = deps.save;
-        const hasPendingAnnotations = saveDeps.annotations.dirty.value
-            || saveDeps.annotations.hasChanges()
-            || saveDeps.annotations.hasPendingDeletes?.() === true;
-        if (!hasPendingAnnotations) {
+        if (!await saveDeps.annotations.persistOpenNotes()) {
+            return false;
+        }
+        if (!Object.values(collectDirtyState(saveDeps)).some(Boolean)) {
             return true;
         }
 

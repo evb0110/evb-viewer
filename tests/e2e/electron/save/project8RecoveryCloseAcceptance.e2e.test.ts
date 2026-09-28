@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process';
+import {PDFDocument} from 'pdf-lib';
 import {createHash} from 'node:crypto';
 import {
     chmodSync,
@@ -35,6 +36,7 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    clickVisibleToolbarButton,
     openDocumentSidebarTab,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -506,6 +508,82 @@ describe('Project 8 recovered close decisions', () => {
         await session?.stop().catch(() => undefined);
         session = null;
     });
+
+    it('crops fractional margins and closes only after a save or discard decision', async () => {
+        const pdfPath = await createMultiPageTextFixturePdf(`fractional-crop-close-${Date.now()}.pdf`, 2);
+        const originalBytes = await readFile(pdfPath);
+        const originalPdf = await PDFDocument.load(originalBytes);
+        const originalBox = originalPdf.getPages()[0]!.getMediaBox();
+        let expectedBox = originalBox;
+        session = await startElectronE2ESession(`e2e-fractional-crop-close-${Date.now()}`, {clean: true});
+        const activeSession = session;
+        await session.page.setViewport({
+            width: 1280,
+            height: 800,
+        });
+
+        for (const decision of [
+            'Discard',
+            'Save',
+        ]) {
+            await openPdfInApp(session.page, pdfPath, 60_000);
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+            for (const inset of [
+                80,
+                95,
+            ]) {
+                const previousWorkingCopyDigest = await getFileSha256(workingCopyPath);
+                await clickVisibleToolbarButton(session.page, 'Crop Pages');
+                await session.page.waitForSelector('.crop-overlay.is-active');
+                const point = await session.page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element, inset) => {
+                    const rect = element.getBoundingClientRect();
+                    return {
+                        x: rect.left + inset,
+                        y: Math.max(rect.top, 120) + inset,
+                    };
+                }, inset);
+                await session.page.mouse.move(point.x, point.y);
+                await session.page.mouse.down();
+                await session.page.mouse.move(point.x + 220, point.y + 250, {steps: 10});
+                await session.page.mouse.up();
+                await session.page.waitForSelector('[role="dialog"] input[role="spinbutton"]');
+                await clickDirtyTabDecision(session, 'Apply Crop');
+                await expect.poll(() => getFileSha256(workingCopyPath), {timeout: 30_000}).not.toBe(previousWorkingCopyDigest);
+                await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+            }
+            const croppedPdf = await PDFDocument.load(await readFile(workingCopyPath));
+            expectedBox = croppedPdf.getPages()[0]!.getCropBox();
+            expect(expectedBox.width).toBeGreaterThan(0);
+            expect(expectedBox.width).toBeLessThan(originalBox.width);
+            expect(expectedBox.height).toBeLessThan(originalBox.height);
+            await waitForViewerInteractive(session.page, 60_000);
+            await expect.poll(() => activeSession.page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
+                const rect = element.getBoundingClientRect();
+                return rect.width / rect.height;
+            }), {timeout: 30_000}).toBeCloseTo(expectedBox.width / expectedBox.height, 2);
+            expect((await readFile(pdfPath)).equals(originalBytes)).toBe(true);
+
+            await clickActiveTabClose(session);
+            await session.page.waitForSelector('[role="dialog"]');
+            expect(await session.page.$eval('[role="dialog"]', element => element.textContent)).toContain('Save changes');
+            expect((await readFile(pdfPath)).equals(originalBytes)).toBe(true);
+            await clickDirtyTabDecision(session, 'Cancel');
+            expect(await session.page.$('.editor-pane.is-active .page_container[data-page="1"]')).not.toBeNull();
+            await clickActiveTabClose(session);
+            await session.page.waitForSelector('[role="dialog"]');
+            await clickDirtyTabDecision(session, decision);
+            await expect.poll(() => activeSession.page.$('.editor-pane.is-active .page_container'), {timeout: 30_000}).toBeNull();
+            if (decision === 'Discard') {
+                expect((await readFile(pdfPath)).equals(originalBytes)).toBe(true);
+            } else {
+                const savedPdf = await PDFDocument.load(await readFile(pdfPath));
+                expect(savedPdf.getPages()[0]!.getCropBox()).toEqual(expectedBox);
+                expect(savedPdf.getPages()[1]!.getCropBox()).toEqual(originalBox);
+            }
+        }
+    }, E2E_TIMEOUT_MS);
 
     it.skipIf(process.platform === 'win32')('waits for page work before showing the tab decision and only saves after explicit Save', async () => {
         const heldTool = createHeldPageOpsTool(`project8-busy-tab-close-${Date.now()}`);

@@ -520,6 +520,11 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         isHistoryBusy,
         handleSave: save.handleSave,
     });
+    const preparePageOperationWorkingCopy = saveService.createPageMutationWriterSave({
+        currentPage,
+        waitForPdfReload: pdfHistory.waitForPdfReload,
+        loadPdfFromPath: file.loadPdfFromPath,
+    });
     const pageOps = usePageOpsHandlers({
         workingCopyPath,
         documentRevisionToken,
@@ -544,18 +549,11 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         canMutatePages: computed(() => sourceCapabilities.value.pageEdits),
         onExtractedDocument: deps.emitOpenInNewTab,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
-        saveAnnotationsForPageMutation: saveService.createPageMutationWriterSave({
-            currentPage,
-            waitForPdfReload: pdfHistory.waitForPdfReload,
-            loadPdfFromPath: file.loadPdfFromPath,
-        }),
+        saveAnnotationsForPageMutation: preparePageOperationWorkingCopy,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,
-        // Page operations already hold the document-operation lease. The save
-        // must keep the save queue, but cannot try to acquire that lease again.
-        ensureWorkingCopyFreshForRead: async () => (
-            !hasPendingUnsavedChanges.value
-            || saveService.saveForExternalReadWithinDocumentOperationLease()
-        ),
+        // Page operations already own the lease. Preparing their input must
+        // leave the original and the user's Save/Discard decision untouched.
+        ensureWorkingCopyFreshForRead: preparePageOperationWorkingCopy,
         preparePdfReloadWaiter: pdfHistory.preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache: search.resetSearchCache,

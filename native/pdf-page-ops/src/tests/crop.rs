@@ -35,10 +35,10 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
         operation: Operation::Crop {
             pages_file: pages_file.clone(),
             margins: CropMargins {
-                top: 4.0,
-                bottom: 3.0,
-                left: 2.0,
-                right: 1.0,
+                top: 4.1,
+                bottom: 3.2,
+                left: 2.3,
+                right: 1.4,
             },
         },
         input_path: pdf.clone(),
@@ -49,7 +49,7 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
 
     let cropped = Document::load(&pdf).unwrap();
     let cropped_page = cropped.get_dictionary(page_id).unwrap();
-    assert_eq!(crop_box(&cropped, page_id), vec![2.0, 3.0, 199.0, 96.0]);
+    assert_eq!(crop_box(&cropped, page_id), [2.3_f32, 3.2, 198.6, 95.9].map(f64::from).to_vec());
     assert_eq!(cropped_page.get(b"Rotate").unwrap().as_i64().unwrap(), 180);
 
     mutate_pdf(Config {
