@@ -27,7 +27,7 @@
         </div>
         <div v-show="!activeToolPage" class="editor-global-toolbar-shell">
             <ShellWorkspaceToolbar
-                v-show="showShellToolbar"
+                v-if="showShellToolbar"
                 :snapshot="shellToolbarSnapshot"
                 :has-pdf="shellToolbarHasPdf"
                 :is-opening-document="isActiveTabOpening"
