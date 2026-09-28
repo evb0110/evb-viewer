@@ -4,8 +4,9 @@ import {
     it,
 } from 'vitest';
 import {
-    mkdirSync, readFileSync, statSync, watch, writeFileSync,
+    mkdtempSync, readFileSync, statSync, watch, writeFileSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {resolve} from 'node:path';
@@ -42,8 +43,7 @@ function readWorkerTaskErrors(sessionName: string) {
 }
 
 async function createLargeConformancePdf() {
-    const evidenceDirectory = resolve('.devkit/project12/879');
-    mkdirSync(evidenceDirectory, {recursive: true});
+    const evidenceDirectory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-cancellation-'));
     const unencryptedPath = resolve(evidenceDirectory, 'conformance-cancellation-unencrypted-8000-pages.pdf');
     const filePath = resolve(evidenceDirectory, 'conformance-cancellation-materialized-8000-pages.pdf');
     const pdf = await PDFDocument.create();
@@ -137,7 +137,6 @@ describe('Electron E2E - PDF Conformance Cancellation', () => {
             });
             expect(readAppLog(session.name).slice(largeAnalysisStart)).toContain('"msg":"Worker reported cancellation"');
             const remainingLog = readAppLog(session.name).slice(initialLog.length);
-            writeFileSync(resolve('.devkit/project12/879/repro-current.ndjson'), remainingLog);
             expect(remainingLog).toContain('"msg":"Worker completed"');
         } finally {
             observer.dispose();
