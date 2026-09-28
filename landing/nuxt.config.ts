@@ -1,6 +1,5 @@
 import {fileURLToPath} from 'node:url';
 
-import {transform} from 'esbuild';
 import {defineNuxtConfig as defineNuxtConfigBase} from 'nuxt/config';
 
 import {
@@ -219,33 +218,6 @@ export default defineNuxtConfig({
         'simple-icons:github',
         'simple-icons:microsoft',
     ]}},
-
-    vite: {
-        // Films in app/films are React (Remotion); keep Vue's JSX plugin away from them.
-        vueJsx: {exclude: [/app\/films\//]},
-        plugins: [{
-            name: 'films-react-jsx',
-            enforce: 'pre',
-            async transform(code: string, id: string) {
-                if (!/app\/films\/.*\.tsx$/.test(id)) {
-                    return null;
-                }
-                // An empty tsconfig: the nearest one on disk configures Vue JSX for the rest of the app.
-                const result = await transform(code, {
-                    loader: 'tsx',
-                    jsx: 'automatic',
-                    jsxImportSource: 'react',
-                    sourcefile: id,
-                    sourcemap: true,
-                    tsconfigRaw: {},
-                });
-                return {
-                    code: result.code,
-                    map: result.map,
-                };
-            },
-        }],
-    },
 
     compatibilityDate: '2025-01-15',
 });
