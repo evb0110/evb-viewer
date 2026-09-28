@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_07bd7cee17a5ea::t_c8546f4ca26586 653
+  s_07bd7cee17a5ea::t_001f014b667932 191-197,204-209,649-650,655,657-658
+  s_07bd7cee17a5ea::t_c1d0023e9caf9d 198-203,636-639
+  s_07bd7cee17a5ea::t_7bdd05031f57b0 133
+  s_07bd7cee17a5ea::t_fd52009f8b501a 151,651-652,654,656
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a305c935a20e64fccc80fef7c42e851efa87deff",
+  "prompts": {},
+  "sessions": {
+    "s_07bd7cee17a5ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e8bd-98aa-7621-bf99-d747eff0edae",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
