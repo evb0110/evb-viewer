@@ -21,6 +21,7 @@ import {
     exportPdfPagesAsImages,
     getPdfPageCount,
     normalizeImageExportPath,
+    rasterizePdfRegionAsPngBytes,
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/te';
 import {
@@ -413,6 +414,31 @@ export async function handlePdfExportImages(
     });
 }
 
+export async function handlePdfRegionRasterize(
+    context: IImageExportOperationContext,
+    workingCopyPath: string,
+    pageNumber: number,
+    region: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        outputWidth: number;
+        outputHeight: number
+    },
+) {
+    const normalizedPath = validatePdfWorkingCopyRef(workingCopyPath, context.senderId);
+    return runWithWorkingCopyReadBacking<Uint8Array>(
+        normalizedPath,
+        async physicalReadPath => {
+            const pageCount = await getPdfPageCount(physicalReadPath);
+            if (pageNumber > pageCount) throw new Error(`Page number ${pageNumber} exceeds PDF page count (${pageCount})`);
+            return rasterizePdfRegionAsPngBytes(physicalReadPath, pageNumber, region);
+        },
+        {ownerWebContentsId: context.senderId},
+    );
+}
+
 export async function handlePdfExportMultiPageTiff(
     context: IImageExportOperationContext,
     workingCopyPath: string,
@@ -507,6 +533,8 @@ function createImageExportOperationContext(context: {
 }
 
 export const imageExportMainBindings = {
+    rasterizePdfRegion: (context, ...args) =>
+        handlePdfRegionRasterize(createImageExportOperationContext(context), ...args),
     exportImages: (context, ...args) =>
         handlePdfExportImages(createImageExportOperationContext(context), ...args),
     exportMultiPageTiff: (context, ...args) =>

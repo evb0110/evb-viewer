@@ -23,6 +23,7 @@ function collectCanvasSources(viewerContainer: HTMLElement): ICanvasSource[] {
             return {
                 canvas,
                 rect,
+                pageNumber: Number(canvas.closest<HTMLElement>('.page_container')?.dataset.page) || null,
             };
         })
         .filter((source) =>
@@ -43,7 +44,10 @@ function resolveOutputScale(fragments: readonly ICaptureFragment[]) {
     );
 }
 
-function renderCapturePlan(plan: ICapturePlan): HTMLCanvasElement | null {
+async function renderCapturePlan(
+    plan: ICapturePlan,
+    rasterizePageRegion?: (fragment: ICaptureFragment) => Promise<Uint8Array | null>,
+): Promise<HTMLCanvasElement | null> {
     if (!plan.outputRect || plan.fragments.length === 0) {
         return null;
     }
@@ -66,17 +70,26 @@ function renderCapturePlan(plan: ICapturePlan): HTMLCanvasElement | null {
         const destinationWidth = getRectWidth(fragment.intersection) * outputScale;
         const destinationHeight = getRectHeight(fragment.intersection) * outputScale;
 
-        context.drawImage(
-            fragment.canvas,
-            fragment.sourceX,
-            fragment.sourceY,
-            fragment.sourceWidth,
-            fragment.sourceHeight,
-            destinationX,
-            destinationY,
-            destinationWidth,
-            destinationHeight,
-        );
+        const pngBytes = await rasterizePageRegion?.(fragment);
+        if (pngBytes) {
+            const copiedBytes = new Uint8Array(pngBytes.byteLength);
+            copiedBytes.set(pngBytes);
+            const bitmap = await createImageBitmap(new Blob([copiedBytes.buffer]));
+            context.drawImage(bitmap, destinationX, destinationY, destinationWidth, destinationHeight);
+            bitmap.close();
+        } else {
+            context.drawImage(
+                fragment.canvas,
+                fragment.sourceX,
+                fragment.sourceY,
+                fragment.sourceWidth,
+                fragment.sourceHeight,
+                destinationX,
+                destinationY,
+                destinationWidth,
+                destinationHeight,
+            );
+        }
     }
 
     return outputCanvas;
@@ -93,6 +106,7 @@ function canvasToPngBlob(canvas: HTMLCanvasElement) {
 export async function capturePdfRegionAsPngBlob(
     viewerContainer: HTMLElement,
     selectionRect: IClientRect,
+    rasterizePageRegion?: (fragment: ICaptureFragment) => Promise<Uint8Array | null>,
 ) {
     const sources = collectCanvasSources(viewerContainer);
     const capturePlan = buildCanvasCapturePlan(selectionRect, sources);
@@ -101,7 +115,7 @@ export async function capturePdfRegionAsPngBlob(
         return null;
     }
 
-    const outputCanvas = renderCapturePlan(capturePlan);
+    const outputCanvas = await renderCapturePlan(capturePlan, rasterizePageRegion);
     if (!outputCanvas) {
         throw new Error('Failed to render capture image');
     }
