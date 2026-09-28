@@ -1,6 +1,7 @@
 import {
-    copyFileSync, existsSync, mkdirSync, readFileSync,
+    copyFileSync, mkdtempSync, readFileSync, rmSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
     expect, it,
@@ -18,14 +19,11 @@ import {
     hasWorkspaceCrashCheckpoint, readWorkspaceRecoveryRecords,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
-import {
-    electronUserDataPath, sessionDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 it('restores focused text draft after a crash checkpoint', async () => {
-    const evidenceDirectory = join(process.cwd(), '.devkit/project12/872');
-    mkdirSync(evidenceDirectory, {recursive: true});
-    const sourcePath = join(evidenceDirectory, 'draft-source.pdf');
+    const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-draft-recovery-'));
+    const sourcePath = join(outputDirectory, 'draft-source.pdf');
     copyFileSync(join(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), sourcePath);
     const sessionName = `e2e-unsaved-draft-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
@@ -82,11 +80,10 @@ it('restores focused text draft after a crash checkpoint', async () => {
         expect(state.dirtyState?.fileDirty).toBe(true);
         expect(workingCopyPath).toBeTruthy();
     } finally {
-        const logPath = join(sessionDir(session.name), 'session.log');
-        if (existsSync(logPath)) {
-            mkdirSync(evidenceDirectory, {recursive: true});
-            copyFileSync(logPath, join(evidenceDirectory, 'session.log'));
-        }
         await session.stop();
+        rmSync(outputDirectory, {
+            recursive: true,
+            force: true,
+        });
     }
 });
