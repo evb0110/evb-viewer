@@ -8,6 +8,8 @@ import {
     readFileSync,
 } from 'node:fs';
 import {execFileSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {createCanvas} from '@napi-rs/canvas';
 import {decode} from 'fast-png';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -58,6 +60,20 @@ function countRedPixels(data: ArrayLike<number>, channels: number) {
     return count;
 }
 
+function medianRedGreenChannel(data: ArrayLike<number>, channels: number) {
+    const greens: number[] = [];
+    for (let offset = 0; offset < data.length; offset += channels) {
+        const red = data[offset] ?? 0;
+        const green = data[offset + 1] ?? 0;
+        const blue = data[offset + 2] ?? 0;
+        if (red > 110 && red > green + 20 && red > blue + 20) {
+            greens.push(green);
+        }
+    }
+    greens.sort((left, right) => left - right);
+    return greens[Math.floor(greens.length / 2)] ?? 255;
+}
+
 async function countPdfJsRedPixels(filePath: string) {
     const task = pdfjs.getDocument({
         data: new Uint8Array(readFileSync(filePath)),
@@ -76,7 +92,11 @@ async function countPdfJsRedPixels(filePath: string) {
             annotationMode: pdfjs.AnnotationMode.ENABLE,
         }]);
         await renderTask.promise;
-        return countRedPixels(context.getImageData(0, 0, canvas.width, canvas.height).data, 4);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        return {
+            redPixels: countRedPixels(pixels, 4),
+            medianGreen: medianRedGreenChannel(pixels, 4),
+        };
     } finally {
         await task.destroy();
     }
@@ -97,7 +117,10 @@ function countPopplerRedPixels(filePath: string, outputPrefix: string) {
         outputPrefix,
     ]);
     const image = decode(readFileSync(`${outputPrefix}.png`));
-    return countRedPixels(image.data, image.channels);
+    return {
+        redPixels: countRedPixels(image.data, image.channels),
+        medianGreen: medianRedGreenChannel(image.data, image.channels),
+    };
 }
 interface ITextMarkupCommentShape {
     color?: string | null;
@@ -380,7 +403,7 @@ async function expectMarkupHitTesting(page: Page) {
     expect(hits.outside).toBe(false);
 }
 
-async function updateSelectedMarkupProperties(page: Page) {
+async function updateSelectedMarkupProperties(page: Page, opacityPercent = 65) {
     await clickAnnotationTool(page, 'Select');
     const markupTarget = '.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="text-markup"] [data-annotation-hit-target]';
     await page.$eval(markupTarget, target => target.scrollIntoView({block: 'center'}));
@@ -394,12 +417,12 @@ async function updateSelectedMarkupProperties(page: Page) {
     await clickVisibleAnnotationControl(page, `${inspector} input[type="number"][aria-label="Opacity, %"]`);
     const initialOpacity = await page.$eval(`${inspector} input[type="number"][aria-label="Opacity, %"]`, input => Number((input as HTMLInputElement).value));
     expect(initialOpacity % 5).toBe(0);
-    for (let value = initialOpacity; value !== 65; value += value < 65 ? 5 : -5) {
-        await page.keyboard.press(value < 65 ? 'ArrowUp' : 'ArrowDown');
+    for (let value = initialOpacity; value !== opacityPercent; value += value < opacityPercent ? 5 : -5) {
+        await page.keyboard.press(value < opacityPercent ? 'ArrowUp' : 'ArrowDown');
     }
     await page.keyboard.press('Tab');
     await waitForTextMarkupProperty(page, comment => comment.opacity !== null
-        && comment.opacity !== undefined && Math.abs(comment.opacity - 0.65) < 0.02,
+        && comment.opacity !== undefined && Math.abs(comment.opacity - opacityPercent / 100) < 0.02,
     'the canonical text-markup opacity update');
     expect(await page.$$(inspector)).toHaveLength(1);
     return {
@@ -445,7 +468,26 @@ describe('Electron E2E - EVB text markup', () => {
         await expectMarkupPaint(page, subtype, 3);
         await expectMarkupHitTesting(page);
 
+        let editorMedianGreen: number | undefined;
+        if (subtype === 'Squiggly' || subtype === 'Highlight') {
+            await updateSelectedMarkupProperties(page, 35);
+            const pageElement = await page.$('.editor-pane.is-active .page_container[data-page="1"]');
+            if (!pageElement) {
+                throw new Error('Active PDF page element is missing');
+            }
+            const editorImage = decode(await pageElement.screenshot());
+            editorMedianGreen = medianRedGreenChannel(editorImage.data, editorImage.channels);
+            expect(editorMedianGreen, `the EVB screenshot shows the 35% red ${subtype}`).toBeGreaterThan(160);
+            expect(editorMedianGreen).toBeLessThan(215);
+        }
+
         await saveViaWindowHandle(page);
+        if (subtype === 'Squiggly' || subtype === 'Highlight') {
+            const savedEvidencePath = join(tmpdir(), `evb-${subtype.toLowerCase()}-opacity-${Date.now()}.pdf`);
+            copyFileSync(fixturePath, savedEvidencePath);
+            console.log(`TEXT_MARKUP_OPACITY_PDF ${savedEvidencePath}`);
+            console.log(`TEXT_MARKUP_EDITOR_MEDIAN_GREEN ${subtype} ${String(editorMedianGreen)}`);
+        }
         const savedSummary = await waitForPdfAnnotationSubtypeCount(fixturePath, subtype, 1);
         expect(savedSummary.bySubtype[subtype] ?? 0).toBe(1);
 
@@ -455,15 +497,46 @@ describe('Electron E2E - EVB text markup', () => {
         );
         console.log(`TEXT_MARKUP_POPPLER_PIXELS ${JSON.stringify({
             subtype,
-            red: popplerRedPixels,
+            ...popplerRedPixels,
         })}`);
-        expect(popplerRedPixels, `Poppler renders the saved ${subtype} in red`).toBeGreaterThan(10);
+        expect(popplerRedPixels.redPixels, `Poppler renders the saved ${subtype} in red`).toBeGreaterThan(10);
         const pdfJsRedPixels = await countPdfJsRedPixels(fixturePath);
         console.log(`TEXT_MARKUP_PDFJS_PIXELS ${JSON.stringify({
             subtype,
-            red: pdfJsRedPixels,
+            ...pdfJsRedPixels,
         })}`);
-        expect(pdfJsRedPixels, `restricted PDF.js renders the saved ${subtype} in red`).toBeGreaterThan(10);
+        expect(pdfJsRedPixels.redPixels, `restricted PDF.js renders the saved ${subtype} in red`).toBeGreaterThan(10);
+        if (editorMedianGreen !== undefined) {
+            expect(popplerRedPixels.medianGreen, 'Poppler preserves 35% opacity instead of applying it twice').toBeGreaterThan(160);
+            expect(popplerRedPixels.medianGreen).toBeLessThan(215);
+            expect(pdfJsRedPixels.medianGreen, 'restricted PDF.js preserves 35% opacity instead of applying it twice').toBeGreaterThan(160);
+            expect(pdfJsRedPixels.medianGreen).toBeLessThan(215);
+            expect(Math.abs(popplerRedPixels.medianGreen - editorMedianGreen), 'Poppler and EVB render opacity at the same intensity').toBeLessThan(30);
+            expect(Math.abs(pdfJsRedPixels.medianGreen - editorMedianGreen), 'restricted PDF.js and EVB render opacity at the same intensity').toBeLessThan(30);
+
+            await updateSelectedMarkupProperties(page, 100);
+            const opaquePageElement = await page.$('.editor-pane.is-active .page_container[data-page="1"]');
+            if (!opaquePageElement) {
+                throw new Error('Active PDF page element is missing');
+            }
+            const opaqueEditorImage = decode(await opaquePageElement.screenshot());
+            const opaqueEditorMedianGreen = medianRedGreenChannel(opaqueEditorImage.data, opaqueEditorImage.channels);
+            console.log(`TEXT_MARKUP_OPAQUE_EDITOR_MEDIAN_GREEN ${subtype} ${opaqueEditorMedianGreen}`);
+            await saveViaWindowHandle(page);
+            const opaquePoppler = countPopplerRedPixels(
+                fixturePath,
+                createFixturePath(`evb-text-markup-opaque-poppler-${Date.now()}-${subtype}`),
+            );
+            const opaquePdfJs = await countPdfJsRedPixels(fixturePath);
+            console.log(`TEXT_MARKUP_OPAQUE_RENDERERS ${JSON.stringify({
+                subtype,
+                poppler: opaquePoppler,
+                pdfjs: opaquePdfJs,
+            })}`);
+            expect(Math.abs(opaquePoppler.medianGreen - 68), 'Poppler opacity 1 matches the fully opaque red mark').toBeLessThan(15);
+            const expectedPdfJsOpaqueGreen = subtype === 'Highlight' ? 68 : 84;
+            expect(Math.abs(opaquePdfJs.medianGreen - expectedPdfJsOpaqueGreen), 'restricted PDF.js opacity 1 matches its fully opaque red mark').toBeLessThan(20);
+        }
 
         const reopenedPath = createFixturePath(
             `evb-text-markup-reopen-${Date.now()}-${subtype}.pdf`,

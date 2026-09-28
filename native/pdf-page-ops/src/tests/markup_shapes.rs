@@ -684,7 +684,11 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
         let ext_gstate = appearance.dict.get(b"Resources").unwrap().as_dict().unwrap()
             .get(b"ExtGState").unwrap().as_dict().unwrap()
             .get(b"GS0").unwrap().as_dict().unwrap();
-        assert_eq!(ext_gstate.get(b"CA").unwrap().as_float().unwrap(), 1.0);
+        assert_approximately(ext_gstate.get(b"CA").unwrap().as_float().unwrap() as f64, 1.0);
+        assert_approximately(ext_gstate.get(b"ca").unwrap().as_float().unwrap() as f64, 1.0);
+        let annotation_opacity = annotation.get(b"CA").unwrap();
+        assert!(annotation_opacity.as_i64().is_ok_and(|value| value == 1)
+            || annotation_opacity.as_float().is_ok_and(|value| value == 1.0));
         if subtype == "Highlight" {
             assert_eq!(ext_gstate.get(b"BM").unwrap().as_name().unwrap(), b"Multiply");
             assert!(content.lines().any(|line| line == "f"));
@@ -757,7 +761,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
     assert_approximately(color[0].as_float().unwrap() as f64, 1.0);
     assert_approximately(color[1].as_float().unwrap() as f64, 0.0);
     assert_approximately(color[2].as_float().unwrap() as f64, 0.0);
-    assert!(markup.get(b"CA").is_err());
+    assert!(markup.get(b"CA").unwrap().as_i64().is_ok_and(|value| value == 1));
 
     let _ = remove_file(pdf_path);
 }
@@ -876,6 +880,7 @@ fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
         .get(b"ExtGState").unwrap().as_dict().unwrap()
         .get(b"GS0").unwrap().as_dict().unwrap();
     assert_approximately(graphics_state.get(b"CA").unwrap().as_float().unwrap() as f64, 0.45);
+    assert_approximately(graphics_state.get(b"ca").unwrap().as_float().unwrap() as f64, 0.45);
     assert!(document.get_dictionary(page_id).is_ok());
 }
 
@@ -1421,6 +1426,7 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
     let ink = loaded.get_dictionary(ink_ref).unwrap();
     assert_eq!(annotation_subtype(ink), "ink");
     assert_eq!(ink.get(b"F").unwrap().as_i64().unwrap() & 4, 4);
+    assert_eq!(ink.get(b"CA").unwrap().as_float().unwrap(), 0.65);
     let appearance_ref = ink
         .get(b"AP")
         .unwrap()
@@ -1441,6 +1447,11 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
     );
     assert!(appearance.dict.get(b"BBox").is_ok());
     assert!(appearance.dict.get(b"Resources").is_ok());
+    let ink_graphics_state = appearance.dict.get(b"Resources").unwrap().as_dict().unwrap()
+        .get(b"ExtGState").unwrap().as_dict().unwrap()
+        .get(b"GS0").unwrap().as_dict().unwrap();
+    assert_approximately(ink_graphics_state.get(b"CA").unwrap().as_float().unwrap() as f64, 0.65);
+    assert_approximately(ink_graphics_state.get(b"ca").unwrap().as_float().unwrap() as f64, 0.65);
     let content = String::from_utf8(appearance.content.clone()).unwrap();
     assert!(content.contains("/GS0 gs"));
     assert!(content.contains("1 J"));

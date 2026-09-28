@@ -533,7 +533,7 @@ fn create_markup_annotation(
     }
     if let Some(opacity) = hint.opacity {
         dict.set("CA", number_object(opacity));
-    } else if hint.subtype == "Highlight" {
+    } else {
         dict.set("CA", Object::Integer(1));
     }
     attach_markup_appearance(&mut dict, appearance_ref);
@@ -732,6 +732,10 @@ fn apply_markup_rewrite_to_object_with_options(
         {
             dict.set("CA", number_object(opacity));
         }
+    } else if candidate.opacity.is_none() {
+        // Appearance streams are rendered under the annotation opacity. Make
+        // that source explicit even for a full-opacity imported annotation.
+        dict.set("CA", Object::Integer(1));
     }
     if let Some((hint, _, _)) = authoritative_geometry {
         if let Some(rect) = appearance_rect {
