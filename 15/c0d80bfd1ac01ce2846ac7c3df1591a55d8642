@@ -1,0 +1,25 @@
+tests/e2e/electron/documents/bookmarkRenameDestinations.e2e.test.ts
+  s_877dd6a1b3c54f::t_91592fe42a2889 65-66
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing.ts
+  s_877dd6a1b3c54f::t_c70506138b037b 477,480
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_877dd6a1b3c54f::t_3b3f71744c9de8 670-672
+  s_877dd6a1b3c54f::t_5e7f01387e6026 166,673
+  s_877dd6a1b3c54f::t_c70506138b037b 624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "15c0d80bfd1ac01ce2846ac7c3df1591a55d8642",
+  "prompts": {},
+  "sessions": {
+    "s_877dd6a1b3c54f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9cb-996c-77a2-9689-410d62528a95",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
