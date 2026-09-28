@@ -537,13 +537,39 @@ describe('Project 8 recovered close decisions', () => {
                 const previousWorkingCopyDigest = await getFileSha256(workingCopyPath);
                 await clickVisibleToolbarButton(session.page, 'Crop Pages');
                 await session.page.waitForSelector('.crop-overlay.is-active');
-                const point = await session.page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element, inset) => {
-                    const rect = element.getBoundingClientRect();
-                    return {
-                        x: rect.left + inset,
-                        y: Math.max(rect.top, 120) + inset,
+                const pointHandle = await session.page.waitForFunction((inset) => {
+                    const overlay = document.querySelector<HTMLElement>('.crop-overlay.is-active');
+                    const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
+                    if (!overlay || !page || getComputedStyle(overlay).pointerEvents !== 'auto') {
+                        return false;
+                    }
+
+                    const pageRect = page.getBoundingClientRect();
+                    const overlayRect = overlay.getBoundingClientRect();
+                    const point = {
+                        x: pageRect.left + inset,
+                        y: Math.max(pageRect.top, 120) + inset,
                     };
-                }, inset);
+                    const pointIsOnPage = point.x >= pageRect.left
+                        && point.x <= pageRect.right
+                        && point.y >= pageRect.top
+                        && point.y <= pageRect.bottom;
+                    const pointIsOnOverlay = point.x >= overlayRect.left
+                        && point.x <= overlayRect.right
+                        && point.y >= overlayRect.top
+                        && point.y <= overlayRect.bottom;
+
+                    return pointIsOnPage
+                        && pointIsOnOverlay
+                        && overlay.contains(document.elementFromPoint(point.x, point.y))
+                        ? point
+                        : false;
+                }, {}, inset);
+                const point = await pointHandle.jsonValue() as {
+                    x: number;
+                    y: number;
+                };
+                await pointHandle.dispose();
                 await session.page.mouse.move(point.x, point.y);
                 await session.page.mouse.down();
                 await session.page.mouse.move(point.x + 220, point.y + 250, {steps: 10});
@@ -552,6 +578,13 @@ describe('Project 8 recovered close decisions', () => {
                 await clickDirtyTabDecision(session, 'Apply Crop');
                 await expect.poll(() => getFileSha256(workingCopyPath), {timeout: 30_000}).not.toBe(previousWorkingCopyDigest);
                 await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+                await waitForPdfLoaded(session.page, 60_000);
+                const croppedPage = await PDFDocument.load(await readFile(workingCopyPath));
+                const visibleCropBox = croppedPage.getPages()[0]!.getCropBox();
+                await expect.poll(() => activeSession.page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.width / rect.height;
+                }), {timeout: 30_000}).toBeCloseTo(visibleCropBox.width / visibleCropBox.height, 2);
             }
             const croppedPdf = await PDFDocument.load(await readFile(workingCopyPath));
             expectedBox = croppedPdf.getPages()[0]!.getCropBox();
