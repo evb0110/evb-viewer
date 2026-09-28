@@ -23,13 +23,13 @@ parallel and the verdict lands in about fifteen minutes; see
 | `changed_areas`, Changed Area Detection | Selects the area-scoped jobs from `scripts/release/policy.mjs` | Always |
 | `lint`, Lint | Generated-artifact drift, whole-tree lint, Drizzle schema, ASAR unpack list, web deploy sources | Always |
 | `unit`, Typecheck And Unit Tests | `pnpm run typecheck`, `pnpm run test:unit` | Always |
-| `rust`, Rust | `rustfmt`, clippy, `cargo-deny`, Rust tests, scan-cleanup catastrophe baseline | `native_or_build` |
-| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity | `native_or_build` |
-| `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against the built page-ops tool | `native_or_build` |
+| `rust`, Rust | `rustfmt`, clippy, `cargo-deny`, Rust tests, scan-cleanup catastrophe baseline | `rust` |
+| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity | `desktop_build` |
+| `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against the built page-ops tool | `desktop_build` |
 | `windows_atomic_pdf_replacement`, Windows Atomic PDF Replacement | Real Windows filesystem replacement | `electron_save_reopen` |
 | `browser_integration`, Browser Integration | Browser integration suite in Chromium | `browser_integration` |
 | `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles | `scan_cleanup_export` |
-| `landing`, Landing | Landing lint, typecheck and build | `landing` |
+| `landing`, Landing | Landing typecheck and build (root lint already lints it) | `landing` |
 | `electron_e2e_build`, Electron E2E Build | Production renderer, Electron bundle and native tools, shared with every lane | `electron_smoke` |
 | `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per matrix job on Linux | `electron_smoke` |
 | `gates_ok` | Every job succeeded, or was skipped because its area did not change | Always |
@@ -108,10 +108,11 @@ or failed run did not prove is selected again.
 
 | Output | Path groups that select it |
 | --- | --- |
-| `browser_integration` | App, packages, public, vendor, server, browser tests, shared test and config files, package metadata |
-| `electron_smoke` | App and Electron sources, Electron tests and runner scripts, packaging config, resources, PDF and vendor inputs, shared config, package metadata, native save paths |
+| `browser_integration` | App, packages, public, vendor, server, browser tests, shared test and config files, CI setup/workflow, package metadata |
+| `electron_smoke` | App and Electron sources, Electron tests/fixtures/harness, CI setup/workflow, packaging config, resources, PDF and vendor inputs, shared config, package metadata, native save paths |
 | `electron_save_reopen` | `NATIVE_PDF_SAVE_DEPENDENCY_PATHS` |
-| `native_or_build` | Actions and workflows, build, native, resources and server sources, native and release scripts, WASM scripts, native integration tests, packaging config, package metadata |
+| `rust` | Native workspace and toolchains, Rust test inputs (including contracts, fixtures, embedded font and resources), Rust gate scripts, CI setup/workflows, package metadata |
+| `desktop_build` | Actions and workflows, build, native, resources and server sources, native and release scripts, WASM scripts, native integration tests, packaging config, package metadata |
 | `scan_cleanup_export` | CI setup and workflows, scan-cleanup and native sources, scan-cleanup scripts, Rust metadata, package metadata |
 | `landing` | `landing/**`, shared contracts and i18n packages, `setup-ci-env`, workspace metadata, workflows |
 
@@ -126,15 +127,16 @@ fully green run; dispatched runs do not touch the issue.
 | --- | --- |
 | Scan Cleanup Heavy Gates | Canonical scan-cleanup identity |
 | Rust Tests (Linux arm64) | The Rust workspace on the second architecture |
-| Native Parser Fuzz Canaries | Image, xref and JBIG2 fuzz targets |
+| Native Parser Fuzz Canaries | Image, xref and JBIG2 fuzz targets, with cached cargo-fuzz and target builds |
 | Public release mirror health | Current GitHub latest release, updater channel, mirror manifest and served asset |
-| Electron E2E macOS (lane) | The `ci.yml` lanes on macOS with timing budgets enforced |
+| Electron E2E macOS Build and lanes | One macOS production build shared across the eight ordinary lanes, large-PDF and visible-window tests; ordinary lane timing budgets are enforced |
 | Electron E2E Search Match Scroll | High-zoom native search over a generated large document |
 | Electron E2E Large PDF | Large-PDF lane against generated fixtures |
 | Electron E2E Visible Window | Visible-window lifecycle |
 
-These run the hosted lanes under `tests/e2e/electron/nightly/`: `e2e-search`,
-`e2e-large-pdf` and `e2e-visible-window`. The `e2e-exact-pdf` lane requires
+The macOS producer shares its build artifact with all ten macOS consumers.
+These also run hosted lanes under `tests/e2e/electron/nightly/`:
+`e2e-search`, `e2e-large-pdf` and `e2e-visible-window`. The `e2e-exact-pdf` lane requires
 the private fixture and runs only on a machine where that fixture is staged.
 
 ## Other workflows

@@ -29,10 +29,7 @@ import {
     requireDocumentRef,
     type TLegacyDocumentRef,
 } from '@contracts/documentRef';
-import {
-    resolveLargePdfFixtureAvailability,
-    selectFixtureDescribe,
-} from '@tests/e2e/electron/helpers/fixtures';
+import {resolveLargePdfFixtureAvailability} from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clearTextSelection,
@@ -78,10 +75,8 @@ const MATRIX_PAGE_INDEX = MATRIX_PAGE_NUMBER - 1;
 const PLACED_IMAGE_PAGE_NUMBER = 31;
 const PLACED_IMAGE_PAGE_INDEX = PLACED_IMAGE_PAGE_NUMBER - 1;
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
-const fixture = resolveLargePdfFixtureAvailability();
 const exactFixtureExpectation = resolveExactPdfFixtureExpectation();
 const exactFixtureArtifactDirectories: string[] = [];
-const largePdfDescribe = selectFixtureDescribe(describe, fixture);
 const execFileAsync = promisify(execFile);
 const PLACED_IMAGE_JPEG = Buffer.from(
     '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AntWpOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=',
@@ -1034,7 +1029,7 @@ async function resizeCanonicalEntity(
     });
 }
 
-largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', () => {
+describe('Electron E2E - exact large PDF canonical annotation matrix', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-issue-192-canonical-matrix-${Date.now()}`,
         timeoutMs: MATRIX_TIMEOUT_MS,
@@ -1050,6 +1045,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
     });
 
     it('creates, updates, deletes, recreates, saves, and hard-reopens canonical annotations', async () => {
+        const fixture = resolveLargePdfFixtureAvailability();
         let session = sessionFixture.getSession();
         if (!fixture.path) {
             throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
@@ -1338,6 +1334,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
     }, MATRIX_TIMEOUT_MS);
 
     it('creates, moves, deletes, saves, and hard-reopens a placed image through the canonical layer', async () => {
+        const fixture = resolveLargePdfFixtureAvailability();
         let session = await sessionFixture.restart({clean: true});
         if (!fixture.path) {
             throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);

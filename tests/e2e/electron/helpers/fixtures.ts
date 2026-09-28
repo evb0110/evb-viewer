@@ -48,7 +48,7 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
@@ -67,10 +67,10 @@ const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-le
 // A sparse document above half a gibibyte, so the working copy, geometry and
 // PDF.js paths run on a file larger than the renderer may hold in memory.
 const NATIVE_LARGE_PDF_FIXTURE_BYTES = 513 * 1024 * 1024;
-// Above the shape-scan cap, so the annotation-save lane covers saving a document
-// whose embedded shape layer is too large to scan, and far below the oversized
-// fixture so it stays quick to generate.
-const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES * 2;
+// One MiB above the largest file-size switch on the open and save path (eager
+// conformance analysis is deferred above it), so the lane saves a document the
+// app treats as large.
+const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = MAX_EAGER_PDF_CONFORMANCE_BYTES + 1024 * 1024;
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
 const TRACKED_DJVU_CORPUS_FIXTURE = resolve(

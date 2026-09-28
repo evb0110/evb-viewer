@@ -22,7 +22,7 @@ import {
 } from 'pdf-lib';
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
-import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { matchesSessionProcessIdentity } from '@scripts/electron-run/electronRunProcessIdentity';
 import {
@@ -429,8 +429,8 @@ describe('Electron E2E fixture policy', () => {
 
             expect(fixture.path).not.toBeNull();
             const size = statSync(fixture.path!).size;
-            // Above the shape-scan cap the lane covers saving an unscannable shape layer.
-            expect(size).toBeGreaterThan(EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES);
+            // Above the eager-conformance limit the lane saves a document the app treats as large.
+            expect(size).toBeGreaterThan(MAX_EAGER_PDF_CONFORMANCE_BYTES);
         } finally {
             restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
         }

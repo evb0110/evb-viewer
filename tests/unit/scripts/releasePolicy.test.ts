@@ -52,8 +52,9 @@ interface IReleaseCommand {
 
 interface IReleaseGatePolicyManifest {
     ci: {changedAreas: {
+        desktopBuild: IChangedAreaPolicy;
         landing: IChangedAreaPolicy;
-        nativeOrBuild: IChangedAreaPolicy;
+        rust: IChangedAreaPolicy;
     };};
     release: {
         localChecks: {
@@ -783,16 +784,33 @@ describe('release policy', () => {
         expect(commandArgs.flat()).not.toContain('landing');
     });
 
-    it('keeps native/build and landing changed-area policy in one release manifest', () => {
+    it('keeps Rust, desktop/build, and landing changed-area policy in one release manifest', () => {
         const changedAreas = getGatePolicyManifest().ci.changedAreas;
 
-        expect(changedAreas.nativeOrBuild).toMatchObject({
-            output: 'native_or_build',
+        expect(changedAreas.rust).toMatchObject({
+            output: 'rust',
             owner: 'rust',
         });
-        expect(changedAreas.nativeOrBuild.paths).toEqual(expect.arrayContaining([
+        expect(changedAreas.rust.paths).toEqual(expect.arrayContaining([
+            '.cargo/**',
+            '.github/workflows/ci.yml',
+            'native/**',
+            'packages/contracts/**',
+            'public/fonts/annotation/DejaVuSans.ttf',
+            'resources/**',
+            'scripts/ci/scan-cleanup-oracles.sh',
+            'package.json',
+            'rust-toolchain.toml',
+            'tests/fixtures/electron/interop/**',
+        ]));
+        expect(changedAreas.desktopBuild).toMatchObject({
+            output: 'desktop_build',
+            owner: 'strict_build',
+        });
+        expect(changedAreas.desktopBuild.paths).toEqual(expect.arrayContaining([
             '.github/workflows/**',
             'native/**',
+            'public/fonts/annotation/DejaVuSans.ttf',
             'resources/**',
             'scripts/afterPack.cjs',
             'scripts/afterSign.cjs',

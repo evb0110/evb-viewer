@@ -8,9 +8,6 @@ inputs:
   cache-dependency-path:
     description: Lockfile path used by the pnpm cache.
     default: pnpm-lock.yaml
-  verify-electron:
-    description: Verify the installed Electron executable after installing dependencies.
-    default: 'false'
   wasm:
     description: Restore or build the browser WASM files in public/wasm.
     default: 'false'
@@ -38,11 +35,6 @@ runs:
       shell: bash
       run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
 
-    - name: Verify Electron install
-      if: inputs.verify-electron == 'true'
-      shell: bash
-      run: pnpm run check:electron:install
-
     # Keyed on the crates the two WASM builds link (scripts/native-build-id.mjs
     # hashes the same closure to decide whether a restored build is current).
     - name: Restore browser WASM builds
@@ -53,7 +45,7 @@ runs:
         path: |
           public/wasm
           .tmp/wasm-build-ids.json
-        key: wasm-v1-${{ runner.os }}-${{ hashFiles('native/Cargo.toml', 'native/Cargo.lock', 'native/rust-toolchain.toml', 'native/pdf-page-ops/Cargo.toml', 'native/pdf-page-ops/src/**', 'native/pdf-image-combine/Cargo.toml', 'native/pdf-image-combine/src/**', 'native/evb-native-support/Cargo.toml', 'native/evb-native-support/src/**', 'native/evb-raster-io/Cargo.toml', 'native/evb-raster-io/src/**', 'native/jbig2-codec/Cargo.toml', 'native/jbig2-codec/src/**', 'native/scan-primitives/Cargo.toml', 'native/scan-primitives/src/**', 'scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs') }}
+        key: wasm-v1-${{ runner.os }}-${{ hashFiles('native/Cargo.toml', 'native/Cargo.lock', 'native/rust-toolchain.toml', 'native/pdf-page-ops/Cargo.toml', 'native/pdf-page-ops/src/**', 'native/pdf-image-combine/Cargo.toml', 'native/pdf-image-combine/src/**', 'native/evb-native-support/Cargo.toml', 'native/evb-native-support/src/**', 'native/evb-raster-io/Cargo.toml', 'native/evb-raster-io/src/**', 'native/jbig2-codec/Cargo.toml', 'native/jbig2-codec/src/**', 'native/scan-primitives/Cargo.toml', 'native/scan-primitives/src/**', 'public/fonts/annotation/DejaVuSans.ttf', 'scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs') }}
 
     - name: Build browser WASM
       if: inputs.wasm == 'true' && steps.wasm-cache.outputs.cache-hit != 'true'

@@ -3,6 +3,7 @@ name: CI Nightly
 # The nightly run: checks whose value does not depend on which commit runs
 # them. They are slow, they need large fixtures or a second platform, or they
 # measure wall-clock budgets that a shared hosted runner cannot hold steady.
+# One macOS build job feeds all ten macOS E2E jobs.
 # It reports; nothing here gates a commit or a release (ci.yml's gates_ok is
 # the one required verdict).
 #
@@ -72,15 +73,13 @@ jobs:
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
 
-      - name: Restore Rust build caches
-        uses: actions/cache@v5
+      # Dependencies only: Cargo rebuilds workspace crates in a fresh
+      # checkout anyway, and only main saves, so branches cannot add copies.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-
+          workspaces: native -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Canonical scan-cleanup identity
         run: pnpm run test:scan-cleanup:canonical-identity
@@ -108,15 +107,13 @@ jobs:
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils qpdf
 
-      - name: Restore Rust build caches
-        uses: actions/cache@v5
+      # Dependencies only: Cargo rebuilds workspace crates in a fresh
+      # checkout anyway, and only main saves, so branches cannot add copies.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-arm64-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: rust-arm64-${{ runner.os }}-${{ runner.arch }}-
+          workspaces: native -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Rust tests
         run: pnpm run test:rust
@@ -125,6 +122,10 @@ jobs:
     name: Native Parser Fuzz Canaries
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Pinned so the cached fuzz builds stay valid; a floating nightly
+      # changes daily and would miss the cache on every scheduled run.
+      FUZZ_TOOLCHAIN: nightly-2026-09-27
 
     steps:
       - name: Checkout
@@ -132,60 +133,65 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install nightly toolchain
+        run: rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+
+      - name: Restore cargo-fuzz
+        id: cargo-fuzz-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-v1-${{ runner.os }}-${{ runner.arch }}-0.13.1
+
+      # Only main saves, so a dispatched branch run cannot add a copy.
+      - name: Restore fuzz target builds
+        id: fuzz-target-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            native/pdf-image-combine/fuzz/target
+            native/pdf-page-ops/fuzz/target
+            native/jbig2-codec/fuzz/target
+          key: native-fuzz-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.FUZZ_TOOLCHAIN }}-${{ hashFiles('native/Cargo.lock', 'native/pdf-image-combine/fuzz/Cargo.toml', 'native/pdf-image-combine/fuzz/Cargo.lock', 'native/pdf-page-ops/fuzz/Cargo.toml', 'native/pdf-page-ops/fuzz/Cargo.lock', 'native/jbig2-codec/fuzz/Cargo.toml', 'native/jbig2-codec/fuzz/Cargo.lock') }}
+
       - name: Install cargo-fuzz
-        run: |
-          rustup toolchain install nightly --profile minimal
-          cargo install cargo-fuzz --version 0.13.1 --locked
+        if: steps.cargo-fuzz-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --version 0.13.1 --locked
 
       - name: Fuzz image decoders
         run: |
           for target in png jpeg tiff netpbm; do
-            cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-image-combine/fuzz -- -max_total_time=15
+            cargo "+$FUZZ_TOOLCHAIN" fuzz run "$target" --fuzz-dir native/pdf-image-combine/fuzz -- -max_total_time=15
           done
 
       - name: Fuzz xref parsers
         run: |
           for target in xref-table xref-stream; do
-            cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-page-ops/fuzz -- -max_total_time=15
+            cargo "+$FUZZ_TOOLCHAIN" fuzz run "$target" --fuzz-dir native/pdf-page-ops/fuzz -- -max_total_time=15
           done
 
       - name: Fuzz JBIG2 codec
         run: |
           for target in decode roundtrip; do
-            cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
+            cargo "+$FUZZ_TOOLCHAIN" fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
           done
 
-  electron_e2e_lanes:
-    name: Electron E2E Lanes
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+      - name: Save fuzz target builds
+        if: github.ref == 'refs/heads/main' && steps.fuzz-target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            native/pdf-image-combine/fuzz/target
+            native/pdf-page-ops/fuzz/target
+            native/jbig2-codec/fuzz/target
+          key: ${{ steps.fuzz-target-cache.outputs.cache-primary-key }}
+
+  electron_e2e_macos_build:
+    name: Electron E2E macOS Build
+    runs-on: macos-14
+    timeout-minutes: 30
     outputs:
       lanes: ${{ steps.lanes.outputs.lanes }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: List lanes
-        id: lanes
-        run: node scripts/electron-e2e-lanes.mjs >> "$GITHUB_OUTPUT"
-
-  # The per-push Electron E2E lanes again on macOS, the owner's platform, with
-  # wall-clock budgets enforced. ci.yml runs the same lanes on Linux and only
-  # reports a missed budget.
-  nightly_electron_e2e_macos:
-    name: Electron E2E macOS (${{ matrix.lane }})
-    needs: electron_e2e_lanes
-    runs-on: macos-14
-    timeout-minutes: 60
-    env:
-      EVB_E2E_TIMING_BUDGETS: enforce
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: ${{ fromJSON(needs.electron_e2e_lanes.outputs.lanes) }}
 
     steps:
       - name: Checkout
@@ -197,8 +203,71 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
           wasm: 'true'
+
+      - name: Restore staged Electron native binaries
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            .tmp/scan-cleanup
+            .tmp/pdf-image-combine
+            .tmp/pdf-page-ops
+            .tmp/pdf-search
+          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'native/rust-toolchain.toml', 'rust-toolchain.toml', 'public/fonts/annotation/**', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build renderer, Electron and native tools
+        run: pnpm run build && pnpm run build:electron && pnpm run build:native:e2e
+
+      - name: List lanes
+        id: lanes
+        run: node scripts/electron-e2e-lanes.mjs >> "$GITHUB_OUTPUT"
+
+      # A tarball keeps the native tools executable.
+      - name: Pack build
+        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
+
+      - name: Upload build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-e2e-macos-build
+          retention-days: 1
+          path: electron-e2e-build.tar
+
+  # The per-push Electron E2E lanes again on macOS, the owner's platform, with
+  # wall-clock budgets enforced. ci.yml runs the same lanes on Linux and only
+  # reports a missed budget.
+  nightly_electron_e2e_macos:
+    name: Electron E2E macOS (${{ matrix.lane }})
+    needs: electron_e2e_macos_build
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      EVB_E2E_TIMING_BUDGETS: enforce
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(needs.electron_e2e_macos_build.outputs.lanes) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-macos-build
+
+      - name: Unpack build
+        run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Fetch pinned native tools
         run: node --import tsx scripts/fetchRuntimeBinaries.ts --target darwin-arm64
@@ -214,7 +283,7 @@ jobs:
         run: pnpm exec playwright install chromium
 
       - name: Electron E2E ${{ matrix.lane }}
-        run: pnpm run test:e2e "${{ matrix.lane }}" --reporter verbose
+        run: bash scripts/test-electron-e2e-headless.sh --no-build "${{ matrix.lane }}" --reporter verbose
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -240,7 +309,6 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
           wasm: 'true'
 
       - name: Electron E2E search match scroll
@@ -254,6 +322,7 @@ jobs:
 
   nightly_electron_e2e_large_pdf:
     name: Electron E2E Large PDF
+    needs: electron_e2e_macos_build
     runs-on: macos-14
     timeout-minutes: 90
 
@@ -267,13 +336,19 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-          wasm: 'true'
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-macos-build
+
+      - name: Unpack build
+        run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Electron E2E large PDF
         env:
           EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: '1'
-        run: pnpm run test:e2e e2e-large-pdf --reporter verbose
+        run: bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf --reporter verbose
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -283,6 +358,7 @@ jobs:
 
   nightly_electron_e2e_visible_window:
     name: Electron E2E Visible Window
+    needs: electron_e2e_macos_build
     runs-on: macos-14
     timeout-minutes: 30
 
@@ -296,11 +372,17 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-          wasm: 'true'
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-macos-build
+
+      - name: Unpack build
+        run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Electron E2E visible-window lifecycle
-        run: pnpm run test:e2e:visible-window
+        run: pnpm exec vitest run --project e2e-visible-window --reporter verbose
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -318,7 +400,7 @@ jobs:
       - nightly_scan_cleanup_heavy
       - nightly_rust_tests_arm64
       - nightly_rust_fuzz
-      - electron_e2e_lanes
+      - electron_e2e_macos_build
       - nightly_electron_e2e_macos
       - nightly_electron_e2e_search_match_scroll
       - nightly_electron_e2e_large_pdf

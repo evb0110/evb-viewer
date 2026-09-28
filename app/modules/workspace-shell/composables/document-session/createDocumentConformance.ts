@@ -34,7 +34,7 @@ export interface IPdfConformanceIdleScheduler {
 
 export interface IPdfConformanceDeferralOptions { fileSize?: number | null }
 
-const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
+export const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
 
 function createDefaultIdleScheduler(): IPdfConformanceIdleScheduler {
     if (

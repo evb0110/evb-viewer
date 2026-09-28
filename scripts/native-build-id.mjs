@@ -19,6 +19,13 @@ const WORKSPACE_FILES = [
     'rust-toolchain.toml',
 ];
 
+/** @param {string} crateName @returns {string[]} */
+export function getNativeExternalBuildInputs(crateName) {
+    return crateName === 'pdf-page-ops'
+        ? ['public/fonts/annotation/DejaVuSans.ttf']
+        : [];
+}
+
 /** @param {string} nativeRoot @param {string} crateName @returns {string[]} */
 function crateClosure(nativeRoot, crateName) {
     const closure = new Set();
@@ -67,6 +74,9 @@ export function computeNativeBuildId(projectRoot, crateName) {
         if (existsSync(buildScript)) {
             files.push(buildScript);
         }
+    }
+    for (const input of getNativeExternalBuildInputs(crateName)) {
+        files.push(path.join(projectRoot, input));
     }
     const hash = createHash('sha256');
     for (const file of files.map(filePath => path.relative(nativeRoot, filePath).split(path.sep).join('/')).sort()) {
