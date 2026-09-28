@@ -18,6 +18,8 @@ pub(crate) struct MarkupHintState {
 #[derive(Clone)]
 pub(crate) struct MarkupAnnotationCandidate {
     pub(crate) color: Option<RgbColor>,
+    pub(crate) opacity: Option<f64>,
+    pub(crate) has_appearance: bool,
     pub(crate) marker_rect: Option<MarkerRect>,
     pub(crate) object_id: ObjectId,
     pub(crate) page_markup_index: u32,

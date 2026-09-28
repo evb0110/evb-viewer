@@ -119,7 +119,7 @@ fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
     assert_unowned_keys_unchanged(
         &before,
         after,
-        &[b"C", b"CA", b"AP", b"Contents", b"M", b"NM"],
+        &[b"C", b"CA", b"AP", b"Contents", b"M", b"NM", b"QuadPoints"],
     )
     .unwrap();
     assert_eq!(read_annotation_name(after).as_deref(), Some("markup-preserve"));
@@ -228,11 +228,7 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
                 .collect::<Vec<_>>(),
             &[40.0, 70.0, 140.0, 80.0],
         );
-        if subtype == "Squiggly" {
-            assert!(annotation.get(b"AP").is_ok());
-        } else {
-            assert!(annotation.get(b"AP").is_err());
-        }
+        assert!(annotation.get(b"AP").is_ok(), "{subtype} appearance");
     }
 }
 
@@ -387,9 +383,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
             assert_approximately(rect.x2, 160.0);
             assert_approximately(rect.y2, 80.0);
         }
-        if subtype == "Squiggly" {
-            assert!(annotation.get(b"AP").is_ok());
-        }
+        assert!(annotation.get(b"AP").is_ok(), "{subtype} appearance");
     }
 }
 
@@ -659,7 +653,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
     let loaded = Document::load(&input_path).unwrap();
     let annots = get_page_annots(&loaded, page_id).unwrap();
     assert_eq!(annots.len(), 4);
-    for (index, (subtype, id, _color)) in [
+    for (index, (subtype, id, color)) in [
         ("Highlight", "persisted-highlight", "#ff0000"),
         ("Underline", "persisted-underline", "#00ff00"),
         ("StrikeOut", "persisted-strikeout", "#0000ff"),
@@ -681,9 +675,24 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
             &quad_points,
             &[20.0, 80.0, 80.0, 80.0, 20.0, 70.0, 80.0, 70.0],
         );
-        if subtype == "Squiggly" {
-            assert!(annotation.get(b"AP").is_ok());
+        let appearance_ref = annotation
+            .get(b"AP").unwrap().as_dict().unwrap()
+            .get(b"N").unwrap().as_reference().unwrap();
+        let appearance = loaded.get_object(appearance_ref).unwrap().as_stream().unwrap();
+        let content = String::from_utf8(appearance.content.clone()).unwrap();
+        assert!(content.contains("/GS0 gs"), "{subtype} opacity graphics state");
+        let ext_gstate = appearance.dict.get(b"Resources").unwrap().as_dict().unwrap()
+            .get(b"ExtGState").unwrap().as_dict().unwrap()
+            .get(b"GS0").unwrap().as_dict().unwrap();
+        assert_eq!(ext_gstate.get(b"CA").unwrap().as_float().unwrap(), 1.0);
+        if subtype == "Highlight" {
+            assert_eq!(ext_gstate.get(b"BM").unwrap().as_name().unwrap(), b"Multiply");
+            assert!(content.lines().any(|line| line == "f"));
+        } else if subtype == "Underline" || subtype == "StrikeOut" {
+            assert!(content.lines().any(|line| line == "S"));
         }
+        let expected = parse_css_rgb_color(Some(color)).unwrap();
+        assert!(content.contains(&format!("{} {} {} rg", number_to_content(f64::from(expected.r) / 255.0), number_to_content(f64::from(expected.g) / 255.0), number_to_content(f64::from(expected.b) / 255.0))) || content.contains(&format!("{} {} {} RG", number_to_content(f64::from(expected.r) / 255.0), number_to_content(f64::from(expected.g) / 255.0), number_to_content(f64::from(expected.b) / 255.0))));
     }
 
     let _ = remove_file(input_path);
@@ -815,17 +824,13 @@ fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
                 .collect::<Vec<_>>(),
             &[40.0, 70.0, 140.0, 80.0],
         );
-        if subtype == "Squiggly" {
-            assert!(annotation.get(b"AP").is_ok());
-        } else {
-            assert!(annotation.get(b"AP").is_err());
-        }
+        assert!(annotation.get(b"AP").is_ok(), "{subtype} appearance");
         let _ = remove_file(pdf_path);
     }
 }
 
 #[test]
-fn opacity_only_markup_rewrite_drops_a_foreign_appearance() {
+fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
     let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
     let appearance_id = document.add_object(Stream::new(Dictionary::new(), Vec::new()));
     document
@@ -864,7 +869,13 @@ fn opacity_only_markup_rewrite_drops_a_foreign_appearance() {
 
     let updated = document.get_dictionary(markup_id).unwrap();
     assert_approximately(updated.get(b"CA").unwrap().as_float().unwrap() as f64, 0.45);
-    assert!(updated.get(b"AP").is_err());
+    let appearance_ref = updated.get(b"AP").unwrap().as_dict().unwrap()
+        .get(b"N").unwrap().as_reference().unwrap();
+    let appearance = document.get_object(appearance_ref).unwrap().as_stream().unwrap();
+    let graphics_state = appearance.dict.get(b"Resources").unwrap().as_dict().unwrap()
+        .get(b"ExtGState").unwrap().as_dict().unwrap()
+        .get(b"GS0").unwrap().as_dict().unwrap();
+    assert_approximately(graphics_state.get(b"CA").unwrap().as_float().unwrap() as f64, 0.45);
     assert!(document.get_dictionary(page_id).is_ok());
 }
 
@@ -1648,6 +1659,8 @@ fn bounds_dense_markup_assignment_comparisons() {
                 g: 255,
                 b: 0,
             }),
+            opacity: None,
+            has_appearance: false,
             marker_rect: Some(MarkerRect {
                 left: 0.0,
                 top: 0.0,
@@ -1721,6 +1734,8 @@ fn spatial_markup_assignment_preserves_best_geometry_matches() {
                 g: 0x66,
                 b: 0x99,
             }),
+            opacity: None,
+            has_appearance: false,
             marker_rect: Some(marker_rect),
             object_id: (index as u32 + 1, 0),
             page_markup_index: index as u32,

@@ -3,7 +3,16 @@ import {
     expect,
     it,
 } from 'vitest';
-import { copyFileSync } from 'node:fs';
+import {
+    copyFileSync,
+    readFileSync,
+} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {createCanvas} from '@napi-rs/canvas';
+import {decode} from 'fast-png';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -19,6 +28,7 @@ import {
     clickVisibleAnnotationControl,
     readEvbTextMarkupVisuals,
     selectTextFromRenderedSpans,
+    setAnnotationColor,
     waitForEvbTextMarkupVisualCount,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
@@ -35,6 +45,60 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
+function countRedPixels(data: ArrayLike<number>, channels: number) {
+    let count = 0;
+    for (let offset = 0; offset < data.length; offset += channels) {
+        const red = data[offset] ?? 0;
+        const green = data[offset + 1] ?? 0;
+        const blue = data[offset + 2] ?? 0;
+        if (red > 110 && red > green + 20 && red > blue + 20) {
+            count += 1;
+        }
+    }
+    return count;
+}
+
+async function countPdfJsRedPixels(filePath: string) {
+    const task = pdfjs.getDocument({
+        data: new Uint8Array(readFileSync(filePath)),
+        ...createPdfjsNodeDocumentOptions(),
+    });
+    const document = await task.promise;
+    try {
+        const page = await document.getPage(1);
+        const viewport = page.getViewport({scale: 150 / 72});
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const context = canvas.getContext('2d');
+        const renderTask = Reflect.apply(page.render, page, [{
+            canvas,
+            canvasContext: context,
+            viewport,
+            annotationMode: pdfjs.AnnotationMode.ENABLE,
+        }]);
+        await renderTask.promise;
+        return countRedPixels(context.getImageData(0, 0, canvas.width, canvas.height).data, 4);
+    } finally {
+        await task.destroy();
+    }
+}
+
+function countPopplerRedPixels(filePath: string, outputPrefix: string) {
+    const {pdftoppm} = getPdfNativeToolPaths();
+    execFileSync(pdftoppm, [
+        '-f',
+        '1',
+        '-l',
+        '1',
+        '-singlefile',
+        '-png',
+        '-r',
+        '150',
+        filePath,
+        outputPrefix,
+    ]);
+    const image = decode(readFileSync(`${outputPrefix}.png`));
+    return countRedPixels(image.data, image.channels);
+}
 interface ITextMarkupCommentShape {
     color?: string | null;
     markupGeometry?: Array<{
@@ -364,6 +428,8 @@ describe('Electron E2E - EVB text markup', () => {
         await waitForViewerInteractive(page);
         await waitForRenderedTextSpans(page, [1]);
 
+        await clickAnnotationTool(page, tool);
+        await setAnnotationColor(page, '#ef4444');
         const selectedText = await createTextMarkup(page, tool, 1, 0, 1, 2);
         const comments = await waitForTextMarkupComments(page, 1);
         expect(comments[0]?.subtype).toBe(subtype);
@@ -383,6 +449,22 @@ describe('Electron E2E - EVB text markup', () => {
         const savedSummary = await waitForPdfAnnotationSubtypeCount(fixturePath, subtype, 1);
         expect(savedSummary.bySubtype[subtype] ?? 0).toBe(1);
 
+        const popplerRedPixels = countPopplerRedPixels(
+            fixturePath,
+            createFixturePath(`evb-text-markup-poppler-${Date.now()}-${subtype}`),
+        );
+        console.log(`TEXT_MARKUP_POPPLER_PIXELS ${JSON.stringify({
+            subtype,
+            red: popplerRedPixels,
+        })}`);
+        expect(popplerRedPixels, `Poppler renders the saved ${subtype} in red`).toBeGreaterThan(10);
+        const pdfJsRedPixels = await countPdfJsRedPixels(fixturePath);
+        console.log(`TEXT_MARKUP_PDFJS_PIXELS ${JSON.stringify({
+            subtype,
+            red: pdfJsRedPixels,
+        })}`);
+        expect(pdfJsRedPixels, `restricted PDF.js renders the saved ${subtype} in red`).toBeGreaterThan(10);
+
         const reopenedPath = createFixturePath(
             `evb-text-markup-reopen-${Date.now()}-${subtype}.pdf`,
         );
@@ -393,6 +475,34 @@ describe('Electron E2E - EVB text markup', () => {
         await waitForViewerInteractive(page);
         await waitForRenderedTextSpans(page, [1]);
 
+        const reopenedVisuals = await readEvbTextMarkupVisuals(page);
+        expect(reopenedVisuals.map(({
+            pageNumber, subtype: kind, rects,
+        }) => ({
+            pageNumber,
+            subtype: kind,
+            rects: rects.map(({
+                left, top, width, height,
+            }) => [
+                left,
+                top,
+                width,
+                height,
+            ].map(value => Math.round(value * 10_000) / 10_000)),
+        }))).toEqual(visuals.map(({
+            pageNumber, subtype: kind, rects,
+        }) => ({
+            pageNumber,
+            subtype: kind,
+            rects: rects.map(({
+                left, top, width, height,
+            }) => [
+                left,
+                top,
+                width,
+                height,
+            ].map(value => Math.round(value * 10_000) / 10_000)),
+        })));
         const reopenedComments = await waitForTextMarkupComments(page, 1);
         expect(reopenedComments[0]?.subtype).toBe(subtype);
         expect(reopenedComments[0]?.previewText).toContain('Markup page 1');

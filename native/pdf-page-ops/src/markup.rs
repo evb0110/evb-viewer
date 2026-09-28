@@ -169,68 +169,129 @@ pub(crate) fn number_to_content(value: f64) -> String {
         .to_string()
 }
 
-pub(crate) fn build_squiggly_appearance_stream(
+pub(crate) fn build_text_markup_appearance_stream(
+    subtype: &str,
     values: &[f64],
     rect: PdfRect,
     color: RgbColor,
+    opacity: f64,
 ) -> Option<Stream> {
-    // Quartz/Preview does not synthesize Squiggly appearances from QuadPoints,
-    // so native rewrites must append a small Form XObject for visibility.
-    let mut content = String::new();
-    content.push_str("q\n");
-    content.push_str(&format!(
-        "{} {} {} RG\n",
-        number_to_content(f64::from(color.r) / 255.0),
-        number_to_content(f64::from(color.g) / 255.0),
-        number_to_content(f64::from(color.b) / 255.0)
-    ));
-    content.push_str(&format!(
-        "{} w\n1 J\n",
-        number_to_content(SQUIGGLY_APPEARANCE_STROKE_WIDTH)
-    ));
+    if !opacity.is_finite() || values.len() < 8 || values.len() % 8 != 0 {
+        return None;
+    }
+    let red = number_to_content(f64::from(color.r) / 255.0);
+    let green = number_to_content(f64::from(color.g) / 255.0);
+    let blue = number_to_content(f64::from(color.b) / 255.0);
+    let mut content = format!("q\n/GS0 gs\n{red} {green} {blue} RG\n");
     let mut has_path = false;
-    for chunk in values.chunks_exact(8) {
-        let xs = [chunk[0], chunk[2], chunk[4], chunk[6]];
-        let ys = [chunk[1], chunk[3], chunk[5], chunk[7]];
-        let left = xs.iter().copied().fold(f64::INFINITY, f64::min);
-        let right = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let bottom = ys.iter().copied().fold(f64::INFINITY, f64::min);
-        let top = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let height = top - bottom;
-        if right - left <= 0.0 || height <= 0.0 {
-            continue;
+    match subtype {
+        "Highlight" => {
+            content.push_str(&format!("{red} {green} {blue} rg\n"));
+            for quad in values.chunks_exact(8) {
+                content.push_str(&format!(
+                    "{} {} m\n{} {} l\n{} {} l\n{} {} l\nh\n",
+                    number_to_content(quad[0]),
+                    number_to_content(quad[1]),
+                    number_to_content(quad[2]),
+                    number_to_content(quad[3]),
+                    number_to_content(quad[6]),
+                    number_to_content(quad[7]),
+                    number_to_content(quad[4]),
+                    number_to_content(quad[5]),
+                ));
+                has_path = true;
+            }
+            content.push_str("f\n");
         }
-        let amplitude = SQUIGGLY_APPEARANCE_MAX_AMPLITUDE.min(
-            SQUIGGLY_APPEARANCE_MIN_AMPLITUDE.max(height * SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO),
-        );
-        let center = bottom + amplitude;
-        let half_step = 1.5_f64.max(amplitude * 1.5);
-        content.push_str(&format!(
-            "{} {} m\n",
-            number_to_content(left),
-            number_to_content(center - amplitude)
-        ));
-        let mut x = left;
-        let mut up = true;
-        while x < right {
-            x = right.min(x + half_step);
-            content.push_str(&format!(
-                "{} {} l\n",
-                number_to_content(x),
-                number_to_content(if up {
-                    center + amplitude
+        "Underline" | "StrikeOut" => {
+            content.push_str(&format!("{} w\n1 J\n", number_to_content(1.0)));
+            for quad in values.chunks_exact(8) {
+                let (start, end) = if subtype == "Underline" {
+                    ((quad[4], quad[5]), (quad[6], quad[7]))
                 } else {
-                    center - amplitude
-                })
-            ));
-            up = !up;
+                    (
+                        ((quad[0] + quad[4]) / 2.0, (quad[1] + quad[5]) / 2.0),
+                        ((quad[2] + quad[6]) / 2.0, (quad[3] + quad[7]) / 2.0),
+                    )
+                };
+                content.push_str(&format!(
+                    "{} {} m\n{} {} l\n",
+                    number_to_content(start.0),
+                    number_to_content(start.1),
+                    number_to_content(end.0),
+                    number_to_content(end.1),
+                ));
+                has_path = true;
+            }
+            content.push_str("S\n");
         }
-        has_path = true;
+        // Quartz/Preview does not synthesize Squiggly appearances from
+        // QuadPoints, so keep its existing path in this shared form builder.
+        "Squiggly" => {
+            content.push_str(&format!(
+                "{} w\n1 J\n",
+                number_to_content(SQUIGGLY_APPEARANCE_STROKE_WIDTH)
+            ));
+            for quad in values.chunks_exact(8) {
+                let xs = [quad[0], quad[2], quad[4], quad[6]];
+                let ys = [quad[1], quad[3], quad[5], quad[7]];
+                let left = xs.iter().copied().fold(f64::INFINITY, f64::min);
+                let right = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let bottom = ys.iter().copied().fold(f64::INFINITY, f64::min);
+                let top = ys.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let height = top - bottom;
+                if right <= left || top <= bottom {
+                    continue;
+                }
+                let amplitude = SQUIGGLY_APPEARANCE_MAX_AMPLITUDE.min(
+                    SQUIGGLY_APPEARANCE_MIN_AMPLITUDE
+                        .max(height * SQUIGGLY_APPEARANCE_AMPLITUDE_RATIO),
+                );
+                let center = bottom + amplitude;
+                let half_step = 1.5_f64.max(amplitude * 1.5);
+                content.push_str(&format!(
+                    "{} {} m\n",
+                    number_to_content(left),
+                    number_to_content(center - amplitude)
+                ));
+                let mut x = left;
+                let mut up = true;
+                while x < right {
+                    x = right.min(x + half_step);
+                    content.push_str(&format!(
+                        "{} {} l\n",
+                        number_to_content(x),
+                        number_to_content(if up {
+                            center + amplitude
+                        } else {
+                            center - amplitude
+                        })
+                    ));
+                    up = !up;
+                }
+                has_path = true;
+            }
+            content.push_str("S\n");
+        }
+        _ => return None,
     }
     if !has_path {
         return None;
     }
-    content.push_str("S\nQ\n");
+    content.push_str("Q\n");
+
+    let mut graphics_state = Dictionary::new();
+    graphics_state.set("Type", Object::Name(b"ExtGState".to_vec()));
+    graphics_state.set("CA", number_object(opacity.clamp(0.0, 1.0)));
+    graphics_state.set("ca", number_object(opacity.clamp(0.0, 1.0)));
+    if subtype == "Highlight" {
+        graphics_state.set("BM", Object::Name(b"Multiply".to_vec()));
+    }
+    let mut graphics_states = Dictionary::new();
+    graphics_states.set("GS0", Object::Dictionary(graphics_state));
+    let mut resources = Dictionary::new();
+    resources.set("ExtGState", Object::Dictionary(graphics_states));
+
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"XObject".to_vec()));
     dict.set("Subtype", Object::Name(b"Form".to_vec()));
@@ -246,6 +307,7 @@ pub(crate) fn build_squiggly_appearance_stream(
             Object::Integer(0),
         ]),
     );
+    dict.set("Resources", Object::Dictionary(resources));
     Some(Stream::new(dict, content.into_bytes()))
 }
 
@@ -432,14 +494,16 @@ fn create_markup_annotation(
         .ok_or("Invalid text-markup subtype for native creation")?;
     let (quad_points, rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
     let target_color = resolve_hint_target_color(&hint.subtype, hint.color.as_deref());
-    let appearance_ref = if hint.subtype == "Squiggly" {
-        let appearance_color = target_color.unwrap_or(RgbColor { r: 0, g: 0, b: 0 });
-        let stream = build_squiggly_appearance_stream(&quad_points, rect, appearance_color)
-            .ok_or("Squiggly text-markup geometry could not produce an appearance")?;
-        Some(document.add_object(stream))
-    } else {
-        None
-    };
+    let appearance_color = target_color.unwrap_or_else(|| default_markup_color(&hint.subtype));
+    let appearance = build_text_markup_appearance_stream(
+        &hint.subtype,
+        &quad_points,
+        rect,
+        appearance_color,
+        hint.opacity.unwrap_or(1.0),
+    )
+    .ok_or("Text-markup geometry could not produce an appearance")?;
+    let appearance_ref = document.add_object(appearance);
 
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"Annot".to_vec()));
@@ -472,15 +536,29 @@ fn create_markup_annotation(
     } else if hint.subtype == "Highlight" {
         dict.set("CA", Object::Integer(1));
     }
-    if let Some(appearance_ref) = appearance_ref {
-        let mut appearance = Dictionary::new();
-        appearance.set("N", Object::Reference(appearance_ref));
-        dict.set("AP", Object::Dictionary(appearance));
-    }
+    attach_markup_appearance(&mut dict, appearance_ref);
 
     let object_id = document.new_object_id();
     document.set_object(object_id, Object::Dictionary(dict));
     Ok(object_id)
+}
+
+fn default_markup_color(subtype: &str) -> RgbColor {
+    if subtype == "Highlight" {
+        RgbColor {
+            r: 255,
+            g: 255,
+            b: 0,
+        }
+    } else {
+        RgbColor { r: 0, g: 0, b: 0 }
+    }
+}
+
+fn attach_markup_appearance(dict: &mut Dictionary, appearance_ref: ObjectId) {
+    let mut appearance = Dictionary::new();
+    appearance.set("N", Object::Reference(appearance_ref));
+    dict.set("AP", Object::Dictionary(appearance));
 }
 
 struct MarkupRewrite<'a> {
@@ -536,76 +614,51 @@ fn apply_markup_rewrite_to_object_with_options(
     } = rewrite;
     let target_color = resolve_hint_target_color(target_subtype, color);
     let mut modified = false;
-    let mut ensured_quad_points: Option<(Vec<f64>, bool)> = None;
-    let mut squiggly_ap_ref: Option<ObjectId> = None;
     let mut appearance_rect = candidate.rect;
     let authoritative_geometry = geometry.filter(|(hint, _, _)| {
         hint.markup_geometry
             .as_ref()
             .is_some_and(|rects| !rects.is_empty())
     });
-    let has_authoritative_geometry = authoritative_geometry.is_some();
-
-    if let Some((hint, page_view, page_rotation)) = authoritative_geometry {
-        let (values, rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
-        appearance_rect = Some(rect);
-        let changed = candidate.quad_points.as_ref().is_none_or(|existing| {
-            existing.len() != values.len()
-                || existing
-                    .iter()
-                    .zip(values.iter())
-                    .any(|(left, right)| (left - right).abs() > 0.000_001)
-        });
-        let rect_changed = candidate.rect.is_none_or(|existing| {
-            [
-                (existing.x1, rect.x1),
-                (existing.y1, rect.y1),
-                (existing.x2, rect.x2),
-                (existing.y2, rect.y2),
-            ]
-            .into_iter()
-            .any(|(left, right)| (left - right).abs() > 0.000_001)
-        });
-        ensured_quad_points = Some((values, changed));
-        if changed || rect_changed {
-            modified = true;
-        }
-    } else if target_subtype != "Highlight" {
-        ensured_quad_points = ensure_markup_quad_points(candidate);
-    }
-    if target_subtype != "Highlight" {
-        let subtype_already_applied = candidate.subtype == target_subtype;
-        if !subtype_already_applied {
-            modified = true;
-        }
-        if ensured_quad_points
-            .as_ref()
-            .is_some_and(|(_, changed)| *changed)
-        {
-            modified = true;
-        }
-        if target_subtype == "Squiggly" {
-            if let (Some((values, _)), Some(rect), Some(color)) = (
-                &ensured_quad_points,
-                appearance_rect,
-                target_color.or(candidate.color),
-            ) {
-                if let Some(stream) = build_squiggly_appearance_stream(values, rect, color) {
-                    squiggly_ap_ref = Some(document.add_object(stream));
-                    modified = true;
-                }
-            }
-        }
-    }
-    if target_color.is_some() {
-        modified = true;
-    }
-    if contents.is_some() || author.is_some() {
-        modified = true;
-    }
-    if opacity.is_some() {
-        modified = true;
-    }
+    let (quad_points, quad_points_changed) =
+        if let Some((hint, page_view, page_rotation)) = authoritative_geometry {
+            let (values, rect) = markup_hint_pdf_quads(hint, page_view, page_rotation)?;
+            appearance_rect = Some(rect);
+            let changed = candidate.quad_points.as_ref().is_none_or(|existing| {
+                existing.len() != values.len()
+                    || existing
+                        .iter()
+                        .zip(values.iter())
+                        .any(|(left, right)| (left - right).abs() > 0.000_001)
+            });
+            let rect_changed = candidate.rect.is_none_or(|existing| {
+                [
+                    (existing.x1, rect.x1),
+                    (existing.y1, rect.y1),
+                    (existing.x2, rect.x2),
+                    (existing.y2, rect.y2),
+                ]
+                .into_iter()
+                .any(|(left, right)| (left - right).abs() > 0.000_001)
+            });
+            modified |= changed || rect_changed;
+            (Some(values), changed || rect_changed)
+        } else if let Some((values, changed)) = ensure_markup_quad_points(candidate) {
+            (Some(values), changed)
+        } else {
+            (None, false)
+        };
+    modified |= candidate.subtype != target_subtype;
+    modified |= target_color.is_some_and(|target| Some(target) != candidate.color);
+    modified |= opacity.is_some_and(|target| {
+        candidate
+            .opacity
+            .is_none_or(|actual| (actual - target).abs() > 0.000_001)
+    });
+    modified |= contents.is_some() || author.is_some();
+    // A matched explicit style hint is a valid upsert even when its scalar
+    // values already match (the append writer still records the revision).
+    modified |= color.is_some() || opacity.is_some();
     let identity_name = identity_name
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -615,7 +668,41 @@ fn apply_markup_rewrite_to_object_with_options(
             .ok()
             .and_then(read_annotation_name)
             .is_none();
-    modified = identity_name_needs_write || modified;
+    modified |= identity_name_needs_write;
+    let appearance_changed = quad_points_changed
+        || candidate.subtype != target_subtype
+        || target_color.is_some_and(|target| Some(target) != candidate.color)
+        || opacity.is_some_and(|target| {
+            candidate
+                .opacity
+                .is_none_or(|actual| (actual - target).abs() > 0.000_001)
+        })
+        || !candidate.has_appearance;
+    let appearance_ref = if appearance_changed {
+        let values = quad_points
+            .as_deref()
+            .ok_or("Text-markup annotation has no usable QuadPoints")?;
+        let rect = appearance_rect.ok_or("Text-markup annotation has no appearance bounds")?;
+        let appearance_color = target_color
+            .or(candidate.color)
+            .unwrap_or_else(|| default_markup_color(target_subtype));
+        let appearance_opacity = opacity.or(candidate.opacity).unwrap_or(1.0);
+        Some(
+            document.add_object(
+                build_text_markup_appearance_stream(
+                    target_subtype,
+                    values,
+                    rect,
+                    appearance_color,
+                    appearance_opacity,
+                )
+                .ok_or("Text-markup geometry could not produce an appearance")?,
+            ),
+        )
+    } else {
+        None
+    };
+    modified |= appearance_ref.is_some();
     if !modified {
         return Ok(false);
     }
@@ -634,39 +721,36 @@ fn apply_markup_rewrite_to_object_with_options(
         );
     }
     if let Some(color) = target_color {
-        write_markup_color(dict, color);
-        dict.remove(b"AP");
+        if Some(color) != candidate.color {
+            write_markup_color(dict, color);
+        }
     }
     if let Some(opacity) = opacity {
-        dict.set("CA", number_object(opacity));
-        // A foreign or previously generated appearance may carry its own
-        // alpha state. Let the annotation-level opacity control rendering.
-        dict.remove(b"AP");
+        if candidate
+            .opacity
+            .is_none_or(|actual| (actual - opacity).abs() > 0.000_001)
+        {
+            dict.set("CA", number_object(opacity));
+        }
     }
-    if has_authoritative_geometry {
+    if let Some((hint, _, _)) = authoritative_geometry {
         if let Some(rect) = appearance_rect {
             dict.set("Rect", rect_object(rect));
         }
-        // Geometry changes invalidate any appearance stream generated for the
-        // old bounds. Squiggly gets a fresh stream below; other subtypes rely
-        // on their QuadPoints after this removal.
-        dict.remove(b"AP");
+        let _ = hint;
     }
-    if let Some((values, _)) = ensured_quad_points {
-        dict.set("QuadPoints", quad_points_object(&values));
+    if let Some(values) = quad_points {
+        if authoritative_geometry.is_some() || candidate.quad_points.is_none() {
+            dict.set("QuadPoints", quad_points_object(&values));
+        }
     }
-    if target_subtype != "Highlight" {
-        if candidate.subtype != target_subtype {
-            let pdf_name =
-                markup_subtype_pdf_name(target_subtype).ok_or("Invalid text-markup subtype")?;
-            dict.set("Subtype", Object::Name(pdf_name.as_bytes().to_vec()));
-            dict.remove(b"AP");
-        }
-        if let Some(ap_ref) = squiggly_ap_ref {
-            let mut ap = Dictionary::new();
-            ap.set("N", Object::Reference(ap_ref));
-            dict.set("AP", Object::Dictionary(ap));
-        }
+    if candidate.subtype != target_subtype {
+        let pdf_name =
+            markup_subtype_pdf_name(target_subtype).ok_or("Invalid text-markup subtype")?;
+        dict.set("Subtype", Object::Name(pdf_name.as_bytes().to_vec()));
+    }
+    if let Some(ap_ref) = appearance_ref {
+        attach_markup_appearance(dict, ap_ref);
     }
     if let Some(contents) = contents {
         update_annotation_text_by_ref(document, candidate.object_id, contents, modified_at)?;
@@ -686,6 +770,13 @@ pub(crate) fn create_markup_candidate(
     let rect = read_pdf_rect_from_dict(document, dict);
     Some(MarkupAnnotationCandidate {
         color: read_markup_color(document, dict),
+        opacity: dict
+            .get(b"CA")
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(|object| object_to_f64(object).ok())
+            .filter(|value| value.is_finite()),
+        has_appearance: dict.get(b"AP").is_ok(),
         marker_rect: rect
             .and_then(|rect| marker_rect_from_pdf_rect(rect, page_view, page_rotation)),
         object_id,

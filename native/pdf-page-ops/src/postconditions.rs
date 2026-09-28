@@ -974,7 +974,7 @@ pub(crate) fn validate_appearance(
     let ap_dict = match dict.get(b"AP")? {
         Object::Dictionary(dictionary) => dictionary,
         Object::Reference(reference) => document.dictionary(*reference)?,
-        _ => return Err("FreeText annotation AP must be a dictionary".into()),
+        _ => return Err("Annotation AP must be a dictionary".into()),
     };
     let normal_ref = ap_dict.get(b"N")?.as_reference()?;
     document.object(normal_ref)?;
@@ -1491,18 +1491,10 @@ pub(crate) fn validate_markup_target(
     author: Option<&str>,
 ) -> Result<()> {
     let dict = document.dictionary(object_id)?;
-    if target_subtype != "Highlight" {
-        let actual_subtype = canonical_markup_subtype(dict)
-            .ok_or("Text-markup target is no longer a markup annotation")?;
-        if actual_subtype != target_subtype {
-            return Err("Text-markup target subtype did not match requested rewrite".into());
-        }
-        if read_markup_quad_points(document, dict).is_none() {
-            return Err("Text-markup target is missing QuadPoints after rewrite".into());
-        }
-        if target_subtype == "Squiggly" && dict.get(b"AP").is_err() {
-            return Err("Squiggly text-markup target is missing an appearance stream".into());
-        }
+    let actual_subtype = canonical_markup_subtype(dict)
+        .ok_or("Text-markup target is no longer a markup annotation")?;
+    if actual_subtype != target_subtype {
+        return Err("Text-markup target subtype did not match requested rewrite".into());
     }
     if let Some(expected_color) = resolve_hint_target_color(target_subtype, color) {
         let actual_color = read_markup_color(document, dict)
@@ -1533,6 +1525,9 @@ pub(crate) fn validate_markup_target(
     }
     if let Some(expected_contents) = contents {
         validate_markup_contents(document, dict, expected_contents)?;
+    }
+    if target_subtype != "Highlight" && read_markup_quad_points(document, dict).is_none() {
+        return Err("Text-markup target is missing QuadPoints after rewrite".into());
     }
     Ok(())
 }
@@ -1618,6 +1613,10 @@ pub(crate) fn validate_markup_document_postconditions(
                     hint.contents.as_deref(),
                     hint.author.as_deref(),
                 )?;
+                if read_markup_quad_points(document, document.dictionary(object_id)?).is_none() {
+                    return Err("Text-markup target is missing QuadPoints after rewrite".into());
+                }
+                validate_appearance(document, document.dictionary(object_id)?)?;
             }
             None => {
                 if is_new_markup_hint_data(hint) {
