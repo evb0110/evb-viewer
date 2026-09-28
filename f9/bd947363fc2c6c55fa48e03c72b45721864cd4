@@ -1,0 +1,25 @@
+tests/e2e/electron/navigation/moveTabViewState.e2e.test.ts
+  s_17dc647d8d0097::t_b240645525899a 5,7-8,23-26,34-37
+  s_17dc647d8d0097::t_d2c9deec9bd42e 2,4,10,20-22,27-33,38-47,98-100
+  s_17dc647d8d0097::t_5a7f609b9b4651 59-66
+packages/contracts/windowTabsValidation.ts
+  ai_agent 21-42,97,110
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  ai_agent 345-360,363,408-432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f9bd947363fc2c6c55fa48e03c72b45721864cd4",
+  "prompts": {},
+  "sessions": {
+    "s_17dc647d8d0097": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e887-0846-7463-b44f-1ae405eb537a",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
