@@ -28,8 +28,9 @@ describe('Electron E2E - page number editor caret', () => {
         expect(bounds).not.toBeNull();
         const inputText = await input!.evaluate(element => (element as HTMLInputElement).value);
         expect(inputText).toBeTruthy();
+        const paddingRight = await input!.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight));
         const clickPoint = {
-            x: bounds!.x + bounds!.width / 2,
+            x: bounds!.x + bounds!.width - paddingRight - 1,
             y: bounds!.y + bounds!.height / 2,
         };
         const hitInput = await page.evaluate((point) => {
@@ -48,7 +49,7 @@ describe('Electron E2E - page number editor caret', () => {
         expect(afterClick.connected, 'the page editor remains open after the caret click').toBe(true);
         expect(afterClick.focused, 'the page editor keeps focus after the caret click').toBe(true);
         expect(afterClick.value).toBe(inputText);
-        expect(afterClick.caret, 'the click places the caret inside the input').toBeGreaterThan(0);
+        expect(afterClick.caret, 'the click places the caret after the page number').toBe(afterClick.value.length);
         expect(afterClick.caret).toBe(afterClick.selectionEnd);
     }, 90_000);
 });
