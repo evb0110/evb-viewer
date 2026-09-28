@@ -834,7 +834,7 @@ function handleSurfacePointerDown(event: PointerEvent) {
         const entity = entities.value.find(candidate => candidate.identity.id === id);
         if (
             entity?.kind === 'text-markup'
-            && (surface.activeTool.value === 'none' || surface.activeTool.value === 'select')
+            && surface.activeTool.value === 'none'
             && pointerGesture.beginTextSelection(event)
         ) {
             textSelectionHitTarget = event.target instanceof Element
