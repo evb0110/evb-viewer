@@ -3,6 +3,7 @@ import type {
     TBookmarkDisplayMode,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -11,8 +12,14 @@ import {
     findBookmarkLocation,
     flattenBookmarks,
     normalizeBookmarkColor,
+    resolveBookmarkDestinationTarget,
     summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
+
+interface IResolvedBookmarkTarget {
+    pageIndex: NonNullable<IBookmarkItem['pageIndex']>;
+    pageYRatio: number | null;
+}
 
 export const usePdfOutlineEditing = (
     bookmarks: Ref<IBookmarkItem[]>,
@@ -31,9 +38,31 @@ export const usePdfOutlineEditing = (
     currentPage: Ref<number>,
     emitBookmarksChange: () => void,
     createDraftBookmarkId: () => string,
+    getPdfDocument: () => IPdfDocument | null = () => null,
 ) => {
     const { t } = useTypedI18n();
     const editingItemId = ref<string | null>(null);
+    const resolvedDestinations = new Map<IBookmarkItem, IResolvedBookmarkTarget>();
+
+    async function prepareDestinationsForPersistence() {
+        const pdfDocument = getPdfDocument();
+        if (!pdfDocument) return;
+        const resolveItems = async (items: IBookmarkItem[]) => {
+            for (const item of items) {
+                if (item.pageIndex === null && item.dest) {
+                    const target = await resolveBookmarkDestinationTarget(pdfDocument, item.dest);
+                    if (target) {
+                        resolvedDestinations.set(item, {
+                            pageIndex: requirePageIndex(target.page - 1),
+                            pageYRatio: target.pageYRatio ?? null,
+                        });
+                    }
+                }
+                await resolveItems(item.items);
+            }
+        };
+        await resolveItems(bookmarks.value);
+    }
 
     function createDraftBookmark(): IBookmarkItem {
         return {
@@ -474,10 +503,10 @@ export const usePdfOutlineEditing = (
             const title = item.title.trim();
             return {
                 title: title.length > 0 ? title : t('bookmarks.untitled'),
-                pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
+                pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : resolvedDestinations.get(item)?.pageIndex ?? null,
                 pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
                     ? clamp(item.pageYRatio, 0, 1)
-                    : null,
+                    : resolvedDestinations.get(item)?.pageYRatio ?? null,
                 namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
                 bold: item.bold,
                 italic: item.italic,
@@ -498,6 +527,7 @@ export const usePdfOutlineEditing = (
 
     return {
         editingItemId,
+        prepareDestinationsForPersistence,
         createDraftBookmark,
         startEditingBookmark,
         cancelEditingBookmark,
