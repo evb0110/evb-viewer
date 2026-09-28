@@ -1,0 +1,24 @@
+tests/e2e/electron/save/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_5a89aa38ee9cf0::t_cd897350bb238b 515
+tests/e2e/electron/nightly/exact-pdf/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_5a89aa38ee9cf0::t_4286d4b660ac37 32
+  s_5a89aa38ee9cf0::t_ff06c797a4bdd4 1032,1048,1337
+tests/e2e/electron/helpers/fixtures.ts
+  s_5a89aa38ee9cf0::t_cd897350bb238b 70-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "84aed2edbb5eb0207f0b54d4826963d257267634",
+  "prompts": {},
+  "sessions": {
+    "s_5a89aa38ee9cf0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e667-1b3c-7df0-b6cd-e835856e885e",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
