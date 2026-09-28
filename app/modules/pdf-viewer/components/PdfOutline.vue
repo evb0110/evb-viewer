@@ -146,7 +146,7 @@ import {
     parseOutlineItems,
     resolveActiveBookmarkForPage,
     resolveMaxBookmarkDepth,
-    resolveBookmarkPageIndexes,
+    resolvePageIndex,
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -186,10 +186,7 @@ function goToPage(page: number, options?: IScrollToPageOptions) {
     emit('goToPage', page, options);
 }
 
-async function toggleEditMode() {
-    if (!isEditMode.value) {
-        await editing.prepareDestinationsForPersistence();
-    }
+function toggleEditMode() {
     isEditMode.value = !isEditMode.value;
 }
 
@@ -491,7 +488,6 @@ const editing = usePdfOutlineEditing(
     currentPageRef,
     emitBookmarksChange,
     createDraftBookmarkId,
-    () => props.pdfDocument,
 );
 
 function addRootBookmark() {
@@ -653,24 +649,29 @@ async function updateActiveItemFromCurrentPage() {
     const pdfDocument = props.pdfDocument;
     const currentPage = props.currentPage;
     const items = flatBookmarks.value;
-    let pageIndexes: Map<IBookmarkItem, number | null> | null;
+    const pageIndexes = new Map<IBookmarkItem, number | null>();
+
     // Outline structure is published immediately. Resolve only page metadata
     // for passive selection, without loading page geometry, changing persisted
     // bookmarks, or issuing a second navigation. A click retires this work.
     try {
-        pageIndexes = await resolveBookmarkPageIndexes(
-            pdfDocument,
-            items,
-            bookmarkDestinationCache,
-            bookmarkPageRefCache,
-            controller.signal,
-        );
-        if (!pageIndexes) return;
+        for (const item of items) {
+            const pageIndex = item.pageIndex ?? (pdfDocument && item.dest
+                ? await resolvePageIndex(
+                    pdfDocument,
+                    item.dest,
+                    bookmarkDestinationCache,
+                    bookmarkPageRefCache,
+                    controller.signal,
+                )
+                : null);
+            if (controller.signal.aborted) return;
+            pageIndexes.set(item, pageIndex);
+        }
     } catch (error) {
         if (controller.signal.aborted) return;
         throw error;
     }
-    if (!pageIndexes) return;
     if (controller.signal.aborted || props.currentPage !== currentPage || props.pdfDocument !== pdfDocument) return;
     activeItemResolution = null;
     const active = resolveActiveBookmarkForPage(
