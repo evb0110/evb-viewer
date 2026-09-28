@@ -1,0 +1,35 @@
+name: Cache Cleanup
+
+# A cache saved by a pull request or a branch is only visible to that ref, yet
+# it counts against the repository's 10 GB cache limit and pushes main's
+# caches out. Delete a ref's caches when its pull request closes or its
+# branch is deleted.
+
+on:
+  pull_request:
+    types:
+      - closed
+  delete:
+
+permissions:
+  actions: write
+
+jobs:
+  delete_ref_caches:
+    name: Delete the closed ref's caches
+    if: ${{ github.event_name == 'pull_request' || github.event.ref_type == 'branch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Delete caches
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || format('refs/heads/{0}', github.event.ref) }}
+        run: |
+          set -euo pipefail
+          gh cache list --ref "$REF" --limit 1000 --json id --jq '.[].id' |
+            while read -r id; do
+              gh cache delete "$id"
+            done

@@ -239,15 +239,13 @@ jobs:
       - name: Install Rust lint components
         run: rustup component add rustfmt clippy
 
-      - name: Restore Rust build caches
-        uses: actions/cache@v5
+      # Dependencies only: Cargo rebuilds workspace crates in a fresh
+      # checkout anyway, and only main saves, so branches cannot add copies.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml', 'native/rust-toolchain.toml') }}
-          restore-keys: rust-native-${{ runner.os }}-${{ runner.arch }}-
+          workspaces: native -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Rust formatting and clippy
         run: pnpm run lint:rust

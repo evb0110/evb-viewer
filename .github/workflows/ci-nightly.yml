@@ -73,15 +73,13 @@ jobs:
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils
 
-      - name: Restore Rust build caches
-        uses: actions/cache@v5
+      # Dependencies only: Cargo rebuilds workspace crates in a fresh
+      # checkout anyway, and only main saves, so branches cannot add copies.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml', 'native/rust-toolchain.toml') }}
-          restore-keys: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-
+          workspaces: native -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Canonical scan-cleanup identity
         run: pnpm run test:scan-cleanup:canonical-identity
@@ -109,15 +107,13 @@ jobs:
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh poppler-utils qpdf
 
-      - name: Restore Rust build caches
-        uses: actions/cache@v5
+      # Dependencies only: Cargo rebuilds workspace crates in a fresh
+      # checkout anyway, and only main saves, so branches cannot add copies.
+      - name: Restore Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-arm64-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml', 'native/rust-toolchain.toml') }}
-          restore-keys: rust-arm64-${{ runner.os }}-${{ runner.arch }}-
+          workspaces: native -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Rust tests
         run: pnpm run test:rust
@@ -147,8 +143,10 @@ jobs:
           path: ~/.cargo/bin/cargo-fuzz
           key: cargo-fuzz-v1-${{ runner.os }}-${{ runner.arch }}-0.13.1
 
+      # Only main saves, so a dispatched branch run cannot add a copy.
       - name: Restore fuzz target builds
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        id: fuzz-target-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             native/pdf-image-combine/fuzz/target
@@ -177,6 +175,16 @@ jobs:
           for target in decode roundtrip; do
             cargo "+$FUZZ_TOOLCHAIN" fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
           done
+
+      - name: Save fuzz target builds
+        if: github.ref == 'refs/heads/main' && steps.fuzz-target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            native/pdf-image-combine/fuzz/target
+            native/pdf-page-ops/fuzz/target
+            native/jbig2-codec/fuzz/target
+          key: ${{ steps.fuzz-target-cache.outputs.cache-primary-key }}
 
   electron_e2e_macos_build:
     name: Electron E2E macOS Build
