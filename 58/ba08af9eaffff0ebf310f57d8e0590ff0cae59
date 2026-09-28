@@ -1,0 +1,35 @@
+tests/e2e/electron/documents/bookmarkRenameDestinations.e2e.test.ts
+  s_649766450eb71a::t_ed0dc73f7824b2 37,39-40,66,69-70,72,74-75,97,104,133,141,143-144,146-149
+  s_649766450eb71a::t_5ac124df9ac8b1 36,65
+  s_649766450eb71a::t_8972d51f2cea41 58-60
+  s_649766450eb71a::t_0e3ae336ac19d7 21,134,139
+  s_649766450eb71a::t_fa91a80b5733da 46
+  s_649766450eb71a::t_7555e409cdb07d 99-103
+  s_649766450eb71a::t_abe63ac312e008 1-3,5-7,9-14,16-18,38,78-94,105-130
+  s_649766450eb71a::t_cbdb51b5ce9918 140,142
+  s_649766450eb71a::t_1b39a871164500 8,15,22-26,42-44,48,55-57,61-64,131-132
+  s_649766450eb71a::t_0ce4bf4c13bd11 49-52
+  s_649766450eb71a::t_ab3c2af1d97ca5 4,27-29,34-35
+  s_649766450eb71a::t_32cc697b2a02f9 45
+  s_649766450eb71a::t_ecc635c04c64c3 53-54,135-138,145
+  s_649766450eb71a::t_c80f672d508357 77
+  s_649766450eb71a::t_df163b59e9b79c 19-20,67-68,76,95-96,98
+  s_649766450eb71a::t_be1e1ffdd5e068 30-33,47
+  s_649766450eb71a::t_3c808f1aead52f 41,71,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "58ba08af9eaffff0ebf310f57d8e0590ff0cae59",
+  "prompts": {},
+  "sessions": {
+    "s_649766450eb71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e887-3b64-70b0-bbbe-09a6e9a0cf23",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
