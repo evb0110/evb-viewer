@@ -1,4 +1,12 @@
 import type { Page } from 'puppeteer-core';
+import { execFileSync } from 'node:child_process';
+import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+} from 'node:fs';
+import { resolve } from 'node:path';
+import { decode } from 'fast-png';
 import {
     afterEach,
     describe,
@@ -15,6 +23,7 @@ import {
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     clickAnnotationTool,
     setAnnotationColor,
@@ -228,7 +237,7 @@ async function dragInkStrokeWithMouse(
         y: number;
     }>,
     pageNumber = 1,
-    tool: 'Draw' | 'Line' = 'Draw',
+    tool: 'Draw' | 'Line' | 'Arrow' = 'Draw',
 ) {
     await clickAnnotationTool(page, tool);
     await waitForViewerInteractive(page);
@@ -2221,8 +2230,11 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         sessionName: () => `e2e-draw-shapes-${Date.now()}`,
     });
 
-    const startDrawShapeSession = async () => {
-        const session = await sessionFixture.start({sessionName: () => `e2e-draw-shapes-${Date.now()}`});
+    const startDrawShapeSession = async (extraEnv?: Record<string, string>) => {
+        const session = await sessionFixture.start({
+            sessionName: () => `e2e-draw-shapes-${Date.now()}`,
+            ...(extraEnv ? {extraEnv} : {}),
+        });
         if (session?.page) {
             rendererErrorTracker = createRendererErrorTracker(session.page);
         }
@@ -2416,6 +2428,159 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await clickEnabledToolbarAction(page, 'Redo');
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
+    });
+
+    it('saves a filled closed arrowhead for Poppler and PDF.js', async () => {
+        const outputPath = resolve(process.cwd(), '.devkit/project12/863/saved-arrow.pdf');
+        const session = await startDrawShapeSession({EVB_E2E_SAVE_DIALOG_PATH: outputPath});
+        const { page } = session;
+        const filePath = await createBlankFixturePdf(`draw-closed-arrow-${Date.now()}.pdf`, 1);
+        await openPdfInApp(page, filePath);
+        await waitForPdfLoaded(page);
+        await clickAnnotationTool(page, 'Arrow');
+        await setAnnotationColor(page, '#111827');
+
+        await dragInkStrokeWithMouse(page, [
+            {
+                x: 0.2,
+                y: 0.4,
+            },
+            {
+                x: 0.7,
+                y: 0.4,
+            },
+        ], 1, 'Arrow');
+        await waitForShapeCount(page, 1);
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
+        const saveTriggerPoint = await page.evaluate(() => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-trigger'))
+                .find(candidate => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return rect.width > 8 && rect.height > 8
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && !candidate.disabled;
+                });
+            if (!button) return null;
+            const rect = button.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        expect(saveTriggerPoint).not.toBeNull();
+        await page.mouse.click(saveTriggerPoint!.x, saveTriggerPoint!.y);
+        await page.waitForSelector('.save-split-menu', {visible: true});
+        const saveAsPoint = await page.evaluate(() => {
+            const item = Array.from(document.querySelectorAll<HTMLElement>('.save-split-item'))
+                .find(candidate => candidate.textContent?.trim().startsWith('Save As'));
+            if (!item) return null;
+            const rect = item.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        });
+        expect(saveAsPoint).not.toBeNull();
+        await page.mouse.click(saveAsPoint!.x, saveAsPoint!.y);
+        await expect.poll(() => existsSync(outputPath), {timeout: 20_000}).toBe(true);
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
+        await waitForShapeCount(page, 1);
+        await page.click('.editor-pane.is-active .tab.is-active .tab-close');
+        await openPdfInApp(page, outputPath);
+        await waitForPdfLoaded(page);
+        await waitForShapeCount(page, 1);
+        const headCenter = await page.evaluate(() => {
+            const head = document.querySelector<SVGPolygonElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-shape__arrowhead:not(.is-open)',
+            );
+            const matrix = head?.getScreenCTM();
+            if (!head || !matrix || head.points.numberOfItems !== 3) return null;
+            const corners = Array.from({length: 3}, (_, index) => {
+                const point = head.points.getItem(index);
+                return new DOMPoint(point.x, point.y).matrixTransform(matrix);
+            });
+            return {
+                x: corners.reduce((sum, point) => sum + point.x, 0) / corners.length,
+                y: corners.reduce((sum, point) => sum + point.y, 0) / corners.length,
+            };
+        });
+        expect(headCenter, 'reopened editor should render a closed arrowhead').not.toBeNull();
+        const editorScreenshot = decode(await page.screenshot({path: resolve(process.cwd(), '.devkit/project12/863/editor-reopened.png')}));
+        const editorPixelIndex = (
+            Math.round(headCenter!.y) * editorScreenshot.width + Math.round(headCenter!.x)
+        ) * editorScreenshot.channels;
+        expect(
+            (editorScreenshot.data[editorPixelIndex] ?? 255) < 100
+            && (editorScreenshot.data[editorPixelIndex + 1] ?? 255) < 100
+            && (editorScreenshot.data[editorPixelIndex + 2] ?? 255) < 100,
+            'the closed arrowhead stays filled in the reopened editor',
+        ).toBe(true);
+
+        const {
+            qpdf, pdftoppm,
+        } = getPdfNativeToolPaths();
+        execFileSync(qpdf, [
+            '--check',
+            outputPath,
+        ], { encoding: 'utf8' });
+        const qdfPath = resolve(process.cwd(), '.devkit/project12/863/arrow.qdf.pdf');
+        mkdirSync(resolve(process.cwd(), '.devkit/project12/863'), { recursive: true });
+        execFileSync(qpdf, [
+            '--qdf',
+            '--object-streams=disable',
+            outputPath,
+            qdfPath,
+        ], { encoding: 'utf8' });
+        const qdf = readFileSync(qdfPath, 'latin1');
+        const lineDictionary = qdf.split('endobj')
+            ?.find(dictionary => dictionary.includes('/ClosedArrow')) ?? '';
+        expect(lineDictionary).toContain('/IC');
+        expect(lineDictionary).toContain('/AP');
+
+        const renderPrefix = resolve(process.cwd(), '.devkit/project12/863/arrow-poppler');
+        execFileSync(pdftoppm, [
+            '-f',
+            '1',
+            '-l',
+            '1',
+            '-singlefile',
+            '-png',
+            '-r',
+            '150',
+            outputPath,
+            renderPrefix,
+        ]);
+        const rendered = decode(readFileSync(`${renderPrefix}.png`));
+        const darkPixelAt = (x: number, y: number) => {
+            const index = (Math.round(y) * rendered.width + Math.round(x)) * rendered.channels;
+            return (rendered.data[index] ?? 255) < 100
+                && (rendered.data[index + 1] ?? 255) < 100
+                && (rendered.data[index + 2] ?? 255) < 100;
+        };
+        const match = lineDictionary.match(/\/L\s*\[\s*([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s*\]/);
+        expect(match, 'saved line geometry should be present').not.toBeNull();
+        const [
+            , x1s,
+            y1s,
+            x2s,
+            y2s,
+        ] = match ?? [];
+        const x1 = Number(x1s), y1 = Number(y1s), x2 = Number(x2s), y2 = Number(y2s);
+        const length = Math.hypot(x2 - x1, y2 - y1);
+        const strokeWidthMatch = lineDictionary.match(/\/Border\s*\[\s*[\d.-]+\s+[\d.-]+\s+([\d.-]+)/);
+        const strokeWidth = Number(strokeWidthMatch?.[1] ?? 1);
+        const along = Math.min(strokeWidth * 5, length * 0.2) / length;
+        const across = strokeWidth * 1.5 / length;
+        const sampleX = x2 + (x1 - x2) * along + (y1 - y2) * across;
+        const sampleY = y2 + (y1 - y2) * along - (x1 - x2) * across;
+        const pixelScale = 150 / 72;
+        const rasterY = rendered.height - sampleY * pixelScale;
+        const rasterX = sampleX * pixelScale;
+        expect(darkPixelAt(rasterX, rasterY), 'Poppler should fill the closed arrowhead interior').toBe(true);
     });
 
     for (const scenario of savedShapeDeleteScenarios) {
