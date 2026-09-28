@@ -1,7 +1,6 @@
 import {
-    mkdtempSync, rmSync, writeFileSync,
+    mkdirSync, mkdtempSync, rmSync, writeFileSync,
 } from 'node:fs';
-import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
     PDFDocument, StandardFonts, rgb,
@@ -15,6 +14,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
+import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-move-tab-view-state-${Date.now()}`});
 let outputDirectory: string | null = null;
@@ -95,7 +95,9 @@ async function readView(page: Page) {
 describe('Move Tab to New Window view state', () => {
     it('preserves page, custom zoom, and open sidebar in the destination', async () => {
         const session = sessions.getSession();
-        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-tab-view-transfer-'));
+        const appTempDirectory = electronAppTempDirPath(session.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = mkdtempSync(join(appTempDirectory, 'tab-view-transfer-'));
         const fixture = join(outputDirectory, 'transfer-view.pdf');
         await createTwelvePageFixture(fixture);
         await openPdfInApp(session.page, fixture);

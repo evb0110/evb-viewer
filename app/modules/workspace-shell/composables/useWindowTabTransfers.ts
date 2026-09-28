@@ -429,6 +429,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 if (restoredView.showSidebar !== viewState.showSidebar) {
                     workspace.handleToggleSidebar();
                 }
+                if (payload.currentPage) {
+                    await nextTick();
+                    workspace.handleGoToPage(payload.currentPage);
+                }
             }
 
             if (payload.kind === 'pdfSnapshot' && !tabHoldsDocument(tabId)) {
