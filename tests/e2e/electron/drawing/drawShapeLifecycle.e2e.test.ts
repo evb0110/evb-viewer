@@ -2,10 +2,11 @@ import type { Page } from 'puppeteer-core';
 import { execFileSync } from 'node:child_process';
 import {
     existsSync,
-    mkdirSync,
+    mkdtempSync,
     readFileSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { decode } from 'fast-png';
 import {
     afterEach,
@@ -2431,7 +2432,8 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
     });
 
     it('saves a filled closed arrowhead for Poppler and PDF.js', async () => {
-        const outputPath = resolve(process.cwd(), '.devkit/project12/863/saved-arrow.pdf');
+        const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-closed-arrow-'));
+        const outputPath = join(outputDirectory, 'saved-arrow.pdf');
         const session = await startDrawShapeSession({EVB_E2E_SAVE_DIALOG_PATH: outputPath});
         const { page } = session;
         const filePath = await createBlankFixturePdf(`draw-closed-arrow-${Date.now()}.pdf`, 1);
@@ -2509,7 +2511,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             };
         });
         expect(headCenter, 'reopened editor should render a closed arrowhead').not.toBeNull();
-        const editorScreenshot = decode(await page.screenshot({path: resolve(process.cwd(), '.devkit/project12/863/editor-reopened.png')}));
+        const editorScreenshot = decode(await page.screenshot({path: join(outputDirectory, 'editor-reopened.png')}));
         const editorPixelIndex = (
             Math.round(headCenter!.y) * editorScreenshot.width + Math.round(headCenter!.x)
         ) * editorScreenshot.channels;
@@ -2527,8 +2529,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             '--check',
             outputPath,
         ], { encoding: 'utf8' });
-        const qdfPath = resolve(process.cwd(), '.devkit/project12/863/arrow.qdf.pdf');
-        mkdirSync(resolve(process.cwd(), '.devkit/project12/863'), { recursive: true });
+        const qdfPath = join(outputDirectory, 'arrow.qdf.pdf');
         execFileSync(qpdf, [
             '--qdf',
             '--object-streams=disable',
@@ -2541,7 +2542,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         expect(lineDictionary).toContain('/IC');
         expect(lineDictionary).toContain('/AP');
 
-        const renderPrefix = resolve(process.cwd(), '.devkit/project12/863/arrow-poppler');
+        const renderPrefix = join(outputDirectory, 'arrow-poppler');
         execFileSync(pdftoppm, [
             '-f',
             '1',
