@@ -23,7 +23,10 @@ import {
 } from '@scripts/electron-run/electronRunSessionPaths';
 
 it('restores focused text draft after a crash checkpoint', async () => {
-    const sourcePath = `${process.cwd()}/.devkit/project12/872/draft-source.pdf`;
+    const evidenceDirectory = join(process.cwd(), '.devkit/project12/872');
+    mkdirSync(evidenceDirectory, {recursive: true});
+    const sourcePath = join(evidenceDirectory, 'draft-source.pdf');
+    copyFileSync(join(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), sourcePath);
     const sessionName = `e2e-unsaved-draft-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
         clean: true,
@@ -81,7 +84,6 @@ it('restores focused text draft after a crash checkpoint', async () => {
     } finally {
         const logPath = join(sessionDir(session.name), 'session.log');
         if (existsSync(logPath)) {
-            const evidenceDirectory = join(process.cwd(), '.devkit/project12/872');
             mkdirSync(evidenceDirectory, {recursive: true});
             copyFileSync(logPath, join(evidenceDirectory, 'session.log'));
         }
