@@ -317,9 +317,11 @@
     fill: transparent;
     stroke: transparent;
     stroke-width: 0;
+    pointer-events: all;
 }
 
-.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target], .pdfViewer.is-text-selection-mode .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
+.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
+    /* A markup gesture selects document text, including text already marked. */
     pointer-events: none;
 }
 
