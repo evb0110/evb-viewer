@@ -22,7 +22,7 @@ import {
  * This mirrors Okular's `readBookmarks()` in kdjvu.cpp which recursively
  * traverses (title destination children...) tuples from ddjvu_miniexp_t.
  */
-export function parseDjvuOutline(sexpression: string): IPdfBookmarkEntry[] {
+export function parseDjvuOutline(sexpression: string, pageComponents?: ReadonlyMap<string, number>): IPdfBookmarkEntry[] {
     if (!sexpression || sexpression.trim().length === 0) {
         return [];
     }
@@ -46,7 +46,7 @@ export function parseDjvuOutline(sexpression: string): IPdfBookmarkEntry[] {
     }
 
     return root.slice(1).flatMap((node) => {
-        const bookmark = parseBookmarkNode(node);
+        const bookmark = parseBookmarkNode(node, pageComponents);
         return bookmark ? [bookmark] : [];
     });
 }
@@ -177,7 +177,7 @@ function parseTokens(tokens: string[]): TSexpToken[] {
     return result;
 }
 
-function parseBookmarkNode(node: TSexpToken): IPdfBookmarkEntry | null {
+function parseBookmarkNode(node: TSexpToken, pageComponents?: ReadonlyMap<string, number>): IPdfBookmarkEntry | null {
     if (!Array.isArray(node) || node.length < 2) {
         return null;
     }
@@ -188,15 +188,21 @@ function parseBookmarkNode(node: TSexpToken): IPdfBookmarkEntry | null {
     // Parse page reference: "#N" where N is 1-based
     let pageIndex: TPageIndex | null = null;
     if (dest.startsWith('#')) {
-        const pageNum = parseInt(dest.slice(1), 10);
-        if (Number.isFinite(pageNum) && pageNum >= 1) {
-            pageIndex = requirePageIndex(pageNum - 1);
+        const component = dest.slice(1).match(/^p\d+\.djvu$/iu)?.[0];
+        const componentIndex = component ? pageComponents?.get(component) : undefined;
+        if (Number.isSafeInteger(componentIndex) && componentIndex! >= 0) {
+            pageIndex = requirePageIndex(componentIndex!);
+        } else {
+            const pageNum = parseInt(dest.slice(1), 10);
+            if (Number.isFinite(pageNum) && pageNum >= 1) {
+                pageIndex = requirePageIndex(pageNum - 1);
+            }
         }
     }
 
     // Remaining elements are child bookmarks
     const children = node.slice(2).flatMap((childNode) => {
-        const bookmark = parseBookmarkNode(childNode);
+        const bookmark = parseBookmarkNode(childNode, pageComponents);
         return bookmark ? [bookmark] : [];
     });
 
