@@ -1,0 +1,36 @@
+electron/windowTabTransfer.ts
+  s_17dc647d8d0097::t_2c72d2789538e2 41-43,57,100,105-114,144,179,356
+electron/file-access/workingCopyStore.ts
+  s_17dc647d8d0097::t_5e3d3dca3bf278 938,950,953
+  s_17dc647d8d0097::t_c3f4ac57a79196 925,929,936,939-941,948,951-952
+  s_17dc647d8d0097::t_73406f28d94697 922
+tests/unit/electron/windowTabTransfer.test.ts
+  s_17dc647d8d0097::t_31a7cf4f5bc843 134,167,174,202
+tests/e2e/electron/annotations/moveDirtyTabSave.e2e.test.ts
+  s_17dc647d8d0097::t_8317d0bdceb455 2,18,114-115,123
+  s_17dc647d8d0097::t_429ec35267df0e 5,10,23,33-34,113,116
+  s_17dc647d8d0097::t_e2dbad75d53b15 13-14,24-26,28,117,120
+  s_17dc647d8d0097::t_b240645525899a 7-9,29-32
+  s_17dc647d8d0097::t_7c92e08b020aa1 139-149,151-153,155,157-160,165-166
+  s_17dc647d8d0097::t_948d2ae3f36c93 27
+  ai_agent 16,80-83,87-90,161-164
+  s_17dc647d8d0097::t_1d23259cd23f72 64-79,84-86,91-104,138
+  s_17dc647d8d0097::t_260eb4298f6f30 150
+  s_17dc647d8d0097::t_a82ff5c7048437 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0cd885abe341a4a6941778742cc7bef00355852a",
+  "prompts": {},
+  "sessions": {
+    "s_17dc647d8d0097": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e887-0846-7463-b44f-1ae405eb537a",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
