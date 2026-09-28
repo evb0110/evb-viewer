@@ -477,7 +477,6 @@ export const usePageOperations = (deps: {
         cancelState.value = 'idle';
 
         try {
-            let didRunWorkingCopyFreshnessPreflight = false;
             return await runWithDocumentOperationLease('page-operation', async () => {
                 if (workingCopyPath.value !== path) {
                     return recordOutcome<TResult>({
@@ -500,47 +499,12 @@ export const usePageOperations = (deps: {
                         });
                     }
                 }
-                if (options.shouldReload && ensureWorkingCopyFreshForRead) {
-                    didRunWorkingCopyFreshnessPreflight = true;
-                    const isFresh = await ensureWorkingCopyFreshForRead();
-                    if (!isFresh) {
-                        return recordOutcome<TResult>({
-                            status: 'blocked',
-                            reason: 'preflight',
-                        });
-                    }
-                    if (workingCopyPath.value !== path) {
-                        return recordOutcome<TResult>({
-                            status: 'stale',
-                            phase: 'before-run',
-                        });
-                    }
-                }
                 if (options.shouldReload && saveAnnotationsForPageMutation) {
                     const didMaterialize = await saveAnnotationsForPageMutation();
                     if (!didMaterialize) {
                         return recordOutcome<TResult>({
                             status: 'blocked',
                             reason: 'preflight',
-                        });
-                    }
-                    if (workingCopyPath.value !== path) {
-                        return recordOutcome<TResult>({
-                            status: 'stale',
-                            phase: 'before-run',
-                        });
-                    }
-                }
-                if (options.shouldReload && didRunWorkingCopyFreshnessPreflight) {
-                    // A freshness save may replace the clean path-backed
-                    // history entry with a lazy baseline. Materialize the
-                    // post-preflight frontier before the native mutation so
-                    // its reload can append an undoable dirty entry.
-                    const didPrimePostPreflightHistory = await ensureHistoryBaselineForMutation();
-                    if (!didPrimePostPreflightHistory) {
-                        return recordOutcome<TResult>({
-                            status: 'blocked',
-                            reason: 'history-baseline',
                         });
                     }
                     if (workingCopyPath.value !== path) {

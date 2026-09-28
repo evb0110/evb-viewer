@@ -903,7 +903,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleSave: saveIfDirty,
         handleSaveWithinDocumentOperationLease: () => saveIfDirty({withinDocumentOperationLease: true}),
         saveForExternalRead: saveIfDirty,
-        saveForExternalReadWithinDocumentOperationLease: () => saveIfDirty({withinDocumentOperationLease: true}),
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
         createRecoverySnapshotBytes,
         createPageMutationWriterSave: (options: {
