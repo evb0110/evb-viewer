@@ -126,15 +126,16 @@ fully green run; dispatched runs do not touch the issue.
 | --- | --- |
 | Scan Cleanup Heavy Gates | Canonical scan-cleanup identity |
 | Rust Tests (Linux arm64) | The Rust workspace on the second architecture |
-| Native Parser Fuzz Canaries | Image, xref and JBIG2 fuzz targets |
+| Native Parser Fuzz Canaries | Image, xref and JBIG2 fuzz targets, with cached cargo-fuzz and target builds |
 | Public release mirror health | Current GitHub latest release, updater channel, mirror manifest and served asset |
-| Electron E2E macOS (lane) | The `ci.yml` lanes on macOS with timing budgets enforced |
+| Electron E2E macOS Build and lanes | One macOS production build shared across the eight ordinary lanes, large-PDF and visible-window tests; ordinary lane timing budgets are enforced |
 | Electron E2E Search Match Scroll | High-zoom native search over a generated large document |
 | Electron E2E Large PDF | Large-PDF lane against generated fixtures |
 | Electron E2E Visible Window | Visible-window lifecycle |
 
-These run the hosted lanes under `tests/e2e/electron/nightly/`: `e2e-search`,
-`e2e-large-pdf` and `e2e-visible-window`. The `e2e-exact-pdf` lane requires
+The macOS producer shares its build artifact with all ten macOS consumers.
+These also run hosted lanes under `tests/e2e/electron/nightly/`:
+`e2e-search`, `e2e-large-pdf` and `e2e-visible-window`. The `e2e-exact-pdf` lane requires
 the private fixture and runs only on a machine where that fixture is staged.
 
 ## Other workflows
