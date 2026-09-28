@@ -279,9 +279,12 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-toolbar-zone-right {
+    position: relative;
+    z-index: var(--app-z-floating-chrome);
+    flex-wrap: nowrap;
     justify-content: flex-end;
     gap: var(--app-space-3xl);
-    overflow: hidden;
+    overflow: visible;
 }
 
 .scan-cleanup-toolbar-done {
@@ -339,20 +342,23 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-settings-badges {
+    position: relative;
+    z-index: var(--app-z-floating-chrome);
     display: flex;
     min-width: 0;
     max-width: calc(var(--app-scan-toolbar-right-zone-width) * 3);
     flex-wrap: nowrap;
+    flex: 0 1 auto;
     align-items: center;
-    justify-content: flex-end;
-    overflow: hidden;
+    justify-content: flex-start;
+    overflow: auto hidden;
     gap: var(--app-space-xs);
 }
 
 .scan-cleanup-settings-badge {
     display: inline-flex;
-    min-width: 0;
-    flex: 0 1 auto;
+    min-width: max-content;
+    flex: 0 0 auto;
     align-items: center;
     border: 1px solid var(--ui-border);
     border-radius: var(--app-radius-full);
@@ -374,6 +380,20 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-settings-reset {
     flex: none;
+}
+
+@media (width <= 64rem) {
+    .scan-cleanup-toolbar {
+        grid-template-columns:
+            minmax(0, 1fr)
+            minmax(0, var(--app-scan-toolbar-primary-width))
+            minmax(0, 1fr);
+        gap: var(--app-space-3xl);
+    }
+
+    .scan-cleanup-settings-reset [data-slot='label'] {
+        display: none;
+    }
 }
 
 .scan-cleanup-toolbar-estimate,

@@ -260,13 +260,23 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         selection.reconcilePageCount(normalizedPageCount, options.currentPage());
     });
     function resolvePagePlanEvidence(pageNumbers: readonly number[] | null) {
+        const evidenceMatchesLayout = (pageNumber: number, evidence: IScanCleanupPagePlanEvidence) => (
+            detection.authoritativeLayoutByPage.value.get(pageNumber) === evidence.layoutClassification
+        );
         if (pageNumbers === null) {
-            return new Map<number, IScanCleanupPagePlanEvidence>(detection.pagePlanEvidenceByPage);
+            return new Map<number, IScanCleanupPagePlanEvidence>([...detection.pagePlanEvidenceByPage].filter(
+                ([
+                    pageNumber,
+                    evidence,
+                ]) => evidenceMatchesLayout(pageNumber, evidence),
+            ));
         }
         const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
         for (const pageNumber of pageNumbers) {
             const detected = detection.pagePlanEvidenceByPage.get(pageNumber);
-            if (detected !== undefined) evidence.set(pageNumber, detected);
+            if (detected !== undefined && evidenceMatchesLayout(pageNumber, detected)) {
+                evidence.set(pageNumber, detected);
+            }
         }
         return evidence;
     }
