@@ -633,8 +633,16 @@ function attachWorkerHandlers<T>({
             restartInactivityTimeout();
             return;
         }
-        if (hasPendingCancelError && parseResultWorkerPayload(payload) !== null) {
+        const resultPayload = parseResultWorkerPayload(payload);
+        if (hasPendingCancelError && resultPayload !== null) {
             cancellationAcknowledged = true;
+            if (!resultPayload.ok && resultPayload.errorFrame?.canceled) {
+                workerTaskLog.info('Worker reported cancellation', {
+                    workerPath: options.workerPath,
+                    elapsedMs: Math.round(performance.now() - startedAt),
+                    error: resultPayload.error,
+                });
+            }
         }
         finalize(() => {
             if (hasPendingCancelError) {
@@ -647,7 +655,6 @@ function attachWorkerHandlers<T>({
                 reject(withWorkerReportedTerminationProof(pendingCancelError, payload));
                 return;
             }
-            const resultPayload = parseResultWorkerPayload(payload);
             if (!resultPayload) {
                 const error = new Error(invalidPayloadMessage);
                 const receipt = workerTaskLog.error(

@@ -12,6 +12,8 @@ import {
 } from '@electron/features/documents/main/pdfConformance';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
+import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
 async function readResolvedPdf<T>(
@@ -31,13 +33,34 @@ export async function handleAnalyzePdfConformance(
     filePath: unknown,
     options?: IPdfConformanceAnalysisOptions,
 ): Promise<IPdfConformanceProfile> {
-    return readResolvedPdf(
-        context,
-        filePath,
-        physicalPath => analyzePdfConformanceFile(physicalPath, {markerEvidence: options?.purpose === 'save-restrictions'
-            ? 'structural-only'
-            : 'full'}),
-    );
+    const workingCopyPath = typeof filePath === 'string'
+        && getWorkingCopyBackingEntry(filePath, context.senderId)
+        ? filePath
+        : undefined;
+    const operation = workingCopyPath === undefined
+        ? undefined
+        : registerMainOperation({
+            kind: 'abortable-work',
+            ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
+            workingCopyPath,
+            // The worker listens to operation.signal; the lifecycle hook marks
+            // this read as eligible for cancellation when the copy is released.
+            cancel: () => undefined,
+        });
+    try {
+        return await readResolvedPdf(
+            context,
+            filePath,
+            physicalPath => analyzePdfConformanceFile(physicalPath, {
+                markerEvidence: options?.purpose === 'save-restrictions'
+                    ? 'structural-only'
+                    : 'full',
+                ...(operation === undefined ? {} : {signal: operation.signal}),
+            }),
+        );
+    } finally {
+        operation?.complete();
+    }
 }
 
 
