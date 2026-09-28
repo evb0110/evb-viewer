@@ -1,6 +1,7 @@
 import {
-    copyFileSync, existsSync, mkdirSync, readFileSync,
+    copyFileSync, existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
 import {
     join, resolve,
 } from 'node:path';
@@ -24,21 +25,28 @@ import {
     electronUserDataPath, sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 
-const FIXTURE_PATH = '/home/ubuntu/.devkit/project12-stage/fixtures/interaction-deterministic-12.pdf';
+const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
 
 describe('checkpointed annotation recovery', () => {
     let session: IElectronE2ESession | null = null;
+    let outputDirectory: string | null = null;
 
     afterEach(async () => {
         await session?.stop();
         session = null;
+        if (outputDirectory) rmSync(outputDirectory, {
+            recursive: true,
+            force: true,
+        });
+        outputDirectory = null;
     });
 
     it('restores committed FreeText through restart and Save As', async () => {
         const evidenceDirectory = resolve(process.cwd(), '.devkit/project12/871');
         mkdirSync(evidenceDirectory, {recursive: true});
         const sourcePath = join(evidenceDirectory, 'annotation-source.pdf');
-        const destinationPath = join(evidenceDirectory, 'annotation-recovered-save-as.pdf');
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-annotation-recovery-'));
+        const destinationPath = join(outputDirectory, 'annotation-recovered-save-as.pdf');
         copyFileSync(FIXTURE_PATH, sourcePath);
         const sourceBytes = readFileSync(sourcePath);
         const sessionName = `e2e-unsaved-annotation-${Date.now()}`;
