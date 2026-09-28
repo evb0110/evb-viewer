@@ -189,13 +189,13 @@ describe('buildContentSecurityPolicy', () => {
         }
     });
 
-    it('allows clipboard writes from the trusted main renderer and denies other permissions', () => {
+    it('allows clipboard permissions only for the trusted main renderer', () => {
         expect(checkHandler).toBeTypeOf('function');
         expect(requestHandler).toBeTypeOf('function');
 
         expect(checkHandler?.(
             {getURL: () => 'evb-viewer://app/electron'},
-            'clipboard-sanitized-write',
+            'clipboard-read',
             'evb-viewer://app',
             {
                 isMainFrame: true,
@@ -203,8 +203,17 @@ describe('buildContentSecurityPolicy', () => {
             },
         )).toBe(true);
         expect(checkHandler?.(
-            {getURL: () => 'https://untrusted.example/'},
+            {getURL: () => 'evb-viewer://app/electron'},
             'clipboard-sanitized-write',
+            'evb-viewer://app',
+            {
+                isMainFrame: false,
+                requestingUrl: 'evb-viewer://app/electron',
+            },
+        )).toBe(false);
+        expect(checkHandler?.(
+            {getURL: () => 'https://untrusted.example/'},
+            'clipboard-read',
             'https://untrusted.example',
             {
                 isMainFrame: true,
@@ -223,6 +232,18 @@ describe('buildContentSecurityPolicy', () => {
             },
         );
         expect(trustedClipboardCallback).toHaveBeenCalledWith(true);
+
+        const trustedClipboardReadCallback = vi.fn();
+        requestHandler?.(
+            {getURL: () => 'evb-viewer://app/electron'},
+            'clipboard-read',
+            trustedClipboardReadCallback,
+            {
+                isMainFrame: true,
+                requestingUrl: 'evb-viewer://app/electron',
+            },
+        );
+        expect(trustedClipboardReadCallback).toHaveBeenCalledWith(true);
 
         const deniedMediaCallback = vi.fn();
         requestHandler?.(

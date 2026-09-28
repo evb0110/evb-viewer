@@ -52,6 +52,7 @@ import {
 import { buildCompactDjvuAwarePdfFromDjvu } from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';
 import {
     getDjvuOutline,
+    getDjvuPageComponentMap,
     getDjvuPageCount,
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
@@ -1143,8 +1144,16 @@ async function runDjvuConvertToPdf(
             throwIfCanceled(job.signal);
 
             const bookmarks = options.preserveBookmarks !== false
-                ? await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuOutline(djvuPath, { signal: job.signal }))
-                    .then(sexp => parseDjvuOutline(sexp))
+                ? await runDjvuMetadataWithSlot(jobId, job.signal, async () => {
+                    const [
+                        outline,
+                        components,
+                    ] = await Promise.all([
+                        getDjvuOutline(djvuPath, {signal: job.signal}),
+                        getDjvuPageComponentMap(djvuPath, {signal: job.signal}),
+                    ]);
+                    return parseDjvuOutline(outline, components);
+                })
                     .catch(() => [] as IPdfBookmarkEntry[])
                 : [];
             if (bookmarks.length > 0) {

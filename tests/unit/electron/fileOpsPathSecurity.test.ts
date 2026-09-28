@@ -188,6 +188,7 @@ const {
     handleValidatePdfPath,
 } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+const { cancelMainOperationsForClosingWorkingCopy } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 
 describe('fileOps path security', () => {
     const readContext = {senderId: 42};
@@ -1453,6 +1454,36 @@ describe('fileOps path security', () => {
         });
     });
 
+    it('cancels PDF conformance when its logical working copy is released', async () => {
+        const workingCopyPath = '/tmp/electron-test/safe.pdf';
+        mocks.getWorkingCopyBackingEntry.mockReturnValue({
+            ...lazyOriginalEntry(),
+            backingState: 'materialized',
+        });
+        let analysisSignal: AbortSignal | undefined;
+        mocks.analyzePdfConformanceFile.mockImplementation((_path: string, options: {signal?: AbortSignal}) => {
+            analysisSignal = options.signal;
+            return new Promise((_resolve, reject) => {
+                options.signal?.addEventListener('abort', () => reject(options.signal?.reason), {once: true});
+            });
+        });
+
+        const analysis = handleAnalyzePdfConformance(readContext, workingCopyPath);
+        await vi.waitFor(() => expect(analysisSignal).toBeInstanceOf(AbortSignal));
+        expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith(
+            workingCopyPath,
+            expect.objectContaining({signal: analysisSignal}),
+        );
+
+        cancelMainOperationsForClosingWorkingCopy(
+            workingCopyPath,
+            'Working copy is closing',
+            {isRegistrationCurrent: () => true},
+        );
+        expect(analysisSignal?.aborted).toBe(true);
+        await expect(analysis).rejects.toThrow('Working copy is closing');
+    });
+
     it('validates lazy-original PDFs through their checked source backing', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.existsSync.mockReturnValue(false);
@@ -1479,7 +1510,10 @@ describe('fileOps path security', () => {
 
         expect(mocks.analyzePdfConformanceFile).toHaveBeenCalledWith(
             '/Users/alice/Documents/file.pdf',
-            {markerEvidence: 'full'},
+            expect.objectContaining({
+                markerEvidence: 'full',
+                signal: expect.any(AbortSignal),
+            }),
         );
         expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
     });
