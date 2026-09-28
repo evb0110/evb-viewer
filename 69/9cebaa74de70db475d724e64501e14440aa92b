@@ -1,0 +1,45 @@
+tests/e2e/electron/save/unsavedWorkQuit.e2e.test.ts
+  s_17dc647d8d0097::t_04361a74f19ab7 1,21,72-74,81-82,88
+  s_17dc647d8d0097::t_ad0cf73f187ecc 2,15,22,32,41,44,49-50,52,55-66,70-71,116,141-142
+  s_17dc647d8d0097::t_ef1aa61a914bb0 3-5
+  s_17dc647d8d0097::t_c3af1addd2b051 6,10-11,14,16-19,75-80,84-87,90-91,93,96-100,127-128,130
+  s_17dc647d8d0097::t_2dcb0902779aca 7-9,33-40
+  s_17dc647d8d0097::t_58a8986e7a38cc 12,42-43,45-48,92,129
+  s_17dc647d8d0097::t_4865d0166be809 13,20,23-31,51,53-54,68-69,89,94,118-126,131-140,160-161
+  s_17dc647d8d0097::t_52835a2c216e6d 67
+  s_17dc647d8d0097::t_7a2889b28b8da3 83
+  s_17dc647d8d0097::t_c0648533bfa314 95,101-108
+  s_17dc647d8d0097::t_61fb98e85161db 109
+  s_17dc647d8d0097::t_d875e6a686f1af 110-115,117
+  s_17dc647d8d0097::t_f84e51ec76ca20 143-159
+electron/window/windowCloseHandshake.ts
+  s_17dc647d8d0097::t_abb747e984a193 21,62-65
+tests/unit/app/modules/workspace-shell/composables/useShutdownSaveFlushReporting.test.ts
+  s_17dc647d8d0097::t_f15551cac7cb8b 24,26,131,135,137
+app/modules/workspace-shell/composables/useShutdownSaveFlushReporting.ts
+  s_17dc647d8d0097::t_ce6a54d57ed5d4 73
+electron/window.ts
+  s_17dc647d8d0097::t_2c76f150137e30 89
+  s_17dc647d8d0097::t_3267485c5c744c 92-95
+  s_17dc647d8d0097::t_09db7a9e524e29 97,102,548
+electron/bootstrap/runInitSequence.ts
+  s_17dc647d8d0097::t_2031c9a393ded2 2,19
+  s_17dc647d8d0097::t_325df58ee898dd 527-530,561,564
+  s_17dc647d8d0097::t_adf232acac014f 578-589
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "699cebaa74de70db475d724e64501e14440aa92b",
+  "prompts": {},
+  "sessions": {
+    "s_17dc647d8d0097": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e887-0846-7463-b44f-1ae405eb537a",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
