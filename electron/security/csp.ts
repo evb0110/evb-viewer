@@ -15,7 +15,10 @@ const logger = createLogger('content-security-policy');
 const PRODUCTION_CSP_HTML_ENTRYPOINTS = ['electron/index.html'];
 const CSP_SHA256_SOURCE_PATTERN = /^'sha256-[A-Za-z0-9+/]+={0,2}'$/u;
 const NUXT_UI_SPA_COLOR_CLEANUP_SCRIPT = 'document.head.removeChild(document.querySelector(\'[data-nuxt-ui-colors]\'))';
-const CLIPBOARD_WRITE_PERMISSION = 'clipboard-sanitized-write';
+const CLIPBOARD_PERMISSIONS = new Set([
+    'clipboard-read',
+    'clipboard-sanitized-write',
+]);
 
 interface IBuildContentSecurityPolicyOptions { inlineScriptHashes?: readonly string[]; }
 
@@ -105,12 +108,14 @@ export function buildContentSecurityPolicy(
     ].join('; ');
 }
 
-function isTrustedClipboardWriteRequest(
+function isTrustedClipboardRequest(
     permission: string,
     requestingUrl: string | undefined,
     isMainFrame: boolean,
 ) {
-    return permission === CLIPBOARD_WRITE_PERMISSION
+    // Clipboard image paste is an explicit app command. Keep its read grant
+    // inside the trusted top-level renderer; embedded and external pages get neither permission.
+    return CLIPBOARD_PERMISSIONS.has(permission)
         && isMainFrame
         && typeof requestingUrl === 'string'
         && isTrustedRendererUrl(requestingUrl, config.renderer.trustedUrl);
@@ -133,14 +138,14 @@ export function setupContentSecurityPolicy() {
     }
     const csp = buildContentSecurityPolicy(config.isDev, {inlineScriptHashes});
     session.defaultSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
-        return isTrustedClipboardWriteRequest(
+        return isTrustedClipboardRequest(
             permission,
             details.requestingUrl ?? webContents?.getURL(),
             details.isMainFrame,
         );
     });
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-        callback(isTrustedClipboardWriteRequest(
+        callback(isTrustedClipboardRequest(
             permission,
             details.requestingUrl,
             details.isMainFrame,
