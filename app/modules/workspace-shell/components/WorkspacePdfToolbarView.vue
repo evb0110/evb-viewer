@@ -29,7 +29,7 @@
         :document-busy="toolbarDocumentBusy"
         :has-ocr-action="canUseOcr"
         :has-scan-cleanup-action="toolbarHasPdf && canUseOcr && isDesktopRuntime"
-        :surface="surface"
+        :surface="toolbarSurface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
         @open-file="handleOpenFile"
@@ -302,6 +302,7 @@ import {
     scanCleanupRun,
 } from '@app/modules/scan-cleanup/public/runtime';
 import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
+import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
 import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 const OcrPopup = defineAsyncComponent(
@@ -432,6 +433,11 @@ const {
     toggle: toggleAssistantPanel,
 } = useAssistantPanel();
 const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
+const toolbarSurface = computed(() => (
+    !toolbarHasPdf.value && isDesktopRuntime
+        ? DESKTOP_EDITOR_READER_COMMAND_SURFACE
+        : surface
+));
 const toolbarIsOpeningDocument = computed(() => isOpeningDocument ?? (toolbarHasPdf.value && !snapshot.initialVisualReady && !snapshot.hasOpenError));
 const toolbarDocumentBusy = computed(() => documentBusy ?? toolbarIsOpeningDocument.value);
 const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);
