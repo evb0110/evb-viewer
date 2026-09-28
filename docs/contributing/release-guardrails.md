@@ -85,7 +85,7 @@ Before submitting an AppX package, confirm that `Send privacy-sanitized error di
 
 `scripts/check-publication-policy.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter selects only commits already accepted by push CI, and CI reruns it for pushes and pull requests. It rejects the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.
 
-In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a zero OID, and an unreachable SHA all take that wider path. Push CI runs only for `main`, so the wider path means someone force-pushed or replaced `main`. That scan is expected to fail: published history predates the `Adds-Checks:` rule and still holds legacy artifacts. The failure is intentional and fail-closed.
+In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is reachable. For a new branch's zero OID, it scans `origin/main..head`, excluding commits already published on the default branch. An absent SHA or an unreachable SHA scans the complete history of the pushed head, preserving the fail-closed behavior for force rewrites.
 
 Published history is not rewritten ([#326](https://github.com/evb0110/evb-viewer/issues/326)). When a hook rejects a commit, fix the commits you have not pushed yet: amend, rebase, or drop them so no unpublished commit adds the flagged path or check. Do not narrow the scanned range, skip the hook, or force-push to get past the gate.
 

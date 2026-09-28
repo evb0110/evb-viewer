@@ -1006,10 +1006,6 @@ describe('pushed range resolution for CI', () => {
             UNREACHABLE_OID,
         ],
         [
-            'a zero before SHA',
-            ZERO_OID,
-        ],
-        [
             'an empty before SHA',
             '',
         ],
@@ -1029,6 +1025,30 @@ describe('pushed range resolution for CI', () => {
                 beforeOid,
                 head,
             ], repository)).toBe(1);
+        } finally {
+            await removeRepository(repository);
+        }
+    });
+
+    it('scans only commits beyond origin/main when the before SHA is zero', async () => {
+        const repository = await createRepository('evb-pushed-range-new-branch-');
+        try {
+            const main = await commit(repository, 'Published main fix', {'app/index.ts': 'export const app = true;\n'});
+            runGit(repository, [
+                'update-ref',
+                'refs/remotes/origin/main',
+                main,
+            ]);
+
+            expect(checker.collectPushedRangeCommits(ZERO_OID, main, repository)).toEqual([]);
+            expect(runMain([
+                '--pushed-range',
+                ZERO_OID,
+                main,
+            ], repository)).toBeUndefined();
+
+            const head = await commit(repository, 'Add unpublished change', {'docs/agents-overview.md': '# Agents\n'});
+            expect(checker.collectPushedRangeCommits(ZERO_OID, head, repository)).toEqual([head]);
         } finally {
             await removeRepository(repository);
         }

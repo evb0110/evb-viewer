@@ -266,8 +266,14 @@ export function collectPrePushWork(input, remoteTargets, cwd = process.cwd()) {
  */
 /** @param {string | undefined} beforeOid @param {string} headOid @param {string} [cwd] @returns {string[]} */
 export function collectPushedRangeCommits(beforeOid, headOid, cwd = process.cwd()) {
+    if (beforeOid === ZERO_OID) {
+        const defaultBranch = 'refs/remotes/origin/main';
+        return listCommits(commitExists(defaultBranch, cwd)
+            ? [`${defaultBranch}..${headOid}`]
+            : [headOid], cwd);
+    }
+
     const hasUsableBefore = typeof beforeOid === 'string' && beforeOid !== ''
-        && beforeOid !== ZERO_OID
         && commitExists(beforeOid, cwd)
         && tryGit([
             'merge-base',
