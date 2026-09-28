@@ -811,27 +811,13 @@ export function createScanCleanupService(
                             const pdfPaths = getPdfNativeToolPaths();
                             const scanCleanupBinary = resolvePreviewPath();
                             const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-                            // Page geometry is what matched page size is measured
-                            // from, so the raster path asks for this tool too — and
-                            // takes Poppler's answer when it is missing, rather than
-                            // dropping matching without telling anyone. Only the
-                            // lossless assembler needs the tool itself.
-                            // Auto can retain an existing compact MRC/JPX page when
-                            // its resolved Color result only needs page geometry.
-                            // Page-ops applies that geometry without decoding or
-                            // recompressing the source image objects.
-                            const requiresPageOps = request.options.preserveOriginalQuality === true
-                                || request.options.matchPageSize
-                                || request.options.outputMode === 'auto';
-                            const pdfPageOpsBinary = requiresPageOps
-                                ? resolveNativePageOpsPath()
-                                : null;
+                            const pdfPageOpsBinary = resolveNativePageOpsPath();
+                            if (!pdfPageOpsBinary) {
+                                throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
+                            }
                             const missingTools = [
                                 scanCleanupBinary ? null : 'evb-scan-cleanup',
                                 pdfImageCombineBinary ? null : 'evb-pdf-image-combine',
-                                request.options.preserveOriginalQuality === true && !pdfPageOpsBinary
-                                    ? 'evb-pdf-page-ops'
-                                    : null,
                             ].filter((name): name is string => name !== null);
                             if (missingTools.length > 0 || !scanCleanupBinary || !pdfImageCombineBinary) {
                                 throw new ScanCleanupNativeToolUnavailableError(
@@ -862,7 +848,7 @@ export function createScanCleanupService(
                                     ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
                                     scanCleanupBinary,
                                     pdfImageCombineBinary,
-                                    ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
+                                    pdfPageOpsBinary,
                                     tempDir: getAppTempDir(),
                                     scratchDir: scratchPath,
                                 },
