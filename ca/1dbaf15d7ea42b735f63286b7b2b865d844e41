@@ -1,0 +1,21 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing.ts
+  s_07bd7cee17a5ea::t_b0182cb3ed5e43 45,55,506,509
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_07bd7cee17a5ea::t_bc9db1b6444ca3 189,624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ca1dbaf15d7ea42b735f63286b7b2b865d844e41",
+  "prompts": {},
+  "sessions": {
+    "s_07bd7cee17a5ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e8bd-98aa-7621-bf99-d747eff0edae",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
