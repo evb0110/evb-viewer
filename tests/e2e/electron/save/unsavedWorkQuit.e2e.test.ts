@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
-    copyFileSync, mkdirSync, readFileSync, mkdtempSync, rmSync,
+    copyFileSync, readFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
-import {resolve} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     afterEach, describe, expect, it, 
 } from 'vitest';
@@ -43,9 +45,8 @@ describe('unsaved work on app Quit', () => {
             requiresSaveAs: true, 
         },
     ])('asks before quitting $destination and Cancel keeps the unsaved edit and source intact', async ({ requiresSaveAs }) => {
-        const evidenceDirectory = resolve(process.cwd(), '.devkit/project12/870/fixtures');
-        mkdirSync(evidenceDirectory, { recursive: true });
-        const sourcePath = resolve(evidenceDirectory, requiresSaveAs ? 'quit-generated-source.pdf' : 'quit-source.pdf');
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-unsaved-'));
+        const sourcePath = join(outputDirectory, requiresSaveAs ? 'quit-generated-source.pdf' : 'quit-source.pdf');
         copyFileSync(
             resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'),
             sourcePath,
@@ -58,8 +59,7 @@ describe('unsaved work on app Quit', () => {
 
         let documentPath = sourcePath;
         if (requiresSaveAs) {
-            outputDirectory = mkdtempSync(resolve(tmpdir(), 'evb-quit-unsaved-'));
-            documentPath = resolve(outputDirectory, `generated-${randomUUID()}.pdf`);
+            documentPath = join(outputDirectory, `generated-${randomUUID()}.pdf`);
             copyFileSync(sourcePath, documentPath);
         }
         if (requiresSaveAs) await openPdfInApp(session.page, documentPath, 60_000);
