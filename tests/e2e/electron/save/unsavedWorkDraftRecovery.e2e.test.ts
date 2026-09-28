@@ -21,6 +21,11 @@ import {
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 
+interface IPoint {
+    readonly x: number;
+    readonly y: number;
+}
+
 it('restores focused text draft after a crash checkpoint', async () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-draft-recovery-'));
     const sourcePath = join(outputDirectory, 'draft-source.pdf');
@@ -36,19 +41,53 @@ it('restores focused text draft after a crash checkpoint', async () => {
         await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         await clickAnnotationTool(session.page, 'Text', 30_000);
-        const point = await session.page.evaluate(() => {
-            const layer = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer');
+        const pointHandle = await session.page.waitForFunction(() => {
+            const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
+            const layer = page?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+            const background = layer?.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background');
             const rect = layer?.getBoundingClientRect();
-            return rect ? {
-                x: rect.left + rect.width * 0.42,
-                y: rect.top + rect.height * 0.31,
-            } : null;
-        });
-        expect(point).toBeTruthy();
-        if (!point) throw new Error('Text placement point missing');
+            if (
+                !page
+                || !page.classList.contains('page_container--rendered')
+                || page.dataset.pageLayerReadiness !== 'ready'
+                || !layer
+                || layer.dataset.pdfAnnotationEditorReady !== 'true'
+                || !layer.classList.contains('is-interactive')
+                || !background
+                || getComputedStyle(background).pointerEvents === 'none'
+                || !rect
+                || rect.width <= 0
+                || rect.height <= 0
+            ) return false;
+            const x = rect.left + rect.width * 0.42;
+            const y = rect.top + rect.height * 0.31;
+            if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+            return document.elementFromPoint(x, y) === background
+                ? {
+                    x,
+                    y,
+                }
+                : false;
+        }, {timeout: 30_000});
+        const point = await pointHandle.jsonValue() as IPoint;
+        await pointHandle.dispose();
         await session.page.mouse.click(point.x, point.y);
         const editor = '.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
-        await session.page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: 30_000}, editor);
+        try {
+            await session.page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: 30_000}, editor);
+        } catch (error) {
+            const visibleState = await session.page.evaluate(() => ({
+                activeElement: document.activeElement?.tagName ?? null,
+                editingEditorVisible: Boolean(document.querySelector('.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]')),
+                activeTool: document.querySelector('.editor-pane.is-active .notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
+                visiblePageText: document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]')?.innerText.slice(0, 240) ?? null,
+            }));
+            await session.page.screenshot({
+                path: join(process.cwd(), '.devkit/project12/872/focus-timeout.png'),
+                fullPage: true,
+            });
+            throw new Error(`${String(error)}; visible UI state: ${JSON.stringify(visibleState)}`);
+        }
         const draftText = `Focused draft ${Date.now()}`;
         await session.page.keyboard.type(draftText, {delay: 10});
         await session.page.waitForFunction((text: string) => document.querySelector('.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]')?.textContent === text, {timeout: 30_000}, draftText);
