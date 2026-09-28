@@ -1,0 +1,25 @@
+tests/e2e/electron/navigation/pageNumberEditorCaret.e2e.test.ts
+  s_649766450eb71a::t_abe63ac312e008 1-3,6-8
+  s_649766450eb71a::t_922c43ba53670c 4,15,23
+  s_649766450eb71a::t_bd9bafbc61477c 18-20
+  s_649766450eb71a::t_2ccdbbe5dce9b4 5,9-14,16-17,24-25,27-30,41-45,47,53-54
+  s_649766450eb71a::t_f83eba9ee69fa5 21-22
+  s_649766450eb71a::t_16134c3baa414a 26,31-40,46,52
+  s_649766450eb71a::t_95789bc49904ee 48-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d4e45fb218c63dc96f5fb3c196f5897cc60c3b89",
+  "prompts": {},
+  "sessions": {
+    "s_649766450eb71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e887-3b64-70b0-bbbe-09a6e9a0cf23",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
