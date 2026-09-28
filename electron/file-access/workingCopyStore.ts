@@ -102,10 +102,6 @@ const currentWorkingCopyByOriginalPath = new Map<string, {
     registrationId: number;
     workingPath: string;
 }>();
-const pendingWorkingCopyTransferAccess = new Map<string, {
-    sourceOwner: number;
-    targetOwner: number;
-}>();
 let nextWorkingCopyRegistrationId = 0;
 const RETIRED_WORKING_COPY_TTL_MS = 10 * 60 * 1000;
 const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
@@ -769,7 +765,6 @@ export function getRetiredWorkingCopyOriginalCountForTests() {
 }
 
 export function forgetWorkingCopyOriginalPath(workingPath: string) {
-    pendingWorkingCopyTransferAccess.delete(normalizePathForLookup(workingPath) || workingPath);
     const existingEntry = workingCopyMap.get(workingPath);
     if (!existingEntry) {
         return false;
@@ -787,7 +782,6 @@ export function clearWorkingCopyOriginalPaths() {
     }
     workingCopyMap.clear();
     currentWorkingCopyByOriginalPath.clear();
-    pendingWorkingCopyTransferAccess.clear();
 }
 
 function canUseWorkingCopyEntry(entry: {ownerWebContentsId?: number}, senderWebContentsId?: number) {
@@ -925,55 +919,38 @@ export function grantWorkingCopyTransferAccess(
     targetOwner: number,
 ) {
     const entry = workingCopyMap.get(workingPath);
-    if (!entry || entry.ownerWebContentsId !== sourceOwner) {
+    if (!entry || entry.ownerWebContentsId !== sourceOwner || !claimWorkingCopyOwnership(workingPath, sourceOwner, targetOwner)) {
         return false;
     }
-    const key = normalizePathForLookup(workingPath) || workingPath;
-    if (pendingWorkingCopyTransferAccess.has(key)) {
-        return false;
-    }
-    pendingWorkingCopyTransferAccess.set(key, {
-        sourceOwner,
-        targetOwner,
-    });
-    return true;
+    return entry.registrationId;
 }
 
 export function hasWorkingCopyTransferAccess(workingPath: string, senderWebContentsId: number) {
-    const key = normalizePathForLookup(workingPath) || workingPath;
-    return pendingWorkingCopyTransferAccess.get(key)?.targetOwner === senderWebContentsId;
+    return getWorkingCopyOwnerWebContentsId(workingPath) === senderWebContentsId;
 }
 
 export function commitWorkingCopyTransferAccess(
     workingPath: string,
     sourceOwner: number,
     targetOwner: number,
+    registrationId: number,
 ) {
-    const key = normalizePathForLookup(workingPath) || workingPath;
-    const pending = pendingWorkingCopyTransferAccess.get(key);
-    if (!pending || pending.sourceOwner !== sourceOwner || pending.targetOwner !== targetOwner) {
-        return false;
-    }
-    if (!claimWorkingCopyOwnership(workingPath, sourceOwner, targetOwner)) {
-        pendingWorkingCopyTransferAccess.delete(key);
-        return false;
-    }
-    pendingWorkingCopyTransferAccess.delete(key);
-    return true;
+    const entry = workingCopyMap.get(workingPath);
+    return entry?.registrationId === registrationId
+        && entry.ownerWebContentsId === targetOwner
+        && sourceOwner !== targetOwner;
 }
 
 export function revokeWorkingCopyTransferAccess(
     workingPath: string,
     sourceOwner: number,
     targetOwner: number,
+    registrationId: number,
 ) {
-    const key = normalizePathForLookup(workingPath) || workingPath;
-    const pending = pendingWorkingCopyTransferAccess.get(key);
-    if (!pending || pending.sourceOwner !== sourceOwner || pending.targetOwner !== targetOwner) {
-        return false;
-    }
-    pendingWorkingCopyTransferAccess.delete(key);
-    return true;
+    const entry = workingCopyMap.get(workingPath);
+    return entry?.registrationId === registrationId
+        && entry.ownerWebContentsId === targetOwner
+        && claimWorkingCopyOwnership(workingPath, targetOwner, sourceOwner);
 }
 
 export function getWorkingCopyRegistrationId(workingPath: string, senderWebContentsId?: number): number | null {

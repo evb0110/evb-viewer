@@ -340,8 +340,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     useShutdownSaveFlushReporting({
         workingCopyPath,
         hasPendingUnsavedChanges,
-        requiresInteractiveDestination: file.requiresSaveAsOnFirstSave,
-        saveForExternalRead: saveService.saveForExternalRead,
         flushAdditionalState: async () => {
             await saveSettings();
             await flushScanCleanupDocumentPreferencesStore();

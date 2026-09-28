@@ -18,6 +18,7 @@ interface IWindowCloseHandshakeOptions {
     createRequestId?: () => string;
     ipcMain: Pick<IpcMain, 'on' | 'removeListener'>;
     logger: Pick<ILogger, 'warn'>;
+    onCancel?: () => void;
     shouldBypass?: () => boolean;
     timeoutMs?: number;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
@@ -58,6 +59,10 @@ export function attachNativeWindowCloseHandshake(
 
         clearPendingRequest();
         if ('decision' in response) {
+            if (response.decision === 'cancel') {
+                options.onCancel?.();
+                return;
+            }
             if (response.decision !== 'save' && response.decision !== 'discard') {
                 return;
             }

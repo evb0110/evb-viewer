@@ -86,7 +86,12 @@ function logWindowStartup(phase: string, details?: Record<string, unknown>) {
 
 let createMainWindowPromise: Promise<BrowserWindow> | null = null;
 let shouldBypassNativeWindowClose = () => false;
+let onNativeWindowCloseCancel: () => void = () => undefined;
 let rawIpcRegistrationAudit: IRawIpcRegistrationAudit | undefined;
+
+export function setNativeWindowCloseCancelHandler(handler: () => void) {
+    onNativeWindowCloseCancel = handler;
+}
 
 export function configureNativeWindowCloseHandshake(options: {
     shouldBypass: () => boolean;
@@ -538,6 +543,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     attachNativeWindowCloseHandshake(window, {
         ipcMain,
         logger,
+        onCancel: () => onNativeWindowCloseCancel(),
         shouldBypass: () => shouldBypassNativeWindowClose(),
         ...(rawIpcRegistrationAudit ? {rawIpcRegistrationAudit} : {}),
     });
