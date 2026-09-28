@@ -23,9 +23,9 @@ parallel and the verdict lands in about fifteen minutes; see
 | `changed_areas`, Changed Area Detection | Selects the area-scoped jobs from `scripts/release/policy.mjs` | Always |
 | `lint`, Lint | Generated-artifact drift, whole-tree lint, Drizzle schema, ASAR unpack list, web deploy sources | Always |
 | `unit`, Typecheck And Unit Tests | `pnpm run typecheck`, `pnpm run test:unit` | Always |
-| `rust`, Rust | `rustfmt`, clippy, `cargo-deny`, Rust tests, scan-cleanup catastrophe baseline | `native_or_build` |
-| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity | `native_or_build` |
-| `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against the built page-ops tool | `native_or_build` |
+| `rust`, Rust | `rustfmt`, clippy, `cargo-deny`, Rust tests, scan-cleanup catastrophe baseline | `rust` |
+| `strict_build`, Strict Build | Source-verified WASM, `build:strict`, Electron bundle static integrity | `desktop_build` |
+| `native_pdf_integration`, Native PDF Save Integration | `native-integration` Vitest project against the built page-ops tool | `desktop_build` |
 | `windows_atomic_pdf_replacement`, Windows Atomic PDF Replacement | Real Windows filesystem replacement | `electron_save_reopen` |
 | `browser_integration`, Browser Integration | Browser integration suite in Chromium | `browser_integration` |
 | `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles | `scan_cleanup_export` |
@@ -108,10 +108,11 @@ or failed run did not prove is selected again.
 
 | Output | Path groups that select it |
 | --- | --- |
-| `browser_integration` | App, packages, public, vendor, server, browser tests, shared test and config files, package metadata |
-| `electron_smoke` | App and Electron sources, Electron tests and runner scripts, packaging config, resources, PDF and vendor inputs, shared config, package metadata, native save paths |
+| `browser_integration` | App, packages, public, vendor, server, browser tests, shared test and config files, CI setup/workflow, package metadata |
+| `electron_smoke` | App and Electron sources, Electron tests/fixtures/harness, CI setup/workflow, packaging config, resources, PDF and vendor inputs, shared config, package metadata, native save paths |
 | `electron_save_reopen` | `NATIVE_PDF_SAVE_DEPENDENCY_PATHS` |
-| `native_or_build` | Actions and workflows, build, native, resources and server sources, native and release scripts, WASM scripts, native integration tests, packaging config, package metadata |
+| `rust` | Native workspace and toolchains, Rust test inputs (including contracts, fixtures, embedded font and resources), Rust gate scripts, CI setup/workflows, package metadata |
+| `desktop_build` | Actions and workflows, build, native, resources and server sources, native and release scripts, WASM scripts, native integration tests, packaging config, package metadata |
 | `scan_cleanup_export` | CI setup and workflows, scan-cleanup and native sources, scan-cleanup scripts, Rust metadata, package metadata |
 | `landing` | `landing/**`, shared contracts and i18n packages, `setup-ci-env`, workspace metadata, workflows |
 

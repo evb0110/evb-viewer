@@ -137,7 +137,7 @@ describe('changed-area classifier', () => {
             'scripts/test-ocr-quality-corpus.mjs',
             'scripts/verify-packaged-startup.sh',
         ]) {
-            expect(classifyChangedFiles([file]).native_or_build?.matched, file).toBe(true);
+            expect(classifyChangedFiles([file]).desktop_build?.matched, file).toBe(true);
         }
         expect(classifyChangedFiles(['landing/app/pages/index.vue']).landing?.matched).toBe(true);
         expect(classifyChangedFiles(['.github/actions/setup-ci-env/action.yml']).landing?.matched).toBe(true);
@@ -146,10 +146,53 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/electron-run/electronLaunch.ts']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/electron-e2e-lanes.mjs']).electron_smoke?.matched).toBe(true);
+        expect(classifyChangedFiles(['scripts/test-electron-e2e-headless.sh']).electron_smoke?.matched).toBe(true);
+        for (const file of [
+            'tests/fixtures/electron/generated-text.pdf',
+            'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf',
+            'tests/fixtures/electron/interop/corpus-manifest.json',
+        ]) {
+            expect(classifyChangedFiles([file]).electron_smoke?.matched, file).toBe(true);
+        }
+        expect(classifyChangedFiles(['tests/fixtures/electron/generated-text.pdf']).rust?.matched).toBe(false);
+        expect(classifyChangedFiles(['tests/fixtures/electron/interop/corpus-manifest.json']).rust?.matched).toBe(true);
+        expect(classifyChangedFiles(['scripts/generate-large-pdf-e2e-fixture.mjs']).electron_smoke?.matched).toBe(false);
+        expect(classifyChangedFiles(['.github/actions/setup-ci-env/action.yml'])).toMatchObject({
+            browser_integration: {matched: true},
+            electron_smoke: {matched: true},
+            electron_save_reopen: {matched: true},
+            rust: {matched: true},
+            desktop_build: {matched: true},
+        });
+        expect(classifyChangedFiles(['.github/actions/upload-electron-e2e-artifacts/action.yml']).electron_smoke?.matched).toBe(true);
+        expect(classifyChangedFiles(['.github/workflows/ci.yml'])).toMatchObject({
+            browser_integration: {matched: true},
+            electron_smoke: {matched: true},
+            rust: {matched: true},
+            desktop_build: {matched: true},
+        });
+        expect(classifyChangedFiles(['public/fonts/annotation/DejaVuSans.ttf'])).toMatchObject({
+            browser_integration: {matched: true},
+            electron_smoke: {matched: true},
+            rust: {matched: true},
+            desktop_build: {matched: true},
+        });
+        expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
+            rust: {matched: false},
+            desktop_build: {matched: false},
+        });
+        expect(classifyChangedFiles(['native/pdf-search/src/main.rs'])).toMatchObject({
+            rust: {matched: true},
+            desktop_build: {matched: true},
+        });
+        expect(classifyChangedFiles(['packages/contracts/searchConformanceCorpus.json'])).toMatchObject({
+            rust: {matched: true},
+            desktop_build: {matched: true},
+        });
         expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             landing: { matched: false },
-            native_or_build: { matched: false },
+            desktop_build: { matched: false },
         });
     });
 
@@ -173,7 +216,7 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['native/pdf-search/src/main.rs']))
             .toMatchObject({electron_save_reopen: {matched: false}});
         expect(classifyChangedFiles(['tests/integration/native/nativePdfSave.test.ts']))
-            .toMatchObject({native_or_build: {matched: true}});
+            .toMatchObject({desktop_build: {matched: true}});
         expect(classifyChangedFiles(['packages/contracts/electronApiDocuments.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
         expect(classifyChangedFiles(['app/modules/pdf-viewer/runtime/save/pdfDocumentPersistence.ts']))
@@ -190,7 +233,7 @@ describe('changed-area classifier', () => {
             expect(classifyChangedFiles([file]), file).toMatchObject({
                 electron_save_reopen: {matched: true},
                 electron_smoke: {matched: true},
-                native_or_build: {matched: true},
+                desktop_build: {matched: true},
             });
         }
     });
@@ -283,10 +326,11 @@ describe('changed-area classifier', () => {
             expect(result.status, result.stderr).toBe(0);
             expect(readFileSync(outputPath, 'utf8').trim().split('\n').sort()).toEqual([
                 'browser_integration=false',
+                'desktop_build=true',
                 'electron_save_reopen=false',
                 'electron_smoke=false',
                 'landing=true',
-                'native_or_build=true',
+                'rust=false',
                 'scan_cleanup_export=false',
             ]);
         } finally {
@@ -397,7 +441,7 @@ describe('changed-area classifier', () => {
                 'packages/scan-cleanup/core/untracked.ts',
             ]));
             expect(classification.result.scan_cleanup_export?.matched).toBe(true);
-            expect(classification.result.native_or_build?.matched).toBe(true);
+            expect(classification.result.rust?.matched).toBe(true);
         } finally {
             removeTemporaryDirectorySync(root);
         }

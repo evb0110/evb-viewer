@@ -85,7 +85,8 @@ jobs:
       electron_smoke: ${{ steps.classify.outputs.electron_smoke }}
       electron_save_reopen: ${{ steps.classify.outputs.electron_save_reopen }}
       landing: ${{ steps.classify.outputs.landing }}
-      native_or_build: ${{ steps.classify.outputs.native_or_build }}
+      rust: ${{ steps.classify.outputs.rust }}
+      desktop_build: ${{ steps.classify.outputs.desktop_build }}
       scan_cleanup_export: ${{ steps.classify.outputs.scan_cleanup_export }}
 
     steps:
@@ -215,7 +216,7 @@ jobs:
 
   rust:
     name: Rust
-    if: ${{ needs.changed_areas.outputs.native_or_build == 'true' }}
+    if: ${{ needs.changed_areas.outputs.rust == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -245,7 +246,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             native/target
-          key: rust-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          key: rust-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml', 'native/rust-toolchain.toml') }}
           restore-keys: rust-native-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Rust formatting and clippy
@@ -264,7 +265,7 @@ jobs:
 
   strict_build:
     name: Strict Build
-    if: ${{ needs.changed_areas.outputs.native_or_build == 'true' }}
+    if: ${{ needs.changed_areas.outputs.desktop_build == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -289,7 +290,7 @@ jobs:
 
   native_pdf_integration:
     name: Native PDF Save Integration
-    if: ${{ needs.changed_areas.outputs.native_or_build == 'true' }}
+    if: ${{ needs.changed_areas.outputs.desktop_build == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -445,7 +446,7 @@ jobs:
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
             .tmp/pdf-search
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'public/fonts/annotation/DejaVuSans.ttf', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'native/rust-toolchain.toml', 'pnpm-lock.yaml') }}
           restore-keys: |
             electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
@@ -551,9 +552,9 @@ jobs:
           // dispatched run.
           const legitimatelySkippable = new Map([
             ['publication_policy', process.env.EVENT_NAME === 'workflow_dispatch'],
-            ['rust', areas.native_or_build === 'false'],
-            ['strict_build', areas.native_or_build === 'false'],
-            ['native_pdf_integration', areas.native_or_build === 'false'],
+            ['rust', areas.rust === 'false'],
+            ['strict_build', areas.desktop_build === 'false'],
+            ['native_pdf_integration', areas.desktop_build === 'false'],
             ['windows_atomic_pdf_replacement', areas.electron_save_reopen === 'false'],
             ['browser_integration', areas.browser_integration === 'false'],
             ['scan_cleanup_oracles', areas.scan_cleanup_export === 'false'],

@@ -21,7 +21,10 @@ import {
     readValidCargoBuildReceipt,
     writeCargoBuildReceipt,
 } from './cargo-artifacts.mjs';
-import { computeNativeBuildId } from './native-build-id.mjs';
+import {
+    computeNativeBuildId,
+    getNativeExternalBuildInputs,
+} from './native-build-id.mjs';
 import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -278,6 +281,8 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             metadata,
             path.join(projectRoot, plan.manifestPath),
         );
+        sourcePaths.push(...getNativeExternalBuildInputs(plan.tool.crateName)
+            .map(input => path.join(projectRoot, input)));
         for (const relativePath of [
             '.cargo/config',
             '.cargo/config.toml',

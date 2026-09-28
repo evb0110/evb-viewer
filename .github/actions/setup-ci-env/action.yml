@@ -45,7 +45,7 @@ runs:
         path: |
           public/wasm
           .tmp/wasm-build-ids.json
-        key: wasm-v1-${{ runner.os }}-${{ hashFiles('native/Cargo.toml', 'native/Cargo.lock', 'native/rust-toolchain.toml', 'native/pdf-page-ops/Cargo.toml', 'native/pdf-page-ops/src/**', 'native/pdf-image-combine/Cargo.toml', 'native/pdf-image-combine/src/**', 'native/evb-native-support/Cargo.toml', 'native/evb-native-support/src/**', 'native/evb-raster-io/Cargo.toml', 'native/evb-raster-io/src/**', 'native/jbig2-codec/Cargo.toml', 'native/jbig2-codec/src/**', 'native/scan-primitives/Cargo.toml', 'native/scan-primitives/src/**', 'scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs') }}
+        key: wasm-v1-${{ runner.os }}-${{ hashFiles('native/Cargo.toml', 'native/Cargo.lock', 'native/rust-toolchain.toml', 'native/pdf-page-ops/Cargo.toml', 'native/pdf-page-ops/src/**', 'native/pdf-image-combine/Cargo.toml', 'native/pdf-image-combine/src/**', 'native/evb-native-support/Cargo.toml', 'native/evb-native-support/src/**', 'native/evb-raster-io/Cargo.toml', 'native/evb-raster-io/src/**', 'native/jbig2-codec/Cargo.toml', 'native/jbig2-codec/src/**', 'native/scan-primitives/Cargo.toml', 'native/scan-primitives/src/**', 'public/fonts/annotation/DejaVuSans.ttf', 'scripts/build-wasm-tool.mjs', 'scripts/wasm-artifacts.mjs') }}
 
     - name: Build browser WASM
       if: inputs.wasm == 'true' && steps.wasm-cache.outputs.cache-hit != 'true'

@@ -141,11 +141,11 @@ run_affected_oracles() {
     if GITHUB_OUTPUT="$classifier_output" node scripts/ci/classify-changed-areas.mjs \
       --base="$upstream_ref" --head=HEAD --include-worktree >/dev/null; then
       if grep -qE '^scan_cleanup_export=(true|false)$' "$classifier_output" \
-        && grep -qE '^native_or_build=(true|false)$' "$classifier_output"; then
+        && grep -qE '^rust=(true|false)$' "$classifier_output"; then
         scan_cleanup_changed=0
         native_changed=0
         grep -qx 'scan_cleanup_export=true' "$classifier_output" && scan_cleanup_changed=1
-        grep -qx 'native_or_build=true' "$classifier_output" && native_changed=1
+        grep -qx 'rust=true' "$classifier_output" && native_changed=1
       else
         printf '%s\n' 'warning: expected changed-area outputs missing; running all scan-cleanup oracles conservatively' >&2
         scan_cleanup_changed=1

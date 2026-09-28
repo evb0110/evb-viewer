@@ -5,6 +5,7 @@ export function hasDeveloperIdSigningCredentials(env = process.env) {
 // Keep the native-save dependency graph in one place.
 export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     '.github/workflows/ci.yml',
+    '.github/actions/setup-ci-env/**',
     'app/modules/pdf-viewer/annotations/**',
     'app/modules/pdf-viewer/engine/**',
     'app/modules/pdf-viewer/public.ts',
@@ -97,6 +98,8 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'server/**',
                 'nuxt.config.ts',
                 'tests/integration/browser/**',
+                '.github/actions/setup-ci-env/**',
+                '.github/workflows/ci.yml',
                 // Browser specs mount real components through the shared test
                 // helpers and the shared unit setup file, so those are part of
                 // this job's input graph too.
@@ -104,6 +107,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'tests/setup.ts',
                 'tests/setupApp.ts',
                 'tests/fixtures/electron/generated-text.pdf',
+                'public/fonts/annotation/DejaVuSans.ttf',
                 'tsconfig.base.json',
                 'tsconfig.json',
                 'vitest.config.ts',
@@ -169,14 +173,20 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'electron/**',
                 'packages/**',
                 'public/pdf/**',
+                'public/fonts/annotation/DejaVuSans.ttf',
                 'vendor/**',
                 'packages/scan-cleanup/**',
                 'resources/**',
                 'tests/e2e/electron/**',
+                'tests/fixtures/electron/**',
+                '.github/actions/setup-ci-env/**',
+                '.github/actions/upload-electron-e2e-artifacts/**',
+                '.github/workflows/ci.yml',
                 'scripts/build-electron.mjs',
                 'scripts/electron-e2e-lanes.mjs',
                 'scripts/electron-run/**',
                 'scripts/electron-run-headless.sh',
+                'scripts/test-electron-e2e-headless.sh',
                 'scripts/electronRun.ts',
                 'electron-builder.yml',
                 'nuxt.config.ts',
@@ -213,14 +223,39 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 '.github/workflows/**',
             ],
         },
-        nativeOrBuild: {
-            output: 'native_or_build',
+        rust: {
+            output: 'rust',
             owner: 'rust',
+            paths: [
+                '.cargo/**',
+                '.github/actions/**',
+                '.github/workflows/ci.yml',
+                'deny.toml',
+                'native/**',
+                'packages/contracts/**',
+                'public/fonts/annotation/DejaVuSans.ttf',
+                'resources/**',
+                'scripts/ci/apt-install.sh',
+                'scripts/ci/classify-changed-areas.mjs',
+                'scripts/ci/scan-cleanup-oracles.sh',
+                'scripts/release/policy.mjs',
+                'package.json',
+                'patches/**',
+                'pnpm-lock.yaml',
+                'pnpm-workspace.yaml',
+                'rust-toolchain.toml',
+                'tests/fixtures/electron/interop/**',
+            ],
+        },
+        desktopBuild: {
+            output: 'desktop_build',
+            owner: 'strict_build',
             paths: [
                 '.github/actions/**',
                 '.github/workflows/**',
                 'build/**',
                 'native/**',
+                'public/fonts/annotation/DejaVuSans.ttf',
                 'resources/**',
                 'server/**',
                 'scripts/afterPack.cjs',
@@ -460,8 +495,8 @@ export function getGatePolicyManifest() {
     };
 }
 
-export function getNativeOrBuildChangedAreaPaths() {
-    return [...GATE_POLICY_MANIFEST.ci.changedAreas.nativeOrBuild.paths];
+export function getDesktopBuildChangedAreaPaths() {
+    return [...GATE_POLICY_MANIFEST.ci.changedAreas.desktopBuild.paths];
 }
 
 export function getNativePdfSaveDependencyPaths() {
