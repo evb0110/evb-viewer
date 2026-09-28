@@ -94,12 +94,10 @@ export function setNativeWindowCloseCancelHandler(handler: () => void) {
 }
 
 export function configureNativeWindowCloseHandshake(options: {
-    onCancel?: () => void;
     shouldBypass: () => boolean;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }) {
     shouldBypassNativeWindowClose = options.shouldBypass;
-    onNativeWindowCloseCancel = options.onCancel ?? (() => undefined);
     rawIpcRegistrationAudit = options.rawIpcRegistrationAudit;
 }
 
