@@ -1,11 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
-    copyFileSync, mkdirSync, readFileSync, 
+    copyFileSync, mkdirSync, readFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
-import {
-    dirname, resolve, 
-} from 'node:path';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
 import {
     afterEach, describe, expect, it, 
 } from 'vitest';
@@ -19,14 +18,19 @@ import {
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRunRunId';
 import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
-import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
 
 describe('unsaved work on app Quit', () => {
     let session: IElectronE2ESession | null = null;
+    let outputDirectory: string | null = null;
 
     afterEach(async () => {
         await session?.stop();
         session = null;
+        if (outputDirectory) rmSync(outputDirectory, {
+            recursive: true,
+            force: true,
+        });
+        outputDirectory = null;
     });
 
     it.each([
@@ -39,11 +43,11 @@ describe('unsaved work on app Quit', () => {
             requiresSaveAs: true, 
         },
     ])('asks before quitting $destination and Cancel keeps the unsaved edit and source intact', async ({ requiresSaveAs }) => {
-        const evidenceDirectory = resolve(process.cwd(), '.devkit/project12/870');
+        const evidenceDirectory = resolve(process.cwd(), '.devkit/project12/870/fixtures');
         mkdirSync(evidenceDirectory, { recursive: true });
         const sourcePath = resolve(evidenceDirectory, requiresSaveAs ? 'quit-generated-source.pdf' : 'quit-source.pdf');
         copyFileSync(
-            '/home/ubuntu/.devkit/project12-stage/fixtures/interaction-deterministic-12.pdf',
+            resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'),
             sourcePath,
         );
         const sessionName = createE2ERunScopedSessionName(`e2e-quit-unsaved-${Date.now()}`);
@@ -54,14 +58,8 @@ describe('unsaved work on app Quit', () => {
 
         let documentPath = sourcePath;
         if (requiresSaveAs) {
-            documentPath = resolve(
-                electronUserDataPath(session.name),
-                'scan-cleanup',
-                'output',
-                randomUUID(),
-                'generated.pdf',
-            );
-            mkdirSync(dirname(documentPath), { recursive: true });
+            outputDirectory = mkdtempSync(resolve(tmpdir(), 'evb-quit-unsaved-'));
+            documentPath = resolve(outputDirectory, `generated-${randomUUID()}.pdf`);
             copyFileSync(sourcePath, documentPath);
         }
         if (requiresSaveAs) await openPdfInApp(session.page, documentPath, 60_000);
