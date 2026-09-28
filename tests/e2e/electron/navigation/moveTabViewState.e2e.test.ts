@@ -1,11 +1,13 @@
 import {
-    copyFileSync, mkdirSync,
+    mkdtempSync, rmSync, writeFileSync,
 } from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {
-    join, resolve,
-} from 'node:path';
+    PDFDocument, StandardFonts, rgb,
+} from 'pdf-lib';
 import {
-    describe, expect, it,
+    afterEach, describe, expect, it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -15,7 +17,34 @@ import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
 
 const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-move-tab-view-state-${Date.now()}`});
-const stagedFixture = '/home/ubuntu/.devkit/project12-stage/fixtures/interaction-deterministic-12.pdf';
+let outputDirectory: string | null = null;
+
+afterEach(() => {
+    if (outputDirectory) rmSync(outputDirectory, {
+        recursive: true,
+        force: true,
+    });
+    outputDirectory = null;
+});
+
+async function createTwelvePageFixture(filePath: string) {
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    for (let pageNumber = 1; pageNumber <= 12; pageNumber += 1) {
+        const page = document.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`Transfer view page ${pageNumber}`, {
+            x: 72,
+            y: 700,
+            size: 24,
+            font,
+            color: rgb(0.1, 0.1, 0.1),
+        });
+    }
+    writeFileSync(filePath, await document.save());
+}
 
 async function moveTabToNewWindow(page: Page) {
     const browser = page.browser();
@@ -27,9 +56,14 @@ async function moveTabToNewWindow(page: Page) {
     await page.click('.tab-list [role="tab"].is-active', {button: 'right'});
     await page.waitForFunction(() => Array.from(document.querySelectorAll('[role="menuitem"]'))
         .some(item => item.textContent?.includes('Move Tab to New Window')));
-    const menuItem = await page.evaluateHandle(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find(item => item.textContent?.includes('Move Tab to New Window')) ?? null);
-    await (menuItem.asElement()!).click();
+    const menuItems = await page.$$('[role="menuitem"]');
+    const transferItems = await Promise.all(menuItems.map(async candidate => ({
+        candidate,
+        text: await candidate.evaluate(element => element.textContent ?? ''),
+    })));
+    const transferItem = transferItems.find(item => item.text.includes('Move Tab to New Window'));
+    if (!transferItem) throw new Error('Move Tab to New Window menu item was not rendered');
+    await transferItem.candidate.click();
     let destination: Page | undefined;
     const deadline = Date.now() + 30_000;
     while (!destination && Date.now() < deadline) {
@@ -61,9 +95,9 @@ async function readView(page: Page) {
 describe('Move Tab to New Window view state', () => {
     it('preserves page, custom zoom, and open sidebar in the destination', async () => {
         const session = sessions.getSession();
-        mkdirSync(resolve('.devkit/project12/876'), {recursive: true});
-        const fixture = join(resolve('.devkit/project12/876'), 'interaction-deterministic-12.pdf');
-        copyFileSync(stagedFixture, fixture);
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-tab-view-transfer-'));
+        const fixture = join(outputDirectory, 'transfer-view.pdf');
+        await createTwelvePageFixture(fixture);
         await openPdfInApp(session.page, fixture);
         await waitForPdfLoaded(session.page);
         await goToPageViaToolbar(session.page, 7);
