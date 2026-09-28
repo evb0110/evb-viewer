@@ -356,7 +356,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return;
         }
         const documentFence = options.document.captureFence();
-        const lease = await options.document.leasePage(pageNumber);
+        const lease = await options.document.leasePage(pageNumber).catch((error: unknown) => {
+            if (
+                error instanceof Error
+                && error.name === 'RenderingCancelledException'
+                && error.message === 'Rendering cancelled: PDF page lease became stale'
+                && !options.document.isCurrent(documentFence)
+            ) {
+                return null;
+            }
+            throw error;
+        });
+        if (lease === null) {
+            return;
+        }
         const shouldContinue = () => {
             const slot = pageRenderState.getSlot(pageNumber);
             return options.document.isCurrent(documentFence)
