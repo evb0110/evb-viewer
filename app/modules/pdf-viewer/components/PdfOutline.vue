@@ -163,6 +163,7 @@ import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookma
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
 import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 interface IProps {
@@ -488,7 +489,6 @@ const editing = usePdfOutlineEditing(
     currentPageRef,
     emitBookmarksChange,
     createDraftBookmarkId,
-    () => props.pdfDocument,
 );
 
 function addRootBookmark() {
@@ -621,9 +621,8 @@ function cancelActiveItemResolution() {
     activeItemResolution = null;
 }
 
-async function emitBookmarksChange() {
+function emitBookmarksChange() {
     cancelActiveItemResolution();
-    await editing.prepareDestinationsForPersistence();
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
     emit('bookmarks-change', {
         bookmarks: persisted,
@@ -652,9 +651,6 @@ async function updateActiveItemFromCurrentPage() {
     const currentPage = props.currentPage;
     const items = flatBookmarks.value;
     let pageIndexes: Map<IBookmarkItem, number | null> | null;
-    // Outline structure is published immediately. Resolve only page metadata
-    // for passive selection, without loading page geometry, changing persisted
-    // bookmarks, or issuing a second navigation. A click retires this work.
     try {
         pageIndexes = await resolveBookmarkPageIndexes(
             pdfDocument,
@@ -671,6 +667,10 @@ async function updateActiveItemFromCurrentPage() {
     if (!pageIndexes) return;
     if (controller.signal.aborted || props.currentPage !== currentPage || props.pdfDocument !== pdfDocument) return;
     activeItemResolution = null;
+    for (const [
+        item,
+        pageIndex,
+    ] of pageIndexes) if (pageIndex !== null) item.pageIndex ??= requirePageIndex(pageIndex);
     const active = resolveActiveBookmarkForPage(
         items,
         currentPage,

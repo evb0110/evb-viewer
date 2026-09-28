@@ -62,7 +62,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.keyboard.press('Enter');
         await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll('.pdf-bookmark-item-row')).some(row => row.textContent?.trim() === 'Middle renamed'));
 
-        await saveViaWindowHandle(page);
+        const saveCommit = await saveViaWindowHandle(page);
+        expect(saveCommit.detail.path).toBe(saved);
         const outline = (await readPdfMetadataWithQpdf(saved)).outlines;
         const savedDestinations = outline.map(item => item.destpageposfrom1 ?? null);
         const savedTitles = outline.map(item => item.title);
