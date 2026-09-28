@@ -1,8 +1,9 @@
 import {
-    copyFile, mkdir, writeFile,
+    copyFile, mkdtemp, writeFile,
 } from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
@@ -48,8 +49,7 @@ describe('Electron E2E - screenshot annotation output', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-screenshot-annotation-${Date.now()}`});
 
     it('copies the visible annotation colour into the screenshot clipboard image', async () => {
-        const evidenceDirectory = join(process.cwd(), '.devkit', 'project12', '867');
-        await mkdir(evidenceDirectory, {recursive: true});
+        const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-screenshot-annotations-'));
         const generated = await createMultiPageTextFixturePdf(`screenshot-annotation-${Date.now()}.pdf`, 1);
         const path = join(evidenceDirectory, `annotated-source-${Date.now()}.pdf`);
         await copyFile(generated, path);
