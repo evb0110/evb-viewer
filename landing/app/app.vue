@@ -1,6 +1,9 @@
 <template>
   <div class="landing-root">
-    <UContainer class="landing-container">
+    <UContainer
+      class="landing-container"
+      :class="{ 'landing-container-wide': isHomeRoute }"
+    >
       <SiteHeader v-if="showSiteHeader" />
       <NuxtPage />
       <SiteFooter v-if="showSiteFooter" />

@@ -17,6 +17,9 @@ export default {
         docs: 'Documentatie',
         features: 'Functies',
         viewSource: 'Broncode bekijken',
+        privacy: 'Privacy',
+        license: 'MIT-licentie',
+        linksLabel: 'Sitelinks',
         sentryAcknowledgement: {
             message: 'Dank aan Sentry voor de ondersteuning van EVB Viewer via het open-sourceprogramma.',
             linkLabel: 'Meer over Sentry voor open source',
@@ -29,10 +32,8 @@ export default {
             ogDescription: 'Zet ruwe scans en DjVu-bestanden om in doorzoekbare en annoteerbare PDF-bestanden met offline opschoning, OCR, annotaties en export op macOS, Windows en Linux. Gratis en onder de MIT-licentie.',
         },
         hero: {
-            badge: 'Scans opschonen, OCR en PDF-export',
+            lede: 'EVB Viewer schoont ruwe scans en DjVu-bestanden op, herkent hun tekst en slaat doorzoekbare PDF’s met annotaties op. Het werkt offline op macOS, Windows en Linux, is gratis en heeft een MIT-licentie.',
             title: 'Ruwe scans omzetten in doorzoekbare PDF-bestanden',
-            subtitle: 'EVB Viewer maakt ruwe scans en DjVu-bestanden schoon, voert OCR uit en zet ze om in doorzoekbare en annoteerbare PDF-bestanden voor archivarissen, bibliothecarissen, historici, filologen en mensen die persoonlijke scanbibliotheken onderhouden. Het werkt offline op macOS, Windows en Linux. Het is gratis en valt onder de MIT-licentie.',
-            aiNote: 'EVB Assistant is optioneel en staat standaard uit. Als je hem inschakelt, gebruikt hij je eigen Codex- of Claude-account en kan hij een lokale MCP-server beschikbaar maken; het opschonen van scans, OCR, zoeken en exporteren gebruiken hem nooit.',
             downloadFor: 'Downloaden voor {platform}',
             downloadForArch: 'Downloaden voor {platform} ({arch})',
             downloadInstaller: '{installerLabel} downloaden',
@@ -42,9 +43,12 @@ export default {
             suggestedDevice: 'Aanbevolen desktopbuild: {installerLabel}',
             published: 'Gepubliceerd op {date}',
         },
-        preview: {
-            alt: 'Screenshot van EVB Viewer',
-            caption: 'De browser-app opent lokale bestanden; de desktop-app voegt doorzoekbare PDF-OCR toe en meer ruimte voor grote klussen.',
+        film: {
+            ariaLabel: 'Opname van EVB Viewer: een ruwe scan uit 1880 wordt opgeschoond, in het Duits herkend en doorzocht op ‘Edessa’.',
+            play: 'Opname afspelen',
+            pause: 'Opname pauzeren',
+            position: 'Positie in de opname',
+            caption: 'Opgenomen in de echte app met een scan uit 1880 uit het publieke domein.',
         },
         installers: {
             heading: 'Desktopdownloads',
@@ -90,17 +94,82 @@ export default {
             },
         },
         features: {
-            pdfDjvu: {
-                title: 'Browser voor PDF’s, DjVu en afbeeldingen',
-                description: 'Begin in de browser voor lokale PDF-, DjVu- en afbeeldingscontrole; schakel naar desktop wanneer de klus doorzoekbare PDF-OCR of meer samenvoegruimte nodig heeft.',
+            title: 'Wat het doet',
+            items: {
+                cleanup: {
+                    title: 'Scans opschonen',
+                    text: 'Rechtzetten, vlekjes verwijderen, binariseren, bijsnijden en dubbele pagina’s splitsen met een native engine, met een voor-en-navergelijking per pagina.',
+                },
+                ocr: {
+                    title: 'OCR in 30 talen',
+                    text: 'Tesseract met de tessdata_best-modellen voegt een doorzoekbare tekstlaag toe. Engels en Russisch zijn inbegrepen; andere talen worden eenmalig gedownload wanneer je ze kiest.',
+                },
+                search: {
+                    title: 'Zoeken en navigeren',
+                    text: 'Doorzoek de herkende tekst op alle pagina’s, spring tussen treffers en navigeer met miniaturen, bladwijzers, tabbladen en gesplitste weergaven.',
+                },
+                annotate: {
+                    title: 'Annotaties in het bestand',
+                    text: 'Markeer, onderstreep, doorhaal, teken en voeg notities toe. De annotaties worden in de PDF zelf opgeslagen.',
+                },
+                pages: {
+                    title: 'Pagina’s bewerken',
+                    text: 'Verwijder, extraheer, herschik, draai en snijd pagina’s bij, of combineer PDF’s, DjVu-bestanden en afbeeldingen tot één PDF.',
+                },
+                export: {
+                    title: 'Exporteren',
+                    text: 'Sla het resultaat op als PDF of exporteer pagina’s naar PNG, JPG, TIFF of DOCX.',
+                },
             },
-            ocr: {
-                title: 'Desktop-OCR voor doorzoekbare PDF’s',
-                description: 'Doorzoekbare PDF-OCR blijft in de desktop-app, waar grotere documenten en lokale taalassets logisch zijn.',
+        },
+        audience: {
+            title: 'Voor wie',
+            items: {
+                archives: {
+                    title: 'Archieven en bibliotheken',
+                    text: 'Maak van stapels ruwe scans schone, doorzoekbare PDF’s die klaar zijn om te catalogiseren en te delen.',
+                },
+                scholars: {
+                    title: 'Historici en filologen',
+                    text: 'Doorzoek oude edities in hun oorspronkelijke taal en houd je notities op de pagina.',
+                },
+                students: {
+                    title: 'Studenten en onderzoekers',
+                    text: 'Verzamel bronnen, markeer passages en exporteer de pagina’s die je citeert.',
+                },
+                personal: {
+                    title: 'Persoonlijke scanbibliotheken',
+                    text: 'Schoon thuis gescande boeken en DjVu-bestanden op, offline, zonder iets te uploaden.',
+                },
             },
-            annotations: {
-                title: 'Gedeelde bewerkingsworkflow',
-                description: 'Zoek, annoteer, reorganiseer, snijd bij en exporteer met dezelfde EVB Viewer-werkruimtetaal in alle runtimes.',
+        },
+        faq: {
+            title: 'Vragen',
+            items: {
+                free: {
+                    question: 'Is het gratis?',
+                    answer: 'Ja. EVB Viewer is gratis en open source onder de MIT-licentie, zonder advertenties, accounts of abonnementen.',
+                },
+                files: {
+                    question: 'Worden mijn documenten ergens naartoe geüpload?',
+                    answer: 'Nee. De desktopapp schoont documenten op, herkent, annoteert en exporteert ze op je computer en werkt offline. De browserapp verwerkt de bestanden die je opent in je browser.',
+                },
+                languages: {
+                    question: 'Welke talen herkent de OCR?',
+                    answer: 'Ongeveer 30, waaronder Engels, Duits, Frans, Russisch, Grieks, Hebreeuws, Arabisch en Syrisch. Engels en Russisch zitten bij de app; andere modellen worden eenmalig gedownload wanneer je ze voor het eerst kiest.',
+                },
+                formats: {
+                    question: 'Welke bestanden opent het?',
+                    answer: 'PDF, DjVu, PNG, JPEG, TIFF, BMP, WebP en GIF. Je kunt er meerdere combineren tot één PDF.',
+                },
+                browser: {
+                    question: 'Kan ik het gebruiken zonder iets te installeren?',
+                    answer: 'Ja, op {webAppUrl}. De browserapp opent lokale PDF’s, DjVu-bestanden en afbeeldingen; OCR en grote samenvoegingen vereisen de desktopapp.',
+                },
+                assistant: {
+                    question: 'Gebruikt het AI?',
+                    answer: 'EVB Assistant is optioneel en staat standaard uit. Als je hem inschakelt, gebruikt hij je eigen Codex- of Claude-account en kan hij een lokale MCP-server beschikbaar maken; het opschonen van scans, OCR, zoeken en exporteren gebruiken hem nooit.',
+                },
             },
         },
         entryPoints: {

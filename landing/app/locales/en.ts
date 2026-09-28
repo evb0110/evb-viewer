@@ -17,6 +17,9 @@ export default {
         docs: 'Documentation',
         features: 'Features',
         viewSource: 'View source',
+        privacy: 'Privacy',
+        license: 'MIT License',
+        linksLabel: 'Site links',
         sentryAcknowledgement: {
             message: 'Thank you to Sentry for supporting EVB Viewer through its open-source program.',
             linkLabel: 'Learn about Sentry for Open Source',
@@ -29,10 +32,8 @@ export default {
             ogDescription: 'Turn raw scans and DjVu files into searchable, annotatable PDFs with offline cleanup, OCR, annotation, and export on macOS, Windows, and Linux. Free and MIT licensed.',
         },
         hero: {
-            badge: 'Scan cleanup, OCR, and PDF export',
+            lede: 'EVB Viewer cleans up raw scans and DjVu files, recognizes their text, and saves searchable, annotatable PDFs. It works offline on macOS, Windows, and Linux, and it is free and MIT licensed.',
             title: 'Turn raw scans into searchable PDFs',
-            subtitle: 'EVB Viewer cleans raw scans and DjVu files, runs OCR, and turns them into searchable, annotatable PDFs for archivists, librarians, historians, philologists, and people maintaining personal scan libraries. It works offline on macOS, Windows, and Linux. It is free and MIT licensed.',
-            aiNote: 'EVB Assistant is optional and off by default. If enabled, it uses your own Codex or Claude account and can expose a local MCP server, while scan cleanup, OCR, search, and export never use it.',
             downloadFor: 'Download for {platform}',
             downloadForArch: 'Download for {platform} ({arch})',
             downloadInstaller: 'Download {installerLabel}',
@@ -42,9 +43,12 @@ export default {
             suggestedDevice: 'Suggested desktop build: {installerLabel}',
             published: 'Published {date}',
         },
-        preview: {
-            alt: 'EVB Viewer screenshot',
-            caption: 'The browser app opens local files; the desktop app adds searchable-PDF OCR and more headroom for large jobs.',
+        film: {
+            ariaLabel: 'Recording of EVB Viewer: a raw scan from 1880 is cleaned up, recognized in German, and searched for “Edessa”.',
+            play: 'Play recording',
+            pause: 'Pause recording',
+            position: 'Recording position',
+            caption: 'Recorded in the real app with a public-domain scan from 1880.',
         },
         installers: {
             heading: 'Desktop downloads',
@@ -90,17 +94,82 @@ export default {
             },
         },
         features: {
-            pdfDjvu: {
-                title: 'Browser for PDFs, DjVu, and images',
-                description: 'Start in the browser for local PDF, DjVu, and image review; switch to desktop when the job needs searchable-PDF OCR or more merge headroom.',
+            title: 'What it does',
+            items: {
+                cleanup: {
+                    title: 'Scan cleanup',
+                    text: 'Deskew, despeckle, binarize, crop, and split two-page spreads with a native engine, and compare every page before and after.',
+                },
+                ocr: {
+                    title: 'OCR in 30 languages',
+                    text: 'Tesseract with the tessdata_best models adds a searchable text layer. English and Russian are included; other languages download once when you choose them.',
+                },
+                search: {
+                    title: 'Search and navigate',
+                    text: 'Search the recognized text on every page, jump between matches, and move through thumbnails, bookmarks, tabs, and split views.',
+                },
+                annotate: {
+                    title: 'Annotate in the file',
+                    text: 'Highlight, underline, strike out, draw, and add notes. The annotations are saved in the PDF itself.',
+                },
+                pages: {
+                    title: 'Rework pages',
+                    text: 'Delete, extract, reorder, rotate, and crop pages, or combine PDFs, DjVu files, and images into one PDF.',
+                },
+                export: {
+                    title: 'Export',
+                    text: 'Save the result as a PDF, or export pages to PNG, JPG, TIFF, or DOCX.',
+                },
             },
-            ocr: {
-                title: 'Desktop searchable-PDF OCR',
-                description: 'Searchable-PDF OCR stays in the desktop app, where larger documents and local language assets make sense.',
+        },
+        audience: {
+            title: 'Who it\'s for',
+            items: {
+                archives: {
+                    title: 'Archives and libraries',
+                    text: 'Turn batches of raw scans into clean, searchable PDFs that are ready to catalogue and share.',
+                },
+                scholars: {
+                    title: 'Historians and philologists',
+                    text: 'Search old editions in their original languages and keep your notes on the page.',
+                },
+                students: {
+                    title: 'Students and researchers',
+                    text: 'Collect sources, highlight passages, and export the pages you cite.',
+                },
+                personal: {
+                    title: 'Personal scan libraries',
+                    text: 'Clean up scanned books and DjVu files at home, offline, without uploading anything.',
+                },
             },
-            annotations: {
-                title: 'Shared editing workflow',
-                description: 'Search, annotate, reorganize, crop, and export with the same EVB Viewer workspace language across runtimes.',
+        },
+        faq: {
+            title: 'Questions',
+            items: {
+                free: {
+                    question: 'Is it free?',
+                    answer: 'Yes. EVB Viewer is free and open source under the MIT license, with no ads, accounts, or subscriptions.',
+                },
+                files: {
+                    question: 'Are my documents uploaded anywhere?',
+                    answer: 'No. The desktop app cleans up, recognizes, annotates, and exports documents on your computer and works offline. The browser app processes the files you open in your browser.',
+                },
+                languages: {
+                    question: 'Which languages can OCR read?',
+                    answer: 'About 30, including English, German, French, Russian, Greek, Hebrew, Arabic, and Syriac. English and Russian come with the app; other models download once, the first time you choose them.',
+                },
+                formats: {
+                    question: 'Which files does it open?',
+                    answer: 'PDF, DjVu, PNG, JPEG, TIFF, BMP, WebP, and GIF. You can combine several of them into one PDF.',
+                },
+                browser: {
+                    question: 'Can I use it without installing anything?',
+                    answer: 'Yes, at {webAppUrl}. The browser app opens local PDFs, DjVu files, and images; OCR and large merges need the desktop app.',
+                },
+                assistant: {
+                    question: 'Does it use AI?',
+                    answer: 'EVB Assistant is optional and off by default. If enabled, it uses your own Codex or Claude account and can expose a local MCP server, while scan cleanup, OCR, search, and export never use it.',
+                },
             },
         },
         entryPoints: {

@@ -17,6 +17,9 @@ export default {
         docs: 'Documentação',
         features: 'Funcionalidades',
         viewSource: 'Ver código-fonte',
+        privacy: 'Privacidade',
+        license: 'Licença MIT',
+        linksLabel: 'Ligações do site',
         sentryAcknowledgement: {
             message: 'Agradecemos à Sentry o apoio ao EVB Viewer através do seu programa de código aberto.',
             linkLabel: 'Saiba mais sobre a Sentry para código aberto',
@@ -29,10 +32,8 @@ export default {
             ogDescription: 'Converta digitalizações brutas e ficheiros DjVu em PDFs pesquisáveis e anotáveis com limpeza, OCR, anotações e exportação offline no macOS, Windows e Linux. Gratuito e com licença MIT.',
         },
         hero: {
-            badge: 'Limpeza de digitalizações, OCR e exportação para PDF',
+            lede: 'O EVB Viewer limpa digitalizações brutas e ficheiros DjVu, reconhece o seu texto e guarda PDFs pesquisáveis e anotáveis. Funciona offline no macOS, Windows e Linux, é gratuito e tem licença MIT.',
             title: 'Transforme digitalizações brutas em PDFs pesquisáveis',
-            subtitle: 'O EVB Viewer limpa digitalizações brutas e ficheiros DjVu, faz OCR e transforma-os em PDFs pesquisáveis e anotáveis para arquivistas, bibliotecários, historiadores, filólogos e pessoas que mantêm bibliotecas pessoais de digitalizações. Funciona offline no macOS, Windows e Linux. É gratuito e tem licença MIT.',
-            aiNote: 'O EVB Assistant é opcional e vem desativado por predefinição. Se o ativar, usa a sua própria conta Codex ou Claude e pode expor um servidor MCP local; a limpeza das digitalizações, o OCR, a pesquisa e a exportação nunca o usam.',
             downloadFor: 'Transferir para {platform}',
             downloadForArch: 'Transferir para {platform} ({arch})',
             downloadInstaller: 'Transferir {installerLabel}',
@@ -42,9 +43,12 @@ export default {
             suggestedDevice: 'Build desktop sugerida: {installerLabel}',
             published: 'Publicado em {date}',
         },
-        preview: {
-            alt: 'Captura de ecrã do EVB Viewer',
-            caption: 'A aplicação no navegador abre ficheiros locais; a aplicação desktop adiciona OCR de PDF pesquisável e mais capacidade para trabalhos grandes.',
+        film: {
+            ariaLabel: 'Gravação do EVB Viewer: uma digitalização bruta de 1880 é limpa, reconhecida em alemão e pesquisada por «Edessa».',
+            play: 'Reproduzir a gravação',
+            pause: 'Pausar a gravação',
+            position: 'Posição na gravação',
+            caption: 'Gravado na aplicação real com uma digitalização de 1880 em domínio público.',
         },
         installers: {
             heading: 'Transferências desktop',
@@ -90,17 +94,82 @@ export default {
             },
         },
         features: {
-            pdfDjvu: {
-                title: 'Navegador para PDFs, DjVu e imagens',
-                description: 'Comece no navegador para rever PDFs, DjVu e imagens locais; passe para o desktop quando o trabalho precisar de OCR de PDF pesquisável ou de mais capacidade para junções.',
+            title: 'O que faz',
+            items: {
+                cleanup: {
+                    title: 'Limpeza de digitalizações',
+                    text: 'Endireita, remove manchas, binariza, recorta e separa páginas duplas com um motor nativo, com comparação antes e depois de cada página.',
+                },
+                ocr: {
+                    title: 'OCR em 30 idiomas',
+                    text: 'O Tesseract com os modelos tessdata_best acrescenta uma camada de texto pesquisável. O inglês e o russo estão incluídos; os outros idiomas são transferidos uma vez, quando os escolhe.',
+                },
+                search: {
+                    title: 'Pesquisa e navegação',
+                    text: 'Pesquise o texto reconhecido em todas as páginas, salte entre correspondências e navegue com miniaturas, marcadores, separadores e vistas divididas.',
+                },
+                annotate: {
+                    title: 'Anotações no ficheiro',
+                    text: 'Realce, sublinhe, risque, desenhe e acrescente notas. As anotações são guardadas no próprio PDF.',
+                },
+                pages: {
+                    title: 'Trabalho com páginas',
+                    text: 'Elimine, extraia, reordene, rode e recorte páginas, ou combine PDFs, ficheiros DjVu e imagens num único PDF.',
+                },
+                export: {
+                    title: 'Exportação',
+                    text: 'Guarde o resultado como PDF ou exporte páginas para PNG, JPG, TIFF ou DOCX.',
+                },
             },
-            ocr: {
-                title: 'OCR de PDF pesquisável no desktop',
-                description: 'O OCR de PDF pesquisável fica na aplicação desktop, onde documentos maiores e recursos de idioma locais fazem sentido.',
+        },
+        audience: {
+            title: 'Para quem',
+            items: {
+                archives: {
+                    title: 'Arquivos e bibliotecas',
+                    text: 'Transforme lotes de digitalizações brutas em PDFs limpos e pesquisáveis, prontos a catalogar e partilhar.',
+                },
+                scholars: {
+                    title: 'Historiadores e filólogos',
+                    text: 'Pesquise edições antigas na língua original e mantenha as suas notas na página.',
+                },
+                students: {
+                    title: 'Estudantes e investigadores',
+                    text: 'Reúna fontes, realce passagens e exporte as páginas que cita.',
+                },
+                personal: {
+                    title: 'Bibliotecas pessoais de digitalizações',
+                    text: 'Limpe livros digitalizados e ficheiros DjVu em casa, offline, sem carregar nada.',
+                },
             },
-            annotations: {
-                title: 'Fluxo de edição partilhado',
-                description: 'Pesquise, anote, reorganize, recorte e exporte com a mesma linguagem do espaço de trabalho EVB Viewer em todos os ambientes.',
+        },
+        faq: {
+            title: 'Perguntas',
+            items: {
+                free: {
+                    question: 'É gratuito?',
+                    answer: 'Sim. O EVB Viewer é gratuito e de código aberto com licença MIT, sem anúncios, contas nem subscrições.',
+                },
+                files: {
+                    question: 'Os meus documentos são enviados para algum lado?',
+                    answer: 'Não. A aplicação para computador limpa, reconhece, anota e exporta os documentos no seu computador e funciona offline. A aplicação web processa no navegador os ficheiros que abre.',
+                },
+                languages: {
+                    question: 'Que idiomas o OCR reconhece?',
+                    answer: 'Cerca de 30, incluindo inglês, alemão, francês, russo, grego, hebraico, árabe e siríaco. O inglês e o russo vêm com a aplicação; os outros modelos são transferidos uma vez, na primeira escolha.',
+                },
+                formats: {
+                    question: 'Que ficheiros abre?',
+                    answer: 'PDF, DjVu, PNG, JPEG, TIFF, BMP, WebP e GIF. Pode combinar vários num único PDF.',
+                },
+                browser: {
+                    question: 'Posso usá-lo sem instalar nada?',
+                    answer: 'Sim, em {webAppUrl}. A aplicação web abre PDFs, ficheiros DjVu e imagens locais; o OCR e as combinações grandes precisam da aplicação para computador.',
+                },
+                assistant: {
+                    question: 'Usa IA?',
+                    answer: 'O EVB Assistant é opcional e vem desativado por predefinição. Se o ativar, usa a sua própria conta Codex ou Claude e pode expor um servidor MCP local; a limpeza das digitalizações, o OCR, a pesquisa e a exportação nunca o usam.',
+                },
             },
         },
         entryPoints: {

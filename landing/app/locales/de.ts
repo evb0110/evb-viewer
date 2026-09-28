@@ -17,6 +17,9 @@ export default {
         docs: 'Dokumentation',
         features: 'Funktionen',
         viewSource: 'Quellcode anzeigen',
+        privacy: 'Datenschutz',
+        license: 'MIT-Lizenz',
+        linksLabel: 'Website-Links',
         sentryAcknowledgement: {
             message: 'Vielen Dank an Sentry für die Unterstützung von EVB Viewer durch sein Open-Source-Programm.',
             linkLabel: 'Mehr über Sentry für Open Source erfahren',
@@ -29,10 +32,8 @@ export default {
             ogDescription: 'Verwandle rohe Scans und DjVu-Dateien mit Offline-Bereinigung, OCR, Annotationen und Export auf macOS, Windows und Linux in durchsuchbare, annotierbare PDFs. Kostenlos und unter der MIT-Lizenz.',
         },
         hero: {
-            badge: 'Scan-Bereinigung, OCR und PDF-Export',
+            lede: 'EVB Viewer bereinigt rohe Scans und DjVu-Dateien, erkennt ihren Text und speichert durchsuchbare, annotierbare PDFs. Es läuft offline unter macOS, Windows und Linux, ist kostenlos und MIT-lizenziert.',
             title: 'Rohe Scans in durchsuchbare PDFs verwandeln',
-            subtitle: 'EVB Viewer bereinigt rohe Scans und DjVu-Dateien, führt OCR aus und erstellt daraus durchsuchbare, annotierbare PDFs für Archivare, Bibliothekare, Historiker, Philologen und Menschen, die persönliche Scanbibliotheken pflegen. Es funktioniert offline auf macOS, Windows und Linux. Es ist kostenlos und steht unter der MIT-Lizenz.',
-            aiNote: 'EVB Assistant ist optional und standardmäßig deaktiviert. Wenn du ihn aktivierst, verwendet er dein eigenes Codex- oder Claude-Konto und kann einen lokalen MCP-Server bereitstellen; Scan-Bereinigung, OCR, Suche und Export verwenden ihn nie.',
             downloadFor: 'Für {platform} herunterladen',
             downloadForArch: 'Für {platform} ({arch}) herunterladen',
             downloadInstaller: '{installerLabel} herunterladen',
@@ -42,9 +43,12 @@ export default {
             suggestedDevice: 'Empfohlener Desktop-Build: {installerLabel}',
             published: 'Veröffentlicht am {date}',
         },
-        preview: {
-            alt: 'Screenshot von EVB Viewer',
-            caption: 'Die Browser-App öffnet lokale Dateien; die Desktop-App ergänzt OCR mit durchsuchbaren PDFs und mehr Spielraum für große Aufgaben.',
+        film: {
+            ariaLabel: 'Aufnahme von EVB Viewer: Ein roher Scan von 1880 wird bereinigt, auf Deutsch erkannt und nach „Edessa“ durchsucht.',
+            play: 'Aufnahme abspielen',
+            pause: 'Aufnahme anhalten',
+            position: 'Position in der Aufnahme',
+            caption: 'Aufgenommen in der echten App mit einem gemeinfreien Scan von 1880.',
         },
         installers: {
             heading: 'Desktop-Downloads',
@@ -90,17 +94,82 @@ export default {
             },
         },
         features: {
-            pdfDjvu: {
-                title: 'Browser für PDFs, DjVu und Bilder',
-                description: 'Starte im Browser mit lokaler PDF-, DjVu- und Bildprüfung; wechsle zum Desktop, wenn die Aufgabe OCR mit durchsuchbaren PDFs oder mehr Spielraum für Zusammenführungen braucht.',
+            title: 'Was es kann',
+            items: {
+                cleanup: {
+                    title: 'Scan-Bereinigung',
+                    text: 'Geraderichten, Entflecken, Binarisieren, Zuschneiden und Teilen von Doppelseiten mit einer nativen Engine, mit Vorher-nachher-Vergleich für jede Seite.',
+                },
+                ocr: {
+                    title: 'OCR in 30 Sprachen',
+                    text: 'Tesseract mit den tessdata_best-Modellen fügt eine durchsuchbare Textebene hinzu. Englisch und Russisch sind enthalten; andere Sprachen werden einmalig geladen, wenn du sie auswählst.',
+                },
+                search: {
+                    title: 'Suchen und navigieren',
+                    text: 'Durchsuche den erkannten Text auf allen Seiten, springe zwischen Treffern und bewege dich mit Miniaturen, Lesezeichen, Tabs und geteilten Ansichten.',
+                },
+                annotate: {
+                    title: 'Anmerkungen in der Datei',
+                    text: 'Markieren, unterstreichen, durchstreichen, zeichnen und Notizen hinzufügen. Die Anmerkungen werden im PDF selbst gespeichert.',
+                },
+                pages: {
+                    title: 'Seiten bearbeiten',
+                    text: 'Seiten löschen, extrahieren, umsortieren, drehen und zuschneiden oder PDFs, DjVu-Dateien und Bilder zu einem PDF zusammenführen.',
+                },
+                export: {
+                    title: 'Export',
+                    text: 'Speichere das Ergebnis als PDF oder exportiere Seiten als PNG, JPG, TIFF oder DOCX.',
+                },
             },
-            ocr: {
-                title: 'Desktop-OCR für durchsuchbare PDFs',
-                description: 'OCR mit durchsuchbaren PDFs bleibt in der Desktop-App, wo größere Dokumente und lokale Sprachressourcen sinnvoll sind.',
+        },
+        audience: {
+            title: 'Für wen',
+            items: {
+                archives: {
+                    title: 'Archive und Bibliotheken',
+                    text: 'Mach aus Stapeln roher Scans saubere, durchsuchbare PDFs, bereit zum Katalogisieren und Teilen.',
+                },
+                scholars: {
+                    title: 'Historiker und Philologen',
+                    text: 'Durchsuche alte Ausgaben in ihrer Originalsprache und behalte deine Notizen auf der Seite.',
+                },
+                students: {
+                    title: 'Studierende und Forschende',
+                    text: 'Sammle Quellen, markiere Passagen und exportiere die Seiten, die du zitierst.',
+                },
+                personal: {
+                    title: 'Private Scanbibliotheken',
+                    text: 'Bereinige gescannte Bücher und DjVu-Dateien zu Hause, offline, ohne etwas hochzuladen.',
+                },
             },
-            annotations: {
-                title: 'Gemeinsamer Bearbeitungsablauf',
-                description: 'Suche, kommentiere, ordne neu, beschneide und exportiere mit derselben EVB-Viewer-Arbeitsbereichssprache in allen Laufzeiten.',
+        },
+        faq: {
+            title: 'Fragen',
+            items: {
+                free: {
+                    question: 'Ist es kostenlos?',
+                    answer: 'Ja. EVB Viewer ist kostenlos und quelloffen unter der MIT-Lizenz, ohne Werbung, Konten oder Abonnements.',
+                },
+                files: {
+                    question: 'Werden meine Dokumente irgendwohin hochgeladen?',
+                    answer: 'Nein. Die Desktop-App bereinigt, erkennt, annotiert und exportiert Dokumente auf deinem Computer und funktioniert offline. Die Browser-App verarbeitet geöffnete Dateien in deinem Browser.',
+                },
+                languages: {
+                    question: 'Welche Sprachen erkennt die OCR?',
+                    answer: 'Rund 30, darunter Englisch, Deutsch, Französisch, Russisch, Griechisch, Hebräisch, Arabisch und Syrisch. Englisch und Russisch sind enthalten; andere Modelle werden bei der ersten Auswahl einmalig geladen.',
+                },
+                formats: {
+                    question: 'Welche Dateien öffnet es?',
+                    answer: 'PDF, DjVu, PNG, JPEG, TIFF, BMP, WebP und GIF. Mehrere davon lassen sich zu einem PDF zusammenführen.',
+                },
+                browser: {
+                    question: 'Kann ich es ohne Installation nutzen?',
+                    answer: 'Ja, unter {webAppUrl}. Die Browser-App öffnet lokale PDFs, DjVu-Dateien und Bilder; OCR und große Zusammenführungen brauchen die Desktop-App.',
+                },
+                assistant: {
+                    question: 'Nutzt es KI?',
+                    answer: 'EVB Assistant ist optional und standardmäßig deaktiviert. Wenn du ihn aktivierst, verwendet er dein eigenes Codex- oder Claude-Konto und kann einen lokalen MCP-Server bereitstellen; Scan-Bereinigung, OCR, Suche und Export verwenden ihn nie.',
+                },
             },
         },
         entryPoints: {

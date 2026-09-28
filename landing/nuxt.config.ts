@@ -1,5 +1,6 @@
 import {fileURLToPath} from 'node:url';
 
+import {transform} from 'esbuild';
 import {defineNuxtConfig as defineNuxtConfigBase} from 'nuxt/config';
 
 import {
@@ -148,6 +149,7 @@ export default defineNuxtConfig({
             headers: withLandingSecurityHeaders(),
         },
         '/api/**': {headers: withLandingSecurityHeaders({'cache-control': 'private, no-store, max-age=0'})},
+        '/films/**': {headers: withLandingSecurityHeaders({'cache-control': 'public, max-age=86400'})},
         '/**': {headers: landingSecurityHeaders},
     },
 
@@ -182,16 +184,29 @@ export default defineNuxtConfig({
     },
 
     icon: {clientBundle: {icons: [
+        'ph:archive',
         'ph:arrow-right',
+        'ph:books',
+        'ph:broom',
         'ph:download',
+        'ph:export',
         'ph:files',
         'ph:globe',
         'ph:folder-open',
+        'ph:highlighter',
+        'ph:magnifying-glass',
+        'ph:moon',
+        'ph:pause-fill',
+        'ph:play-fill',
+        'ph:scroll',
         'ph:sidebar',
         'ph:list',
         'ph:pen-nib',
         'ph:scissors',
+        'ph:student',
+        'ph:sun',
         'ph:text-aa',
+        'ph:text-t',
         'circle-flags:gb',
         'circle-flags:ru',
         'circle-flags:fr',
@@ -204,6 +219,33 @@ export default defineNuxtConfig({
         'simple-icons:github',
         'simple-icons:microsoft',
     ]}},
+
+    vite: {
+        // Films in app/films are React (Remotion); keep Vue's JSX plugin away from them.
+        vueJsx: {exclude: [/app\/films\//]},
+        plugins: [{
+            name: 'films-react-jsx',
+            enforce: 'pre',
+            async transform(code: string, id: string) {
+                if (!/app\/films\/.*\.tsx$/.test(id)) {
+                    return null;
+                }
+                // An empty tsconfig: the nearest one on disk configures Vue JSX for the rest of the app.
+                const result = await transform(code, {
+                    loader: 'tsx',
+                    jsx: 'automatic',
+                    jsxImportSource: 'react',
+                    sourcefile: id,
+                    sourcemap: true,
+                    tsconfigRaw: {},
+                });
+                return {
+                    code: result.code,
+                    map: result.map,
+                };
+            },
+        }],
+    },
 
     compatibilityDate: '2025-01-15',
 });

@@ -300,15 +300,9 @@ a {
   padding-bottom: clamp(2.5rem, 4vw, 4rem);
 }
 
-.landing-container:has(.home-shell) {
-  padding-bottom: clamp(1rem, 2vw, 1.5rem);
-}
-
-.home-shell {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(1.25rem, 2.4vw, 2rem);
-  min-height: calc(100dvh - 2 * clamp(1rem, 2vw, 1.5rem));
+/* The home page film needs more width than the reading pages. */
+.landing-container-wide {
+  --ui-container: 90rem;
 }
 
 .site-header {
@@ -390,20 +384,10 @@ a {
   white-space: nowrap;
 }
 
-.header-nav {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-}
-
 .header-actions {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-}
-
-.header-download {
-  white-space: nowrap;
 }
 
 .language-switcher {
@@ -428,216 +412,6 @@ a {
   width: 100%;
 }
 
-.home-main {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  align-items: center;
-  gap: clamp(1.75rem, 3.5vw, 2.75rem);
-  min-height: 0;
-}
-
-.home-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: clamp(1.5rem, 3vw, 2rem);
-  width: 100%;
-  max-width: 44rem;
-  padding-top: clamp(1.5rem, 4vw, 3.5rem);
-  text-align: center;
-}
-
-.hero-copy {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.hero-eyebrow {
-  margin: 0 0 1.25rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--landing-muted);
-  white-space: nowrap;
-}
-
-.hero-title {
-  margin: 0;
-  max-width: 18ch;
-  font-size: clamp(2.75rem, 6vw, 4.35rem);
-  line-height: 1;
-  letter-spacing: -0.025em;
-  text-wrap: balance;
-}
-
-.hero-subtitle {
-  margin: 1.375rem auto 0;
-  max-width: 52ch;
-  font-size: clamp(1.02rem, 1.4vw, 1.125rem);
-  line-height: 1.55;
-  color: var(--landing-ink-soft);
-}
-
-.hero-ai-note {
-  margin: 0.75rem auto 0;
-  max-width: 54ch;
-  font-size: 0.95rem;
-  line-height: 1.45;
-  color: var(--landing-muted);
-  text-wrap: balance;
-}
-
-.hero-cta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.7rem;
-  margin: 0;
-}
-
-.hero-hint {
-  margin: 1rem 0 0;
-  font-size: 0.93rem;
-  color: var(--landing-muted);
-}
-
-.hero-web-app-link {
-  color: var(--landing-muted);
-}
-
-.hero-web-app-link:hover {
-  color: var(--landing-ink);
-}
-
-.release-meta {
-  margin: 0.55rem 0 0;
-  font-family: var(--font-mono);
-  font-size: 0.84rem;
-  color: var(--landing-muted);
-}
-
-.hero-preview {
-  position: relative;
-  width: min(1000px, 100%);
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  margin: 0 auto;
-  align-self: center;
-}
-
-.hero-stack {
-  display: grid;
-  gap: 1rem;
-  align-self: start;
-}
-
-.preview-image {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.home-main .preview-image {
-  width: 100%;
-  height: auto;
-  margin: 0;
-}
-
-.preview-frame {
-  border-radius: 0.5rem;
-  overflow: hidden;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow:
-    0 1px 2px rgba(28, 26, 22, 0.05),
-    0 18px 40px -28px rgba(28, 26, 22, 0.26);
-}
-
-.hero-preview .preview-frame {
-  flex: 1;
-  width: 100%;
-  min-height: 0;
-  border-color: var(--landing-border-strong);
-  border-bottom: none;
-  border-radius: 0.875rem 0.875rem 0 0;
-  box-shadow: 0 40px 80px -40px rgba(28, 26, 22, 0.4);
-}
-
-.preview-caption {
-  margin: 0;
-  padding: 0 0.05rem;
-  font-size: 0.92rem;
-  line-height: 1.45;
-  color: var(--landing-muted);
-  text-align: center;
-}
-
-.hero-feature-strip {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 1.25rem;
-}
-
-.hero-feature-card {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: color-mix(in srgb, var(--landing-surface) 90%, white 10%);
-  box-shadow: var(--landing-shadow);
-}
-
-.hero-feature-card h2 {
-  margin: 0.9rem 0 0.3rem;
-  font-size: 0.98rem;
-}
-
-.hero-feature-card p {
-  margin: 0;
-  color: var(--landing-muted);
-  line-height: 1.55;
-}
-
-.hero-side-card {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow: var(--landing-shadow);
-}
-
-.hero-side-head {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
-.hero-side-eyebrow,
-.release-sidebar-tag {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--landing-muted);
-}
-
-.hero-side-title {
-  margin: 0;
-  font-size: 1.3rem;
-  line-height: 1.2;
-}
-
-.hero-side-copy {
-  margin: 0;
-  color: var(--landing-muted);
-  line-height: 1.6;
-}
-
-.hero-side-actions,
 .release-sidebar-actions {
   display: flex;
   flex-wrap: wrap;
@@ -645,14 +419,12 @@ a {
   margin-top: 1rem;
 }
 
-.hero-side-platforms,
 .release-sidebar-platform-list {
   display: grid;
   gap: 0.7rem;
   margin-top: 1rem;
 }
 
-.hero-platform-row,
 .release-sidebar-row {
   display: flex;
   align-items: center;
@@ -664,20 +436,17 @@ a {
   background: var(--landing-surface-strong);
 }
 
-.hero-platform-name,
 .release-sidebar-os {
   margin: 0;
   font-weight: 600;
 }
 
-.hero-platform-meta,
 .release-sidebar-arch {
   margin: 0.18rem 0 0;
   color: var(--landing-muted);
   font-size: 0.86rem;
 }
 
-.hero-platform-installers,
 .release-sidebar-type {
   font-family: var(--font-mono);
   font-size: 0.76rem;
@@ -752,24 +521,13 @@ a {
   max-width: 27.5rem;
 
   --installer-row-height: 5.875rem;
-  --installer-max-rows: 4;
 
-  /* Rows, the separator between each pair, and the list's own border. */
-  --installer-list-reserved-height: calc(
-    (var(--installer-row-height) * var(--installer-max-rows)) + ((var(--installer-max-rows) - 1) * 1px) + 2px
-  );
-
-  /* Platform bar + gap + list + gap + hint. The release fetch is deliberately
-     client-side (release cohorts must not be shared through a cache), so the
-     loading, error, and empty states reserve the loaded card's height. Without
-     this the card collapses to one line on every reload and the hero preview
-     below it jumps by roughly 470px.
-
-     The bound is --installer-max-rows plain rows. Every tab of a normal release
-     fits it, including Windows, whose Store row plus "direct downloads" label
-     costs less than the fourth row it replaces. */
+  /* Platform bar + gap + three rows with their separators and border + gap + hint.
+     The release fetch is deliberately client-side (release cohorts must not be
+     shared through a cache), so the loading, error, and empty states reserve the
+     height of a typical loaded card: the Windows tab's two builds and Store row. */
   --installer-reserved-height: calc(
-    2.875rem + 0.875rem + var(--installer-list-reserved-height) + 0.875rem + 2.25rem
+    2.875rem + 0.875rem + (var(--installer-row-height) * 3) + 4px + 0.875rem + 2.25rem
   );
 
   min-height: var(--installer-reserved-height);
@@ -813,7 +571,7 @@ a {
 .installer-content {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 0.875rem;
   max-width: 27.5rem;
   margin: 0 auto;
@@ -843,13 +601,6 @@ a {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.installer-list-slot {
-  display: flex;
-  align-items: flex-start;
-  width: 100%;
-  min-height: var(--installer-list-reserved-height);
 }
 
 .installer-list {
@@ -1034,7 +785,6 @@ a {
   font-size: 0.75rem;
   line-height: 1.5;
   color: var(--landing-muted);
-  text-align: center;
 }
 
 .installer-browse {
@@ -1370,34 +1120,6 @@ a {
 }
 
 @media (width <= 1024px) {
-  .home-shell {
-    min-height: 0;
-  }
-
-  .home-main {
-    flex: 0 0 auto;
-  }
-
-  .hero-preview {
-    width: 100%;
-    flex: 0 0 auto;
-    min-height: auto;
-  }
-
-  .hero-preview .preview-frame {
-    flex: 0 0 auto;
-    border-bottom: 1px solid var(--landing-border-strong);
-    border-radius: 0.875rem;
-  }
-
-  .home-main .preview-image {
-    width: 100%;
-    max-height: none;
-  }
-
-  .hero-feature-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 
   .workflow-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1437,26 +1159,11 @@ a {
     padding-bottom: 0.35rem;
   }
 
-  .header-nav {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
   .header-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
 
-  .hero-cta {
-    flex-direction: column;
-  }
-
-  .hero-cta > * {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .hero-feature-strip,
   .stats-grid,
   .features-grid,
   .docs-grid,

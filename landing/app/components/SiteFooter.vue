@@ -9,7 +9,7 @@
 
     <div class="footer-links">
       <UButton
-        label="Privacy"
+        :label="t('footer.privacy')"
         :to="localePath('/privacy')"
         color="neutral"
         variant="ghost"
