@@ -38,9 +38,9 @@ interface IWindowTabTransferBrokerDeps {
     getWindowById: (windowId: number) => ITransferTargetWindow | null;
     setTimer: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
     clearTimer: (handle: ReturnType<typeof setTimeout>) => void;
-    preparePdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => boolean;
-    commitPdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => boolean;
-    revokePdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => void;
+    preparePdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number) => number | false;
+    commitPdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number, registrationId: number) => boolean;
+    revokePdfSnapshotTransfer?: (snapshotPath: string, sourceWindowId: number, targetWindowId: number, registrationId: number) => void;
 }
 
 interface IPendingTransfer {
@@ -54,6 +54,7 @@ interface IPendingTransfer {
     timeoutHandle: ReturnType<typeof setTimeout>;
     payload: IWindowTabIncomingTransfer;
     pdfSnapshotPath?: string;
+    pdfSnapshotRegistrationId?: number;
 }
 
 function normalizeTimeout(timeoutMs: number | undefined) {
@@ -96,17 +97,21 @@ export class WindowTabTransferBroker {
 
         const pdfSnapshotPath = request.payload.kind === 'pdfSnapshot' ? request.payload.snapshotPath : undefined;
         const targetOwnerId = targetWindow.webContents.id ?? targetWindow.id;
+        let pdfSnapshotRegistrationId: number | undefined;
         if (
             pdfSnapshotPath
             && this.deps.preparePdfSnapshotTransfer
-            && !this.deps.preparePdfSnapshotTransfer(pdfSnapshotPath, sourceOwnerId, targetOwnerId)
         ) {
-            return {
-                transferId: '',
-                success: false,
-                targetWindowId: targetWindow.id,
-                error: 'PDF snapshot is not available to the source window.',
-            };
+            const registrationId = this.deps.preparePdfSnapshotTransfer(pdfSnapshotPath, sourceOwnerId, targetOwnerId);
+            if (registrationId === false || !Number.isInteger(registrationId) || registrationId <= 0) {
+                return {
+                    transferId: '',
+                    success: false,
+                    targetWindowId: targetWindow.id,
+                    error: 'PDF snapshot is not available to the source window.',
+                };
+            }
+            pdfSnapshotRegistrationId = registrationId;
         }
 
         const transferId = randomUUID();
@@ -136,6 +141,7 @@ export class WindowTabTransferBroker {
                 ),
                 payload,
                 ...(pdfSnapshotPath ? {pdfSnapshotPath} : {}),
+                ...(pdfSnapshotRegistrationId === undefined ? {} : {pdfSnapshotRegistrationId}),
             });
 
             if (this.readyWindowIds.has(targetWindow.id)) {
@@ -170,6 +176,7 @@ export class WindowTabTransferBroker {
                 pending.pdfSnapshotPath,
                 pending.sourceOwnerId,
                 pending.targetOwnerId,
+                pending.pdfSnapshotRegistrationId!,
             );
             if (!success) {
                 error = 'PDF snapshot ownership commit was rejected.';
@@ -346,6 +353,7 @@ export class WindowTabTransferBroker {
                 pending.pdfSnapshotPath,
                 pending.sourceOwnerId,
                 pending.targetOwnerId,
+                pending.pdfSnapshotRegistrationId!,
             );
         }
 
