@@ -141,12 +141,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Restore lint cache
-        uses: actions/cache@v5
-        with:
-          path: .devkit/cache/lint
-          key: lint-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs') }}
-
       # Every step below reports on its own: a failing check must not hide the
       # ones after it, while a broken setup still skips them all.
       - name: Generate committed build artifacts and reject drift
@@ -412,9 +406,6 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-
-      - name: Landing lint
-        run: pnpm --dir landing run lint
 
       - name: Landing typecheck
         run: pnpm --dir landing run typecheck

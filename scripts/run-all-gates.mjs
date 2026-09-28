@@ -37,7 +37,7 @@ export function getAllGateDefinitions() {
                 'pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run build:strict && pnpm run test:electron-bundle-static-integrity:no-build && bash scripts/test-electron-e2e-headless.sh --no-build e2e-smoke',
             ],
             command: 'bash',
-            description: 'Consolidated lint, types, unit and native tests, one strict build, and blocking Electron smoke',
+            description: 'Consolidated lint, types, unit tests, one strict build, and blocking Electron smoke',
             id: 'validate',
         },
         {

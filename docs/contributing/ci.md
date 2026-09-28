@@ -29,7 +29,7 @@ parallel and the verdict lands in about fifteen minutes; see
 | `windows_atomic_pdf_replacement`, Windows Atomic PDF Replacement | Real Windows filesystem replacement | `electron_save_reopen` |
 | `browser_integration`, Browser Integration | Browser integration suite in Chromium | `browser_integration` |
 | `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles | `scan_cleanup_export` |
-| `landing`, Landing | Landing lint, typecheck and build | `landing` |
+| `landing`, Landing | Landing typecheck and build (root lint already lints it) | `landing` |
 | `electron_e2e_build`, Electron E2E Build | Production renderer, Electron bundle and native tools, shared with every lane | `electron_smoke` |
 | `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per matrix job on Linux | `electron_smoke` |
 | `gates_ok` | Every job succeeded, or was skipped because its area did not change | Always |
