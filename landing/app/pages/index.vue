@@ -74,7 +74,6 @@
 
         <div class="home-hero-film">
           <FilmPlayer
-            id="viewer"
             :locale="locale"
             :theme="filmTheme"
             title="EVB Viewer"
@@ -82,8 +81,6 @@
             :play-label="t('home.film.play')"
             :pause-label="t('home.film.pause')"
             :position-label="t('home.film.position')"
-            :width="1280"
-            :height="800"
           />
           <p class="home-film-caption">
             {{ t('home.film.caption') }}
@@ -355,7 +352,6 @@ import { track } from '@vercel/analytics';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
 import SentryAcknowledgement from '~/components/SentryAcknowledgement.vue';
-import type { TFilmTheme } from '~/films/registry';
 import {
     buildClientProfile,
     formatFileSize,
@@ -384,7 +380,7 @@ const runtimeConfig = useRuntimeConfig();
 const colorMode = useColorMode();
 const webAppUrl = computed(() => runtimeConfig.public.webAppUrl.trim() || '');
 // The film mounts on the client, after color mode has resolved the system preference.
-const filmTheme = computed<TFilmTheme>(() => colorMode.value === 'dark' ? 'dark' : 'light');
+const filmTheme = computed(() => colorMode.value === 'dark' ? 'dark' : 'light');
 
 const FEATURE_ICONS = [
     {

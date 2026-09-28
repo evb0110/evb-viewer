@@ -2,7 +2,6 @@
 // locale/theme pair. Linux only: run it inside a private X server, for example
 //   xvfb-run -a -s '-screen 0 1600x1000x24' node recorder/record.mjs viewer --app '/opt/EVB Viewer/evb-viewer'
 // A hidden window gets no frames, so the recorder shows the window on that private display.
-import { execFileSync } from 'node:child_process';
 import {
     existsSync,
     mkdirSync,
@@ -114,7 +113,7 @@ for (const {
     console.log(`Recording ${flowName}: ${locale} / ${theme}`);
     const app = await electron.launch({
         executablePath,
-        // Two device pixels per CSS pixel keep the QA screenshots and the poster sharp on any display.
+        // Two device pixels per CSS pixel keep the QA screenshots sharp for review.
         args: [
             '--no-sandbox',
             '--force-device-scale-factor=2',
@@ -157,20 +156,6 @@ for (const {
             ...setup,
         });
         await rec.save({ title });
-        // The first state as a still: shown until the player has loaded.
-        execFileSync('ffmpeg', [
-            '-hide_banner',
-            '-loglevel',
-            'error',
-            '-y',
-            '-i',
-            path.join(rec.qaDir, '00.png'),
-            '-vf',
-            `scale=${size.width * 2}:-1`,
-            '-q:v',
-            '3',
-            path.join(rec.dir, 'poster.jpg'),
-        ]);
     } finally {
         // Quit without prompts about the edited document.
         await app.evaluate(({ app: electronApp }) => electronApp.exit(0)).catch(() => {});

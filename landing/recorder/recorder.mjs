@@ -1,6 +1,6 @@
-// Records a real app flow as SVG states plus a manifest for the makeRealFilm composition.
-// Each snap() captures the live DOM with dom-to-svg (see capture-dom.js). Adapted from the
-// EVB Player landing films.
+// Records a real app flow as SVG states plus a manifest for the makeRealFilm composition, in
+// ../.devkit/films/capture where recorder/render.mjs reads them. Each snap() captures the live
+// DOM with dom-to-svg (see capture-dom.js). Adapted from the EVB Player landing films.
 import { createHash } from 'node:crypto';
 import {
     existsSync,
@@ -16,6 +16,8 @@ import { build } from 'esbuild';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const LANDING = path.resolve(HERE, '..');
+/** Render inputs: films/<film>/<variant>/ states with shared images and fonts, and manifests/. */
+export const CAPTURE = path.resolve(LANDING, '../.devkit/films/capture');
 
 const bundle = (await build({
     entryPoints: [path.join(HERE, 'd2s-entry.js')],
@@ -46,7 +48,7 @@ function clean(svg) {
 
 /** Deletes shared images and fonts that no variant of the film references any more. */
 export function pruneSharedAssets(film) {
-    const root = path.join(LANDING, 'public/films', film);
+    const root = path.join(CAPTURE, 'films', film);
     const used = new Set();
     for (const variant of readdirSync(root, { withFileTypes: true })) {
         if (!variant.isDirectory() || variant.name === 'images' || variant.name === 'fonts') continue;
@@ -54,8 +56,8 @@ export function pruneSharedAssets(film) {
             for (const match of readFileSync(path.join(root, variant.name, file), 'utf8').matchAll(/\/images\/(img-[0-9a-f]+\.\w+)/g)) used.add(`images/${match[1]}`);
         }
     }
-    for (const manifest of readdirSync(path.join(LANDING, 'app/films/manifests')).filter((name) => name.startsWith(`${film}.`))) {
-        for (const font of JSON.parse(readFileSync(path.join(LANDING, 'app/films/manifests', manifest), 'utf8')).fonts) used.add(font.url.replace('../', ''));
+    for (const manifest of readdirSync(path.join(CAPTURE, 'manifests')).filter((name) => name.startsWith(`${film}.`))) {
+        for (const font of JSON.parse(readFileSync(path.join(CAPTURE, 'manifests', manifest), 'utf8')).fonts) used.add(font.url.replace('../', ''));
     }
     for (const folder of [
         'images',
@@ -71,7 +73,7 @@ export function pruneSharedAssets(film) {
 export class FilmRecorder {
     /**
      * @param {import('playwright-core').Page} page
-     * @param {string} film film id, also the folder name under public/films
+     * @param {string} film film id, also the folder name under the capture folder's films/
      * @param {{ width?: number, height?: number, qaDir: string, locale: string, theme: string }} options
      */
     constructor(page, film, {
@@ -87,7 +89,7 @@ export class FilmRecorder {
         this.height = height;
         this.steps = [];
         this.families = new Set();
-        this.dir = path.join(LANDING, 'public/films', film, this.variant);
+        this.dir = path.join(CAPTURE, 'films', film, this.variant);
         this.qaDir = path.join(qaDir, film, this.variant);
         rmSync(this.dir, {
             recursive: true,
@@ -154,7 +156,7 @@ export class FilmRecorder {
     } = {}) {
         const index = this.steps.length;
         const name = `${String(index).padStart(2, '0')}.svg`;
-        // Reference screenshot of the untouched page, for review and the poster.
+        // Reference screenshot of the untouched page, for review.
         await this.page.screenshot({ path: path.join(this.qaDir, `${String(index).padStart(2, '0')}.png`) }).catch(() => {});
         await this.page.evaluate(`${bundle};true`);
         await this.page.evaluate(`${captureDom};true`);
@@ -264,7 +266,7 @@ export class FilmRecorder {
             fonts,
             steps: this.steps,
         };
-        const out = path.join(LANDING, 'app/films/manifests', `${this.film}.${this.locale}.${this.theme}.json`);
+        const out = path.join(CAPTURE, 'manifests', `${this.film}.${this.locale}.${this.theme}.json`);
         mkdirSync(path.dirname(out), { recursive: true });
         writeFileSync(out, `${JSON.stringify(manifest, null, 1)}\n`);
         const frames = this.steps.reduce((n, s) => n + s.dur, 0);

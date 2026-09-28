@@ -1,6 +1,6 @@
 <template>
   <figure
-    v-if="hasFilm"
+    v-if="variant"
     class="film"
   >
     <div class="film-window">
@@ -15,15 +15,27 @@
       </div>
       <div
         class="film-screen"
-        :style="{ aspectRatio: `${width} / ${height}` }"
+        :style="{ aspectRatio: `${film.width} / ${film.height}` }"
       >
-        <div
-          ref="host"
-          class="film-stage"
-          role="img"
+        <video
+          v-if="mounted"
+          :key="variant"
+          ref="video"
+          class="film-video"
+          :src="`${FILM_BASE}/${variant}.mp4`"
           :aria-label="label"
+          muted
+          playsinline
+          loop
+          preload="auto"
+          disablepictureinpicture
+          @loadedmetadata="onMetadata"
+          @playing="showPoster = false"
+          @play="playing = true"
+          @pause="playing = false"
         />
-        <!-- The first state as a still until the player has drawn the same frame. -->
+        <!-- The first frame, or the reduced-motion still, until the video shows it. CSS picks the
+             theme already set on the html element, so the server render matches. -->
         <div
           v-if="showPoster"
           class="film-poster"
@@ -46,18 +58,18 @@
         tabindex="0"
         :aria-label="positionLabel"
         :aria-valuemin="0"
-        :aria-valuemax="duration"
-        :aria-valuenow="frame"
+        :aria-valuemax="Math.round(duration)"
+        :aria-valuenow="Math.round(time)"
         @pointerdown="seekFromPointer"
-        @keydown.left.prevent="seekBy(-30)"
-        @keydown.right.prevent="seekBy(30)"
+        @keydown.left.prevent="seekTo(time - 1)"
+        @keydown.right.prevent="seekTo(time + 1)"
       >
         <div
           class="film-fill"
-          :style="{ width: `${(frame / Math.max(duration - 1, 1)) * 100}%` }"
+          :style="{ width: `${(time / Math.max(duration, 0.001)) * 100}%` }"
         />
       </div>
-      <span class="film-time">{{ time }}</span>
+      <span class="film-time">{{ time.toFixed(1) }}s</span>
     </figcaption>
   </figure>
 </template>
@@ -66,20 +78,28 @@
 import {
     useIntersectionObserver,
     usePreferredReducedMotion,
+    useRafFn,
 } from '@vueuse/core';
-import type { IPlayerHandle } from '~/films/mountComposition';
-import {
-    resolveFilmVariant,
-    type TCompositionId,
-    type TFilmTheme,
-} from '~/films/registry';
+import viewerFilm from '~/films/viewer.json';
+
+type TFilmTheme = 'light' | 'dark';
+
+interface IFilmIndex {
+    fps: number
+    /** First frame after the opening fade: the poster, and where playback starts. */
+    intro: number
+    width: number
+    height: number
+    variants: Record<string, {
+        frames: number
+        still: number
+    }>
+}
 
 const {
-    id,
     locale,
     theme,
 } = defineProps<{
-    id: TCompositionId
     locale: string
     theme: TFilmTheme
     label: string
@@ -87,92 +107,78 @@ const {
     pauseLabel: string
     positionLabel: string
     title: string
-    width: number
-    height: number
 }>();
 
-const host = useTemplateRef<HTMLElement>('host');
+// Rendered by recorder/render.mjs: one video per locale and theme, with a poster and a still.
+const FILM_BASE = '/films/viewer';
+const film: IFilmIndex = viewerFilm;
+const video = useTemplateRef<HTMLVideoElement>('video');
 const reducedMotion = usePreferredReducedMotion();
-const frame = ref(0);
-const duration = ref(1);
+const mounted = ref(false);
 const playing = ref(false);
 const showPoster = ref(true);
 const visible = ref(false);
-let handle: IPlayerHandle | null = null;
-/** The film has drawn content; playback may start. */
-let ready = false;
-let mountVersion = 0;
+const time = ref(0);
+const duration = ref(0);
 
-const hasFilm = computed(() => resolveFilmVariant(id, locale, theme) !== null);
-// CSS selects the poster that matches the color mode already set on the html element.
-const posterUrl = (posterTheme: TFilmTheme) => {
-    const variant = resolveFilmVariant(id, locale, posterTheme);
-    return variant ? `url(/films/${variant.path}/poster.jpg)` : 'none';
-};
-const posterStyle = computed(() => ({
-    '--poster-light': posterUrl('light'),
-    '--poster-dark': posterUrl('dark'),
-}));
+/** The recording for this locale and theme, else English in the same theme, else any English one. */
+function resolveVariant(variantTheme: TFilmTheme) {
+    return [
+        `${locale}-${variantTheme}`,
+        `en-${variantTheme}`,
+        'en-dark',
+        'en-light',
+    ].find(candidate => candidate in film.variants) ?? null;
+}
 
-const time = computed(() => {
-    const seconds = frame.value / 30;
-    return `${Math.floor(seconds)}.${Math.floor((seconds % 1) * 10)}s`;
+const variant = computed(() => resolveVariant(theme));
+const still = computed(() => reducedMotion.value === 'reduce');
+const posterStyle = computed(() => {
+    const posterFor = (posterTheme: TFilmTheme) => {
+        const name = resolveVariant(posterTheme);
+        return name ? `url(${FILM_BASE}/${name}-${still.value ? 'still' : 'poster'}.jpg)` : 'none';
+    };
+    return {
+        '--poster-light': posterFor('light'),
+        '--poster-dark': posterFor('dark'),
+    };
 });
 
-async function mountVariant() {
-    const version = ++mountVersion;
-    handle?.unmount();
-    handle = null;
-    ready = false;
-    playing.value = false;
-    frame.value = 0;
-    duration.value = 1;
-    showPoster.value = true;
-    if (!host.value || !hasFilm.value) {
-        return;
-    }
+function play() {
+    showPoster.value = false;
+    void video.value?.play().catch(() => {});
+}
 
-    const { mountComposition } = await import('~/films/mountComposition');
-    const mounted = await mountComposition(host.value, id, locale, theme, {
-        reducedMotion: reducedMotion.value === 'reduce',
-        onReady: () => {
-            if (version !== mountVersion) {
-                return;
-            }
-            // Two frames: the player's first content frame is painted before the poster goes.
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-                if (version !== mountVersion) {
-                    return;
-                }
-                showPoster.value = false;
-                ready = true;
-                if (visible.value && reducedMotion.value !== 'reduce') {
-                    mounted.play();
-                }
-            }));
-        },
-        onFrame: (value) => {
-            frame.value = value;
-        },
-        onPlayingChange: (value) => {
-            playing.value = value;
-        },
-    });
-    if (version !== mountVersion) {
-        mounted.unmount();
+function onMetadata() {
+    const element = video.value;
+    const info = variant.value ? film.variants[variant.value] : undefined;
+    if (!element || !info) {
         return;
     }
-    handle = mounted;
-    duration.value = mounted.durationInFrames;
-    frame.value = mounted.initialFrame;
+    duration.value = element.duration;
+    element.currentTime = (still.value ? info.still : film.intro) / film.fps;
+    time.value = element.currentTime;
+    if (visible.value && !still.value) {
+        play();
+    }
 }
 
 function toggle() {
-    handle?.toggle();
+    if (video.value?.paused) {
+        play();
+    } else {
+        video.value?.pause();
+    }
 }
 
-function seekBy(frames: number) {
-    handle?.seekTo(Math.min(duration.value - 1, Math.max(0, frame.value + frames)));
+function seekTo(seconds: number) {
+    const element = video.value;
+    if (!element || !duration.value) {
+        return;
+    }
+    element.currentTime = Math.min(duration.value, Math.max(0, seconds));
+    time.value = element.currentTime;
+    showPoster.value = false;
 }
 
 function seekFromPointer(event: PointerEvent) {
@@ -180,10 +186,7 @@ function seekFromPointer(event: PointerEvent) {
         return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    const seek = (clientX: number) => {
-        const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-        handle?.seekTo(Math.round(ratio * (duration.value - 1)));
-    };
+    const seek = (clientX: number) => seekTo(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration.value);
     seek(event.clientX);
     const move = (moveEvent: PointerEvent) => seek(moveEvent.clientX);
     const up = () => {
@@ -194,33 +197,37 @@ function seekFromPointer(event: PointerEvent) {
     window.addEventListener('pointerup', up);
 }
 
-onMounted(() => {
-    void mountVariant();
+// timeupdate fires only a few times a second; follow the playhead every frame instead.
+useRafFn(() => {
+    if (video.value && playing.value) {
+        time.value = video.value.currentTime;
+    }
 });
 
-watch(() => [
-    locale,
-    theme,
-], () => {
-    void mountVariant();
+// Another locale or theme loads another recording; its poster shows until it plays.
+watch(variant, () => {
+    playing.value = false;
+    showPoster.value = true;
+    time.value = 0;
 });
 
 // Plays only while on screen.
-useIntersectionObserver(host, ([entry]) => {
+useIntersectionObserver(video, ([entry]) => {
     visible.value = Boolean(entry?.isIntersecting);
-    if (!ready || reducedMotion.value === 'reduce') {
+    const element = video.value;
+    if (!element || still.value || element.readyState < 1) {
         return;
     }
     if (visible.value) {
-        handle?.play();
+        play();
     } else {
-        handle?.pause();
+        element.pause();
     }
 });
 
-onBeforeUnmount(() => {
-    mountVersion++;
-    handle?.unmount();
+onMounted(() => {
+    // The color mode and the reduced-motion preference are known only in the browser.
+    mounted.value = true;
 });
 </script>
 
@@ -298,10 +305,11 @@ onBeforeUnmount(() => {
   color: #a1a1aa;
 }
 
-.film-stage,
+.film-video,
 .film-poster {
   position: absolute;
   inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
 }

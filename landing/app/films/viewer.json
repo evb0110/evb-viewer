@@ -1,0 +1,80 @@
+{
+  "fps": 30,
+  "intro": 10,
+  "variants": {
+    "de-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "de-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "en-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "en-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "es-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "es-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "fr-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "fr-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "it-dark": {
+      "frames": 824,
+      "still": 247
+    },
+    "it-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "nl-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "nl-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "pt-BR-dark": {
+      "frames": 824,
+      "still": 247
+    },
+    "pt-BR-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "pt-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "pt-light": {
+      "frames": 846,
+      "still": 254
+    },
+    "ru-dark": {
+      "frames": 846,
+      "still": 254
+    },
+    "ru-light": {
+      "frames": 846,
+      "still": 254
+    }
+  },
+  "width": 1280,
+  "height": 800
+}
