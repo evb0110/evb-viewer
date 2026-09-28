@@ -438,7 +438,11 @@ fn shape_semantic_change(
 
     let keys: &[&[u8]] = match subtype.as_str() {
         "square" | "circle" => &[b"Rect", b"C", b"IC", b"CA"],
+        "line" if has_closed_line_ending(shape) => &[b"Rect", b"L", b"C", b"IC", b"CA", b"LE"],
         "line" => &[b"Rect", b"L", b"C", b"CA", b"LE"],
+        "polyline" if has_closed_line_ending(shape) => {
+            &[b"Rect", b"Vertices", b"C", b"IC", b"CA", b"LE"]
+        }
         "polyline" => &[b"Rect", b"Vertices", b"C", b"CA", b"LE"],
         "polygon" => &[b"Rect", b"Vertices", b"C", b"IC", b"CA"],
         _ => return Ok(true),
@@ -490,14 +494,16 @@ pub(crate) fn set_line_shape_fields(
         pdf_point_from_marker_point(shape.x, shape.y, page_view, page_rotation),
         shape_pdf_point(&end, page_view, page_rotation),
     ];
-    let rect = pdf_points_bounds(&points, shape.stroke_width)?;
+    let rect = line_shape_bounds(&points, shape)?;
     dict.set("Rect", rect_object(rect));
     dict.set("L", flat_pdf_points_object(&points));
     set_shape_style(dict, shape);
     set_shape_line_endings(dict, shape);
-    // A Line has no interior. Producers still leave /IC behind, and a viewer
-    // that honours it paints a fill the shape never had.
-    dict.remove(b"IC");
+    if has_closed_line_ending(shape) {
+        set_rgb_color(dict, "IC", Some(&shape.color));
+    } else {
+        dict.remove(b"IC");
+    }
     Ok(())
 }
 
@@ -509,7 +515,11 @@ pub(crate) fn set_vertex_shape_fields(
     is_polygon: bool,
 ) -> Result<()> {
     let points = shape_points_to_pdf_points(&shape.points, page_view, page_rotation);
-    let rect = pdf_points_bounds(&points, shape.stroke_width)?;
+    let rect = if is_polygon {
+        pdf_points_bounds(&points, shape.stroke_width)?
+    } else {
+        line_shape_bounds(&points, shape)?
+    };
     dict.set("Rect", rect_object(rect));
     dict.set("Vertices", flat_pdf_points_object(&points));
     set_shape_style(dict, shape);
@@ -518,9 +528,64 @@ pub(crate) fn set_vertex_shape_fields(
         set_rgb_color(dict, "IC", shape.fill_color.as_deref());
     } else {
         set_shape_line_endings(dict, shape);
-        dict.remove(b"IC");
+        if has_closed_line_ending(shape) {
+            set_rgb_color(dict, "IC", Some(&shape.color));
+        } else {
+            dict.remove(b"IC");
+        }
     }
     Ok(())
+}
+
+fn has_closed_line_ending(shape: &ShapeAnnotation) -> bool {
+    shape.line_start_style.as_deref() == Some("closedArrow")
+        || shape.line_end_style.as_deref() == Some("closedArrow")
+}
+
+fn uses_closed_line_appearance(subtype: &str, shape: &ShapeAnnotation) -> bool {
+    matches!(subtype, "line" | "polyline" | "Line" | "PolyLine") && has_closed_line_ending(shape)
+}
+
+fn line_ending_points(points: &[(f64, f64)], shape: &ShapeAnnotation) -> Vec<Vec<(f64, f64)>> {
+    let Some((first, last)) = points.first().zip(points.last()) else {
+        return Vec::new();
+    };
+    [
+        (shape.line_start_style.as_deref(), *first, *last),
+        (shape.line_end_style.as_deref(), *last, *first),
+    ]
+    .into_iter()
+    .filter(|(style, _, _)| *style == Some("closedArrow"))
+    .filter_map(|(_, tip, other)| {
+        let dx = tip.0 - other.0;
+        let dy = tip.1 - other.1;
+        let length = dx.hypot(dy);
+        if length == 0.0 {
+            return None;
+        }
+        let head_length = (shape.stroke_width * 10.0).max(6.0).min(length * 0.4);
+        let half_width = head_length * 0.35;
+        let ux = dx / length;
+        let uy = dy / length;
+        Some(vec![
+            (
+                tip.0 - ux * head_length - uy * half_width,
+                tip.1 - uy * head_length + ux * half_width,
+            ),
+            tip,
+            (
+                tip.0 - ux * head_length + uy * half_width,
+                tip.1 - uy * head_length - ux * half_width,
+            ),
+        ])
+    })
+    .collect()
+}
+
+fn line_shape_bounds(points: &[(f64, f64)], shape: &ShapeAnnotation) -> Result<PdfRect> {
+    let mut bounds_points = points.to_vec();
+    bounds_points.extend(line_ending_points(points, shape).into_iter().flatten());
+    pdf_points_bounds(&bounds_points, shape.stroke_width)
 }
 
 pub(crate) fn shape_ink_strokes(shape: &ShapeAnnotation) -> Vec<&[ShapePoint]> {
@@ -632,7 +697,101 @@ pub(crate) fn build_ink_shape_appearance_stream(
     Ok(Stream::new(dict, content.into_bytes()))
 }
 
-pub(crate) fn attach_ink_shape_appearance(dict: &mut Dictionary, appearance_ref: ObjectId) {
+pub(crate) fn build_closed_line_shape_appearance_stream(
+    shape: &ShapeAnnotation,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<Stream> {
+    let color = parse_pdf_color(Some(&shape.color)).ok_or("Invalid line appearance color")?;
+    let points = if shape.shape_type == "line" || shape.shape_type == "arrow" {
+        vec![
+            pdf_point_from_marker_point(shape.x, shape.y, page_view, page_rotation),
+            shape_pdf_point(
+                &ShapePoint {
+                    x: shape.x2.ok_or("Line shape is missing x2")?,
+                    y: shape.y2.ok_or("Line shape is missing y2")?,
+                },
+                page_view,
+                page_rotation,
+            ),
+        ]
+    } else {
+        shape_points_to_pdf_points(&shape.points, page_view, page_rotation)
+    };
+    let heads = line_ending_points(&points, shape);
+    if heads.is_empty() {
+        return Err("Closed line appearance has no arrowhead".into());
+    }
+    let rect = line_shape_bounds(&points, shape)?;
+    let mut content = format!(
+        "q\n/GS0 gs\n{} {} {} RG\n{} {} {} rg\n{} w\n1 J\n1 j\n",
+        number_to_content(color[0]),
+        number_to_content(color[1]),
+        number_to_content(color[2]),
+        number_to_content(color[0]),
+        number_to_content(color[1]),
+        number_to_content(color[2]),
+        number_to_content(shape.stroke_width),
+    );
+    if let Some(first) = points.first() {
+        content.push_str(&format!(
+            "{} {} m\n",
+            number_to_content(first.0),
+            number_to_content(first.1)
+        ));
+        for point in points.iter().skip(1) {
+            content.push_str(&format!(
+                "{} {} l\n",
+                number_to_content(point.0),
+                number_to_content(point.1)
+            ));
+        }
+        content.push_str("S\n");
+    }
+    for triangle in heads {
+        content.push_str(&format!(
+            "{} {} m\n",
+            number_to_content(triangle[0].0),
+            number_to_content(triangle[0].1)
+        ));
+        for point in triangle.iter().skip(1) {
+            content.push_str(&format!(
+                "{} {} l\n",
+                number_to_content(point.0),
+                number_to_content(point.1)
+            ));
+        }
+        content.push_str("h\nf\n");
+    }
+    content.push_str("Q\n");
+    let mut graphics_state = Dictionary::new();
+    graphics_state.set("Type", Object::Name(b"ExtGState".to_vec()));
+    graphics_state.set("CA", number_object(shape.opacity.clamp(0.0, 1.0)));
+    graphics_state.set("ca", number_object(shape.opacity.clamp(0.0, 1.0)));
+    let mut graphics_states = Dictionary::new();
+    graphics_states.set("GS0", Object::Dictionary(graphics_state));
+    let mut resources = Dictionary::new();
+    resources.set("ExtGState", Object::Dictionary(graphics_states));
+    let mut dict = Dictionary::new();
+    dict.set("Type", Object::Name(b"XObject".to_vec()));
+    dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    dict.set("BBox", rect_object(rect));
+    dict.set(
+        "Matrix",
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Integer(1),
+            Object::Integer(0),
+            Object::Integer(0),
+        ]),
+    );
+    dict.set("Resources", Object::Dictionary(resources));
+    Ok(Stream::new(dict, content.into_bytes()))
+}
+
+pub(crate) fn attach_shape_appearance(dict: &mut Dictionary, appearance_ref: ObjectId) {
     let mut appearance = Dictionary::new();
     appearance.set("N", Object::Reference(appearance_ref));
     dict.set("AP", Object::Dictionary(appearance));
@@ -850,6 +1009,13 @@ pub(crate) fn apply_shape_annotation_decision(
                 let appearance =
                     build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
                 Some(document.add_object(appearance))
+            } else if uses_closed_line_appearance(&subtype, &shape) {
+                let appearance = build_closed_line_shape_appearance_stream(
+                    &shape,
+                    page.page_view,
+                    page.page_rotation,
+                )?;
+                Some(document.add_object(appearance))
             } else {
                 None
             };
@@ -867,7 +1033,7 @@ pub(crate) fn apply_shape_annotation_decision(
                     existing_rect,
                 )?;
             let dict = document.get_dictionary_mut(object_id)?;
-            let modified = update_shape_annotation_dict(
+            let mut modified = update_shape_annotation_dict(
                 dict,
                 &shape,
                 page.page_view,
@@ -878,7 +1044,8 @@ pub(crate) fn apply_shape_annotation_decision(
             )?;
             dict.set("P", Object::Reference(page.page_id));
             if let Some(appearance_ref) = appearance_ref {
-                attach_ink_shape_appearance(dict, appearance_ref);
+                attach_shape_appearance(dict, appearance_ref);
+                modified = true;
             }
             state.consume(index);
             return Ok(modified);
@@ -900,6 +1067,13 @@ pub(crate) fn apply_shape_annotation_decision(
             let appearance =
                 build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
             Some(document.add_object(appearance))
+        } else if uses_closed_line_appearance(&subtype, &shape) {
+            let appearance = build_closed_line_shape_appearance_stream(
+                &shape,
+                page.page_view,
+                page.page_rotation,
+            )?;
+            Some(document.add_object(appearance))
         } else {
             None
         };
@@ -917,7 +1091,7 @@ pub(crate) fn apply_shape_annotation_decision(
                 existing_rect,
             )?;
         let dict = document.get_dictionary_mut(object_id)?;
-        let modified = update_shape_annotation_dict(
+        let mut modified = update_shape_annotation_dict(
             dict,
             &shape,
             page.page_view,
@@ -928,7 +1102,8 @@ pub(crate) fn apply_shape_annotation_decision(
         )?;
         dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
-            attach_ink_shape_appearance(dict, appearance_ref);
+            attach_shape_appearance(dict, appearance_ref);
+            modified = true;
         }
         state.consume(index);
         return Ok(modified);
@@ -985,6 +1160,13 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             let appearance =
                 build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
             Some(incremental.new_document.add_object(appearance))
+        } else if uses_closed_line_appearance(&subtype, &shape) {
+            let appearance = build_closed_line_shape_appearance_stream(
+                &shape,
+                page.page_view,
+                page.page_rotation,
+            )?;
+            Some(incremental.new_document.add_object(appearance))
         } else {
             None
         };
@@ -1011,7 +1193,7 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             )?
         };
         let dict = incremental.new_document.get_dictionary_mut(object_id)?;
-        let modified = update_shape_annotation_dict(
+        let mut modified = update_shape_annotation_dict(
             dict,
             &shape,
             page.page_view,
@@ -1022,7 +1204,8 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
         )?;
         dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
-            attach_ink_shape_appearance(dict, appearance_ref);
+            attach_shape_appearance(dict, appearance_ref);
+            modified = true;
         }
         state.consume(index);
         return Ok(modified);
@@ -1233,7 +1416,15 @@ pub(crate) fn append_remaining_shape_annotations(
         if shape_annotation_subtype_for_create(&shape) == Some("Ink") {
             let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
             let appearance_ref = document.add_object(appearance);
-            attach_ink_shape_appearance(&mut dict, appearance_ref);
+            attach_shape_appearance(&mut dict, appearance_ref);
+        } else if uses_closed_line_appearance(
+            shape_annotation_subtype_for_create(&shape).unwrap_or_default(),
+            &shape,
+        ) {
+            let appearance =
+                build_closed_line_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            let appearance_ref = document.add_object(appearance);
+            attach_shape_appearance(&mut dict, appearance_ref);
         }
         let object_id = document.add_object(Object::Dictionary(dict));
         report_shape_identity_binding(identity_bindings, &shape, object_id);
@@ -1264,7 +1455,15 @@ pub(crate) fn append_remaining_shape_annotations_incremental(
         if shape_annotation_subtype_for_create(&shape) == Some("Ink") {
             let appearance = build_ink_shape_appearance_stream(&shape, page_view, page_rotation)?;
             let appearance_ref = incremental.new_document.add_object(appearance);
-            attach_ink_shape_appearance(&mut dict, appearance_ref);
+            attach_shape_appearance(&mut dict, appearance_ref);
+        } else if uses_closed_line_appearance(
+            shape_annotation_subtype_for_create(&shape).unwrap_or_default(),
+            &shape,
+        ) {
+            let appearance =
+                build_closed_line_shape_appearance_stream(&shape, page_view, page_rotation)?;
+            let appearance_ref = incremental.new_document.add_object(appearance);
+            attach_shape_appearance(&mut dict, appearance_ref);
         }
         let object_id = incremental
             .new_document
