@@ -41,7 +41,6 @@ jobs:
         uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'false'
 
       - name: Production dependency audit
         id: production_audit

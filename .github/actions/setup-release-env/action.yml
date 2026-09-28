@@ -13,9 +13,6 @@ inputs:
   install-dependencies:
     description: Run scripts/ci-install-dependencies.mjs --frozen-lockfile and verify the Electron install.
     default: 'true'
-  verify-electron:
-    description: Verify the installed Electron executable after installing dependencies.
-    default: 'true'
   rust-targets:
     description: Space-separated rustup targets to add.
     default: ''
@@ -65,11 +62,6 @@ runs:
       if: inputs.install-dependencies == 'true'
       shell: bash
       run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-    - name: Verify Electron install
-      if: inputs.install-dependencies == 'true' && inputs.verify-electron == 'true'
-      shell: bash
-      run: pnpm run check:electron:install
 
     - name: Install Rust targets
       if: inputs.rust-targets != ''

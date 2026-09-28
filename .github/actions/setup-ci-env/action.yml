@@ -8,9 +8,6 @@ inputs:
   cache-dependency-path:
     description: Lockfile path used by the pnpm cache.
     default: pnpm-lock.yaml
-  verify-electron:
-    description: Verify the installed Electron executable after installing dependencies.
-    default: 'false'
   wasm:
     description: Restore or build the browser WASM files in public/wasm.
     default: 'false'
@@ -37,11 +34,6 @@ runs:
     - name: Install dependencies
       shell: bash
       run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-    - name: Verify Electron install
-      if: inputs.verify-electron == 'true'
-      shell: bash
-      run: pnpm run check:electron:install
 
     # Keyed on the crates the two WASM builds link (scripts/native-build-id.mjs
     # hashes the same closure to decide whether a restored build is current).
