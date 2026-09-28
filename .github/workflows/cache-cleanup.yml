@@ -6,7 +6,8 @@ name: Cache Cleanup
 # branch is deleted.
 
 on:
-  pull_request:
+  # Cleanup needs a write token for fork PRs too. Never check out or run PR code.
+  pull_request_target:
     types:
       - closed
   delete:
@@ -17,7 +18,7 @@ permissions:
 jobs:
   delete_ref_caches:
     name: Delete the closed ref's caches
-    if: ${{ github.event_name == 'pull_request' || github.event.ref_type == 'branch' }}
+    if: ${{ github.event_name == 'pull_request_target' || github.event.ref_type == 'branch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -26,7 +27,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-          REF: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || format('refs/heads/{0}', github.event.ref) }}
+          REF: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/merge', github.event.pull_request.number) || format('refs/heads/{0}', github.event.ref) }}
         run: |
           set -euo pipefail
           gh cache list --ref "$REF" --limit 1000 --json id --jq '.[].id' |
