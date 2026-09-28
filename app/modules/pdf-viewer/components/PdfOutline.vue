@@ -186,10 +186,7 @@ function goToPage(page: number, options?: IScrollToPageOptions) {
     emit('goToPage', page, options);
 }
 
-async function toggleEditMode() {
-    if (!isEditMode.value) {
-        await editing.prepareDestinationsForPersistence();
-    }
+function toggleEditMode() {
     isEditMode.value = !isEditMode.value;
 }
 
@@ -624,8 +621,9 @@ function cancelActiveItemResolution() {
     activeItemResolution = null;
 }
 
-function emitBookmarksChange() {
+async function emitBookmarksChange() {
     cancelActiveItemResolution();
+    await editing.prepareDestinationsForPersistence();
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
     emit('bookmarks-change', {
         bookmarks: persisted,

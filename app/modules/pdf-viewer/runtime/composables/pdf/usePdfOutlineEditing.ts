@@ -42,7 +42,7 @@ export const usePdfOutlineEditing = (
 ) => {
     const { t } = useTypedI18n();
     const editingItemId = ref<string | null>(null);
-    const resolvedDestinations = new Map<IBookmarkItem, IResolvedBookmarkTarget>();
+    const resolvedDestinations = new Map<string, IResolvedBookmarkTarget>();
 
     async function prepareDestinationsForPersistence() {
         const pdfDocument = getPdfDocument();
@@ -52,7 +52,7 @@ export const usePdfOutlineEditing = (
                 if (item.pageIndex === null && item.dest) {
                     const target = await resolveBookmarkDestinationTarget(pdfDocument, item.dest);
                     if (target) {
-                        resolvedDestinations.set(item, {
+                        resolvedDestinations.set(item.id, {
                             pageIndex: requirePageIndex(target.page - 1),
                             pageYRatio: target.pageYRatio ?? null,
                         });
@@ -503,10 +503,10 @@ export const usePdfOutlineEditing = (
             const title = item.title.trim();
             return {
                 title: title.length > 0 ? title : t('bookmarks.untitled'),
-                pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : resolvedDestinations.get(item)?.pageIndex ?? null,
+                pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : resolvedDestinations.get(item.id)?.pageIndex ?? null,
                 pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
                     ? clamp(item.pageYRatio, 0, 1)
-                    : resolvedDestinations.get(item)?.pageYRatio ?? null,
+                    : resolvedDestinations.get(item.id)?.pageYRatio ?? null,
                 namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
                 bold: item.bold,
                 italic: item.italic,
