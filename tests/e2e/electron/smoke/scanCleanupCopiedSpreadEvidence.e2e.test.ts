@@ -1,10 +1,13 @@
 import {
     copyFileSync,
     existsSync,
-    mkdirSync,
+    mkdtempSync,
     statSync,
 } from 'node:fs';
-import {resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -63,8 +66,7 @@ describe('scan cleanup copied spread evidence', () => {
             1280,
             900,
         ]);
-        const sourcePath = resolve(process.cwd(), '.devkit/project12/868/e2e-document-ops-cleanup-two.pdf');
-        mkdirSync(resolve(process.cwd(), '.devkit/project12/868'), {recursive: true});
+        const sourcePath = join(mkdtempSync(join(tmpdir(), 'evb-e2e-cleanup-spread-')), 'e2e-document-ops-cleanup-two.pdf');
         copyFileSync(resolve(process.cwd(), 'tests/fixtures/electron/document-ops-cleanup-two.pdf'), sourcePath);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
