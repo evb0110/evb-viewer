@@ -58,6 +58,11 @@ export interface IAnnotationPointerGestureCompletion {
     readonly hasMoved: boolean;
 }
 
+export interface ITextSelectionPointerGesture {
+    readonly start: IAnnotationPointerEvent;
+    readonly hasMoved: boolean;
+}
+
 export interface IAnnotationPointerGesture {
     readonly isActive: ComputedRef<boolean>;
     readonly mode: ComputedRef<TAnnotationPointerGestureMode | null>;
@@ -74,6 +79,9 @@ export interface IAnnotationPointerGesture {
         point: IAnnotationEditorPoint,
         event: IAnnotationPointerEvent,
     ): boolean;
+    beginTextSelection(event: IAnnotationPointerEvent): boolean;
+    updateTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null;
+    finishTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null;
     update(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     isActiveForPointer(pointerId: number): boolean;
     finish(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): IAnnotationPointerGestureCompletion | null;
@@ -124,6 +132,11 @@ export const useAnnotationPointerGesture = (
     options: IUseAnnotationPointerGestureOptions,
 ): IAnnotationPointerGesture => {
     const active = shallowRef<IActiveAnnotationPointerGesture | null>(null);
+    let textSelection: {
+        pointerId: number;
+        start: IAnnotationPointerEvent;
+        hasMoved: boolean
+    } | null = null;
     const isActive = computed(() => active.value !== null);
     const mode = computed(() => active.value?.mode ?? null);
     const resizeHandle = computed(() => active.value?.handle ?? null);
@@ -249,6 +262,39 @@ export const useAnnotationPointerGesture = (
         return true;
     }
 
+    function beginTextSelection(event: IAnnotationPointerEvent) {
+        if (active.value || textSelection) {
+            return false;
+        }
+        textSelection = {
+            pointerId: event.pointerId,
+            start: {
+                clientX: event.clientX,
+                clientY: event.clientY,
+                pointerId: event.pointerId,
+            },
+            hasMoved: false,
+        };
+        return true;
+    }
+
+    function updateTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
+        if (textSelection?.pointerId !== event.pointerId) {
+            return null;
+        }
+        textSelection.hasMoved ||= hasPointerMovedPastThreshold(textSelection.start, event, 6);
+        return {
+            start: textSelection.start,
+            hasMoved: textSelection.hasMoved,
+        };
+    }
+
+    function finishTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
+        const gesture = updateTextSelection(event);
+        textSelection = null;
+        return gesture;
+    }
+
     function finish(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent) {
         if (!matchesPointer(event)) {
             return null;
@@ -279,6 +325,7 @@ export const useAnnotationPointerGesture = (
 
     function cancel() {
         active.value = null;
+        textSelection = null;
     }
 
     onScopeDispose(cancel);
@@ -294,6 +341,9 @@ export const useAnnotationPointerGesture = (
         beginCreate,
         beginMove,
         beginResize,
+        beginTextSelection,
+        updateTextSelection,
+        finishTextSelection,
         update,
         isActiveForPointer: pointerId => active.value?.pointerId === pointerId,
         finish,
