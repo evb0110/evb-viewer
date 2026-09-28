@@ -512,9 +512,10 @@ describe('Project 8 recovered close decisions', () => {
         const pdfPath = await createLargeScannedFixturePdf(
             `project8-busy-tab-close-${Date.now()}.pdf`,
             882,
-            // With the 882 pages the file lands just above the 96 MiB
-            // shape-scan cap, on the same open and save paths as the real scan.
-            96 * 1024 * 1024,
+            // With the 882 pages the file lands just above the 64 MiB
+            // eager-conformance limit, on the same open and save paths as the
+            // real scan.
+            64 * 1024 * 1024,
             1,
             {runOwner: 'w3-busy-close'},
         );
