@@ -1,7 +1,6 @@
 import {
-    copyFile, mkdtemp,
+    copyFile, mkdir,
 } from 'node:fs/promises';
-import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
     describe, expect, it, onTestFinished,
@@ -25,7 +24,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-bookmark-rename-${Date.now()}`});
 
     it('keeps imported destinations when one bookmark title is renamed and saved', async () => {
-        const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-e2e-bookmark-rename-'));
+        const evidenceDirectory = join(process.cwd(), '.devkit', 'project12', '865');
+        await mkdir(evidenceDirectory, {recursive: true});
         const generated = await createOutlinePageLabelFixturePdf(`bookmark-rename-${Date.now()}.pdf`, [
             fixtureBookmark('First', 0),
             fixtureBookmark('Middle', 2),
