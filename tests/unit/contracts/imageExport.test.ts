@@ -13,6 +13,7 @@ describe('image export platform feature schemas', () => {
 
     it('preserves channels and registry-backed replay policy', () => {
         expect(channels).toEqual({
+            rasterizePdfRegion: 'pdfExport:region',
             exportPdfToImages: 'pdfExport:images',
             exportPdfToMultiPageTiff: 'pdfExport:multipage-tiff',
             subscribeProgress: 'pdfExport:progress:subscribe',

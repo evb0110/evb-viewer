@@ -363,6 +363,18 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         'image-export-fixture',
         'pdf',
     ],
+    'pdfExport:region': [
+        '/tmp/fixture.pdf',
+        1,
+        {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            outputWidth: 8,
+            outputHeight: 8,
+        },
+    ],
     'pdf:search:warmIndex': [{pdfPath: '/tmp/search.pdf'}],
     'pdf:search:cancel': ['search-fixture'],
     'tabs:transfer': [{
