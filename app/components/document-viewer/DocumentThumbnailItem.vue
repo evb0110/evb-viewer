@@ -92,6 +92,9 @@ const {
 
 .document-thumbnail-item__frame {
     display: grid;
+
+    /* Size the cell from the slot, not the raster's intrinsic dimensions. */
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     box-sizing: border-box;
     width: 100%;
     min-height: 0;
