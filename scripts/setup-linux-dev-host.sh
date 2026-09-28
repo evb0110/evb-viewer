@@ -28,6 +28,7 @@ APT_PACKAGES=(
   patchelf
   xvfb
   xdotool
+  xclip
   xauth
   dbus-x11
   libgtk-3-0
