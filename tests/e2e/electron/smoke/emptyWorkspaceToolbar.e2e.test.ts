@@ -7,8 +7,9 @@ import {
     openPdfInApp, waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {Page} from 'puppeteer-core';
-import {mkdirSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-empty-workspace-toolbar-${Date.now()}`});
 
@@ -48,15 +49,14 @@ describe('empty workspace toolbar contract', () => {
         const session = sessions.getSession();
         await session.page.waitForSelector('#editor-global-toolbar-host [role="toolbar"]', {timeout: 20_000});
         const empty = await readToolbar(session.page);
-        const evidence = resolve('.devkit/project12/880');
-        mkdirSync(evidence, {recursive: true});
-        await session.page.screenshot({path: resolve(evidence, 'empty-workspace.png')});
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-e2e-empty-toolbar-'));
+        await session.page.screenshot({path: join(evidence, 'empty-workspace.png')});
 
         const pdfPath = await createMultiPageTextFixturePdf(`empty-toolbar-${Date.now()}.pdf`, 2);
         await openPdfInApp(session.page, pdfPath);
         await waitForPdfLoaded(session.page);
         const documentToolbar = await readToolbar(session.page);
-        await session.page.screenshot({path: resolve(evidence, 'first-document.png')});
+        await session.page.screenshot({path: join(evidence, 'first-document.png')});
 
         expect(empty.height, 'empty workspace must render the document toolbar row').toBeGreaterThan(0);
         const expectedLabels = [
