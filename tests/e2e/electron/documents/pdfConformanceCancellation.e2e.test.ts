@@ -30,6 +30,8 @@ function readAppLog(sessionName: string) {
     return readFileSync(resolve(electronFileLogDir(sessionName), 'app.ndjson'), 'utf8');
 }
 
+const CONFORMANCE_WORKER = 'pdfConformanceWorker.js';
+
 function readWorkerTaskEvents(log: string) {
     return log.split(/\r?\n/u)
         .filter(Boolean)
@@ -37,12 +39,14 @@ function readWorkerTaskEvents(log: string) {
             level?: string;
             scope?: string;
             msg?: string;
+            data?: {workerName?: string};
         })
         .filter(entry => entry.scope === 'worker-task');
 }
 
 function hasWorkerTaskMessage(log: string, message: string) {
-    return readWorkerTaskEvents(log).some(entry => entry.msg === message);
+    return readWorkerTaskEvents(log)
+        .some(entry => entry.msg === message && entry.data?.workerName === CONFORMANCE_WORKER);
 }
 
 function readWorkerTaskErrors(sessionName: string) {
