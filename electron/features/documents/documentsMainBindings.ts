@@ -146,7 +146,6 @@ import {
 } from '@electron/recentFiles';
 import {
     allowRevealPaths,
-    removeAllowedOpenPath,
     removeAllowedRevealPath,
 } from '@electron/file-access/openPathCapabilities';
 import {
@@ -585,7 +584,7 @@ export const documentsMainBindings = {
     },
     removeRecentFile: async (originalPath) => {
         await removeRecentFile(originalPath);
-        removeAllowedOpenPath(originalPath);
+        // Recent history owns reveal access; retained tabs keep their open grants.
         removeAllowedRevealPath(originalPath);
         updateRecentFilesMenu();
     },
@@ -593,7 +592,6 @@ export const documentsMainBindings = {
         const files = await getRecentFiles();
         await clearRecentFiles();
         for (const file of files) {
-            removeAllowedOpenPath(file.originalPath);
             removeAllowedRevealPath(file.originalPath);
         }
         updateRecentFilesMenu();
