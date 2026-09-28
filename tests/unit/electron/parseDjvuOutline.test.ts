@@ -38,6 +38,10 @@ describe('parseDjvuOutline', () => {
             ],
         ]);
         expect(parseDjvuOutline('(bookmarks ("Second" "#p0002.djvu"))', pageComponents)[0]?.pageIndex).toBe(1);
+        expect(parseDjvuOutline('(bookmarks ("Named" "#nb0003.djvu"))', new Map([[
+            'nb0003.djvu',
+            2,
+        ]]))[0]?.pageIndex).toBe(2);
     });
 
     it('rejects outlines deeper than the interactive nesting limit', () => {

@@ -185,11 +185,10 @@ function parseBookmarkNode(node: TSexpToken, pageComponents?: ReadonlyMap<string
     const title = typeof node[0] === 'string' ? node[0] : '';
     const dest = typeof node[1] === 'string' ? node[1] : '';
 
-    // Parse page reference: "#N" where N is 1-based
+    // Parse page reference: "#<component id>" from the bundle directory, else "#N" (1-based)
     let pageIndex: TPageIndex | null = null;
     if (dest.startsWith('#')) {
-        const component = dest.slice(1).match(/^p\d+\.djvu$/iu)?.[0];
-        const componentIndex = component ? pageComponents?.get(component) : undefined;
+        const componentIndex = pageComponents?.get(dest.slice(1));
         if (Number.isSafeInteger(componentIndex) && componentIndex! >= 0) {
             pageIndex = requirePageIndex(componentIndex!);
         } else {

@@ -1,8 +1,13 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {rm} from 'node:fs/promises';
-import {existsSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {
+    existsSync, mkdtempSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     describe, expect, it,
 } from 'vitest';
@@ -21,8 +26,7 @@ describe('DjVu converted bookmark destinations', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-bookmark-destinations-${Date.now()}`});
 
     it('preserves component-ID bookmark targets in the saved PDF and navigates after reopening', async () => {
-        const outputPath = resolve('.devkit/project12/875/evidence/converted.pdf');
-        await rm(outputPath, {force: true});
+        const outputPath = join(mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-bookmarks-')), 'converted.pdf');
         const session = await sessions.restart({
             clean: true,
             sessionName: () => `e2e-djvu-bookmark-destinations-${Date.now()}`,
