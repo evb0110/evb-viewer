@@ -1,0 +1,23 @@
+tests/e2e/electron/smoke/emptyWorkspaceToolbar.e2e.test.ts
+  s_5ed8df5c17163b::t_75966ff0547f48 51-60,74-75
+  s_5ed8df5c17163b::t_3c1924f8d35a24 9,15
+  s_5ed8df5c17163b::t_b2d40f6bc0c61d 1-3,6-8,33-36,38-42,62-68
+  s_5ed8df5c17163b::t_1cb9eb07d49775 4-5,12-14,16-32,37,43-50,61,69-73,76-81
+  s_5ed8df5c17163b::t_1618eb242e0967 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d137787a872878d5458ef1b7fd41a29edd9018d1",
+  "prompts": {},
+  "sessions": {
+    "s_5ed8df5c17163b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e8b4-f882-78f1-8e91-b1045eafce96",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
