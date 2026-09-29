@@ -1,0 +1,21 @@
+tests/e2e/electron/navigation/moveTabViewState.e2e.test.ts
+  s_223644c4c1b691::t_48772cabc80434 78-79,86-93,95,104-115,160
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_223644c4c1b691::t_48772cabc80434 40,1018-1030,1032-1039,1064
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2abae877c13dcec63c767e7c27d78eab9736d51b",
+  "prompts": {},
+  "sessions": {
+    "s_223644c4c1b691": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68524de2-1108-4e42-bf0a-5ef52da4ea20",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
