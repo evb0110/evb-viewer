@@ -280,19 +280,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             cancelActiveTextLayerRender(pageNumber);
         }
     }
+    function isRenderCancellation(error: unknown) {
+        const name = error && typeof error === 'object' ? (error as {name?: unknown}).name : undefined;
+        return name === 'AbortError' || name === 'RenderingCancelledException';
+    }
     function logNonCriticalStageError(
         pageNumber: TPageNumber,
         stage: string,
         error: unknown,
     ) {
-        if (
-            error
-            && typeof error === 'object'
-            && (
-                (error as {name?: unknown}).name === 'AbortError'
-                || (error as {name?: unknown}).name === 'RenderingCancelledException'
-            )
-        ) {
+        if (isRenderCancellation(error)) {
             return;
         }
         BrowserLogger.error('pdf-renderer', `Failed to render ${stage} for page ${String(pageNumber)}`, error, {code: 'RENDERER_PDF_PAGE_RENDER_FAILED'});
@@ -356,20 +353,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             return;
         }
         const documentFence = options.document.captureFence();
-        const lease = await options.document.leasePage(pageNumber).catch((error: unknown) => {
-            if (
-                error instanceof Error
-                && error.name === 'RenderingCancelledException'
-                && error.message === 'Rendering cancelled: PDF page lease became stale'
-                && !options.document.isCurrent(documentFence)
-            ) {
-                return null;
-            }
-            throw error;
-        });
-        if (lease === null) {
-            return;
-        }
         const shouldContinue = () => {
             const slot = pageRenderState.getSlot(pageNumber);
             return options.document.isCurrent(documentFence)
@@ -380,8 +363,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 && container.dataset.page === String(pageNumber)
                 && container.contains(renderResult.canvas);
         };
+        let lease: Awaited<ReturnType<typeof options.document.leasePage>> | null = null;
         try {
-            if (!shouldContinue()) {
+            // No caller awaits hydration, so a cancelled lease must settle here.
+            lease = await options.document.leasePage(pageNumber).catch((error: unknown) => {
+                if (isRenderCancellation(error)) {
+                    return null;
+                }
+                throw error;
+            });
+            if (!lease || !shouldContinue()) {
                 return;
             }
             if (!pageRenderState.markLayersHydrating(pageNumber, version, requestId)) {
@@ -481,7 +472,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 options.onRenderedPageStateChanged?.();
             }
             pageRenderState.completeRender(pageNumber, version, requestId);
-            lease.release();
+            lease?.release();
         }
     }
 

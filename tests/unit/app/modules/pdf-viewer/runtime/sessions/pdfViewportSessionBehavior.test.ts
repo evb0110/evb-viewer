@@ -900,10 +900,6 @@ describe('PdfViewportSession behavior', () => {
                 start: 3,
                 end: 4,
             });
-            expect(fixture.viewport.isVisibleRenderRangeCurrent({
-                start: 3,
-                end: 4,
-            })).toBe(true);
 
             await vi.waitFor(() => {
                 expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledWith(3, 4);

@@ -37,10 +37,7 @@ import {
     getViewportVisibilityFromDom,
     getViewportVisibilityFromLayout,
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
-import {
-    isPdfVisibleRenderRangeCurrent,
-    resolvePdfProtectedVisibleRange,
-} from '@app/modules/pdf-viewer/engine/pdf-visible-render-range-policy/isPdfVisibleRenderRangeCurrent';
+import {resolvePdfProtectedVisibleRange} from '@app/modules/pdf-viewer/engine/pdf-visible-render-range-policy/isPdfVisibleRenderRangeCurrent';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { resolvePdfRasterResidencyPlan } from '@app/modules/pdf-viewer/runtime/rendering/resolvePdfRasterResidencyPlan';
@@ -229,15 +226,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     function getProtectedVisibleRange() {
         return resolvePdfProtectedVisibleRange({
-            visibleRange: visibleRange.value,
-            navigationTargetPage: getNavigationRenderTargetPage(),
-            viewMode: options.viewMode.value,
-            totalPages: numPages.value,
-        });
-    }
-    function isVisibleRenderRangeCurrent(range: IPageRange) {
-        return isPdfVisibleRenderRangeCurrent({
-            range,
             visibleRange: visibleRange.value,
             navigationTargetPage: getNavigationRenderTargetPage(),
             viewMode: options.viewMode.value,
@@ -1027,16 +1015,28 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     // A resize keeps the point that was under the old viewport centre at the
     // new centre (contract R3). A pane drag or split keeps the point it
     // started with: moving a pane can reset the native scroll offset before
-    // any size change is observed.
-    let resizeGestureAnchor: ReturnType<typeof singlePageScroll.captureRelayoutAnchor> = null;
+    // any size change is observed. A position committed after the gesture began,
+    // such as a navigation that lands while the sidebar slides, is newer than
+    // that point and ends it.
+    let resizeGesture: {
+        anchor: NonNullable<ReturnType<typeof singlePageScroll.captureRelayoutAnchor>>;
+        committed: IPdfSemanticAnchor | null;
+    } | null = null;
+    const readCommitted = () => singlePageScroll.viewportAuthority.committedAnchor.value;
+    function readResizeGestureAnchor() {
+        const anchor = resizeGesture?.anchor ?? null;
+        const isCurrent = readCommitted() === anchor || readCommitted() === resizeGesture?.committed;
+        return isCurrent ? anchor : null;
+    }
     watch(options.isResizing, (resizing) => {
-        if (resizing) {
-            resizeGestureAnchor = singlePageScroll.captureRelayoutAnchor();
-            return;
-        }
-        const anchor = resizeGestureAnchor;
-        resizeGestureAnchor = null;
-        if (anchor) {
+        const anchor = resizing ? singlePageScroll.captureRelayoutAnchor() : readResizeGestureAnchor();
+        resizeGesture = resizing && anchor
+            ? {
+                anchor,
+                committed: readCommitted(),
+            }
+            : null;
+        if (!resizing && anchor) {
             singlePageScroll.relayout(fitToViewport, anchor);
         }
     }, {flush: 'sync'});
@@ -1061,7 +1061,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ) {
             return;
         }
-        singlePageScroll.relayout(fitToViewport, resizeGestureAnchor ?? singlePageScroll.captureRelayoutAnchor({
+        singlePageScroll.relayout(fitToViewport, readResizeGestureAnchor() ?? singlePageScroll.captureRelayoutAnchor({
             x: previous.width / 2,
             y: previous.height / 2,
         }, previous));
@@ -1263,7 +1263,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         userViewportInteractionEpoch,
         scroll,
         scale,
-        viewportPin,
         skeletonInsets,
         reloadTransition,
         viewModel,
@@ -1273,9 +1272,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewportWork,
         viewportWritePort,
         summarizeViewerMetricsForLog: summarizeViewerMetrics,
-        getVisibleRange,
         getProtectedVisibleRange,
-        isVisibleRenderRangeCurrent,
         setupPagePlaceholders,
         markUserViewportInteraction,
         handleLinkDestination,
@@ -1295,7 +1292,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             pageSlots.markUnmounted(pageNumber);
             publishDemand();
         },
-        requestMandatoryRaster,
         settleMandatoryRaster,
         commitVisibleRange,
     };
