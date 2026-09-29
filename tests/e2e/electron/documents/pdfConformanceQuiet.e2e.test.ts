@@ -2,9 +2,10 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {
-    mkdtempSync, readFileSync, statSync, watch, writeFileSync,
+    mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
@@ -56,6 +57,10 @@ function readWorkerTaskErrors(sessionName: string) {
 
 async function createLargeConformancePdf() {
     const evidenceDirectory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-cancellation-'));
+    onTestFinished(() => rmSync(evidenceDirectory, {
+        recursive: true,
+        force: true,
+    }));
     const unencryptedPath = resolve(evidenceDirectory, 'conformance-cancellation-unencrypted-8000-pages.pdf');
     const filePath = resolve(evidenceDirectory, 'conformance-cancellation-materialized-8000-pages.pdf');
     const pdf = await PDFDocument.create();
@@ -90,6 +95,10 @@ async function createLargeConformancePdf() {
 // The Windows report that led here had them, and its conformance read failed.
 function createPdfWithBytesAfterEof() {
     const evidenceDirectory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-trailing-bytes-'));
+    onTestFinished(() => rmSync(evidenceDirectory, {
+        recursive: true,
+        force: true,
+    }));
     const filePath = resolve(evidenceDirectory, 'bytes-after-eof.pdf');
     writeFileSync(filePath, Buffer.concat([
         readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')),
