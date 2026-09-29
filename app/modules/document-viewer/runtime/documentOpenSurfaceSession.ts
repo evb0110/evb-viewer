@@ -601,8 +601,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 const openingPlacementReady = (state.lifecycle === 'opening'
                     || state.lifecycle === 'transitioning')
                     && (state.stagedRenderFence?.pageNumber === report.page
-                        || state.committedRenderFence?.pageNumber === report.page)
-                    && state.stagedViewportFence?.pageNumber === report.page;
+                        || state.committedRenderFence?.pageNumber === report.page);
                 if (
                     ticket.request.readiness !== 'metrics'
                     && state.lifecycle !== 'ready'
@@ -821,8 +820,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     }) : null);
                     return refined ? snapshot.value.generation : null;
                 }
-                // A provisional host transaction cannot be replaced by a loader that failed refinement.
-                if (currentIdentity?.provisional) return null;
             }
             return this.begin(identity, null, resolveDocumentViewportCurrentPage(sessionState.value.viewport));
         },

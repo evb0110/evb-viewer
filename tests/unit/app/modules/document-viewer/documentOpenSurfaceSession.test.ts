@@ -963,20 +963,21 @@ describe('document open surface session', () => {
         });
     });
 
-    it('rejects late provisional refinement instead of turning it into a new open', () => {
+    it('opens the loader\'s source in a new generation when a provisional visual is already committed', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'pending.pdf', 'open-intent:1');
         commitDefaultGeometry(session, generation);
         const fence = createRenderFence(session, generation, 'open-intent:1');
         expect(session.commitCanvas(fence)).toBe(true);
         expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
-        expect(session.acquireSource({
+        const claimedGeneration = session.acquireSource({
             documentId: 'pending.pdf',
             documentRevision: 'load:1',
-        }, generation)).toBeNull();
-        expect(session.snapshot.value.generation).toBe(generation);
-        expect(session.snapshot.value.identity?.documentRevision).toBe('open-intent:1');
-        expect(session.markReady(fence)).toBe(true);
+        }, generation);
+        expect(claimedGeneration).toBe(generation + 1);
+        expect(session.snapshot.value.generation).toBe(claimedGeneration);
+        expect(session.snapshot.value.identity?.documentRevision).toBe('load:1');
+        expect(session.markReady(fence)).toBe(false);
     });
 
     it('rejects a stale source acquisition after another document owns the surface', () => {

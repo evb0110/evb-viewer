@@ -27,6 +27,7 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
+    waitForActiveDocumentSource,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -37,11 +38,13 @@ import {
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    callWorkspaceCommand,
     getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
     readWorkspaceStateValues,
     waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 
 const BLOCKING_SMOKE_TIMEOUT_MS = 120_000;
 const SAVE_TIMEOUT_MS = 45_000;
@@ -173,6 +176,29 @@ async function waitForFreeTextAnnotationOnDisk(filePath: string) {
     }
 
     throw new Error(`Expected saved FreeText annotation on disk: ${JSON.stringify(summary)}`);
+}
+
+// A window that has not laid out yet gives the viewer no height. The hold starts
+// with the Open and ends on its own, so the document is fully loaded before the
+// viewer can be measured.
+async function holdViewerLayoutOff(page: Page, holdMs: number) {
+    await page.evaluate((duration: number) => {
+        const style = document.createElement('style');
+        style.textContent = '#pdf-viewer{height:0 !important;min-height:0 !important;overflow:hidden !important}';
+        document.head.appendChild(style);
+        setTimeout(() => style.remove(), duration);
+    }, holdMs);
+}
+
+async function expectOpenedFirstPage(page: Page, label: string) {
+    await expect.poll(async () => {
+        const indicator = await readToolbarPageIndicator(page);
+        return `${String(indicator.renderedPage)}/${indicator.totalPagesText ?? ''}`;
+    }, {
+        message: `${label}: page indicator`,
+        timeout: 20_000,
+    }).toBe('1/12');
+    await waitForPdfLoaded(page, 20_000);
 }
 
 describe('Electron E2E - Blocking PDF Save Smoke', () => {
@@ -452,6 +478,35 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(shownState.activeTab).not.toContain(basename(brokenPath));
         expect(shownState.startVisible).toBe(true);
         expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('opens a valid PDF whose viewer has no layout for the first moments after Open', async () => {
+        const pickedPath = await createMultiPageTextFixturePdf(`blocking-open-no-layout-picked-${Date.now()}.pdf`, 12);
+        const replacedPath = await createMultiPageTextFixturePdf(`blocking-open-no-layout-replaced-${Date.now()}.pdf`, 3);
+
+        session = await startElectronE2ESession(`e2e-blocking-open-no-layout-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: pickedPath},
+        });
+        const {page} = session;
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
+        );
+
+        // Open File from Start into an empty tab.
+        await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
+        await holdViewerLayoutOff(page, 600);
+        await page.click('.start-open-panel .open-panel-cta');
+        await expectOpenedFirstPage(page, 'Open File from Start');
+
+        // Open File over a document that is already showing.
+        await openPdfInApp(page, replacedPath);
+        await holdViewerLayoutOff(page, 600);
+        // The command resolves when the open presents, which is the thing under test.
+        void callWorkspaceCommand(page, 'handleOpenFileFromUi');
+        await waitForActiveDocumentSource(page, pickedPath, 20_000);
+        await expectOpenedFirstPage(page, 'Open File over an open document');
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('reports a routed file that cannot be opened once, without a ghost tab', async () => {
