@@ -1,4 +1,7 @@
-import { useNow } from '@vueuse/core';
+import {
+    useIntervalFn,
+    useNow,
+} from '@vueuse/core';
 import type { MaybeRefOrGetter } from 'vue';
 import { formatElapsedClock } from '@app/utils/progressFormatting';
 
@@ -11,7 +14,7 @@ export const useStageElapsedClock = <TStage extends string>(
     stage: MaybeRefOrGetter<TStage | null>,
     uncountedStages: ReadonlySet<TStage>,
 ) => {
-    const now = useNow({interval: 1000});
+    const now = useNow({scheduler: callback => useIntervalFn(callback, 1000)});
     const startedAtMs = ref<number | null>(null);
     watch(() => toValue(stage), (next, previous) => {
         if (next !== previous) {

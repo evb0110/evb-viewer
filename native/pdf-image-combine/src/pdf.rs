@@ -1375,7 +1375,7 @@ fn encode_mask_ccitt_g4(mask: &PbmP4Image) -> Result<Option<Vec<u8>>> {
             }
         });
         encoder
-            .encode_line(colors, width)
+            .encode_line(colors, u32::from(width))
             .map_err(|_| "Failed to encode CCITT Group 4 mask line")?;
     }
     let writer = encoder
@@ -2218,10 +2218,10 @@ mod tests {
         let mut row = 0usize;
         assert!(decode_g4(
             ccitt.iter().copied(),
-            mask.width as u16,
-            Some(mask.height as u16),
+            mask.width,
+            Some(mask.height),
             |transitions| {
-                for (x, color) in pels(transitions, mask.width as u16).enumerate() {
+                for (x, color) in pels(transitions, mask.width).enumerate() {
                     if color == Color::Black {
                         ccitt_rows[row * mask.row_stride + x / 8] |= 1 << (7 - x % 8);
                     }

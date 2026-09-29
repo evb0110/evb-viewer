@@ -6,6 +6,7 @@ module.exports = {
         to: {circular: true},
     }],
     options: {
+        exclude: {path: '(^|/)\\.(nuxt|output)/'},
         doNotFollow: {path: '(^|/)node_modules/'},
         tsConfig: {fileName: 'tsconfig.json'},
     },

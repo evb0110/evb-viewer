@@ -162,8 +162,10 @@ pub(crate) fn decode_mmr(
     data: &[u8],
 ) -> Result<OwnedBilevel, Jbig2Error> {
     let fax_width = u16::try_from(width)
+        .map(u32::from)
         .map_err(|_| Jbig2Error::Unsupported("MMR bitmap width exceeds the decoder limit"))?;
     let fax_height = u16::try_from(height)
+        .map(u32::from)
         .map_err(|_| Jbig2Error::Unsupported("MMR bitmap height exceeds the decoder limit"))?;
     let mut rows = allocate_zeroed(stride, height)?;
     let mut decoded_rows = 0usize;
