@@ -1,0 +1,27 @@
+electron/file-access/workingCopyCreation.ts
+  s_ff931410fcd330::t_4e5b3012015ebb 49,51-55,161,164-178,186,191,195-205,261-262,298-299,308,315
+  s_ff931410fcd330::t_372bc8624e1d68 222,245,256
+tests/unit/electron/workingCopy.test.ts
+  s_ff931410fcd330::t_da1262c9561bb6 257
+  s_ff931410fcd330::t_e8f9278f5c7b8c 229-256,258-259
+electron/pdf/pdfAppendBase.ts
+  ai_agent 92-97,111,113,122
+electron/features/documents/main/openInputPaths.service.ts
+  s_ff931410fcd330::t_baaa82bbd693f4 237-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "95a5c8640b61ed08bdcf48c099a2ca48c1667a71",
+  "prompts": {},
+  "sessions": {
+    "s_ff931410fcd330": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e4fa6e7-529f-42de-bdac-0f1d994057df",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
