@@ -88,8 +88,10 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
 
 /**
  * Successful ci.yml push runs on main, newest first. The release cutter
- * walks this list to find the newest verified commit; `status=success` is
- * the API's conclusion filter, so cancelled and failed runs never appear.
+ * walks this list to find the newest verified commit. The conclusion is
+ * checked here rather than with the API's `status=success` filter: on
+ * 2026-09-29 that filter returned nothing newer than 2026-09-11 while the
+ * unfiltered list held the day's green runs.
  */
 /** @param {TCommandRunner} [runCommand] @param {number} [limit] @returns {IWorkflowRun[]} */
 export function listSuccessfulMainPushRuns(runCommand = defaultCommandRunner, limit = 30) {
@@ -97,7 +99,7 @@ export function listSuccessfulMainPushRuns(runCommand = defaultCommandRunner, li
         'api',
         '-H',
         'Accept: application/vnd.github+json',
-        `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=${limit}`,
+        `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=${limit}`,
     ]);
     const workflowRuns = JSON.parse(payload)?.workflow_runs;
     if (!Array.isArray(workflowRuns)) {
