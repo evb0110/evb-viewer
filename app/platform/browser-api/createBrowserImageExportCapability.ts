@@ -831,6 +831,9 @@ async function exportBrowserDjvuAsTiff(
 
 export function createBrowserImageExportCapability(): IImageExportCapability {
     return {
+        rasterizePdfRegion() {
+            return Promise.resolve(null);
+        },
         async exportPdfToImages(workingCopyPath, pageNumbers, requestId, sourceKind) {
             assertBrowserImageExportSource(workingCopyPath);
             if (sourceKind === 'djvu') {

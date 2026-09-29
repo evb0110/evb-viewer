@@ -21,18 +21,16 @@ import {
     useShutdownSaveFlushReporting,
 } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 
-const mocks = vi.hoisted(() => ({warn: vi.fn()}));
+const mocks = vi.hoisted(() => ({info: vi.fn()}));
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: mocks.warn}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {info: mocks.info}}));
 
 type TShutdownSaveFlushCallback = () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse;
 
 function createHarness(options: {
     dirty?: boolean;
     workingCopyPath?: string | null;
-    saveForExternalRead?: () => Promise<boolean> | boolean;
     flushAdditionalState?: () => Promise<void> | void;
-    requiresInteractiveDestination?: boolean;
 } = {}) {
     let callback: TShutdownSaveFlushCallback | null = null;
     const unsubscribe = vi.fn();
@@ -49,27 +47,21 @@ function createHarness(options: {
                 : requireDocumentRef(options.workingCopyPath),
     );
     const hasPendingUnsavedChanges = ref(options.dirty ?? true);
-    const saveForExternalRead = vi.fn(options.saveForExternalRead ?? (async () => true));
     const scope = effectScope();
 
     scope.run(() => {
         useShutdownSaveFlushReporting({
             workingCopyPath,
             hasPendingUnsavedChanges,
-            saveForExternalRead,
             ...(options.flushAdditionalState === undefined
                 ? {}
                 : {flushAdditionalState: options.flushAdditionalState}),
-            ...(options.requiresInteractiveDestination === undefined
-                ? {}
-                : {requiresInteractiveDestination: ref(options.requiresInteractiveDestination)}),
             systemCapability,
         });
     });
 
     return {
         hasPendingUnsavedChanges,
-        saveForExternalRead,
         scope,
         systemCapability,
         unsubscribe,
@@ -136,57 +128,14 @@ describe('useShutdownSaveFlushReporting', () => {
         expect(harness.unsubscribe).toHaveBeenCalledTimes(1);
     });
 
-    it('flushes a dirty working copy before reporting it safe for shutdown cleanup', async () => {
+    it('leaves a dirty working copy for checkpoint recovery during shutdown', async () => {
         const harness = createHarness();
 
-        await expect(harness.invoke()).resolves.toEqual({flushedWorkingCopyPaths: ['/tmp/document-working-copy.pdf']});
-        expect(harness.saveForExternalRead).toHaveBeenCalledTimes(1);
-
-        harness.scope.stop();
-    });
-
-    it('reports the captured dirty working copy when shutdown save cannot complete', async () => {
-        const harness = createHarness({saveForExternalRead: async () => false});
-
-        harness.workingCopyPath.value = requireDocumentRef('/tmp/document-working-copy-after-registration.pdf');
-        await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy-after-registration.pdf']});
-        expect(harness.saveForExternalRead).toHaveBeenCalledTimes(1);
-
-        harness.scope.stop();
-    });
-
-    it('leaves a dirty document without a saved destination to recovery instead of prompting', async () => {
-        const harness = createHarness({requiresInteractiveDestination: true});
-
         await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy.pdf']});
-        expect(harness.saveForExternalRead).not.toHaveBeenCalled();
-        expect(mocks.warn).toHaveBeenCalledWith(
+        expect(mocks.info).toHaveBeenCalledWith(
             'workspace',
-            expect.stringContaining('no saved destination'),
+            expect.stringContaining('checkpoint recovery'),
             expect.objectContaining({workingCopyPath: '/tmp/document-working-copy.pdf'}),
-        );
-
-        harness.scope.stop();
-    });
-
-    it('preserves a failed dirty materialization and reports its stable outcome code', async () => {
-        const error = Object.assign(
-            new Error('The original document is unavailable'),
-            {code: 'SOURCE_BACKING_UNAVAILABLE'},
-        );
-        const harness = createHarness({saveForExternalRead: async () => {
-            throw error;
-        }});
-
-        await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy.pdf']});
-        expect(mocks.warn).toHaveBeenCalledWith(
-            'workspace',
-            'Failed to flush dirty working copy during shutdown',
-            {
-                error,
-                errorCode: 'SOURCE_BACKING_UNAVAILABLE',
-                workingCopyPath: '/tmp/document-working-copy.pdf',
-            },
         );
 
         harness.scope.stop();
@@ -196,13 +145,11 @@ describe('useShutdownSaveFlushReporting', () => {
         const cleanHarness = createHarness({dirty: false});
 
         await expect(cleanHarness.invoke()).resolves.toEqual({});
-        expect(cleanHarness.saveForExternalRead).not.toHaveBeenCalled();
         cleanHarness.scope.stop();
 
         const unopenedHarness = createHarness({workingCopyPath: null});
 
         await expect(unopenedHarness.invoke()).resolves.toEqual({});
-        expect(unopenedHarness.saveForExternalRead).not.toHaveBeenCalled();
         unopenedHarness.scope.stop();
     });
 

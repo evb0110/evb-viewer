@@ -800,6 +800,12 @@ async function renderPdfToTempPages(
     renderDpi: number,
     signal?: AbortSignal,
     cancelGroup?: string,
+    crop?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number
+    },
 ): Promise<IRenderedPageFile[]> {
     const prefix = join(tempDir, 'page');
     const paths = getPdfNativeToolPaths();
@@ -819,6 +825,16 @@ async function renderPdfToTempPages(
 
     await runNativeToolCommand(paths.pdftoppm, [
         '-cropbox',
+        ...(crop ? [
+            '-x',
+            String(crop.x),
+            '-y',
+            String(crop.y),
+            '-W',
+            String(crop.width),
+            '-H',
+            String(crop.height),
+        ] : []),
         ...toPdftoppmFormatArgs(renderFormat),
         '-r',
         String(renderDpi),
@@ -862,6 +878,70 @@ async function renderPdfToTempPages(
     await validateRenderedImagePageFiles(pageFiles);
 
     return pageFiles;
+}
+
+export async function rasterizePdfRegionAsPngBytes(
+    pdfPath: string,
+    pageNumber: number,
+    region: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        outputWidth: number;
+        outputHeight: number
+    },
+    options: Pick<IExportPdfOptions, 'signal' | 'cancelGroup' | 'scratch'> = {},
+) {
+    const paths = getPdfNativeToolPaths();
+    const popplerEnv = buildPopplerEnv(paths);
+    const infoOptions: Parameters<typeof runNativeToolCommand>[2] = {
+        timeoutMs: PDFINFO_PAGE_SIZE_TIMEOUT_MS,
+        commandLabel: 'pdfinfo(export-region-page-size)',
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+    };
+    if (popplerEnv !== undefined) infoOptions.env = popplerEnv;
+    const info = await runNativeToolCommand(paths.pdfinfo, [
+        '-f',
+        String(pageNumber),
+        '-l',
+        String(pageNumber),
+        pdfPath,
+    ], infoOptions);
+    const pageSize = info.stdout.split(/\r?\n/u).map(parsePdfInfoPageSizeLine).find(value => value !== null);
+    if (!pageSize) throw new Error(`Failed to read PDF page ${pageNumber} size`);
+
+    const dpi = Math.max(1, Math.min(2400, Math.floor(Math.min(
+        region.outputWidth / (pageSize.widthPts * region.width),
+        region.outputHeight / (pageSize.heightPts * region.height),
+    ) * 72)));
+    const pixelsPerPoint = dpi / 72;
+    const crop = {
+        x: Math.floor(region.x * pageSize.widthPts * pixelsPerPoint),
+        y: Math.floor(region.y * pageSize.heightPts * pixelsPerPoint),
+        width: Math.max(1, Math.ceil(region.width * pageSize.widthPts * pixelsPerPoint)),
+        height: Math.max(1, Math.ceil(region.height * pageSize.heightPts * pixelsPerPoint)),
+    };
+    return usingExportScratch(options, 'pdfExport-', async tempDir => {
+        const [renderedPage] = await renderPdfToTempPages(
+            pdfPath,
+            'png',
+            {
+                firstPage: pageNumber,
+                lastPage: pageNumber,
+            },
+            tempDir,
+            dpi,
+            options.signal,
+            options.cancelGroup,
+            crop,
+        );
+        if (!renderedPage) throw new Error('PDF region rasterizer did not produce an image');
+        const bytes = await readFile(renderedPage.path);
+        if (bytes.byteLength > 16 * 1024 * 1024) throw new RangeError('PDF region image exceeds the 16 MiB limit');
+        return new Uint8Array(bytes);
+    });
 }
 
 function normalizePageNumbers(pageNumbers: number[] | undefined): number[] | null {

@@ -77,6 +77,27 @@ const sourceKindSchema = v.picklist([
     'pdf',
     'djvu',
 ], 'sourceKind must be pdf or djvu');
+const pdfRegionSchema = v.pipe(
+    v.object({
+        x: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
+        y: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
+        width: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(1)),
+        height: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(1)),
+        outputWidth: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
+        outputHeight: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
+    }),
+    v.check(region => region.x + region.width <= 1 && region.y + region.height <= 1, 'region must fit within the page'),
+    v.check(region => region.outputWidth * region.outputHeight <= 16 * 1024 * 1024, 'region exceeds the pixel limit'),
+);
+const pdfRegionArgs = v.strictTuple([
+    documentRefSchema,
+    v.pipe(v.number(), v.integer(), v.minValue(1)),
+    pdfRegionSchema,
+]);
+const pdfRegionPngSchema = v.nullable(v.custom<Uint8Array>(
+    value => value instanceof Uint8Array && value.byteLength <= 16 * 1024 * 1024,
+    'invalid PDF region PNG',
+));
 const exportArgs = v.strictTuple([
     documentRefSchema,
     v.optional(pageNumbersSchema),
@@ -219,6 +240,30 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
         electron: true,
     },
     methods: {
+        rasterizePdfRegion: {
+            kind: 'async',
+            channel: 'pdfExport:region',
+            ipc: {
+                args: pdfRegionArgs,
+                result: pdfRegionPngSchema,
+                timeoutMs: 60_000,
+            },
+            client: {mapArgs: (
+                workingCopyPath: TDocumentRef,
+                pageNumber: TPageNumber,
+                region: v.InferOutput<typeof pdfRegionSchema>,
+            ) => [
+                workingCopyPath,
+                pageNumber,
+                region,
+            ] as const},
+            main: {
+                method: 'rasterizePdfRegion',
+                context: 'sender',
+            },
+            browser: {method: 'rasterizePdfRegion'},
+            lazy: 'forwarded',
+        },
         exportPdfToImages: {
             kind: 'async',
             channel: 'pdfExport:images',

@@ -18,6 +18,28 @@ const positivePageSchema = v.pipe(
     v.number('invalid window tab transfer'),
     v.check(value => Number.isSafeInteger(value) && value > 0, 'invalid window tab transfer'),
 );
+const pdfSnapshotViewStateSchema = v.object({
+    zoom: v.number('invalid window tab transfer'),
+    effectiveZoom: v.number('invalid window tab transfer'),
+    zoomMode: v.picklist([
+        'custom',
+        'fit-width',
+        'fit-height',
+    ], 'invalid window tab transfer'),
+    viewMode: v.picklist([
+        'single',
+        'facing',
+        'facing-first-single',
+    ], 'invalid window tab transfer'),
+    viewRotation: v.picklist([
+        0,
+        90,
+        180,
+        270,
+    ], 'invalid window tab transfer'),
+    showSidebar: v.boolean('invalid window tab transfer'),
+    continuousScroll: v.boolean('invalid window tab transfer'),
+}, 'invalid window tab transfer');
 const transferredTabStateSchema = v.pipe(
     v.object({
         fileName: v.nullable(v.string('invalid window tab transfer')),
@@ -72,6 +94,7 @@ const pdfSnapshotSplitPayloadSchema = v.pipe(
         isGenerated: v.optional(v.boolean('invalid window tab transfer')),
         currentPage: v.optional(positivePageSchema),
         totalPages: v.optional(positivePageSchema),
+        viewState: v.optional(pdfSnapshotViewStateSchema),
     }, 'invalid window tab transfer'),
     v.transform(value => ({
         kind: value.kind,
@@ -84,6 +107,7 @@ const pdfSnapshotSplitPayloadSchema = v.pipe(
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
         ...(value.currentPage === undefined ? {} : {currentPage: value.currentPage}),
         ...(value.totalPages === undefined ? {} : {totalPages: value.totalPages}),
+        ...(value.viewState === undefined ? {} : {viewState: value.viewState}),
     })),
 );
 export const splitPayloadSchema = v.union([

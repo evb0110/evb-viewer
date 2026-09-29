@@ -22,7 +22,6 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 
-const CONFORMANCE_WORKER = 'pdfConformanceWorker.js';
 const CONFORMANCE_WORKER_START_TIMEOUT_MS = 90_000;
 const MATERIALIZED_PDF_BYTES = 48 * 1024 * 1024;
 const MATERIALIZED_PDF_PAGE_COUNT = 8_000;
@@ -31,15 +30,28 @@ function readAppLog(sessionName: string) {
     return readFileSync(resolve(electronFileLogDir(sessionName), 'app.ndjson'), 'utf8');
 }
 
-function readWorkerTaskErrors(sessionName: string) {
-    return readAppLog(sessionName).split(/\r?\n/u)
+const CONFORMANCE_WORKER = 'pdfConformanceWorker.js';
+
+function readWorkerTaskEvents(log: string) {
+    return log.split(/\r?\n/u)
         .filter(Boolean)
         .map(line => JSON.parse(line) as {
             level?: string;
             scope?: string;
             msg?: string;
+            data?: {workerName?: string};
         })
-        .filter(entry => entry.level === 'error' && entry.scope === 'worker-task');
+        .filter(entry => entry.scope === 'worker-task');
+}
+
+function hasWorkerTaskMessage(log: string, message: string) {
+    return readWorkerTaskEvents(log)
+        .some(entry => entry.msg === message && entry.data?.workerName === CONFORMANCE_WORKER);
+}
+
+function readWorkerTaskErrors(sessionName: string) {
+    return readWorkerTaskEvents(readAppLog(sessionName))
+        .filter(entry => entry.level === 'error');
 }
 
 async function createLargeConformancePdf() {
@@ -89,7 +101,10 @@ describe('Electron E2E - PDF Conformance Cancellation', () => {
         const observer = await observeRendererErrors(session.page);
         try {
             await openPdfInApp(session.page, stablePdf);
-            await expect.poll(() => readAppLog(session.name).slice(initialLog.length), {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS}).toMatch(new RegExp(`"msg":"Worker completed".*${CONFORMANCE_WORKER}|${CONFORMANCE_WORKER}.*"msg":"Worker completed"`, 'u'));
+            await expect.poll(
+                () => hasWorkerTaskMessage(readAppLog(session.name).slice(initialLog.length), 'Worker completed'),
+                {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS},
+            ).toBe(true);
 
             const stableLog = readAppLog(session.name).slice(initialLog.length);
             const largeAnalysisStart = initialLog.length + stableLog.length;
@@ -101,7 +116,7 @@ describe('Electron E2E - PDF Conformance Cancellation', () => {
                         return;
                     }
                     const chunk = readAppLog(session.name).slice(largeAnalysisStart);
-                    if (!chunk.includes('"msg":"Worker online"') || !chunk.includes(CONFORMANCE_WORKER)) {
+                    if (!hasWorkerTaskMessage(chunk, 'Worker online')) {
                         return;
                     }
                     clickStarted = true;
@@ -123,8 +138,8 @@ describe('Electron E2E - PDF Conformance Cancellation', () => {
             await waitForPdfLoaded(session.page, 15_000);
             await expect.poll(() => {
                 const analysisLog = readAppLog(session.name).slice(largeAnalysisStart);
-                return analysisLog.includes('"msg":"Worker reported cancellation"')
-                    || analysisLog.includes('"msg":"Worker reported failure"');
+                return hasWorkerTaskMessage(analysisLog, 'Worker reported cancellation')
+                    || hasWorkerTaskMessage(analysisLog, 'Worker reported failure');
             }, {timeout: 30_000}).toBe(true);
             const visibleErrors = (await observer.collect()).visibleErrorSurfaces;
             const workerTaskErrors = readWorkerTaskErrors(session.name);
@@ -135,9 +150,9 @@ describe('Electron E2E - PDF Conformance Cancellation', () => {
                 visibleErrors: [],
                 workerTaskErrors: [],
             });
-            expect(readAppLog(session.name).slice(largeAnalysisStart)).toContain('"msg":"Worker reported cancellation"');
-            const remainingLog = readAppLog(session.name).slice(initialLog.length);
-            expect(remainingLog).toContain('"msg":"Worker completed"');
+            const analysisLog = readAppLog(session.name).slice(largeAnalysisStart);
+            expect(hasWorkerTaskMessage(analysisLog, 'Worker reported cancellation')).toBe(true);
+            expect(hasWorkerTaskMessage(stableLog, 'Worker completed')).toBe(true);
         } finally {
             observer.dispose();
         }

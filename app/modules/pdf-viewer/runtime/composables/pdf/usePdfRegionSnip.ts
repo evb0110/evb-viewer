@@ -25,10 +25,17 @@ import { createSelectionPointerDragHandlers } from '@app/modules/pdf-viewer/engi
 import { createSelectionRectFromPointerDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionRectFromPointerDrag';
 import { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 import { writePngBlobToClipboard } from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
+import { getImageExportCapability } from '@app/utils/platformDocuments';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { ICaptureFragment } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 
 type TSnipState = 'idle' | 'selecting' | 'copying' | 'success' | 'error';
 
-interface IUsePdfRegionSnipOptions {viewerContainer: Ref<HTMLElement | null>;}
+interface IUsePdfRegionSnipOptions {
+    viewerContainer: Ref<HTMLElement | null>;
+    workingCopyPath?: Ref<TDocumentRef | null>;
+}
 
 interface IBadgePosition {
     x: number;
@@ -249,7 +256,20 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
 
         state.value = 'copying';
         try {
-            const capture = await capturePdfRegionAsPngBlob(viewerContainer, selection);
+            const workingCopyPath = options.workingCopyPath?.value;
+            const capture = await capturePdfRegionAsPngBlob(viewerContainer, selection, workingCopyPath
+                ? async (fragment: ICaptureFragment) => {
+                    if (!fragment.pageNumber) return null;
+                    return getImageExportCapability().rasterizePdfRegion(workingCopyPath, requirePageNumber(fragment.pageNumber), {
+                        x: fragment.sourceX / fragment.canvas.width,
+                        y: fragment.sourceY / fragment.canvas.height,
+                        width: fragment.sourceWidth / fragment.canvas.width,
+                        height: fragment.sourceHeight / fragment.canvas.height,
+                        outputWidth: Math.max(1, Math.round(getRectWidth(fragment.intersection) * fragment.scaleX)),
+                        outputHeight: Math.max(1, Math.round(getRectHeight(fragment.intersection) * fragment.scaleY)),
+                    });
+                }
+                : undefined);
             if (!isCurrentSession()) {
                 return;
             }

@@ -118,16 +118,13 @@ describe('DjVu converted bookmark destinations', () => {
                     1,
                 ],
             ] as const) {
-            const rows = await session.page.$$('.document-bookmark-item__row');
-            let activated = false;
-            for (const candidate of rows) {
-                if (await candidate.evaluate((element, expectedTitle) => element.textContent?.trim() === expectedTitle, title)) {
-                    await candidate.click();
-                    activated = true;
-                    break;
-                }
-            }
-            expect(activated, `bookmark row found for ${title}`).toBe(true);
+            const bookmarkRow = await session.page.waitForSelector(`aria/${title}[role="button"]`, {
+                visible: true,
+                timeout: 15_000,
+            });
+            expect(bookmarkRow, `bookmark row accessible name is ${title}`).not.toBeNull();
+            expect(await bookmarkRow!.evaluate(element => element.matches('.document-bookmark-item__row'))).toBe(true);
+            await bookmarkRow!.click();
             await expect.poll(async () => (await readToolbarPageIndicator(session.page)).renderedPage, {timeout: 15_000}).toBe(pageNumber);
             expect((await readToolbarPageIndicator(session.page)).renderedPage).toBe(pageNumber);
         }

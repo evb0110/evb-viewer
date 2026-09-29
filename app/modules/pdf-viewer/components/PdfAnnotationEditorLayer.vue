@@ -203,6 +203,7 @@ const textBoxRefs = shallowReactive(new Map<AnnotationId, IPdfTextBoxAnnotationE
 let suppressNextClick = false;
 let capturedPointerId: number | null = null;
 let capturedClickAnnotationId: AnnotationId | null = null;
+let textSelectionHitTarget: Element | null = null;
 let unregisterPageInteraction: (() => void) | null = null;
 
 onMounted(() => {
@@ -519,6 +520,33 @@ function capturePointer(event: PointerEvent) {
     }
 }
 
+function caretPositionAtPoint(doc: Document, x: number, y: number) {
+    const target = textSelectionHitTarget;
+    const previousPointerEvents = target instanceof SVGElement ? target.style.pointerEvents : undefined;
+    if (target instanceof SVGElement) target.style.pointerEvents = 'none';
+    try {
+        const caret = doc.caretPositionFromPoint(x, y);
+        return caret ? {
+            node: caret.offsetNode,
+            offset: caret.offset,
+        } : null;
+    } finally {
+        if (target instanceof SVGElement) target.style.pointerEvents = previousPointerEvents ?? '';
+    }
+}
+
+function selectTextFromPointer(start: {
+    clientX: number;
+    clientY: number
+}, event: PointerEvent) {
+    const doc = layerRef.value?.ownerDocument;
+    const selection = doc?.getSelection();
+    if (!doc || !selection) return;
+    const anchor = caretPositionAtPoint(doc, start.clientX, start.clientY);
+    const focus = caretPositionAtPoint(doc, event.clientX, event.clientY);
+    if (anchor && focus) selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+}
+
 function focusLayer() {
     layerRef.value?.focus({preventScroll: true});
 }
@@ -803,6 +831,18 @@ function handleSurfacePointerDown(event: PointerEvent) {
         if (!wasSelected || event.shiftKey) {
             surface.select([id], {additive: event.shiftKey});
         }
+        const entity = entities.value.find(candidate => candidate.identity.id === id);
+        if (
+            entity?.kind === 'text-markup'
+            && surface.activeTool.value === 'none'
+            && pointerGesture.beginTextSelection(event)
+        ) {
+            textSelectionHitTarget = event.target instanceof Element
+                ? event.target.closest('[data-annotation-hit-target]')
+                : null;
+            capturePointer(event);
+            return;
+        }
         if (!event.shiftKey) {
             const point = pointFromEvent(event);
             if (point && pointerGesture.beginMove(id, point, event)) {
@@ -846,6 +886,14 @@ function handleSurfacePointerDown(event: PointerEvent) {
 }
 
 function handlePointerMove(event: PointerEvent) {
+    const textSelection = pointerGesture.updateTextSelection(event);
+    if (textSelection) {
+        if (textSelection.hasMoved) {
+            selectTextFromPointer(textSelection.start, event);
+            event.preventDefault();
+        }
+        return;
+    }
     if (!pointerGesture.isActive.value) {
         return;
     }
@@ -874,6 +922,13 @@ function markClickSuppressed() {
 }
 
 function handlePointerUp(event: PointerEvent) {
+    const textSelection = pointerGesture.finishTextSelection(event);
+    if (textSelection) {
+        if (textSelection.hasMoved) selectTextFromPointer(textSelection.start, event);
+        textSelectionHitTarget = null;
+        releasePointer(event);
+        return;
+    }
     if (!pointerGesture.isActiveForPointer(event.pointerId)) {
         return;
     }
@@ -994,6 +1049,11 @@ function handleLostPointerCapture(event: PointerEvent) {
 }
 
 function handlePointerCancel(event: PointerEvent) {
+    if (pointerGesture.finishTextSelection(event)) {
+        textSelectionHitTarget = null;
+        releasePointer(event);
+        return;
+    }
     if (!pointerGesture.isActiveForPointer(event.pointerId)) {
         return;
     }
@@ -1149,6 +1209,7 @@ onBeforeUnmount(() => {
     newTextBoxIds.clear();
     autoSizeTextBoxIds.clear();
     textBoxRefs.clear();
+    textSelectionHitTarget = null;
     pointerGesture.cancel();
 });
 </script>

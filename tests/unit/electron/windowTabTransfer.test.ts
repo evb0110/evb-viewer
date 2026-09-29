@@ -131,7 +131,7 @@ describe('WindowTabTransferBroker', () => {
     it('keeps a PDF snapshot transfer provisional until the target ACK commits it', async () => {
         const targetWindow = createWindow(22);
         windowsById.set(targetWindow.id, targetWindow);
-        const prepare = vi.fn(() => true);
+        const prepare = vi.fn(() => 7);
         const commit = vi.fn(() => true);
         const revoke = vi.fn();
         broker = new WindowTabTransferBroker({
@@ -164,14 +164,14 @@ describe('WindowTabTransferBroker', () => {
             success: true,
         });
         await expect(transferPromise).resolves.toMatchObject({success: true});
-        expect(commit).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id);
+        expect(commit).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id, 7);
         expect(revoke).not.toHaveBeenCalled();
     });
 
     it('revokes provisional PDF snapshot access when the target rejects the transfer', async () => {
         const targetWindow = createWindow(23);
         windowsById.set(targetWindow.id, targetWindow);
-        const prepare = vi.fn(() => true);
+        const prepare = vi.fn(() => 7);
         const revoke = vi.fn();
         broker = new WindowTabTransferBroker({
             createTargetWindow,
@@ -199,7 +199,7 @@ describe('WindowTabTransferBroker', () => {
             success: false,
         });
         await expect(transferPromise).resolves.toMatchObject({success: false});
-        expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 12, targetWindow.id);
+        expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 12, targetWindow.id, 7);
     });
 
     it('queues delivery until target window is marked ready', async () => {

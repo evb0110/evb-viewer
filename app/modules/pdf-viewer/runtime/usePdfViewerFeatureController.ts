@@ -43,13 +43,6 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import type { ILinkAnnotation } from '@app/types/annotations';
 
-/**
- * Composition root for the PDF viewer feature.
- *
- * It constructs the four sessions in topological order and adapts their read
- * models and commands to `PdfViewer.vue` and the exposed viewer API. It owns
- * no lifecycle of its own.
- */
 export const usePdfViewerFeatureController = (
     props: IPdfViewerProps,
     emit: IPdfViewerEmit,
@@ -91,7 +84,10 @@ export const usePdfViewerFeatureController = (
     const performancePolicy = resolvePdfRenderPerformancePolicy(performanceProfile);
     const outputScale = usePdfViewerOutputScale(performancePolicy);
     const viewportWritePort = chassisAuthority.viewportWritePort;
-    const regionSnip = usePdfRegionSnip({ viewerContainer });
+    const regionSnip = usePdfRegionSnip({
+        viewerContainer,
+        workingCopyPath,
+    });
     const cropSelection = usePdfCropSelection({ viewerContainer });
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);

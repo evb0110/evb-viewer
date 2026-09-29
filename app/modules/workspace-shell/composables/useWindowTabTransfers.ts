@@ -342,9 +342,25 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return null;
             }
 
+            const snapshot = workspace.getToolbarSnapshot();
+            const transferPayload = payload.kind === 'pdfSnapshot'
+                ? {
+                    ...payload,
+                    viewState: {
+                        zoom: snapshot.zoom,
+                        effectiveZoom: snapshot.effectiveZoom,
+                        zoomMode: snapshot.zoomMode,
+                        viewMode: snapshot.viewMode,
+                        viewRotation: snapshot.viewRotation,
+                        showSidebar: snapshot.showSidebar,
+                        continuousScroll: snapshot.continuousScroll,
+                    },
+                }
+                : payload;
+
             return {
                 tabId,
-                payload,
+                payload: transferPayload,
                 commandTarget,
                 session: getTransferSessionState(tabId),
             };
@@ -388,6 +404,36 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 return false;
             }
             await nextTick();
+
+            if (payload.kind === 'pdfSnapshot' && payload.viewState) {
+                const viewState = payload.viewState;
+                if (viewState.zoomMode === 'custom') {
+                    workspace.setCustomZoomFromDisplay(viewState.zoom);
+                } else if (viewState.zoomMode === 'fit-height') {
+                    workspace.handleFitHeight();
+                } else {
+                    workspace.handleFitWidth();
+                }
+                if (viewState.viewMode === 'facing') {
+                    workspace.handleViewModeFacing();
+                } else if (viewState.viewMode === 'facing-first-single') {
+                    workspace.handleViewModeFacingFirstSingle();
+                } else {
+                    workspace.handleViewModeSingle();
+                }
+                workspace.setViewRotation(viewState.viewRotation);
+                const restoredView = workspace.getToolbarSnapshot();
+                if (restoredView.continuousScroll !== viewState.continuousScroll) {
+                    workspace.handleToggleContinuousScroll();
+                }
+                if (restoredView.showSidebar !== viewState.showSidebar) {
+                    workspace.handleToggleSidebar();
+                }
+                if (payload.currentPage) {
+                    await nextTick();
+                    workspace.handleGoToPage(payload.currentPage);
+                }
+            }
 
             if (payload.kind === 'pdfSnapshot' && !tabHoldsDocument(tabId)) {
                 BrowserLogger.warn('tabs', 'Split payload restore finished without an opened document', {

@@ -48,6 +48,7 @@ export function buildCanvasCapturePlan(selectionRect: IClientRect, sources: read
             sourceHeight,
             scaleX,
             scaleY,
+            pageNumber: source.pageNumber,
         });
         outputRect = outputRect
             ? unionClientRects(outputRect, intersection)

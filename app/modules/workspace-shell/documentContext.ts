@@ -340,8 +340,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     useShutdownSaveFlushReporting({
         workingCopyPath,
         hasPendingUnsavedChanges,
-        requiresInteractiveDestination: file.requiresSaveAsOnFirstSave,
-        saveForExternalRead: saveService.saveForExternalRead,
         flushAdditionalState: async () => {
             await saveSettings();
             await flushScanCleanupDocumentPreferencesStore();
@@ -751,7 +749,11 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         if (!viewer || file.isDjvuMode.value) {
             return;
         }
-        void runDetached(() => viewer.captureRegionToClipboard(), {
+        void runDetached(async () => {
+            if (await ensureWorkingCopyFreshForRead()) {
+                await viewer.captureRegionToClipboard();
+            }
+        }, {
             category: 'user-visible-operation',
             scope: 'workspace',
             message: 'Failed to capture PDF region',

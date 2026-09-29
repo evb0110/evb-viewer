@@ -1,5 +1,7 @@
 import { existsSync } from 'fs';
-import { join } from 'path';
+import {
+    basename, join, 
+} from 'path';
 import {
     Worker,
     type ResourceLimits,
@@ -490,6 +492,11 @@ function attachWorkerHandlers<T>({
         decodeResult,
         invalidResultMessage,
     } = options;
+    // The file name survives log redaction of the install path, so reports can still name the worker.
+    const workerLog = {
+        workerPath: options.workerPath,
+        workerName: basename(options.workerPath),
+    };
     let settled = false;
     let online = false;
     let workerExited = false;
@@ -534,7 +541,7 @@ function attachWorkerHandlers<T>({
         settled = true;
         cleanup();
         void terminateWorkerAfterTask(worker, {
-            workerPath: options.workerPath,
+            ...workerLog,
             hasExited: () => workerExited,
         }).then(callback, callback);
     };
@@ -544,7 +551,7 @@ function attachWorkerHandlers<T>({
             return;
         }
         workerTaskLog.warn('Worker cancellation requested', {
-            workerPath: options.workerPath,
+            ...workerLog,
             reason,
             elapsedMs: Math.round(performance.now() - startedAt),
         });
@@ -567,7 +574,7 @@ function attachWorkerHandlers<T>({
             // the cooperative cancel never got to stop them either. Whatever
             // those children were reading has to be treated as still open.
             workerTaskLog.warn('Worker did not acknowledge cancellation before force termination', {
-                workerPath: options.workerPath,
+                ...workerLog,
                 elapsedMs: cooperativeCancelDelayMs,
             });
             finalize(() => {
@@ -616,7 +623,7 @@ function attachWorkerHandlers<T>({
     worker.once('online', () => {
         online = true;
         workerTaskLog.debug('Worker online', {
-            workerPath: options.workerPath,
+            ...workerLog,
             elapsedMs: Math.round(performance.now() - startedAt),
         });
     });
@@ -625,7 +632,7 @@ function attachWorkerHandlers<T>({
         if (!firstMessageObserved) {
             firstMessageObserved = true;
             workerTaskLog.debug('Worker first message received', {
-                workerPath: options.workerPath,
+                ...workerLog,
                 elapsedMs: Math.round(performance.now() - startedAt),
             });
         }
@@ -638,7 +645,7 @@ function attachWorkerHandlers<T>({
             cancellationAcknowledged = true;
             if (!resultPayload.ok && resultPayload.errorFrame?.canceled) {
                 workerTaskLog.info('Worker reported cancellation', {
-                    workerPath: options.workerPath,
+                    ...workerLog,
                     elapsedMs: Math.round(performance.now() - startedAt),
                     error: resultPayload.error,
                 });
@@ -664,7 +671,7 @@ function attachWorkerHandlers<T>({
                         cause: error,
                     },
                     {
-                        workerPath: options.workerPath,
+                        ...workerLog,
                         elapsedMs: Math.round(performance.now() - startedAt),
                     },
                 );
@@ -674,7 +681,7 @@ function attachWorkerHandlers<T>({
             if (!resultPayload.ok) {
                 const workerError = createWorkerTaskError(resultPayload);
                 const summary = {
-                    workerPath: options.workerPath,
+                    ...workerLog,
                     elapsedMs: Math.round(performance.now() - startedAt),
                     error: resultPayload.error,
                 };
@@ -699,7 +706,7 @@ function attachWorkerHandlers<T>({
                         'Worker returned an invalid result',
                         {code: 'MAIN_WORKER_TASK_FAILED'},
                         {
-                            workerPath: options.workerPath,
+                            ...workerLog,
                             elapsedMs: Math.round(performance.now() - startedAt),
                         },
                     );
@@ -710,14 +717,14 @@ function attachWorkerHandlers<T>({
                     return;
                 }
                 workerTaskLog.debug('Worker completed', {
-                    workerPath: options.workerPath,
+                    ...workerLog,
                     elapsedMs: Math.round(performance.now() - startedAt),
                 });
                 resolve(decoded);
                 return;
             }
             workerTaskLog.debug('Worker completed', {
-                workerPath: options.workerPath,
+                ...workerLog,
                 elapsedMs: Math.round(performance.now() - startedAt),
             });
             resolve(resultPayload.data as T);
@@ -732,7 +739,7 @@ function attachWorkerHandlers<T>({
 
     worker.once('error', (error) => {
         const summary = {
-            workerPath: options.workerPath,
+            ...workerLog,
             online,
             elapsedMs: Math.round(performance.now() - startedAt),
             error: getErrorMessage(error),
@@ -770,7 +777,7 @@ function attachWorkerHandlers<T>({
             return;
         }
         const summary = {
-            workerPath: options.workerPath,
+            ...workerLog,
             code,
             online,
             elapsedMs: Math.round(performance.now() - startedAt),

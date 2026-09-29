@@ -16,14 +16,6 @@ type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 interface IShutdownSaveFlushReportingDeps {
     workingCopyPath: TReadableRef<TDocumentRef | null>;
     hasPendingUnsavedChanges: TReadableRef<boolean>;
-    /**
-     * True when a plain save would have to ask the user for a destination
-     * (a generated or otherwise unsaved document). Shutdown cannot answer a
-     * Save As dialog, so such a document is reported dirty for recovery
-     * instead of being saved.
-     */
-    requiresInteractiveDestination?: TReadableRef<boolean>;
-    saveForExternalRead: () => Promise<boolean> | boolean;
     flushAdditionalState?: () => Promise<void> | void;
     systemCapability?: Pick<ISystemCapability, 'onShutdownSaveFlushRequest'>;
 }
@@ -70,18 +62,6 @@ export const useBrowserDirtyUnloadGuard = (hasPendingUnsavedChanges: () => boole
     });
 };
 
-function getShutdownSaveFlushErrorCode(error: unknown) {
-    if (
-        typeof error !== 'object'
-        || error === null
-        || !('code' in error)
-        || typeof error.code !== 'string'
-    ) {
-        return undefined;
-    }
-    return error.code;
-}
-
 export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingDeps) => {
     const systemCapability = deps.systemCapability ?? getSystemCapability();
     const unsubscribe = systemCapability.onShutdownSaveFlushRequest(async (): Promise<IShutdownSaveFlushResponse> => {
@@ -90,24 +70,7 @@ export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingD
         if (!capturedWorkingCopyPath || !deps.hasPendingUnsavedChanges.value) {
             return {};
         }
-        if (deps.requiresInteractiveDestination?.value === true) {
-            BrowserLogger.warn('workspace', 'Dirty document has no saved destination; leaving it to crash recovery during shutdown', {workingCopyPath: capturedWorkingCopyPath});
-            return {dirtyWorkingCopyPaths: [capturedWorkingCopyPath]};
-        }
-
-        try {
-            const flushed = await deps.saveForExternalRead();
-            if (flushed) {
-                return {flushedWorkingCopyPaths: [deps.workingCopyPath.value ?? capturedWorkingCopyPath]};
-            }
-        } catch (error) {
-            BrowserLogger.warn('workspace', 'Failed to flush dirty working copy during shutdown', {
-                error,
-                errorCode: getShutdownSaveFlushErrorCode(error),
-                workingCopyPath: capturedWorkingCopyPath,
-            });
-        }
-
+        BrowserLogger.info('workspace', 'Leaving dirty document for checkpoint recovery during shutdown', {workingCopyPath: capturedWorkingCopyPath});
         return {dirtyWorkingCopyPaths: [capturedWorkingCopyPath]};
     });
 

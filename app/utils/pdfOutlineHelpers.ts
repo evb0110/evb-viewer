@@ -442,6 +442,24 @@ export async function resolvePageIndex(
     return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache, signal);
 }
 
+export async function resolveBookmarkPageIndexes(
+    pdfDocument: IPdfDocument | null,
+    items: IBookmarkItem[],
+    destinationCache: Map<string, unknown[] | null>,
+    refIndexCache: Map<string, number | null>,
+    signal?: AbortSignal,
+) {
+    const pageIndexes = new Map<IBookmarkItem, number | null>();
+    for (const item of items) {
+        const pageIndex = item.pageIndex ?? (pdfDocument && item.dest
+            ? await resolvePageIndex(pdfDocument, item.dest, destinationCache, refIndexCache, signal)
+            : null);
+        if (signal?.aborted) return null;
+        pageIndexes.set(item, pageIndex);
+    }
+    return pageIndexes;
+}
+
 async function resolveDestinationTarget(
     pdfDocument: IPdfDocument,
     dest: IOutlineItemRaw['dest'],

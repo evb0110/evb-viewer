@@ -2512,8 +2512,15 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         });
         expect(headCenter, 'reopened editor should render a closed arrowhead').not.toBeNull();
         const editorScreenshot = decode(await page.screenshot({path: join(outputDirectory, 'editor-reopened.png')}));
+        const screenshotViewport = await page.evaluate(() => ({
+            width: window.innerWidth,
+            height: window.innerHeight,
+        }));
+        const screenshotScaleX = editorScreenshot.width / screenshotViewport.width;
+        const screenshotScaleY = editorScreenshot.height / screenshotViewport.height;
         const editorPixelIndex = (
-            Math.round(headCenter!.y) * editorScreenshot.width + Math.round(headCenter!.x)
+            Math.round(headCenter!.y * screenshotScaleY) * editorScreenshot.width
+            + Math.round(headCenter!.x * screenshotScaleX)
         ) * editorScreenshot.channels;
         expect(
             (editorScreenshot.data[editorPixelIndex] ?? 255) < 100

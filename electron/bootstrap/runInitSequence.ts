@@ -1,7 +1,7 @@
 import type { ILogger } from '@electron/utils/createLogger';
+import { BrowserWindow } from 'electron';
 import type {
     App,
-    BrowserWindow,
     IpcMainEvent,
     WebContents,
 } from 'electron';
@@ -16,6 +16,7 @@ import {
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import { setNativeWindowCloseCancelHandler } from '@electron/window';
 
 interface IShutdownCoordinator {
     isGracefulQuitInProgress(): boolean;
@@ -523,6 +524,10 @@ function bootWindowLifecycle(
         shouldResetRendererReadyOnNavigation,
         shutdownCoordinator,
     } = options;
+    let nativeQuitRequested = false;
+    setNativeWindowCloseCancelHandler(() => {
+        nativeQuitRequested = false;
+    });
 
     app.on('browser-window-created', (_event, window) => {
         attachHostEnvironmentToWindow(window);
@@ -553,9 +558,10 @@ function bootWindowLifecycle(
     });
 
     app.on('window-all-closed', () => {
-        if (config.isMac && !options.allowMultipleAutomationSessions) {
+        if (config.isMac && !options.allowMultipleAutomationSessions && !nativeQuitRequested) {
             return;
         }
+        nativeQuitRequested = false;
         logger.info('All application windows closed; requesting graceful quit');
         if (shutdownCoordinator) {
             shutdownCoordinator.requestGracefulQuit();
@@ -569,7 +575,18 @@ function bootWindowLifecycle(
             return;
         }
         event.preventDefault();
-        shutdownCoordinator?.requestGracefulQuit();
+        if (!shutdownCoordinator) {
+            return;
+        }
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length === 0) {
+            shutdownCoordinator.requestGracefulQuit();
+            return;
+        }
+        nativeQuitRequested = true;
+        for (const window of windows) {
+            window.close();
+        }
     });
 
     app.on('activate', () => {

@@ -3,6 +3,7 @@ import type { IClientRect } from '@app/modules/document-viewer/public';
 export interface ICanvasSource {
     canvas: HTMLCanvasElement;
     rect: IClientRect;
+    pageNumber?: number | null | undefined;
 }
 
 export interface ICaptureFragment {
@@ -14,6 +15,7 @@ export interface ICaptureFragment {
     sourceHeight: number;
     scaleX: number;
     scaleY: number;
+    pageNumber?: number | null | undefined;
 }
 
 export interface ICapturePlan {

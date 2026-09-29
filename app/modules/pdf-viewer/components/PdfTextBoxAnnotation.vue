@@ -331,7 +331,7 @@ function handleEdit(event: MouseEvent) {
 
 defineExpose<IPdfTextBoxAnnotationExpose>({
     commitDraft: commit,
-    getDraftRect: () => draftRect.value ?? props.entity.rect,
+    getDraftRect: () => ({...(draftRect.value ?? props.entity.rect)}),
     getDraftText: () => inlineEdit.draftText.value,
     fitRectToContent,
 });

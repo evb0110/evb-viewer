@@ -27,6 +27,8 @@ APT_PACKAGES=(
   djvulibre-bin
   patchelf
   xvfb
+  xdotool
+  xclip
   xauth
   dbus-x11
   libgtk-3-0
