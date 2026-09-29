@@ -75,21 +75,42 @@ async function moveTabToNewWindow(page: Page) {
     return destination;
 }
 
+// The page under the middle of the viewport, taken from layout rather than from
+// the viewer's own page bookkeeping, which can disagree with what is on screen.
 async function readView(page: Page) {
     return page.evaluate(() => {
         const snapshot = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
             effectiveZoom?: number;
             zoomMode?: string;
         }}}).__evbTestApi?.getActiveToolbarSnapshot?.();
+        const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+        const viewportRect = viewport?.getBoundingClientRect();
+        const centerY = viewportRect ? viewportRect.top + viewportRect.height / 2 : 0;
+        const centerPage = Array.from(viewport?.querySelectorAll<HTMLElement>('[data-document-page-number]') ?? [])
+            .find((element) => {
+                const rect = element.getBoundingClientRect();
+                return rect.top <= centerY && centerY <= rect.bottom;
+            });
         return {
-            page: Number(document.querySelector('.editor-pane.is-active .document-viewer-chassis')?.getAttribute('data-chassis-current-page'))
-                || Number(document.querySelector('.editor-pane.is-active .document-viewer-chassis')?.getAttribute('data-viewport-committed-page')),
+            page: Number(centerPage?.dataset.documentPageNumber ?? 0),
             sidebarOpen: Boolean(document.querySelector('.editor-pane.is-active .sidebar-wrapper:not(.is-closed)')),
             zoomText: document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? '',
             zoomMode: snapshot?.zoomMode ?? '',
             effectiveZoom: snapshot?.effectiveZoom ?? 0,
         };
     });
+}
+
+// The restored sidebar slides in after the page is placed; the view is final
+// once that slide has ended and the viewer has laid out for its last width.
+async function waitForTransferredViewSettled(page: Page) {
+    await waitForFunctionInPage(page, () => {
+        const pane = document.querySelector('.editor-pane.is-active');
+        const sidebar = pane?.querySelector('.sidebar-wrapper:not(.is-closed)');
+        return sidebar !== null && sidebar !== undefined && sidebar.getAnimations().length === 0
+            && pane?.querySelector('.document-viewer-chassis')?.getAttribute('data-viewport-lifecycle') === 'ready';
+    }, {timeout: 30_000});
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 describe('Move Tab to New Window view state', () => {
@@ -136,6 +157,7 @@ describe('Move Tab to New Window view state', () => {
         expect(beforeTransfer.sidebarOpen).toBe(true);
 
         const destination = await moveTabToNewWindow(session.page);
+        await waitForTransferredViewSettled(destination);
         const result = await readView(destination);
         expect(result.page).toBe(7);
         expect(result.zoomMode).toBe('custom');
