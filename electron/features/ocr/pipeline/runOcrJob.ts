@@ -888,7 +888,9 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         publish(lastPage, requestedPageCount, {phase: 'processing'});
 
         if (successfulPageCount === 0) {
-            if (!hadTargetPages) {
+            // A page skipped because its text could not be inspected still
+            // needs OCR; only pages classified as text-bearing do not.
+            if (!hadTargetPages && !jobDiagnostics.some(diagnostic => diagnostic.severity === 'warning')) {
                 return {
                     success: false,
                     errors: [],
