@@ -988,7 +988,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await waitForPdfLoaded(page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
 
         type TUpdateOfferWindow = Window & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
-        const emitUpdateStatus = (phase: 'available' | 'downloaded', origin: 'auto' | 'manual') => evaluateInPage(
+        const emitUpdateStatus = (phase: 'available' | 'downloaded' | 'idle', origin: 'auto' | 'manual') => evaluateInPage(
             page,
             (payload: {
                 phase: string;
@@ -1083,7 +1083,34 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await emitUpdateStatus('available', 'manual');
         await waitForVisibleText('Download and Install', '[role="dialog"] *');
         expect((await readToggleSidebarTarget())?.hit).toBe(false);
-        await page.keyboard.press('Escape');
+
+        // "Later" answers with a manual idle status, which must not reopen a dialog.
+        const later = await (await waitForFunctionInPage(page, () => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                .find(candidate => candidate.textContent?.trim() === 'Later');
+            const dialog = button?.closest<HTMLElement>('[role="dialog"]');
+            const rect = button?.getBoundingClientRect();
+            if (!button || !rect || (dialog?.getAnimations({subtree: true}).length ?? 0) > 0) {
+                return null;
+            }
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            return document.elementFromPoint(x, y)?.closest('button') === button ? {
+                x,
+                y,
+            } : null;
+        }, {timeout: UPDATE_OFFER_UI_TIMEOUT_MS})).jsonValue() as {
+            x: number;
+            y: number
+        };
+        await page.mouse.click(later.x, later.y);
+        await waitForFunctionInPage(page, () => !document.querySelector('[role="dialog"]'), {timeout: UPDATE_OFFER_UI_TIMEOUT_MS});
+        await emitUpdateStatus('idle', 'manual');
+        await evaluateInPage(page, () => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        expect(await evaluateInPage(page, () => Boolean(document.querySelector('[role="dialog"]')))).toBe(false);
+        expect((await readToggleSidebarTarget())?.hit).toBe(true);
     });
 
     it('keeps a long inactive-tab title clear of its hovered close button', async () => {

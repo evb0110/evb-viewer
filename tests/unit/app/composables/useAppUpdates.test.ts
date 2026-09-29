@@ -178,6 +178,44 @@ describe('useAppUpdates', () => {
         expect(download).toHaveBeenCalledOnce();
     });
 
+    it('keeps the dialog closed after Later or Skip publish a manual idle status', async () => {
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
+        const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+            statusListener = callback;
+            return () => {};
+        })}}).updates;
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await updates.ensureInitialized();
+        const offer: IAppUpdateStatus = {
+            phase: 'available',
+            origin: 'manual',
+            version: '2.0.0',
+            percent: null,
+            message: null,
+        };
+
+        for (const choose of [
+            updates.deferUpdate,
+            updates.skipUpdateVersion,
+        ]) {
+            requireStatusListener(statusListener)(offer);
+            expect(updates.dialog.value).toMatchObject({
+                open: true,
+                kind: 'available',
+            });
+
+            await choose();
+            requireStatusListener(statusListener)({
+                ...offer,
+                phase: 'idle',
+            });
+            expect(updates.dialog.value.open).toBe(false);
+        }
+    });
+
     it('opens a failure dialog only for a check the user asked for', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
         const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
