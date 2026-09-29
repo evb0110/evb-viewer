@@ -1,0 +1,35 @@
+tests/e2e/electron/save/savePipeline.e2e.test.ts
+  s_ff931410fcd330::t_7ebc5f387ed746 992-997
+  s_ff931410fcd330::t_8685d0562a30bb 25-29,39,60-67,95-96,873
+  s_ff931410fcd330::t_ca377a870bbe01 272-345
+  s_ff931410fcd330::t_00ef16061c873d 900-991,998-1010
+native/pdf-page-ops/src/incremental_document.rs
+  s_ff931410fcd330::t_f97f437dc418f0 138,144,497,1404
+native/pdf-page-ops/src/dispatcher.rs
+  s_ff931410fcd330::t_e97e11088cc964 12-18
+native/pdf-page-ops/src/terminal_xref.rs
+  s_ff931410fcd330::t_c42e6fcb81fef0 1-257,259-275,278-287
+  s_ff931410fcd330::t_e97e11088cc964 258,276-277
+native/pdf-page-ops/src/lib.rs
+  s_ff931410fcd330::t_e97e11088cc964 50,102
+native/pdf-page-ops/src/cli.rs
+  s_ff931410fcd330::t_e97e11088cc964 214,231-234
+native/pdf-page-ops/src/types.rs
+  s_ff931410fcd330::t_e97e11088cc964 744
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d94df29a5710602536a2382f576ac331fc57ac35",
+  "prompts": {},
+  "sessions": {
+    "s_ff931410fcd330": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e4fa6e7-529f-42de-bdac-0f1d994057df",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
