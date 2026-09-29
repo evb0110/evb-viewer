@@ -453,4 +453,55 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             harness.root.remove();
         }
     });
+    it.each([
+        'Rendering cancelled: PDF page lease became stale',
+        'Rendering cancelled: PDF page request became stale',
+    ])('settles a committed page without layers when its layer lease is cancelled: %s', async (message) => {
+        const harness = createHarness();
+        const cancelled = new Error(message);
+        cancelled.name = 'RenderingCancelledException';
+        vi.mocked(harness.document.leasePage).mockRejectedValueOnce(cancelled);
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+
+            await expect(harness.renderer.renderCommittedPageLayers({
+                pageNumber: requirePageNumber(1),
+                version: 1,
+                requestId: 11,
+                scale: 1,
+                container: harness.pageContainer,
+                renderResult: harness.renderResult,
+                renderOptions: {},
+            })).resolves.toBeUndefined();
+
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).not.toBe('hydrating');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).job).toBe('idle');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
+        } finally {
+            harness.root.remove();
+        }
+    });
+
+    it('still rejects committed layer hydration when the lease fails for another reason', async () => {
+        const harness = createHarness();
+        vi.mocked(harness.document.leasePage).mockRejectedValueOnce(new Error('page proxy destroyed'));
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+
+            await expect(harness.renderer.renderCommittedPageLayers({
+                pageNumber: requirePageNumber(1),
+                version: 1,
+                requestId: 11,
+                scale: 1,
+                container: harness.pageContainer,
+                renderResult: harness.renderResult,
+                renderOptions: {},
+            })).rejects.toThrow('page proxy destroyed');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).job).toBe('idle');
+        } finally {
+            harness.root.remove();
+        }
+    });
 });
