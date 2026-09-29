@@ -147,18 +147,18 @@ function sanitizePnpmWorkspace(sourceRoot) {
     writeFileSync(workspacePath, filteredLines.join('\n'), 'utf8');
 }
 
-function configureLandingBuild(sourceRoot) {
+function configureDeployManifest(sourceRoot, deployTarget) {
     const packageJsonPath = path.join(sourceRoot, 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
 
-    packageJson.scripts = {
-        ...packageJson.scripts,
-        build: landingBuildCommand,
-    };
-    // The landing workspace owns its Nuxt postinstall. Root hooks prepare the
-    // desktop app and require native resources excluded from this deploy.
+    // The root prepare hook stages desktop runtime binaries into resources/,
+    // which neither deploy uploads. The viewer build generates its own artifacts.
     delete packageJson.scripts.prepare;
-    delete packageJson.scripts.postinstall;
+    if (deployTarget === 'landing') {
+        packageJson.scripts.build = landingBuildCommand;
+        // The landing workspace owns its Nuxt postinstall; the root one prepares the desktop app.
+        delete packageJson.scripts.postinstall;
+    }
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
 }
 
@@ -242,9 +242,7 @@ export function preparePrivateDeploySource({
     }
     sanitizePnpmWorkspace(sourceRoot);
     sanitizeVercelIgnore(sourceRoot, deployTarget);
-    if (deployTarget === 'landing') {
-        configureLandingBuild(sourceRoot);
-    }
+    configureDeployManifest(sourceRoot, deployTarget);
 
     return {
         cleanup: () => rmSync(scratchRoot, {

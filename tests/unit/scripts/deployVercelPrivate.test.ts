@@ -270,6 +270,34 @@ describe('private Vercel deployment source', () => {
         }
     });
 
+    it('drops the desktop runtime prepare hook from the viewer manifest', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+
+        try {
+            const manifest = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+            manifest.scripts.prepare = 'pnpm run fetch:runtime-binaries --if-published';
+            manifest.scripts.postinstall = 'pnpm run copy:pdfjs';
+            writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify(manifest));
+            commitFixtureChanges(projectRoot);
+            prepared = preparePrivateDeploySource({projectRoot});
+
+            const scripts = JSON.parse(readFileSync(path.join(prepared.sourceRoot, 'package.json'), 'utf8')).scripts;
+            expect(scripts).toEqual({
+                build: 'viewer-build',
+                postinstall: 'pnpm run copy:pdfjs',
+            });
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
     // The copy filter shares its entry predicate with check-web-deploy-source.mjs,
     // so a case variant an editor produced is excluded here exactly as it is from
     // the measured deploy source.

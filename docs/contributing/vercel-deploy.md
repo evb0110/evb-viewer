@@ -73,6 +73,7 @@ Call `trackWebEvent(name, properties)` from `app/utils/trackWebEvent.ts` in the 
 - The repository-owned deploy command copies the source tree into a temporary directory without `.git`, preserves `.vercel/project.json`, and runs a normal remote `vercel deploy` from that clean source tree.
 - It passes `--archive=tgz` by default so Vercel receives a tarball upload instead of counting each source file against the direct upload item limit.
 - Its temporary source copy omits local-only directories and environment files before upload, preserves `packages/`, removes the excluded landing app from the copied workspace manifest, and removes `.vercelignore` entries that point at omitted paths. This keeps the pruned workspace installable and avoids Vercel archive-mode `ENOENT` failures.
+- The copied `package.json` drops the root `prepare` hook for both targets. It stages desktop runtime binaries into `resources/`, which the deploy excludes; `pnpm build` generates the web build artifacts itself.
 - This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator.
 - Because Vercel still performs the build remotely, Production/Preview environment variables and normal alias behavior match dashboard or Git-backed deploys.
 - If an upload fails due to a transient network error, rerun the same package command.
