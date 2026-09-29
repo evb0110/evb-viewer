@@ -1,0 +1,25 @@
+tests/unit/app/utils/platform.test.ts
+  s_164326d4fd1782::t_d4cb1909d8aced 19
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_164326d4fd1782::t_435f754604a243 145-171,174-196,214-221
+  s_164326d4fd1782::t_ed5e9cd74512db 197-200,205-213
+  s_164326d4fd1782::t_fa3f9d58e31436 201-204
+  s_164326d4fd1782::t_fb8c5e99c4eb64 144
+  s_164326d4fd1782::t_e69a4b8fd95c8b 172-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0403f1631d9e796673986db053b8b9f3a907a54",
+  "prompts": {},
+  "sessions": {
+    "s_164326d4fd1782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c35d7a6a-ef12-48f6-b218-a2749f6b2ead",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
