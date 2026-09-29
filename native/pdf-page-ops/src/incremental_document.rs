@@ -289,8 +289,20 @@ fn read_qpdf_structure(
 /// the incremental loader it accepts a reconstructed cross-reference table and
 /// never asks whether the file could take an appended revision.
 pub(crate) fn load_qpdf_structural_document(path: &Path, qpdf_path: &Path) -> Result<Document> {
-    let (_, document, _) = read_qpdf_structure(path, qpdf_path, QPDF_RECOVERED_STRUCTURE_ARGS)?;
+    let (initial_metadata, document, _) =
+        read_qpdf_structure(path, qpdf_path, QPDF_RECOVERED_STRUCTURE_ARGS)?;
+    ensure_input_unchanged(path, &initial_metadata)?;
     Ok(document)
+}
+
+fn ensure_input_unchanged(path: &Path, initial_metadata: &fs::Metadata) -> Result<()> {
+    let current_metadata = fs::metadata(path).map_err(io_domain_error)?;
+    if current_metadata.len() != initial_metadata.len()
+        || current_metadata.modified().ok() != initial_metadata.modified().ok()
+    {
+        return Err("PDF input changed while qpdf was reading its structure".into());
+    }
+    Ok(())
 }
 
 pub(crate) fn load_qpdf_structural_incremental_pdf(
@@ -317,12 +329,7 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     document.xref_start = usize::try_from(previous_xref_start)
         .map_err(|_| "Previous PDF xref offset exceeds this platform's address space")?;
     document.reference_table = lopdf::xref::Xref::new(document.max_id.saturating_add(1), xref_type);
-    let current_metadata = fs::metadata(path).map_err(io_domain_error)?;
-    if current_metadata.len() != previous_len
-        || current_metadata.modified().ok() != initial_metadata.modified().ok()
-    {
-        return Err("PDF input changed while qpdf was reading its structure".into());
-    }
+    ensure_input_unchanged(path, &initial_metadata)?;
     let previous_last_byte = read_last_byte(path, previous_len)?;
     let new_document = Document::new_from_prev(&document);
     Ok(IncrementalDocument {
