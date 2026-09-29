@@ -347,10 +347,6 @@ export function bundleWindowsMsvcRuntime({
             fail(`${directory} mixes Visual C++ runtime importers of ${[...importerMachines].join(' and ')}`);
         }
         const [machine] = importerMachines;
-        const sourceDirectory = sourceDirectories[/** @type {TWindowsMachine} */ (machine)];
-        if (sourceDirectory === undefined) {
-            fail(`${directory} needs a ${machine} Visual C++ runtime, which this host does not provide`);
-        }
 
         /** @type {Map<string, {requiredVersion: number, importer: string}>} */
         const required = new Map();
@@ -379,6 +375,13 @@ export function bundleWindowsMsvcRuntime({
             info,
         ] of localPeInfo) {
             requireRuntimeImports(info, path.join(directory, name));
+        }
+        if (required.size === 0) {
+            continue;
+        }
+        const sourceDirectory = sourceDirectories[/** @type {TWindowsMachine} */ (machine)];
+        if (sourceDirectory === undefined) {
+            fail(`${directory} needs a ${machine} Visual C++ runtime, which this host does not provide`);
         }
 
         /** @type {Map<string, IWindowsPeInfo>} */

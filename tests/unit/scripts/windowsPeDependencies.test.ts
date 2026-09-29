@@ -285,6 +285,10 @@ describe('Windows PE dependency helpers', () => {
             'vcruntime140.dll',
             'vcruntime140_1.dll',
         ]);
+        expect(bundleWindowsMsvcRuntime({
+            directories: [qpdfBin],
+            sourceDirectories: {},
+        })).toEqual([]);
         expect(readdirSync(qpdfBin).sort()).toEqual([
             'qpdf.exe',
             'vcruntime140.dll',
