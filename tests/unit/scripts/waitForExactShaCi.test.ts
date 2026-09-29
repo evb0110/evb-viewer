@@ -276,10 +276,26 @@ describe('waitForExactShaCiGates', () => {
         expect(harness.nowFn()).toBe(0);
     });
 
-    it('lists successful main push runs newest first from the conclusion-filtered query', () => {
+    it('lists successful main push runs newest first, filtering the conclusion itself', () => {
         const runs = listSuccessfulMainPushRuns((_command: string, args: string[]) => {
-            expect(args.join(' ')).toContain('runs?branch=main&event=push&status=success&per_page=30');
+            expect(args.join(' ')).toContain('runs?branch=main&event=push&per_page=30');
             return JSON.stringify({workflow_runs: [
+                {
+                    conclusion: 'failure',
+                    event: 'push',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 4,
+                    run_number: 9,
+                },
+                {
+                    conclusion: null,
+                    event: 'push',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 5,
+                    run_number: 10,
+                },
                 {
                     conclusion: 'success',
                     event: 'push',
