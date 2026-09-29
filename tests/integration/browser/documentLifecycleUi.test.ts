@@ -83,6 +83,29 @@ async function waitForOpenFileReady(page: Page) {
     }, undefined, {timeout: 30_000});
 }
 
+// Behavior contract C2: ordinary use of a well-formed document logs no console
+// error or warning and throws no page error. Only these named dev-build
+// messages are expected; every other problem fails the test.
+const EXPECTED_DEV_CONSOLE_PROBLEMS = [{
+    pattern: /^warning: \[[^\]]+\] \[perf\] [\w:-]+ was slow \{/u,
+    reason: 'app/utils/devPerf.ts frame-budget timing: dev builds only, fires when the host is busy',
+}];
+
+function collectConsoleProblems(page: Page) {
+    const problems: string[] = [];
+    page.on('console', (message) => {
+        const problem = `${message.type()}: ${message.text()}`;
+        if (
+            (message.type() === 'error' || message.type() === 'warning')
+            && !EXPECTED_DEV_CONSOLE_PROBLEMS.some(expected => expected.pattern.test(problem))
+        ) {
+            problems.push(problem);
+        }
+    });
+    page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
+    return problems;
+}
+
 // One-shot waitForEvent listeners otherwise toggle Playwright's chooser
 // interception off and on between opens, and a quick second open can race it.
 function keepFileChooserInterceptionEnabled(page: Page) {
@@ -153,13 +176,7 @@ describe('browser document lifecycle UI', () => {
                     height: 900,
                 },
             });
-            const consoleProblems: string[] = [];
-            page.on('console', (message) => {
-                if (message.type() === 'error' || message.type() === 'warning') {
-                    consoleProblems.push(`${message.type()}: ${message.text()}`);
-                }
-            });
-            page.on('pageerror', error => consoleProblems.push(`pageerror: ${error.message}`));
+            const consoleProblems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
@@ -169,7 +186,6 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
             expect(await page.evaluate(() => 'electronAPI' in window)).toBe(false);
-            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-electron-user-agent-startup.png')});
             expect(await page.getByText('Error report ready').count()).toBe(0);
 
             const chooserPromise = page.waitForEvent('filechooser');
@@ -213,7 +229,7 @@ describe('browser document lifecycle UI', () => {
             }
 
             expect(await page.getByText('Error report ready').count()).toBe(0);
-            expect(consoleProblems.filter(problem => /Electron|runtime-error-log-stream|recovery/iu.test(problem))).toEqual([]);
+            expect(consoleProblems).toEqual([]);
         } finally {
             await browser.close();
         }
