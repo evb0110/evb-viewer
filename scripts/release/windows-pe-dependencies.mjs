@@ -288,7 +288,9 @@ export function verifyWindowsPeDependencies({
             const localBundledDlls = bundledDllsByDirectory.get(path.resolve(path.dirname(file))) ?? new Set();
             if (MSVC_RUNTIME_DLL_PATTERN.test(dependencyName) && localBundledDlls.has(dependencyName)) {
                 const runtime = infoByPath.get(path.resolve(path.dirname(file), dependencyName).toLowerCase());
-                if (runtime && runtimeVersion(runtime) < info.linkerVersion) {
+                if (runtime && runtime.machine !== info.machine) {
+                    errors.push(`Error: Bundled ${dependencyName} is ${runtime.machine} but ${file} is ${info.machine}`);
+                } else if (runtime && runtimeVersion(runtime) < info.linkerVersion) {
                     errors.push(`Error: Bundled ${dependency} ${formatVersion(runtimeVersion(runtime))} is older than the MSVC ${formatVersion(info.linkerVersion)} toolset that built ${file}`);
                 }
                 continue;
@@ -298,6 +300,12 @@ export function verifyWindowsPeDependencies({
             }
             if (!localBundledDlls.has(dependencyName) && !localBundledDlls.has(`lib${dependencyName}`)) {
                 errors.push(`Error: Missing bundled DLL dependency "${dependency}" for ${file}`);
+                continue;
+            }
+            const bundledName = localBundledDlls.has(dependencyName) ? dependencyName : `lib${dependencyName}`;
+            const bundled = infoByPath.get(path.resolve(path.dirname(file), bundledName).toLowerCase());
+            if (bundled && bundled.machine !== info.machine) {
+                errors.push(`Error: Bundled ${bundledName} is ${bundled.machine} but ${file} is ${info.machine}`);
             }
         }
     }
@@ -307,27 +315,54 @@ export function verifyWindowsPeDependencies({
 
 /**
  * Copies the Visual C++ runtime DLLs each directory's PE files import, with
- * the runtime's own runtime imports, from sourceDirectory into that directory.
- * A directory that already carries a runtime DLL keeps it.
- * @param {{directories: string[], sourceDirectory: string, allowedMachines: string[]}} options
+ * the runtime's own runtime imports, into that directory. The runtime comes
+ * from the source directory for the importers' architecture, such as System32
+ * for x64 and SysWOW64 for ia32 on an x64 host. A runtime DLL the directory
+ * already carries is kept unless an importer was built by a newer toolset.
+ * @param {{directories: string[], sourceDirectories: Partial<Record<TWindowsMachine, string>>}} options
  * @returns {string[]} the copied files
  */
 export function bundleWindowsMsvcRuntime({
     directories,
-    sourceDirectory,
-    allowedMachines,
+    sourceDirectories,
 }) {
     const copied = [];
     for (const directory of directories.map(entry => normalizeWindowsHostPath(entry))) {
-        const localFiles = readdirSync(directory);
-        const localNames = new Set(localFiles.map(name => name.toLowerCase()));
+        /** @type {Map<string, IWindowsPeInfo>} */
+        const localPeInfo = new Map();
+        for (const name of readdirSync(directory)) {
+            if (/\.(?:exe|dll)$/iu.test(name)) {
+                localPeInfo.set(name.toLowerCase(), readWindowsPeInfo(path.join(directory, name)));
+            }
+        }
+        // A directory holds one copy of each runtime DLL, so all its runtime
+        // importers must share one architecture.
+        const importerMachines = new Set([...localPeInfo.values()]
+            .filter(info => info.imports.some(dependency => MSVC_RUNTIME_DLL_PATTERN.test(dependency)))
+            .map(info => info.machine));
+        if (importerMachines.size === 0) {
+            continue;
+        }
+        if (importerMachines.size > 1) {
+            fail(`${directory} mixes Visual C++ runtime importers of ${[...importerMachines].join(' and ')}`);
+        }
+        const [machine] = importerMachines;
+        const sourceDirectory = sourceDirectories[/** @type {TWindowsMachine} */ (machine)];
+        if (sourceDirectory === undefined) {
+            fail(`${directory} needs a ${machine} Visual C++ runtime, which this host does not provide`);
+        }
+
         /** @type {Map<string, {requiredVersion: number, importer: string}>} */
         const required = new Map();
         /** @param {IWindowsPeInfo} info @param {string} importer */
         const requireRuntimeImports = (info, importer) => {
             for (const dependency of info.imports) {
                 const name = dependency.toLowerCase();
-                if (!MSVC_RUNTIME_DLL_PATTERN.test(name) || localNames.has(name)) {
+                if (!MSVC_RUNTIME_DLL_PATTERN.test(name)) {
+                    continue;
+                }
+                const local = localPeInfo.get(name);
+                if (local && local.machine === machine && runtimeVersion(local) >= info.linkerVersion) {
                     continue;
                 }
                 const current = required.get(name);
@@ -339,10 +374,11 @@ export function bundleWindowsMsvcRuntime({
                 }
             }
         };
-        for (const name of localFiles) {
-            if (/\.(?:exe|dll)$/iu.test(name)) {
-                requireRuntimeImports(readWindowsPeInfo(path.join(directory, name)), path.join(directory, name));
-            }
+        for (const [
+            name,
+            info,
+        ] of localPeInfo) {
+            requireRuntimeImports(info, path.join(directory, name));
         }
 
         /** @type {Map<string, IWindowsPeInfo>} */
@@ -354,6 +390,9 @@ export function bundleWindowsMsvcRuntime({
                     fail(`The Visual C++ runtime DLL ${name} needed by ${required.get(name)?.importer} is missing from ${sourceDirectory}`);
                 }
                 const info = readWindowsPeInfo(sourcePath);
+                if (info.machine !== machine) {
+                    fail(`${sourcePath} is ${info.machine}; ${directory} needs ${machine}`);
+                }
                 sources.set(name, info);
                 requireRuntimeImports(info, sourcePath);
             }
@@ -366,9 +405,6 @@ export function bundleWindowsMsvcRuntime({
             const source = sources.get(name);
             if (!source) {
                 continue;
-            }
-            if (!allowedMachines.includes(source.machine)) {
-                fail(`${path.join(sourceDirectory, name)} is ${source.machine}; expected one of ${allowedMachines.join(', ')}`);
             }
             if (runtimeVersion(source) < requirement.requiredVersion) {
                 fail(`${path.join(sourceDirectory, name)} ${formatVersion(runtimeVersion(source))} is older than the MSVC ${formatVersion(requirement.requiredVersion)} toolset that built ${requirement.importer}`);
