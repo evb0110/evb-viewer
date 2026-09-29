@@ -1,0 +1,27 @@
+packages/contracts/diagnostics/diagnosticsPreference.ts
+  s_164326d4fd1782::t_1f4e2ddc2b0df4 11
+tests/unit/app/platform/platformApiContractParity.test.ts
+  s_164326d4fd1782::t_365d76681e2537 88,113
+electron/preload/createElectronApi.ts
+  s_164326d4fd1782::t_1f4e2ddc2b0df4 514
+tests/unit/electron/preloadCreateElectronApi.test.ts
+  s_164326d4fd1782::t_365d76681e2537 492,496
+tests/helpers/createElectronPlatformApiFixture.ts
+  s_164326d4fd1782::t_1f4e2ddc2b0df4 11,28-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "45d6e92a72006001abe54898f539f697ed3afa01",
+  "prompts": {},
+  "sessions": {
+    "s_164326d4fd1782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c35d7a6a-ef12-48f6-b218-a2749f6b2ead",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
