@@ -2,9 +2,10 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {
-    mkdtempSync, readFileSync, statSync, watch, writeFileSync,
+    mkdtempSync, readFileSync, rmSync, statSync, watch, writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {randomBytes} from 'node:crypto';
@@ -56,6 +57,10 @@ function readWorkerTaskErrors(sessionName: string) {
 
 async function createLargeConformancePdf() {
     const evidenceDirectory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-cancellation-'));
+    onTestFinished(() => rmSync(evidenceDirectory, {
+        recursive: true,
+        force: true,
+    }));
     const unencryptedPath = resolve(evidenceDirectory, 'conformance-cancellation-unencrypted-8000-pages.pdf');
     const filePath = resolve(evidenceDirectory, 'conformance-cancellation-materialized-8000-pages.pdf');
     const pdf = await PDFDocument.create();
@@ -86,8 +91,24 @@ async function createLargeConformancePdf() {
     return filePath;
 }
 
-describe('Electron E2E - PDF Conformance Cancellation', () => {
-    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-pdf-conformance-cancellation-${Date.now()}`});
+// Readers ignore bytes after the last %%EOF, so such a file opens normally.
+// The Windows report that led here had them, and its conformance read failed.
+function createPdfWithBytesAfterEof() {
+    const evidenceDirectory = mkdtempSync(resolve(tmpdir(), 'evb-e2e-conformance-trailing-bytes-'));
+    onTestFinished(() => rmSync(evidenceDirectory, {
+        recursive: true,
+        force: true,
+    }));
+    const filePath = resolve(evidenceDirectory, 'bytes-after-eof.pdf');
+    writeFileSync(filePath, Buffer.concat([
+        readFileSync(resolve('tests/fixtures/electron/generated-text.pdf')),
+        Buffer.from('\0\0<html>download trailer</html>\n', 'latin1'),
+    ]));
+    return filePath;
+}
+
+describe('Electron E2E - PDF Conformance', () => {
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-pdf-conformance-${Date.now()}`});
 
     it('keeps conformance analysis quiet when its working copy is closed', async () => {
         const session = sessionFixture.getSession();
@@ -153,6 +174,35 @@ describe('Electron E2E - PDF Conformance Cancellation', () => {
             const analysisLog = readAppLog(session.name).slice(largeAnalysisStart);
             expect(hasWorkerTaskMessage(analysisLog, 'Worker reported cancellation')).toBe(true);
             expect(hasWorkerTaskMessage(stableLog, 'Worker completed')).toBe(true);
+        } finally {
+            observer.dispose();
+        }
+    }, 150_000);
+
+    it('reads conformance without an error report when a PDF has bytes after its EOF marker', async () => {
+        const session = sessionFixture.getSession();
+        const pdf = createPdfWithBytesAfterEof();
+        const initialLog = readAppLog(session.name);
+        const observer = await observeRendererErrors(session.page);
+        try {
+            await openPdfInApp(session.page, pdf);
+            const readAnalysisLog = () => readAppLog(session.name).slice(initialLog.length);
+            await expect.poll(
+                () => hasWorkerTaskMessage(readAnalysisLog(), 'Worker completed')
+                    || hasWorkerTaskMessage(readAnalysisLog(), 'Worker reported failure'),
+                {timeout: CONFORMANCE_WORKER_START_TIMEOUT_MS},
+            ).toBe(true);
+            const visibleErrors = (await observer.collect()).visibleErrorSurfaces;
+            const workerTaskErrors = readWorkerTaskEvents(readAnalysisLog())
+                .filter(entry => entry.level === 'error');
+            expect({
+                visibleErrors,
+                workerTaskErrors,
+            }).toEqual({
+                visibleErrors: [],
+                workerTaskErrors: [],
+            });
+            expect(hasWorkerTaskMessage(readAnalysisLog(), 'Worker completed')).toBe(true);
         } finally {
             observer.dispose();
         }

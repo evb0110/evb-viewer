@@ -1,3 +1,6 @@
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+
 use lopdf::{dictionary, Document, Object};
 use serde_json::Value;
 use std::{
@@ -105,7 +108,6 @@ fn run_crop(input: &Path, output: &Path, pages: &Path) -> Output {
     )
 }
 
-#[cfg(unix)]
 fn run_pdf_conformance(input: &Path, qpdf: &Path) -> Output {
     run_command(
         Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
@@ -273,6 +275,104 @@ fn crop_seeds_a_distinct_output_before_appending() {
     let _ = remove_file(input);
     let _ = remove_file(output);
     let _ = remove_file(pages);
+}
+
+/// Readers ignore bytes after the last `%%EOF`, and qpdf rebuilds a
+/// cross-reference table it cannot find, so the app opens files like these.
+/// Their conformance facts must read the same way. An edit appends only when
+/// the revision it extends is unambiguous.
+#[test]
+fn bytes_after_eof_keep_conformance_readable_and_appends_unambiguous() {
+    let qpdf = external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf");
+    let clean = path("trailing-bytes-clean", "pdf");
+    let pages = path("trailing-bytes-pages", "txt");
+    let _cleanup = RemovePdfFilesOnDrop([clean.clone(), pages.clone()]);
+    let mut document = Document::with_version("1.4");
+    let pages_id = document.new_object_id();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        "Resources" => dictionary! {},
+    });
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        },
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&clean).unwrap();
+    write(&pages, b"1\n").unwrap();
+    let clean_bytes = read(&clean).unwrap();
+
+    for (label, trailer, appendable) in [
+        ("nul-padding", b"\0\0\0\0".to_vec(), true),
+        (
+            "download-trailer",
+            b"<html>download trailer</html>\n".to_vec(),
+            true,
+        ),
+        // Longer than qpdf's startxref search window, so qpdf rebuilds the table.
+        ("long-trailer", vec![b'x'; 4096], false),
+        ("later-startxref", b"\n% startxref\n1\n".to_vec(), false),
+    ] {
+        let input = path(&format!("trailing-bytes-{label}"), "pdf");
+        let output = path(&format!("trailing-bytes-{label}-cropped"), "pdf");
+        let _cleanup = RemovePdfFilesOnDrop([input.clone(), output.clone()]);
+        let input_bytes = [clean_bytes.as_slice(), trailer.as_slice()].concat();
+        write(&input, &input_bytes).unwrap();
+
+        let conformance = run_pdf_conformance(&input, &qpdf);
+        assert!(
+            conformance.status.success(),
+            "{label}: {}",
+            String::from_utf8_lossy(&conformance.stderr)
+        );
+        let facts: Value = serde_json::from_slice(&conformance.stdout).unwrap();
+        assert_eq!(facts["isEncrypted"], false, "{label}");
+
+        let crop = run_crop(&input, &output, &pages);
+        if !appendable {
+            assert!(
+                !crop.status.success(),
+                "{label}: an ambiguous revision chain must not take an append"
+            );
+            continue;
+        }
+        assert!(
+            crop.status.success(),
+            "{label}: {}",
+            String::from_utf8_lossy(&crop.stderr)
+        );
+        let output_bytes = read(&output).unwrap();
+        assert!(output_bytes.starts_with(&input_bytes), "{label}");
+        let check = run_command(Command::new(&qpdf).arg("--check").arg(&output));
+        assert!(
+            check.status.success(),
+            "{label}: {}{}",
+            String::from_utf8_lossy(&check.stdout),
+            String::from_utf8_lossy(&check.stderr)
+        );
+        let cropped = Document::load(&output).unwrap();
+        let crop_box = cropped
+            .get_dictionary(page_id)
+            .unwrap()
+            .get(b"CropBox")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_float().unwrap() as f64)
+            .collect::<Vec<_>>();
+        assert_eq!(crop_box, vec![2.0, 3.0, 199.0, 96.0], "{label}");
+    }
 }
 
 #[test]
