@@ -311,7 +311,14 @@ function runViewerPrebuiltBuild({
     projectRoot,
     spawnSyncImpl,
 }) {
-    const result = spawnSyncImpl(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
+    // Windows command shims require cmd.exe. Pass one fixed command string
+    // so shell argument concatenation cannot reinterpret dynamic values.
+    const result = spawnSyncImpl(process.platform === 'win32' ? 'cmd.exe' : 'pnpm', process.platform === 'win32' ? [
+        '/d',
+        '/s',
+        '/c',
+        'pnpm.cmd run build',
+    ] : [
         'run',
         'build',
     ], {
