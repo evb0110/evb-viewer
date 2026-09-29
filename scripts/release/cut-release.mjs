@@ -4,7 +4,7 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {
-    listSuccessfulMainPushRuns, readGatesOkConclusion,
+    findLatestMatchingRun, listSuccessfulMainPushRuns, readGatesOkConclusion,
 } from './wait-for-exact-sha-ci.mjs';
 
 /** @type {Set<'patch'|'minor'|'major'>} */
@@ -52,10 +52,13 @@ export function bumpReleaseVersion(version, level) {
             : `${major}.${minor}.${patch + 1}`;
 }
 
-/** @param {{runCommand?: typeof run, listRuns?: typeof listSuccessfulMainPushRuns, gates?: typeof readGatesOkConclusion}} [options] */
+/** @typedef {{runCommand?: typeof run, listRuns?: typeof listSuccessfulMainPushRuns, findRun?: typeof findLatestMatchingRun, gates?: typeof readGatesOkConclusion}} ICandidateOptions */
+
+/** @param {ICandidateOptions} [options] */
 export function selectReleaseCandidate({
     runCommand = run,
     listRuns = listSuccessfulMainPushRuns,
+    findRun = findLatestMatchingRun,
     gates = readGatesOkConclusion,
 } = {}) {
     const main = runCommand('git', [
@@ -76,7 +79,17 @@ export function selectReleaseCandidate({
         'rev-parse',
         `${lastTag}^{commit}`,
     ]) : null;
-    for (const runInfo of listRuns(runCommand)) {
+    // The branch-wide run list trails a just-finished run by up to a minute,
+    // while the exact-SHA lookup ci-wait uses already reports it, so the tip
+    // of main is checked first.
+    const tipRun = findRun(main, runCommand);
+    const candidateRuns = tipRun?.conclusion === 'success'
+        ? [
+            tipRun,
+            ...listRuns(runCommand),
+        ]
+        : listRuns(runCommand);
+    for (const runInfo of candidateRuns) {
         const sha = runInfo.head_sha;
         if (!sha || gates(runInfo.id, runCommand) !== 'success') continue;
         try {
@@ -105,7 +118,7 @@ export function selectReleaseCandidate({
     throw new Error(`No newer commit on origin/main has a green exact-SHA ci.yml gates_ok verdict${lastTag ? ` after ${lastTag}` : ''}.`);
 }
 
-/** @param {'patch'|'minor'|'major'} level @param {{runCommand?: typeof run, listRuns?: typeof listSuccessfulMainPushRuns, gates?: typeof readGatesOkConclusion}} [options] */
+/** @param {'patch'|'minor'|'major'} level @param {ICandidateOptions} [options] */
 export function planRelease(level, {
     runCommand = run, ...candidateOptions
 } = {}) {

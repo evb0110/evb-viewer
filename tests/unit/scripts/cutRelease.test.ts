@@ -93,6 +93,7 @@ describe('tag release cutter', () => {
                 if (args[0] === 'merge-base') return '';
                 return '';
             },
+            findRun: () => null,
             listRuns: () => [
                 {
                     id: 7,
@@ -124,6 +125,40 @@ describe('tag release cutter', () => {
         ]);
     });
 
+    it('releases the tip of main from its exact-SHA run while the run list still lags', () => {
+        const runCommand = (_command: string, args: string[]) => {
+            if (args[0] === 'tag') return 'v1.2.3';
+            if (args[0] === 'rev-parse') return args[1] === 'origin/main' ? 'tip' : 'tag-sha';
+            return '';
+        };
+        const olderRun = {
+            id: 7,
+            head_sha: 'older',
+        };
+        const tipRun = (conclusion: string) => ({
+            id: 9,
+            head_sha: 'tip',
+            conclusion,
+            html_url: 'https://ci/tip',
+        });
+
+        expect(selectReleaseCandidate({
+            runCommand,
+            findRun: sha => (sha === 'tip' ? tipRun('success') : null),
+            listRuns: () => [olderRun],
+            gates: () => 'success',
+        })).toMatchObject({
+            sha: 'tip',
+            run: {id: 9},
+        });
+        expect(selectReleaseCandidate({
+            runCommand,
+            findRun: () => tipRun('failure'),
+            listRuns: () => [olderRun],
+            gates: () => 'success',
+        })).toMatchObject({sha: 'older'});
+    });
+
     it('fetches the release tag set and plans without changing package.json', () => {
         const commands: string[][] = [];
         const result = planRelease('patch', {
@@ -134,6 +169,7 @@ describe('tag release cutter', () => {
                 if (args[0] === 'merge-base') return '';
                 return '';
             },
+            findRun: () => null,
             listRuns: () => [{
                 id: 10,
                 head_sha: 'candidate',
@@ -156,6 +192,7 @@ describe('tag release cutter', () => {
                 if (args[0] === 'rev-parse') return 'main';
                 return '';
             },
+            findRun: () => null,
             listRuns: () => [{
                 id: 11,
                 head_sha: 'candidate',
