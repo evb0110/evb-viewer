@@ -6,14 +6,6 @@ packages:
 # Hold new registry releases for seven days before they can enter the lockfile.
 # This applies to direct and transitive dependencies.
 minimumReleaseAge: 10080
-minimumReleaseAgeExclude:
-  # Grandfather versions already present in the reviewed pre-update lockfile.
-  - picomatch@4.0.7
-  - prosemirror-view@1.42.3
-  # Security fix for the qs advisories reported on 2026-09-02. Remove this
-  # exception after qs@6.16.0 has aged past the seven-day release hold.
-  - "@opentelemetry/core@2.11.0"
-  - qs@6.16.0
 
 # Release automation and Electron smoke need the real Electron binary on every
 # fresh install. Electron 43 downloads lazily when required, so the root

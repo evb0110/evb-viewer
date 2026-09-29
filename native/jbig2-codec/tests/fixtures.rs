@@ -155,7 +155,7 @@ fn parse_pbm(data: &[u8]) -> OwnedBilevel {
 }
 
 fn encode_g4(bitmap: &OwnedBilevel) -> Vec<u8> {
-    let width = u16::try_from(bitmap.width).unwrap();
+    let width = u32::from(u16::try_from(bitmap.width).unwrap());
     let stride = bitmap.width.div_ceil(8) as usize;
     let writer = VecWriter::with_capacity(bitmap.rows.len() * 8);
     let mut encoder = FaxEncoder::new(writer);

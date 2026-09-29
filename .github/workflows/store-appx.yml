@@ -19,7 +19,7 @@ permissions:
 env:
   # Match the release build matrix so Store packages are built with the same
   # runtime as direct-download Windows installers.
-  NODE_VERSION: '24.11.1'
+  NODE_VERSION: '24.21.0'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:

@@ -121,7 +121,10 @@
 </template>
 
 <script setup lang="ts">
-import {useNow} from '@vueuse/core';
+import {
+    useIntervalFn,
+    useNow,
+} from '@vueuse/core';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
 import type {IScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
 import {
@@ -153,7 +156,7 @@ const {
 }>();
 const {t} = useTypedI18n();
 const detailsOpen = ref(false);
-const now = useNow({interval: 1000});
+const now = useNow({scheduler: callback => useIntervalFn(callback, 1000)});
 
 const STEP_ICONS: Record<TScanCleanupActivityStepState, string> = {
     done: 'i-ph-check-circle',

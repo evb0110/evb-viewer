@@ -9,7 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-fax = "0.2.7"
+fax = "0.3.0"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 rayon = { workspace = true }

@@ -14,11 +14,11 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 evb-native-support = { version = "0.1.0", path = "../evb-native-support" }
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }
-fax = "0.2.7"
-flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
+fax = "0.3.0"
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 hayro-jpeg2000 = { version = "0.3.5", default-features = false, features = ["std"] }
 jbig2-codec = { version = "0.1.0", path = "../jbig2-codec" }
-jpeg-encoder = "0.7.0"
+jpeg-encoder = "0.7.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tiff = "0.11.3"
@@ -28,4 +28,4 @@ zune-jpeg = "0.5.15"
 rayon = { workspace = true }
 
 [dev-dependencies]
-crc32fast = "1.5.0"
+crc32fast = "1.5.2"

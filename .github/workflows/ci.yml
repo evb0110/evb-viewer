@@ -41,7 +41,7 @@ permissions:
 
 env:
   # Pin exact Node 24 patch level so CI does not drift independently of local verification.
-  NODE_VERSION: '24.11.1'
+  NODE_VERSION: '24.21.0'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   EVB_E2E_PRESERVE_ARTIFACTS: '1'
 
