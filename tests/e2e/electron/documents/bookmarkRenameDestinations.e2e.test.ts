@@ -1,5 +1,5 @@
 import {
-    copyFile, mkdtemp,
+    copyFile, mkdtemp, realpath,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -63,7 +63,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll('.pdf-bookmark-item-row')).some(row => row.textContent?.trim() === 'Middle renamed'));
 
         const saveCommit = await saveViaWindowHandle(page);
-        expect(saveCommit.detail.path).toBe(saved);
+        expect(await realpath(String(saveCommit.detail.path))).toBe(await realpath(saved));
         const outline = (await readPdfMetadataWithQpdf(saved)).outlines;
         const savedDestinations = outline.map(item => item.destpageposfrom1 ?? null);
         const savedTitles = outline.map(item => item.title);

@@ -1,7 +1,6 @@
 import {
     copyFile, mkdtemp, writeFile,
 } from 'node:fs/promises';
-import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {
@@ -171,13 +170,11 @@ describe('Electron E2E - screenshot annotation output', () => {
         });
 
         const pngPath = join(evidenceDirectory, `clipboard-${Date.now()}.png`);
-        const clipboardPng = execFileSync('xclip', [
-            '-selection',
-            'clipboard',
-            '-t',
-            'image/png',
-            '-o',
-        ], {maxBuffer: 16 * 1024 * 1024});
+        const clipboardPng = Buffer.from(await page.evaluate(async () => {
+            const item = (await navigator.clipboard.read()).find(candidate => candidate.types.includes('image/png'));
+            if (!item) throw new Error('The clipboard holds no PNG image');
+            return Array.from(new Uint8Array(await (await item.getType('image/png')).arrayBuffer()));
+        }));
         console.log(`SCREENSHOT_CAPTURE_LATENCY_MS ${Math.round(performance.now() - captureStartedAt)}`);
         await writeFile(pngPath, clipboardPng);
         const clipboardPixels = await countAnnotationColourPixels(pngPath, screenPixels.redReference);

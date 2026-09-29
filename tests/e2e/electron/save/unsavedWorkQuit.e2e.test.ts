@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
-    copyFileSync, readFileSync, mkdtempSync, rmSync,
+    copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -16,10 +16,11 @@ import {
     openPdfInApp, waitForPdfLoaded, waitForViewerInteractive, 
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    startHostVisibleElectronE2ESession, type IElectronE2ESession, 
+    startElectronE2ESession, startHostVisibleElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRunRunId';
 import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
+import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
 
 describe('unsaved work on app Quit', () => {
     let session: IElectronE2ESession | null = null;
@@ -45,31 +46,37 @@ describe('unsaved work on app Quit', () => {
             requiresSaveAs: true, 
         },
     ])('asks before quitting $destination and Cancel keeps the unsaved edit and source intact', async ({ requiresSaveAs }) => {
+        const fixturePath = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-unsaved-'));
-        const sourcePath = join(outputDirectory, requiresSaveAs ? 'quit-generated-source.pdf' : 'quit-source.pdf');
-        copyFileSync(
-            resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'),
-            sourcePath,
-        );
+        const sourcePath = join(outputDirectory, 'quit-source.pdf');
+        copyFileSync(fixturePath, sourcePath);
         const sessionName = createE2ERunScopedSessionName(`e2e-quit-unsaved-${Date.now()}`);
-        session = await startHostVisibleElectronE2ESession(sessionName, {
+        // Linux reaches the real window through X11 input, so its Xvfb window
+        // must be mapped. macOS sends Quit to the process, so the owner's
+        // desktop stays untouched with a hidden session.
+        const startSession = process.platform === 'linux' ? startHostVisibleElectronE2ESession : startElectronE2ESession;
+        session = await startSession(sessionName, {
             clean: true,
             initialOpenPaths: requiresSaveAs ? [] : [sourcePath],
         });
 
         let documentPath = sourcePath;
         if (requiresSaveAs) {
-            documentPath = join(outputDirectory, `generated-${randomUUID()}.pdf`);
-            copyFileSync(sourcePath, documentPath);
+            // Scan cleanup output under the profile is what the app treats as
+            // generated, so its first save needs a destination.
+            const generatedDirectory = join(electronUserDataPath(session.name), 'scan-cleanup', 'output', randomUUID());
+            mkdirSync(generatedDirectory, { recursive: true });
+            documentPath = join(generatedDirectory, 'quit-generated.pdf');
+            copyFileSync(fixturePath, documentPath);
+            await openPdfInApp(session.page, documentPath, 60_000);
         }
-        if (requiresSaveAs) await openPdfInApp(session.page, documentPath, 60_000);
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
         const originalBytes = readFileSync(documentPath);
         const originalAnnotationSummary = await readPdfAnnotationSummary(documentPath);
+        const electronPid = getSessionInfo(session.name)?.electronPid;
+        expect(electronPid).toEqual(expect.any(Number));
         if (process.platform === 'linux') {
-            const electronPid = getSessionInfo(session.name)?.electronPid;
-            expect(electronPid).toEqual(expect.any(Number));
             const windowId = execFileSync('xdotool', [
                 'search',
                 '--onlyvisible',
@@ -97,13 +104,22 @@ describe('unsaved work on app Quit', () => {
                 '--clearmodifiers',
                 'ctrl+q',
             ]);
+        } else if (process.platform === 'darwin') {
+            // Cmd-Q and the Quit menu item send terminate: to the app, which
+            // a quit Apple Event also reaches. Renderer key events never do.
+            execFileSync('osascript', [
+                '-l',
+                'JavaScript',
+                '-e',
+                `ObjC.import("AppKit");
+                if (!$.NSRunningApplication.runningApplicationWithProcessIdentifier(${electronPid}).terminate) throw new Error("Quit was not sent");`,
+            ]);
         } else {
-            const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-            await session.page.keyboard.down(modifier);
+            await session.page.keyboard.down('Control');
             try {
                 await session.page.keyboard.press('q');
             } finally {
-                await session.page.keyboard.up(modifier);
+                await session.page.keyboard.up('Control');
             }
         }
         const quitOutcome = await Promise.race([
