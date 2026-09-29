@@ -1,7 +1,9 @@
 // Adds Sentry Debug IDs to the built bundles, uploads their source maps, and
 // deletes the maps so no release artifact or deployment serves them.
 // sentry-cli reads SENTRY_AUTH_TOKEN, SENTRY_ORG and SENTRY_PROJECT from the
-// environment. Usage: node scripts/release/upload-sentry-sourcemaps.mjs <dir>...
+// environment. Usage: node scripts/upload-sentry-sourcemaps.mjs [<dir>...]
+// Without directories it handles the renderer output of the Nuxt build that just
+// ran (`pnpm run build`, before pruning), and does nothing without a token.
 
 import {spawnSync} from 'node:child_process';
 import {
@@ -10,10 +12,23 @@ import {
 } from 'node:fs';
 import {createRequire} from 'node:module';
 import {join} from 'node:path';
+import {
+    getExpectedWebDeployOutputRoots,
+    isVercelBuildOutputEnv,
+} from './check-web-deploy-assets.mjs';
 
-const directories = process.argv.slice(2);
+let directories = process.argv.slice(2);
 if (directories.length === 0) {
-    throw new Error('Pass the build output directories that contain source maps.');
+    if (!process.env.SENTRY_AUTH_TOKEN) {
+        // A hosted build that reports to Sentry must carry Debug IDs, or its
+        // stacks can never be symbolicated.
+        if (isVercelBuildOutputEnv() && process.env.SENTRY_BROWSER_DSN?.trim()) {
+            console.error('Refusing a hosted build with SENTRY_BROWSER_DSN but no SENTRY_AUTH_TOKEN: its stacks could not be symbolicated.');
+            process.exit(1);
+        }
+        process.exit(0);
+    }
+    directories = getExpectedWebDeployOutputRoots();
 }
 const sentryCli = createRequire(import.meta.url).resolve('@sentry/cli/bin/sentry-cli');
 

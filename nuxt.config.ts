@@ -72,7 +72,7 @@ const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
 const packageJson = requireFromConfig('./package.json') as {version?: unknown};
 // Hosted browser builds report to Sentry only when a DSN is configured; the
 // desktop renderer sends through Electron main instead. Source maps are
-// emitted only for a build that uploads them (scripts/release/upload-sentry-sourcemaps.mjs).
+// emitted only for a build that uploads them (scripts/upload-sentry-sourcemaps.mjs).
 const sentryBrowserDsn = process.env.SENTRY_BROWSER_DSN?.trim() ?? '';
 const sentryBrowserIngestOrigin = sentryBrowserDsn ? new URL(sentryBrowserDsn).origin : '';
 const emitSourceMaps = Boolean(process.env.SENTRY_AUTH_TOKEN);

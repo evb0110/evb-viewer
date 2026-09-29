@@ -35,14 +35,25 @@ issue, or a report.
 
 ## Source maps
 
-Release builds with `SENTRY_AUTH_TOKEN` emit hidden source maps. The
-`Upload Sentry source maps` workflow step runs
-`node scripts/release/upload-sentry-sourcemaps.mjs dist-electron nuxt-output/public`
-before packaging: `sentry-cli sourcemaps inject` adds Debug IDs to the bundles,
-`sentry-cli sourcemaps upload` uploads the maps, and the script deletes the
-maps. A web deploy through `pnpm run deploy:web:prod` with `SENTRY_AUTH_TOKEN`
-and `SENTRY_BROWSER_DSN` set builds locally and runs the same script on
-`.vercel/output/static`.
+Builds with `SENTRY_AUTH_TOKEN` emit hidden source maps and upload them from
+`scripts/upload-sentry-sourcemaps.mjs`: `sentry-cli sourcemaps inject` adds
+Debug IDs to the bundles, `sentry-cli sourcemaps upload` uploads the bundles
+and maps, and the script deletes the maps. `pnpm run build` runs it on the
+renderer output right after `nuxi build` and before pruning, so the renderer
+maps exist when they are uploaded; without a token it does nothing. Release
+builds pass `SENTRY_ORG` and the desktop `SENTRY_PROJECT` to the build step,
+and the later `Upload Sentry source maps` step runs
+`node scripts/upload-sentry-sourcemaps.mjs dist-electron` for the Electron
+bundles, which are built after the renderer. The preload bundle ships without
+a map: it runs no Sentry client, so its frames never appear in reports.
+
+A hosted build with `SENTRY_BROWSER_DSN` but no `SENTRY_AUTH_TOKEN` fails
+instead of publishing a bundle without Debug IDs, and `pnpm run
+deploy:web:prod` refuses to start with that combination. Deploy the viewer
+with `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, the web `SENTRY_PROJECT` and
+`SENTRY_BROWSER_DSN` set locally: it builds with `pnpm run build`, which uploads
+the maps of `.vercel/output/static`, and deploys that prebuilt output. A Vercel
+source build does the same only if the Vercel environment holds all four.
 
 ## Alerts
 
