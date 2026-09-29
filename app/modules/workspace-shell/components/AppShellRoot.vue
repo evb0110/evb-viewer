@@ -383,7 +383,9 @@ const {
     downloadUpdate,
     ensureInitialized: ensureUpdatesInitialized,
     installUpdateNow,
+    showUpdateDialog,
     skipUpdateVersion,
+    status: updatesStatus,
 } = useAppUpdates();
 const documentSessions = useWorkspaceDocumentSessions({
     activeTabId,
@@ -585,7 +587,9 @@ function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
     handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceCommand);
 }
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
+    updatesStatus,
     updatesDialog,
+    showUpdateDialog,
     updatesDialogVersion,
     closeUpdatesDialog,
     deferUpdate,

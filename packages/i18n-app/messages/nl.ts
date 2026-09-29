@@ -1617,6 +1617,8 @@ export default {
         'checkingDescription': 'Controleren op de nieuwste versie...',
         'availableTitle': 'Update beschikbaar',
         'availableDescription': 'Versie {version} is beschikbaar. Nu downloaden, installeren en herstarten?',
+        'offerDescription': 'Versie {version} is beschikbaar.',
+        'viewAction': 'Update bekijken',
         'downloadingTitle': 'Update downloaden',
         'downloadingDescription': 'Downloaden van {version}: {percent}%',
         'readyTitle': 'Update klaar om te installeren',

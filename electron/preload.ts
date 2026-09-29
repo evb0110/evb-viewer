@@ -16,6 +16,7 @@ import {
 } from '@electron/preload/preloadLog';
 import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
 import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
 const preloadAlreadyInstalled = markPreloadInstalled();
@@ -82,6 +83,12 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
         deferredAutomationDocumentOpens.delete(path);
         deferred.release();
         return true;
+    });
+    // Replays an update status through the renderer's own `updates:status`
+    // subscription, which still validates it. Unpackaged Linux builds never
+    // reach an update offer, so this is how E2E presents one.
+    contextBridge.exposeInMainWorld('__emitUpdateStatusForAutomation', (status: unknown) => {
+        ipcRenderer.emit(UPDATES_PLATFORM_FEATURE.events.onStatus.channel, {}, status);
     });
     tracePreload('automation file-open capability helper exposed');
 }

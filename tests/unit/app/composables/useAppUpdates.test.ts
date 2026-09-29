@@ -129,6 +129,9 @@ describe('useAppUpdates', () => {
 
         expect(updatesCapability.getState).toHaveBeenCalledOnce();
         expect(updates.status.value).toEqual(pushedStatus);
+        expect(updates.dialog.value.open).toBe(false);
+
+        updates.showUpdateDialog();
         expect(updates.dialog.value).toMatchObject({
             open: true,
             kind: 'ready',
@@ -136,7 +139,7 @@ describe('useAppUpdates', () => {
         });
     });
 
-    it('prompts before an automatic download and starts it only on request', async () => {
+    it('opens an automatic offer only on request and starts the download only on request', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
         const download = vi.fn(async () => ({ started: true }));
         const updatesCapability = createElectronPlatformApiFixture({updates: {
@@ -161,6 +164,9 @@ describe('useAppUpdates', () => {
         });
 
         expect(download).not.toHaveBeenCalled();
+        expect(updates.dialog.value.open).toBe(false);
+
+        updates.showUpdateDialog();
         expect(updates.dialog.value).toMatchObject({
             open: true,
             kind: 'available',
@@ -170,6 +176,40 @@ describe('useAppUpdates', () => {
 
         await updates.downloadUpdate();
         expect(download).toHaveBeenCalledOnce();
+    });
+
+    it('opens a failure dialog only for a check the user asked for', async () => {
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
+        const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+            statusListener = callback;
+            return () => {};
+        })}}).updates;
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await updates.ensureInitialized();
+        const failedStatus: IAppUpdateStatus = {
+            phase: 'error',
+            origin: 'auto',
+            version: '1.0.0',
+            percent: null,
+            message: 'offline',
+        };
+
+        requireStatusListener(statusListener)(failedStatus);
+        expect(updates.dialog.value.open).toBe(false);
+
+        requireStatusListener(statusListener)({
+            ...failedStatus,
+            origin: 'manual',
+        });
+        expect(updates.dialog.value).toMatchObject({
+            open: true,
+            kind: 'status',
+            phase: 'error',
+            message: 'offline',
+        });
     });
 
     it('retries initialization after an initial state fetch failure', async () => {

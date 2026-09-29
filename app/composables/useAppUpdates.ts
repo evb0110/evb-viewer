@@ -145,21 +145,21 @@ function applyStatus(
         activeUpdateFailure = null;
     }
 
-    if (nextStatus.phase === 'available') {
-        openAvailableDialog(nextStatus.version);
-        return;
+    // Only a status the user asked for opens the modal. The shell presents an
+    // automatic offer as a notice, and an automatic failure is only logged.
+    if (nextStatus.origin === 'manual') {
+        showUpdateDialog();
     }
+}
 
-    if (nextStatus.phase === 'downloaded') {
-        openReadyDialog(nextStatus.version);
-        return;
-    }
-
-    if (nextStatus.phase === 'error' || (
-        nextStatus.origin === 'manual'
-        && nextStatus.phase !== 'idle'
-    )) {
-        openStatusDialog(nextStatus, activeUpdateFailure);
+function showUpdateDialog() {
+    const current = status.value;
+    if (current.phase === 'available') {
+        openAvailableDialog(current.version);
+    } else if (current.phase === 'downloaded') {
+        openReadyDialog(current.version);
+    } else {
+        openStatusDialog(current, activeUpdateFailure);
     }
 }
 
@@ -341,6 +341,7 @@ export const useAppUpdates = () => {
         installUpdateNow,
         deferUpdate,
         skipUpdateVersion,
+        showUpdateDialog,
         closeDialog,
     };
 };

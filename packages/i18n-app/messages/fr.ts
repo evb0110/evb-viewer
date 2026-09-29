@@ -1628,6 +1628,8 @@ export default {
         'checkingDescription': 'Vérification de la dernière version...',
         'availableTitle': 'Mise à jour disponible',
         'availableDescription': 'La version {version} est disponible. La télécharger, l’installer et redémarrer maintenant ?',
+        'offerDescription': 'La version {version} est disponible.',
+        'viewAction': 'Voir la mise à jour',
         'downloadingTitle': 'Téléchargement de la mise à jour',
         'downloadingDescription': 'Téléchargement de {version} : {percent}%',
         'readyTitle': 'Mise à jour prête à installer',

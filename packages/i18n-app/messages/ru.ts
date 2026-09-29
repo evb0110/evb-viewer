@@ -1657,6 +1657,8 @@ export default {
         'checkingDescription': 'Проверяем наличие новой версии...',
         'availableTitle': 'Доступно обновление',
         'availableDescription': 'Доступна версия {version}. Скачать, установить и перезапустить приложение сейчас?',
+        'offerDescription': 'Доступна версия {version}.',
+        'viewAction': 'Посмотреть обновление',
         'downloadingTitle': 'Загрузка обновления',
         'downloadingDescription': 'Загружается {version}: {percent}%',
         'readyTitle': 'Обновление готово к установке',

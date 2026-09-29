@@ -1617,6 +1617,8 @@ export default {
         'checkingDescription': 'Es wird nach der neuesten Version gesucht...',
         'availableTitle': 'Update verfügbar',
         'availableDescription': 'Version {version} ist verfügbar. Jetzt herunterladen, installieren und neu starten?',
+        'offerDescription': 'Version {version} ist verfügbar.',
+        'viewAction': 'Update anzeigen',
         'downloadingTitle': 'Update wird heruntergeladen',
         'downloadingDescription': 'Lade {version} herunter: {percent}%',
         'readyTitle': 'Update bereit zur Installation',
