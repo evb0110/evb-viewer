@@ -44,6 +44,14 @@ texts are included in the `licenses/` directory alongside this file.
   (`licenses/GPL-2.0.txt`)
 - Bundled as: `djvulibre/<platform>-<arch>` binaries and support libraries.
 
+## Microsoft Visual C++ runtime (Windows)
+
+- Upstream: https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+- License: Microsoft Visual C++ Redistributable terms; redistributed
+  unmodified as permitted for application-local deployment.
+- Bundled as: `msvcp140*.dll`, `vcruntime140*.dll`, and `concrt140.dll` beside
+  each Windows native tool that imports them.
+
 ## DejaVu Sans 2.37
 
 - Upstream: https://github.com/dejavu-fonts/dejavu-fonts

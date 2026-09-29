@@ -13,6 +13,7 @@ This file is a practical index of the major third-party components and assets th
 - Poppler binaries and poppler-data resources are bundled under `resources/poppler/`; Windows poppler-data license files are retained under `resources/poppler/win32-x64/share/poppler/`.
 - qpdf binaries are bundled under `resources/qpdf/`.
 - DjVuLibre binaries are bundled under `resources/djvulibre/`.
+- On Windows, the Microsoft Visual C++ runtime DLLs are bundled unmodified beside each native tool that imports them, copied at packaging time from the build host's installed redistributable.
 
 ## Annotation font
 
