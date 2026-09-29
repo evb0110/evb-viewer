@@ -29,6 +29,7 @@ import {
     goToPageViaToolbar,
     openDocumentSidebarTab,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {expectWithinTimingBudget} from '@tests/e2e/electron/helpers/timingBudget';
 import {waitForAnimationFrames} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -1058,7 +1059,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
             && frame.mainRaster.aspectError <= 0.08
         ));
         expect(firstFinalScaleFrame, JSON.stringify(postClickFrames.slice(0, 10))).toBeDefined();
-        expect(firstFinalScaleFrame?.msSinceClick).toBeLessThanOrEqual(500);
+        // 500 ms is the target on the nightly macOS runner, which enforces it;
+        // other hosts report a miss (docs/contributing/ci.md).
+        expectWithinTimingBudget(firstFinalScaleFrame?.msSinceClick, 500, JSON.stringify(firstFinalScaleFrame));
         expect(firstFinalScaleFrame?.zoom).toBe(finalFrame.zoom);
         expect(postClickFrames.filter(frame => frame.pageRect && frame.pageRect.width > frame.pageRect.height)
             .every(frame => frame.zoom === finalFrame.zoom)).toBe(true);
