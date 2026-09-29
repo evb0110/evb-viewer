@@ -18,6 +18,10 @@ import {
     openAnnotationsTab, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    getLatestAutomationEventId,
+    waitForAutomationEvent,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import type {Page} from 'puppeteer-core';
 
 let outputDirectory: string | null = null;
@@ -108,6 +112,39 @@ async function visibleAnnotationTexts(page: Page) {
     )).map(element => element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? '').filter(Boolean));
 }
 
+async function dragTabToOtherPane(page: Page, sourcePaneId: string, targetPaneId: string) {
+    const points = await page.evaluate((payload: {
+        source: string;
+        target: string;
+    }) => {
+        const center = (element: Element | null) => {
+            const rect = element?.getBoundingClientRect();
+            return rect && rect.width > 0 ? {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            } : null;
+        };
+        return {
+            from: center(document.querySelector(`.editor-pane[data-editor-pane-id="${payload.source}"] .tab.is-active[data-tab-id]`)),
+            to: center(document.querySelector(`.editor-pane[data-editor-pane-id="${payload.target}"] .tab-list`)),
+        };
+    }, {
+        source: sourcePaneId,
+        target: targetPaneId,
+    });
+    if (!points.from || !points.to) throw new Error(`Tab drag points are not visible: ${JSON.stringify(points)}`);
+    await page.mouse.move(points.from.x, points.from.y);
+    await page.mouse.down();
+    const steps = 12;
+    for (let step = 1; step <= steps; step += 1) {
+        await page.mouse.move(
+            points.from.x + (points.to.x - points.from.x) * step / steps,
+            points.from.y + (points.to.y - points.from.y) * step / steps,
+        );
+    }
+    await page.mouse.up();
+}
+
 describe('dirty tab transfer and annotation save', () => {
     it('transfers the committed annotation and saves a later edit with it', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-dirty-tab-save-'));
@@ -174,5 +211,71 @@ describe('dirty tab transfer and annotation save', () => {
             expect.objectContaining({contents: first}),
             expect.objectContaining({contents: second}),
         ]));
+    }, 150_000);
+
+    it('keeps a committed annotation dirty and saveable after moving its tab to another pane', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-dirty-tab-pane-move-'));
+        const sourcePath = join(outputDirectory, 'move-dirty-pane-source.pdf');
+        copyFileSync(resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), sourcePath);
+        session = await startElectronE2ESession(`e2e-move-dirty-tab-pane-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const annotation = `Pane move annotation ${Date.now()}`;
+        await createFreeTextAnnotationWithPointer(page, annotation, {
+            x: 0.28,
+            y: 0.32,
+        }, 1);
+        const sourceBytes = await readFile(sourcePath);
+        const sourcePaneId = await page.$eval('.editor-pane.is-active', pane => (pane as HTMLElement).dataset.editorPaneId ?? '');
+
+        // Setup only: an empty pane on the right gives the drag a destination.
+        await page.evaluate(async () => {
+            const splitEmpty = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
+            if (typeof splitEmpty !== 'function') throw new Error('Split Empty automation hook is unavailable');
+            await splitEmpty('right');
+        });
+        await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2, {timeout: 20_000});
+        const targetPaneId = await page.$$eval('.editor-pane', (panes, source) => panes
+            .map(pane => (pane as HTMLElement).dataset.editorPaneId ?? '')
+            .find(id => id !== source) ?? '', sourcePaneId);
+
+        await dragTabToOtherPane(page, sourcePaneId, targetPaneId);
+        await page.waitForFunction((target: string, name: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            `.editor-pane[data-editor-pane-id="${target}"] .tab[data-tab-id]`,
+        )).some(tab => tab.textContent?.includes(name)), {timeout: 30_000}, targetPaneId, 'move-dirty-pane-source.pdf');
+        await waitForFunctionInPage(page, (target: string, expected: string) => {
+            const pane = document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${target}"]`);
+            const tab = Array.from(pane?.querySelectorAll<HTMLElement>('.tab[data-tab-id]') ?? [])
+                .find(candidate => candidate.textContent?.includes('move-dirty-pane-source.pdf'));
+            const rendered = Array.from(pane?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
+                .some(element => element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expected);
+            return Boolean(tab?.classList.contains('is-active') && tab.classList.contains('is-dirty') && rendered);
+        }, {timeout: 30_000}, targetPaneId, annotation);
+        expect(await readFile(sourcePath)).toEqual(sourceBytes);
+
+        const saveTarget = await page.$$eval('button[aria-label="Save"], button[aria-label^="Save ("]', buttons => buttons.map((button) => {
+            const rect = button.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+                usable: !(button as HTMLButtonElement).disabled && rect.width > 0 && rect.height > 0,
+            };
+        }).find(target => target.usable) ?? null);
+        if (!saveTarget) throw new Error('No enabled visible Save control after the pane move');
+        const saveBaseline = await getLatestAutomationEventId(page);
+        await page.mouse.click(saveTarget.x, saveTarget.y);
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path: sourcePath,
+            timeoutMs: 60_000,
+        });
+        await waitForFunctionInPage(page, (target: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            `.editor-pane[data-editor-pane-id="${target}"] .tab.is-active[data-tab-id]`,
+        )).every(tab => !tab.classList.contains('is-dirty')), {timeout: 30_000}, targetPaneId);
+        expect(await readPdfTextAnnotationRecords(sourcePath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: annotation})]));
     }, 150_000);
 });
