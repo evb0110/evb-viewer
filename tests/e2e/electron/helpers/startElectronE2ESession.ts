@@ -1,4 +1,5 @@
 import {
+    existsSync,
     mkdirSync,
     rmSync,
     writeFileSync,
@@ -26,6 +27,7 @@ import {
     waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    electronUserDataPath,
     releaseCurrentSessionName,
     sessionDir,
     setCurrentSessionName,
@@ -353,6 +355,7 @@ async function startElectronE2ESessionWithAutomationEnv(
     sessionName: string,
     options: IElectronE2ESessionStartOptions | undefined,
     buildAutomationEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv,
+    seedProfile?: (userDataPath: string) => void,
 ): Promise<IElectronE2ESession> {
     const scopedSessionName = assertE2ESessionName(createE2ERunScopedSessionName(sessionName, process.env));
     const clean = options?.clean ?? true;
@@ -372,6 +375,7 @@ async function startElectronE2ESessionWithAutomationEnv(
     }
 
     setCurrentSessionName(scopedSessionName);
+    seedProfile?.(electronUserDataPath(scopedSessionName));
     const requestedEnv = {
         ...process.env,
         ...(options?.extraEnv ?? {}),
@@ -548,5 +552,23 @@ export async function startHostVisibleElectronE2ESession(
         sessionName,
         options,
         buildVisibleWindowElectronE2EAutomationEnv,
+        suppressDefaultViewerPrompt,
     );
+}
+
+/**
+ * A visible window takes focus, so a first-run profile shows the native
+ * "Default Viewer" question about 1.5 s after the renderer is ready. That modal
+ * takes X focus from the page, which removes an empty text box the test has
+ * just placed. Answering "Don't Ask Again" before launch is what a user does
+ * once; headless sessions never show the prompt.
+ */
+function suppressDefaultViewerPrompt(userDataPath: string) {
+    const settingsPath = join(userDataPath, 'settings.json');
+    if (existsSync(settingsPath)) return;
+    mkdirSync(userDataPath, {recursive: true});
+    writeFileSync(settingsPath, JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        suppressDefaultViewerPrompt: true,
+    }, null, 2));
 }
