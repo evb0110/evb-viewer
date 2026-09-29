@@ -62,7 +62,7 @@ tmp/
 coverage/
 docs/
 node_modules/
-vendor/
+/vendor/
 *.tgz
 *.tar.gz
 

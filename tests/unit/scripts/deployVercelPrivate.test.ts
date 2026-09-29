@@ -791,10 +791,13 @@ describe('private Vercel deployment source', () => {
             mkdirSync(path.join(projectRoot, 'vendor/pdfjs-dist'), {recursive: true});
             writeFileSync(path.join(projectRoot, dependency), 'required package');
             writeFileSync(path.join(projectRoot, 'vendor/pdfjs-dist/old.tgz'), 'obsolete package');
+            writeFileSync(path.join(projectRoot, 'vendor/pdfjs-dist/README.md'), 'archive notes');
+            mkdirSync(path.join(projectRoot, 'public/vendor/djvujs'), {recursive: true});
+            writeFileSync(path.join(projectRoot, 'public/vendor/djvujs/djvu.js'), 'runtime vendor');
             const manifest = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
             manifest.dependencies = {'pdfjs-dist': `file:${dependency}`};
             writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify(manifest));
-            writeFileSync(path.join(projectRoot, '.vercelignore'), 'vendor/\n*.tgz\n');
+            writeFileSync(path.join(projectRoot, '.vercelignore'), '/vendor/\n*.tgz\n');
             commitFixtureChanges(projectRoot);
             prepared = preparePrivateDeploySource({
                 projectRoot,
@@ -802,6 +805,9 @@ describe('private Vercel deployment source', () => {
             });
             expect(readFileSync(path.join(prepared.sourceRoot, dependency), 'utf8')).toBe('required package');
             expect(existsSync(path.join(prepared.sourceRoot, 'vendor/pdfjs-dist/old.tgz'))).toBe(false);
+            expect(existsSync(path.join(prepared.sourceRoot, 'vendor/pdfjs-dist/README.md'))).toBe(false);
+            expect(readFileSync(path.join(prepared.sourceRoot, 'public/vendor/djvujs/djvu.js'), 'utf8'))
+                .toBe('runtime vendor');
             expect(readFileSync(path.join(prepared.sourceRoot, '.vercelignore'), 'utf8')).toContain(
                 '!vendor/\n!vendor/pdfjs-dist/\n!vendor/pdfjs-dist/current.tgz',
             );

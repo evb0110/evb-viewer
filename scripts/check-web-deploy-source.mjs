@@ -65,7 +65,6 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES = [
     'release',
     'resources',
     'tests',
-    'vendor',
 ];
 
 // `MEMORIES.md` is the local scratch note `.gitignore` describes: not part of the
@@ -172,6 +171,11 @@ function shouldSkipSourcePath(dirent, relativeDirectory) {
     return isExcludedWebDeploySourcePath(dirent.name, relativeDirectory);
 }
 
+// Vendored package archives live in the root vendor/; public/vendor and types/vendor ship.
+export function isRootVendorPath(relativePath) {
+    return relativePath === 'vendor' || relativePath.startsWith('vendor/');
+}
+
 // A file: dependency is a build input even when vendor archives are otherwise excluded.
 export function getWebDeployVendorDependencies(projectRoot = defaultProjectRoot) {
     const manifestPath = path.join(projectRoot, 'package.json');
@@ -220,7 +224,7 @@ export function assertCleanTrackedWebDeploySource(projectRoot = defaultProjectRo
 function shouldIncludeTrackedPath(relativePath) {
     const normalizedPath = relativePath.replaceAll('\\', '/');
     const segments = normalizedPath.split('/');
-    if (segments.slice(0, -1).some(isExcludedWebDeploySourceDirectoryName)) {
+    if (isRootVendorPath(normalizedPath) || segments.slice(0, -1).some(isExcludedWebDeploySourceDirectoryName)) {
         return false;
     }
     return !isExcludedWebDeploySourcePath(
@@ -264,7 +268,7 @@ export async function collectWebDeploySourceStats({
             const relativePath = path.posix.join(relativeDirectory, dirent.name);
             const dependencyInput = [...vendorDependencies].some(dependency => dependency === relativePath
                 || dependency.startsWith(`${relativePath}/`));
-            if (!dependencyInput && (relativePath.startsWith('vendor/') || shouldSkipSourcePath(dirent, relativeDirectory))) {
+            if (!dependencyInput && (isRootVendorPath(relativePath) || shouldSkipSourcePath(dirent, relativeDirectory))) {
                 continue;
             }
 

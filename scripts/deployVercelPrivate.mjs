@@ -32,6 +32,7 @@ import {
     getWebDeployVendorDependencies,
     isExcludedWebDeploySourceDirectoryName,
     isExcludedWebDeploySourceFileName,
+    isRootVendorPath,
 } from './check-web-deploy-source.mjs';
 import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
@@ -61,7 +62,7 @@ export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarge
 
     const segments = relativePath.split(/[\\/]+/u);
 
-    if (segments.some(segment => (
+    if (isRootVendorPath(relativePath) || segments.some(segment => (
         isExcludedWebDeploySourceDirectoryName(segment)
         && !(deployTarget === 'landing' && segment === 'landing')
     ))) {
