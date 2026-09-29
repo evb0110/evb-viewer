@@ -327,6 +327,30 @@ function removeNativeBuildReceipts(context) {
     }
 }
 
+// Bundles the Visual C++ runtime beside every Windows tool that imports it,
+// taken from the packaging host's installed redistributable. A user's machine
+// may carry an older runtime that crashes tools built with a newer toolset.
+async function bundleWindowsMsvcRuntime(context) {
+    if (context.electronPlatformName !== 'win32') {
+        return;
+    }
+
+    const {bundleWindowsMsvcRuntime: bundle} = await import('./release/windows-pe-dependencies.mjs');
+    const tag = platformArchTagForContext(context);
+    const resourcesDir = resourcesDirForContext(context);
+    const directories = RELEASE_TARGET_MANIFEST.families
+        .map(family => path.join(resourcesDir, ...family.stagedRootSegments, tag, 'bin'))
+        .filter(directory => fs.existsSync(directory));
+    const copied = bundle({
+        directories,
+        sourceDirectory: path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32'),
+        allowedMachines: [archName(context.arch)],
+    });
+    for (const file of copied) {
+        console.log('[afterPack] Bundled Visual C++ runtime:', path.relative(resourcesDir, file));
+    }
+}
+
 function makeTreeOwnerWritable(rootPath) {
     if (!fs.existsSync(rootPath)) {
         return;
@@ -377,6 +401,7 @@ exports.default = async function afterPack(context) {
     pruneChromiumLocales(context);
     removeNativeBuildReceipts(context);
     moveMacNativeToolResources(context);
+    await bundleWindowsMsvcRuntime(context);
 
     if (context.electronPlatformName !== 'darwin') {
         return;

@@ -1,6 +1,7 @@
 import {
     copyFileSync,
     mkdtempSync,
+    readdirSync,
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,9 +17,16 @@ import {
 } from 'vitest';
 
 interface IWindowsPeDependenciesModule {
+    bundleWindowsMsvcRuntime: (options: {
+        allowedMachines: string[];
+        directories: string[];
+        sourceDirectory: string;
+    }) => string[];
     normalizeWindowsHostPath: (filePath: string, platform?: NodeJS.Platform) => string;
     readWindowsPeInfo: (filePath: string) => {
+        fileVersion: number | null;
         imports: string[];
+        linkerVersion: number;
         machine: string;
         machineCode: number;
     };
@@ -30,6 +38,7 @@ interface IWindowsPeDependenciesModule {
 }
 
 const {
+    bundleWindowsMsvcRuntime,
     normalizeWindowsHostPath,
     readWindowsPeInfo,
     verifyWindowsPeDependencies,
@@ -41,7 +50,13 @@ const machineCodes = {
     x64: 0x8664,
 };
 
-function createPeFixture(machine: keyof typeof machineCodes, imports: string[]) {
+function createPeFixture(
+    machine: keyof typeof machineCodes,
+    imports: string[],
+    /** major * 100 + minor, as the module reports it */
+    linkerVersion = 1444,
+    fileVersion?: number,
+) {
     const buffer = Buffer.alloc(4096);
     const peOffset = 0x80;
     const optionalHeaderOffset = peOffset + 24;
@@ -59,6 +74,8 @@ function createPeFixture(machine: keyof typeof machineCodes, imports: string[]) 
     buffer.writeUInt16LE(0xf0, peOffset + 20);
 
     buffer.writeUInt16LE(0x20b, optionalHeaderOffset);
+    buffer.writeUInt8(Math.floor(linkerVersion / 100), optionalHeaderOffset + 2);
+    buffer.writeUInt8(linkerVersion % 100, optionalHeaderOffset + 3);
     buffer.writeUInt32LE(0x200, optionalHeaderOffset + 60);
     buffer.writeUInt32LE(16, optionalHeaderOffset + 108);
     buffer.writeUInt32LE(importDirectoryRva, optionalHeaderOffset + 120);
@@ -83,9 +100,26 @@ function createPeFixture(machine: keyof typeof machineCodes, imports: string[]) 
         nameOffset += importName.length + 1;
     }
 
+    if (fileVersion !== undefined) {
+        const fixedFileInfoOffset = 0x800;
+        buffer.writeUInt32LE(0xfeef04bd, fixedFileInfoOffset);
+        buffer.writeUInt32LE((Math.floor(fileVersion / 100) << 16) | fileVersion % 100, fixedFileInfoOffset + 8);
+    }
+
     const fixturePath = join(mkdtempSync(join(tmpdir(), 'evb-pe-fixture-')), `${machine}.dll`);
     writeFileSync(fixturePath, buffer);
     return fixturePath;
+}
+
+function createPeFile(
+    filePath: string,
+    machine: keyof typeof machineCodes,
+    imports: string[],
+    linkerVersion?: number,
+    fileVersion?: number,
+) {
+    copyFileSync(createPeFixture(machine, imports, linkerVersion, fileVersion), filePath);
+    return filePath;
 }
 
 describe('Windows PE dependency helpers', () => {
@@ -188,5 +222,97 @@ describe('Windows PE dependency helpers', () => {
             expect.stringContaining('expected one of arm64, got x64'),
             expect.stringContaining('Missing bundled DLL dependency "custom-runtime.dll"'),
         ]);
+    });
+
+    it('requires the Visual C++ runtime beside each tool even when the host pattern lists it', () => {
+        const toolPath = createPeFixture('x64', [
+            'KERNEL32.dll',
+            'MSVCP140.dll',
+        ]);
+
+        expect(verifyWindowsPeDependencies({
+            allowedMachines: ['x64'],
+            files: [toolPath],
+            systemDllPattern: /^(kernel32\.dll|msvcp140\.dll)$/iu,
+        })).toEqual([expect.stringContaining('Missing bundled DLL dependency "MSVCP140.dll"')]);
+    });
+
+    it('rejects a bundled Visual C++ runtime older than the toolset that built the tool', () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-pe-runtime-'));
+        const toolPath = createPeFile(join(directory, 'tool.exe'), 'x64', ['MSVCP140.dll'], 1451);
+        const runtimePath = createPeFile(join(directory, 'msvcp140.dll'), 'x64', [], 1444);
+
+        expect(verifyWindowsPeDependencies({
+            allowedMachines: ['x64'],
+            files: [
+                toolPath,
+                runtimePath,
+            ],
+            systemDllPattern: /^kernel32\.dll$/iu,
+        })).toEqual([expect.stringContaining('Bundled MSVCP140.dll 14.44 is older than the MSVC 14.51 toolset')]);
+    });
+
+    it('bundles the imported Visual C++ runtime and its own runtime imports into each tool directory', () => {
+        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-system32-'));
+        // The 14.51 runtime release is itself linked by the 14.50 toolset.
+        createPeFile(join(sourceDirectory, 'msvcp140.dll'), 'x64', [
+            'KERNEL32.dll',
+            'VCRUNTIME140.dll',
+            'VCRUNTIME140_1.dll',
+        ], 1450, 1451);
+        createPeFile(join(sourceDirectory, 'vcruntime140.dll'), 'x64', ['KERNEL32.dll'], 1451);
+        createPeFile(join(sourceDirectory, 'vcruntime140_1.dll'), 'x64', ['VCRUNTIME140.dll'], 1451);
+        createPeFile(join(sourceDirectory, 'concrt140.dll'), 'x64', [], 1451);
+        const popplerBin = mkdtempSync(join(tmpdir(), 'evb-pe-poppler-'));
+        createPeFile(join(popplerBin, 'pdftotext.exe'), 'x64', [
+            'KERNEL32.dll',
+            'MSVCP140.dll',
+        ], 1451);
+        const qpdfBin = mkdtempSync(join(tmpdir(), 'evb-pe-qpdf-'));
+        createPeFile(join(qpdfBin, 'qpdf.exe'), 'x64', ['VCRUNTIME140.dll'], 1444);
+        createPeFile(join(qpdfBin, 'vcruntime140.dll'), 'x64', [], 1444);
+
+        bundleWindowsMsvcRuntime({
+            allowedMachines: ['x64'],
+            directories: [
+                popplerBin,
+                qpdfBin,
+            ],
+            sourceDirectory,
+        });
+
+        expect(readdirSync(popplerBin).sort()).toEqual([
+            'msvcp140.dll',
+            'pdftotext.exe',
+            'vcruntime140.dll',
+            'vcruntime140_1.dll',
+        ]);
+        expect(readdirSync(qpdfBin).sort()).toEqual([
+            'qpdf.exe',
+            'vcruntime140.dll',
+        ]);
+        expect(verifyWindowsPeDependencies({
+            allowedMachines: ['x64'],
+            files: readdirSync(popplerBin).map(name => join(popplerBin, name)),
+            systemDllPattern: /^kernel32\.dll$/iu,
+        })).toEqual([]);
+    });
+
+    it('refuses to bundle a host runtime older than a tool\'s toolset or of another architecture', () => {
+        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-pe-system32-'));
+        createPeFile(join(sourceDirectory, 'vcruntime140.dll'), 'x64', [], 1444);
+        const toolBin = mkdtempSync(join(tmpdir(), 'evb-pe-tesseract-'));
+        createPeFile(join(toolBin, 'tesseract.exe'), 'x64', ['VCRUNTIME140.dll'], 1451);
+
+        expect(() => bundleWindowsMsvcRuntime({
+            allowedMachines: ['x64'],
+            directories: [toolBin],
+            sourceDirectory,
+        })).toThrow(/vcruntime140\.dll 14\.44 is older than the MSVC 14\.51 toolset/u);
+        expect(() => bundleWindowsMsvcRuntime({
+            allowedMachines: ['arm64'],
+            directories: [toolBin],
+            sourceDirectory,
+        })).toThrow(/is x64; expected one of arm64/u);
     });
 });
