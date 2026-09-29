@@ -199,6 +199,51 @@ describe('PdfDocumentSession range loading', () => {
         }
     });
 
+    it('keeps the rotated page geometry when the rotated file replaces the source', async () => {
+        const documentId = '/tmp/rotated-source.pdf';
+        const openSurface = createDocumentOpenSurfaceSession();
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const source = shallowRef(new Blob(['pdf'], {type: 'application/pdf'}));
+        const documentState = createPdfDocumentSession({
+            chassisAuthority: authority,
+            src: computed(() => source.value),
+            originalDocumentId: computed(() => documentId),
+            currentPage: computed(() => 1),
+        });
+        openSurface.begin({
+            documentId,
+            documentRevision: 'open-intent:1',
+            provisional: true,
+        }, {
+            documentId,
+            pageNumber: 1,
+            pageCount: 1,
+            width: 100,
+            height: 200,
+            rotation: 0,
+        });
+
+        try {
+            await documentState.load();
+            expect(documentState.beginPageMutationRotationPreview([1], 90)).toBe(true);
+            expect(documentState.pageMetrics.value[0]).toMatchObject({
+                width: 200,
+                height: 100,
+            });
+
+            source.value = new Blob(['rotated pdf'], {type: 'application/pdf'});
+
+            // The opening geometry describes the page before the rotation, and
+            // the outgoing file would measure the page upright again.
+            expect(documentState.pageMetrics.value[0]).toMatchObject({
+                width: 200,
+                height: 100,
+            });
+        } finally {
+            await documentState.dispose();
+        }
+    });
+
     it('keeps page metrics and metric entries non-reactive', async () => {
         const documentState = createPdfDocumentSession();
 

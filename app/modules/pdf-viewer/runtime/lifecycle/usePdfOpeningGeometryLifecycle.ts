@@ -55,7 +55,7 @@ export const usePdfOpeningGeometryLifecycle = (
             documentId.value,
             src.value,
         ] as const,
-        ([documentId]) => {
+        ([documentId], previous) => {
             if (!documentId || !chassisAuthority) {
                 return;
             }
@@ -64,6 +64,14 @@ export const usePdfOpeningGeometryLifecycle = (
                 openingGeometry?.documentId === documentId
                 && openingGeometry.pageNumber === currentPage.value
             ) {
+                // The opening geometry stands in until PDF.js measures the page.
+                // A later source of the same document, such as the file a page
+                // rotation writes, keeps the geometry already measured for it:
+                // the seed would empty it, and the outgoing file would refill it
+                // with the shape from before the change.
+                if (previous?.[0] === documentId && pageMetrics.value[openingGeometry.pageNumber - 1]) {
+                    return;
+                }
                 seedTrustedPageGeometry({
                     pageNumber: requirePageNumber(
                         openingGeometry.pageNumber,
