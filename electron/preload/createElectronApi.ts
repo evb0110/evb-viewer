@@ -511,14 +511,7 @@ export function createElectronApi(
             rendererLog: (entry) => ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, entry),
         },
 
-        diagnostics: {
-            startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'}),
-            onDebugLog: (callback) => eventSubscriber.onDecodedPayload(
-                CORE_IPC_EVENT_CHANNELS.debugLog,
-                decodeDebugLogEntry,
-                callback,
-            ),
-        },
+        diagnostics: {startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'})},
 
         system: {
             ...systemIpc,

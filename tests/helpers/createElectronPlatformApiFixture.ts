@@ -8,10 +8,7 @@ import {
 
 export type TElectronPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides & {diagnostics?: TDeepPartial<IDiagnosticsRendererCapability>;};
 
-const DEFAULT_DIAGNOSTICS: IDiagnosticsRendererCapability = {
-    startupPolicy: Object.freeze({mode: 'unknown'}),
-    onDebugLog: () => () => undefined,
-};
+const DEFAULT_DIAGNOSTICS: IDiagnosticsRendererCapability = {startupPolicy: Object.freeze({mode: 'unknown'})};
 
 export function createElectronPlatformApiFixture<TOverrides extends TElectronPlatformApiFixtureOverrides = TElectronPlatformApiFixtureOverrides>(
     overrides: TOverrides = {} as TOverrides,
@@ -28,13 +25,10 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
     }
     const electronApi: IElectronAPI = {
         ...platformApi,
-        diagnostics: {
-            startupPolicy: {
-                ...DEFAULT_DIAGNOSTICS.startupPolicy,
-                ...diagnosticsOverrides?.startupPolicy,
-            },
-            onDebugLog: diagnosticsOverrides?.onDebugLog ?? DEFAULT_DIAGNOSTICS.onDebugLog,
-        },
+        diagnostics: {startupPolicy: {
+            ...DEFAULT_DIAGNOSTICS.startupPolicy,
+            ...diagnosticsOverrides?.startupPolicy,
+        }},
         updates: platformApi.updates,
     };
     return electronApi as IElectronAPI & TOverrides;

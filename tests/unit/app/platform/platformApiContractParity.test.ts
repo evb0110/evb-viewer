@@ -85,7 +85,7 @@ describe('platform API contract parity', () => {
         const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
 
         expectCallablePathParity(api, descriptorPaths);
-        expectCallablePathParity(diagnostics, [['onDebugLog']]);
+        expectCallablePathParity(diagnostics, []);
     });
 
     it('keeps mocked Electron preload descriptor-complete', async () => {
@@ -110,6 +110,6 @@ describe('platform API contract parity', () => {
                     method,
                 ]),
         ]);
-        expectCallablePathParity(diagnostics, [['onDebugLog']]);
+        expectCallablePathParity(diagnostics, []);
     });
 });

@@ -1,8 +1,3 @@
-import type {
-    IDebugLogEntry,
-    TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
-
 export type TClientDiagnosticsPreference = 'unknown' | 'granted' | 'denied';
 
 export function parseClientDiagnosticsPreference(value: unknown): TClientDiagnosticsPreference {
@@ -13,7 +8,4 @@ export function parseClientDiagnosticsPreference(value: unknown): TClientDiagnos
 export interface IDiagnosticsStartupPolicy {mode: TClientDiagnosticsPreference;}
 
 /** The diagnostics capability available to renderer application code. */
-export interface IDiagnosticsRendererCapability {
-    startupPolicy: Readonly<IDiagnosticsStartupPolicy>;
-    onDebugLog: (callback: (entry: IDebugLogEntry) => void) => TMenuEventUnsubscribe;
-}
+export interface IDiagnosticsRendererCapability {startupPolicy: Readonly<IDiagnosticsStartupPolicy>;}
