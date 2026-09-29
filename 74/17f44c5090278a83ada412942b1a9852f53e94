@@ -1,0 +1,22 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_223644c4c1b691::t_0ae1021f8f9bd7 1039
+  s_223644c4c1b691::t_01ae02d2ef2a23 1030-1038,1040-1043,1046-1050,1053-1054,1080
+tests/e2e/electron/navigation/moveTabViewState.e2e.test.ts
+  s_223644c4c1b691::t_be0909a36c378b 78-79,86-93,95,104-115,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7417f44c5090278a83ada412942b1a9852f53e94",
+  "prompts": {},
+  "sessions": {
+    "s_223644c4c1b691": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "68524de2-1108-4e42-bf0a-5ef52da4ea20",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
