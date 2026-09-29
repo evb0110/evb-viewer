@@ -40,6 +40,9 @@ static TEST_QPDF_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // --decode-level/--json-stream-data options; the JSON object section already
 // omits stream bytes in the qpdf 10 and qpdf 12 formats we parse below.
 const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json", "--"];
+// A read that appends nothing may use the cross-reference table qpdf
+// reconstructs for a damaged file, which is the view the opening check accepts.
+const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json", "--"];
 
 #[derive(Debug, Clone)]
 pub(crate) struct IncrementalDocument {
@@ -195,13 +198,13 @@ impl Drop for TempQpdfFiles {
     }
 }
 
-pub(crate) fn load_qpdf_structural_incremental_pdf(
+fn read_qpdf_structure(
     path: &Path,
     qpdf_path: &Path,
-) -> Result<IncrementalDocument> {
+    arguments: &[&str],
+) -> Result<(fs::Metadata, Document, HashSet<ObjectId>)> {
     let initial_metadata = fs::metadata(path).map_err(io_domain_error)?;
-    let previous_len = initial_metadata.len();
-    if previous_len == 0 {
+    if initial_metadata.len() == 0 {
         return Err(domain_error(
             NativeErrorCode::CorruptXref,
             "PDF input is empty",
@@ -211,7 +214,7 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     let structure_output = create_private_temp_file(&temp.structure)?;
     let diagnostic_output = create_private_temp_file(&temp.diagnostics)?;
     let mut child = Command::new(qpdf_path)
-        .args(QPDF_STRUCTURE_ARGS)
+        .args(arguments)
         .arg(path)
         .stdout(Stdio::from(structure_output))
         .stderr(Stdio::from(diagnostic_output))
@@ -278,8 +281,25 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
         ));
     }
 
-    let (mut document, mut unavailable_base_streams) =
-        parse_qpdf_structure(&temp.structure, Some(path))?;
+    let (document, unavailable_base_streams) = parse_qpdf_structure(&temp.structure, Some(path))?;
+    Ok((initial_metadata, document, unavailable_base_streams))
+}
+
+/// qpdf's structural view of a PDF for a caller that only reads it. Unlike
+/// the incremental loader it accepts a reconstructed cross-reference table and
+/// never asks whether the file could take an appended revision.
+pub(crate) fn load_qpdf_structural_document(path: &Path, qpdf_path: &Path) -> Result<Document> {
+    let (_, document, _) = read_qpdf_structure(path, qpdf_path, QPDF_RECOVERED_STRUCTURE_ARGS)?;
+    Ok(document)
+}
+
+pub(crate) fn load_qpdf_structural_incremental_pdf(
+    path: &Path,
+    qpdf_path: &Path,
+) -> Result<IncrementalDocument> {
+    let (initial_metadata, mut document, mut unavailable_base_streams) =
+        read_qpdf_structure(path, qpdf_path, QPDF_STRUCTURE_ARGS)?;
+    let previous_len = initial_metadata.len();
     for object_id in crate::text_box_font::candidate_streams(&document) {
         if !unavailable_base_streams.contains(&object_id) {
             continue;
@@ -1377,11 +1397,12 @@ pub(crate) fn read_terminal_xref_from_file(
     let mut tail = Vec::new();
     file.read_to_end(&mut tail)?;
     let eof = find_last_bytes(&tail, b"%%EOF").ok_or("PDF terminal EOF marker is missing")?;
-    if tail[eof + b"%%EOF".len()..]
-        .iter()
-        .any(|byte| !byte.is_ascii_whitespace())
-    {
-        return Err("PDF has non-whitespace data after its terminal EOF marker".into());
+    // Bytes after the last EOF marker, such as NUL padding or a download
+    // trailer, belong to no revision and an append can follow them. A later
+    // startxref among them would make qpdf and this reader disagree on which
+    // revision the append extends.
+    if find_last_bytes(&tail[eof + b"%%EOF".len()..], b"startxref").is_some() {
+        return Err("PDF has a startxref marker after its terminal EOF marker".into());
     }
     let marker = find_last_bytes(&tail[..eof], b"startxref")
         .ok_or("PDF terminal startxref marker is missing")?;
@@ -1897,5 +1918,30 @@ esac
         let error = read_terminal_xref_from_file(&mut file, len).unwrap_err();
         assert!(error.to_string().contains("after its terminal EOF"));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn terminal_xref_reads_through_bytes_after_eof() {
+        for trailer in [&b"\0\0\0\0"[..], b"<html>download trailer</html>\n"] {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("evb-terminal-xref-test-{nonce}.pdf"));
+            fs::write(
+                &path,
+                [&b"%PDF-1.4\nxref\nstartxref\n9\n%%EOF\n"[..], trailer].concat(),
+            )
+            .unwrap();
+            let mut file = File::open(&path).unwrap();
+            let len = file.metadata().unwrap().len();
+            let (offset, xref_type) = read_terminal_xref_from_file(&mut file, len).unwrap();
+            assert_eq!(offset, 9);
+            assert!(matches!(
+                xref_type,
+                lopdf::xref::XrefType::CrossReferenceTable
+            ));
+            fs::remove_file(path).unwrap();
+        }
     }
 }
