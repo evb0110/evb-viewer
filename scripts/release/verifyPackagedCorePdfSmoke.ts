@@ -235,6 +235,21 @@ async function run() {
     });
     child.stdout?.pipe(process.stdout);
     child.stderr?.pipe(process.stderr);
+    // Node prints a deprecation on the main process's stderr, once per launch.
+    // Only a packaged app serves its renderer from app.asar, where a stat call
+    // raised DEP0180 on every start.
+    const mainProcessDeprecations: string[] = [];
+    let stderrPartialLine = '';
+    const collectDeprecations = (text: string) => {
+        const lines = `${stderrPartialLine}${text}`.split(/\r?\n/u);
+        stderrPartialLine = lines.pop() ?? '';
+        for (const line of lines) {
+            if (line.includes('DeprecationWarning')) {
+                mainProcessDeprecations.push(`[packaged-main:stderr] ${line.trim()}`);
+            }
+        }
+    };
+    child.stderr?.on('data', (chunk: Buffer) => collectDeprecations(chunk.toString('utf8')));
 
     let browser: TConnectedBrowser | null = null;
     let primaryError: Error | null = null;
@@ -357,7 +372,11 @@ async function run() {
         // Give errors queued by the final renderer operation a chance to reach
         // CDP before deciding that the packaged journey passed.
         await delay(250);
-        assertNoPackagedRendererFailures(rendererFailures);
+        collectDeprecations('\n');
+        assertNoPackagedRendererFailures([
+            ...rendererFailures,
+            ...mainProcessDeprecations,
+        ]);
 
         console.log('Packaged core-PDF smoke passed: OCR, open, annotation save, metadata-preserving rotate, source isolation, and search.');
     } catch (error) {

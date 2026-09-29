@@ -7,8 +7,7 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    existsSync: vi.fn(),
-    statSync: vi.fn(),
+    readdirSync: vi.fn(),
     fetch: vi.fn(),
     handle: vi.fn(),
     isReady: vi.fn(),
@@ -19,10 +18,36 @@ const mocks = vi.hoisted(() => ({
     },
 }));
 
-vi.mock('node:fs', () => ({
-    existsSync: mocks.existsSync,
-    statSync: mocks.statSync,
-}));
+vi.mock('node:fs', () => ({readdirSync: mocks.readdirSync}));
+
+// Serves directory listings for the given files and their parent directories,
+// the only view of the renderer tree the protocol handler reads.
+function useStaticFiles(files: string[]) {
+    mocks.readdirSync.mockImplementation((directory: string) => {
+        const entries = new Map<string, boolean>();
+        for (const file of files) {
+            if (!file.startsWith(`${directory}/`)) {
+                continue;
+            }
+            const [
+                name,
+                ...rest
+            ] = file.slice(directory.length + 1).split('/');
+            entries.set(name!, rest.length > 0);
+        }
+        if (entries.size === 0) {
+            throw Object.assign(new Error(`ENOENT: ${directory}`), {code: 'ENOENT'});
+        }
+        return [...entries].map(([
+            name,
+            isDirectory,
+        ]) => ({
+            name,
+            isFile: () => !isDirectory,
+            isDirectory: () => isDirectory,
+        }));
+    });
+}
 vi.mock('electron', () => ({
     app: {isReady: mocks.isReady},
     net: {fetch: mocks.fetch},
@@ -40,11 +65,7 @@ describe('app protocol', () => {
         mocks.config.isDev = false;
         mocks.config.renderer.staticRoot = '/app/dist';
         mocks.isReady.mockReturnValue(true);
-        mocks.existsSync.mockReturnValue(false);
-        mocks.statSync.mockReturnValue({
-            isFile: () => false,
-            isDirectory: () => false,
-        });
+        useStaticFiles([]);
         mocks.fetch.mockImplementation(async () => new Response('asset', {
             status: 200,
             headers: {'content-type': 'application/octet-stream'},
@@ -87,11 +108,7 @@ describe('app protocol', () => {
     });
 
     it('serves known assets through net.fetch with a MIME override', async () => {
-        mocks.existsSync.mockImplementation((filePath: string) => filePath === '/app/dist/assets/app.js');
-        mocks.statSync.mockReturnValue({
-            isFile: () => true,
-            isDirectory: () => false,
-        });
+        useStaticFiles(['/app/dist/assets/app.js']);
         const { setupAppProtocolHandler } = await import('@electron/protocol');
 
         setupAppProtocolHandler();
@@ -104,12 +121,20 @@ describe('app protocol', () => {
         expect(response.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
     });
 
+    it('serves a directory request from its index.html', async () => {
+        useStaticFiles(['/app/dist/electron/index.html']);
+        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        const response = await handler(new Request('evb-viewer://app/electron/'));
+
+        expect(mocks.fetch).toHaveBeenCalledWith('file:///app/dist/electron/index.html');
+        expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
+    });
+
     it('caches path resolution across repeated and query-string requests', async () => {
-        mocks.existsSync.mockImplementation((filePath: string) => filePath === '/app/dist/assets/app.js');
-        mocks.statSync.mockReturnValue({
-            isFile: () => true,
-            isDirectory: () => false,
-        });
+        useStaticFiles(['/app/dist/assets/app.js']);
         const { setupAppProtocolHandler } = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
@@ -117,8 +142,7 @@ describe('app protocol', () => {
         await handler(new Request('evb-viewer://app/assets/app.js?first=1'));
         await handler(new Request('evb-viewer://app/assets/app.js?second=2'));
 
-        expect(mocks.existsSync).toHaveBeenCalledOnce();
-        expect(mocks.statSync).toHaveBeenCalledOnce();
+        expect(mocks.readdirSync).toHaveBeenCalledOnce();
         expect(mocks.fetch).toHaveBeenCalledTimes(2);
     });
 
@@ -131,7 +155,7 @@ describe('app protocol', () => {
         await handler(new Request('evb-viewer://app/assets/missing.js?retry=1'));
         await handler(new Request('evb-viewer://app/assets/other.js'));
 
-        expect(mocks.existsSync).toHaveBeenCalledTimes(2);
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(2);
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 
@@ -146,7 +170,7 @@ describe('app protocol', () => {
         }
         await handler(new Request(paths[0]!));
 
-        expect(mocks.existsSync).toHaveBeenCalledTimes(4_098);
+        expect(mocks.readdirSync).toHaveBeenCalledTimes(4_098);
     });
 
     it('validates the extensionless Electron fallback before caching it', async () => {
@@ -157,7 +181,7 @@ describe('app protocol', () => {
         await expect(handler(new Request('evb-viewer://app/electron')))
             .resolves.toMatchObject({status: 404});
 
-        expect(mocks.existsSync).toHaveBeenCalledWith('/app/dist/electron/index.html');
+        expect(mocks.readdirSync).toHaveBeenCalledWith('/app/dist/electron', {withFileTypes: true});
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 

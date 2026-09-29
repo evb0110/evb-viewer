@@ -3,11 +3,10 @@ import {
     net,
     protocol,
 } from 'electron';
+import { readdirSync } from 'node:fs';
 import {
-    existsSync,
-    statSync,
-} from 'node:fs';
-import {
+    basename,
+    dirname,
     extname,
     join,
     normalize,
@@ -111,6 +110,24 @@ function resolveStaticFilePath(url: URL) {
     return resolvedPath;
 }
 
+// Electron answers a stat inside app.asar by constructing an fs.Stats, which
+// Node deprecates (DEP0180), so the packaged app printed that warning on its
+// first request. A directory listing reports the entry kind without one.
+function readStaticEntryKind(entryPath: string) {
+    try {
+        const name = basename(entryPath);
+        const entry = readdirSync(dirname(entryPath), {withFileTypes: true})
+            .find(candidate => candidate.name === name);
+        return entry?.isFile()
+            ? 'file'
+            : entry?.isDirectory()
+                ? 'directory'
+                : null;
+    } catch {
+        return null;
+    }
+}
+
 function resolveUncachedStaticFilePath(url: URL) {
     if (url.hostname !== APP_PROTOCOL_HOST) {
         return null;
@@ -129,16 +146,14 @@ function resolveUncachedStaticFilePath(url: URL) {
         return null;
     }
 
-    if (existsSync(candidatePath)) {
-        const stats = statSync(candidatePath);
-        if (stats.isFile()) {
-            return candidatePath;
-        }
-        if (stats.isDirectory()) {
-            const indexPath = join(candidatePath, 'index.html');
-            if (existsSync(indexPath) && statSync(indexPath).isFile()) {
-                return indexPath;
-            }
+    const candidateKind = readStaticEntryKind(candidatePath);
+    if (candidateKind === 'file') {
+        return candidatePath;
+    }
+    if (candidateKind === 'directory') {
+        const indexPath = join(candidatePath, 'index.html');
+        if (readStaticEntryKind(indexPath) === 'file') {
+            return indexPath;
         }
     }
 
@@ -149,7 +164,7 @@ function resolveUncachedStaticFilePath(url: URL) {
                 ? 'electron/index.html'
                 : 'index.html',
         );
-        if (existsSync(fallbackPath) && statSync(fallbackPath).isFile()) {
+        if (readStaticEntryKind(fallbackPath) === 'file') {
             return fallbackPath;
         }
     }
