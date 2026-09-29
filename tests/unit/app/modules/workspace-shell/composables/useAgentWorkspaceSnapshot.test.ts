@@ -478,40 +478,6 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
         harness.app.unmount();
     });
 
-    it('waits for the Electron bridge when Electron preload appears after browser runtime classification', async () => {
-        vi.useFakeTimers();
-        vi.spyOn(window.navigator, 'userAgent', 'get')
-            .mockReturnValue('Mozilla/5.0 AppleWebKit/537.36 Electron/42.3.3 Safari/537.36');
-        const harness = await mountAgentWorkspaceSnapshotHarness({
-            installElectronApi: false,
-            shouldWaitForDesktopBridge: () => false,
-        });
-
-        expect(harness.agent.onWorkspaceSnapshotRequest).not.toHaveBeenCalled();
-        expect(harness.agent.onCommandRequest).not.toHaveBeenCalled();
-
-        (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(harness.agent);
-
-        await vi.advanceTimersByTimeAsync(250);
-        await waitForAssertion(() => {
-            expect(harness.agent.onWorkspaceSnapshotRequest).toHaveBeenCalledTimes(1);
-            expect(harness.agent.onCommandRequest).toHaveBeenCalledTimes(1);
-        });
-
-        await harness.submitSnapshot({
-            requestId: requireRequestId('delayed-electron-bridge-snapshot'),
-            windowId: 42,
-        });
-
-        expect(harness.agent.submitWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-            requestId: 'delayed-electron-bridge-snapshot',
-            windowId: 42,
-            ok: true,
-        }));
-
-        harness.app.unmount();
-    });
-
     it('waits for the Electron bridge instead of binding browser no-op agent listeners', async () => {
         vi.useFakeTimers();
         const harness = await mountAgentWorkspaceSnapshotHarness({

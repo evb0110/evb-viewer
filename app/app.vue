@@ -181,10 +181,7 @@ import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
-import {
-    isElectronUserAgent,
-    waitForPreferredDesktopPlatformBridge,
-} from '@app/utils/platform';
+import { waitForPreferredDesktopPlatformBridge } from '@app/utils/platform';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 
 // Nuxt UI stacks toasts upward from the bottom-right corner and keeps at most
@@ -527,7 +524,7 @@ onMounted(async () => {
             routePath: route.path,
             desktopRuntime: isDesktopRuntime.value,
         });
-        if (bridgeResolution.shouldWait && !bridgeResolution.bridgeReady && isElectronUserAgent()) {
+        if (bridgeResolution.shouldWait && !bridgeResolution.bridgeReady) {
             const presentation = getOrCaptureRendererBootstrapFailure({
                 error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
                 key: 'electron-preload-bridge',

@@ -91,9 +91,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     async function heartbeatRecoveryLease() {
         const ownerId = activeOwnerId;
         const expectedGeneration = generation;
+        // Generation 0 means this owner has no recovery record to keep alive.
         if (
             !ownerId
-            || expectedGeneration === null
+            || !expectedGeneration
             || disposed
             || fenced
             || !options.enabled.value

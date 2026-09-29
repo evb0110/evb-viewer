@@ -19,10 +19,7 @@ import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
-import {
-    isElectronUserAgent,
-    waitForDesktopPlatformBridge,
-} from '@app/utils/platform';
+import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
@@ -582,7 +579,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     async function waitForAgentCapability() {
         let hasLoggedBridgeWait = false;
         while (lifecycle.isDisposed !== true) {
-            const shouldWaitForAgentBridge = options.shouldWaitForDesktopBridge() || isElectronUserAgent();
+            const shouldWaitForAgentBridge = options.shouldWaitForDesktopBridge();
             const bridgeReady = await waitForDesktopPlatformBridge({ shouldWait: shouldWaitForAgentBridge });
             if (lifecycle.isDisposed.valueOf()) {
                 return null;

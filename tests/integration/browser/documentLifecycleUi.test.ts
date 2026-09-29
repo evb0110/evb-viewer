@@ -141,6 +141,84 @@ afterAll(async () => {
 });
 
 describe('browser document lifecycle UI', () => {
+    it('starts and opens a PDF without desktop diagnostics or recovery warnings under an Electron-shaped user agent', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            // Embedded Electron-based browsers report this user agent without
+            // installing the EVB preload bridge.
+            const page = await browser.newPage({
+                userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) T3Code(Nightly)/0.0.44 Chrome/146.0.0.0 Electron/44.4.2 Safari/537.36',
+                viewport: {
+                    width: 1_280,
+                    height: 900,
+                },
+            });
+            const consoleProblems: string[] = [];
+            page.on('console', (message) => {
+                if (message.type() === 'error' || message.type() === 'warning') {
+                    consoleProblems.push(`${message.type()}: ${message.text()}`);
+                }
+            });
+            page.on('pageerror', error => consoleProblems.push(`pageerror: ${error.message}`));
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            expect(await page.evaluate(() => 'electronAPI' in window)).toBe(false);
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-electron-user-agent-startup.png')});
+            expect(await page.getByText('Error report ready').count()).toBe(0);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('Active browser document did not settle');
+                }
+            });
+            await expect.poll(() => page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent()).toContain('generated-text.pdf');
+
+            // The reported tab opened in the background. Headless Chromium
+            // keeps every page visible, so emulate the tab being hidden and
+            // shown again; showing it heartbeats the recovery lease.
+            for (const visibilityState of [
+                'hidden',
+                'visible',
+            ]) {
+                await page.evaluate(nextState => new Promise<void>((resolveVisibility) => {
+                    Object.defineProperty(document, 'visibilityState', {
+                        configurable: true,
+                        get: () => nextState,
+                    });
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    setTimeout(resolveVisibility, 0);
+                }), visibilityState);
+            }
+
+            expect(await page.getByText('Error report ready').count()).toBe(0);
+            expect(consoleProblems.filter(problem => /Electron|runtime-error-log-stream|recovery/iu.test(problem))).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
     it('keeps the rendered document and tab identity after a corrupt replacement is rejected', async () => {
         const browser = await chromium.launch({headless: true});
         try {
