@@ -121,7 +121,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
 
         // A tab without a mounted workspace keeps its last published view.
-        return documentSessions.getSession(tabId)?.toolbarSnapshot.value ?? null;
+        return documentSessions.getView(tabId)?.toolbarSnapshot.value ?? null;
     }
 
     function readWorkspaceAutomationState(

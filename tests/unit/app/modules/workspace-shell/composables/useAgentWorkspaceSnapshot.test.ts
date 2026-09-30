@@ -110,7 +110,7 @@ function createDocumentSession(tabId: string, options: {
             ? createDocumentIdentity('revision-1', 1, options.path)
             : options.identity,
     });
-    session.publishToolbarSnapshot({
+    session.getView(tabId)?.publishToolbarSnapshot({
         ...createDefaultWorkspaceToolbarSnapshot(),
         hasPdf: true,
         currentPage: 1,
@@ -118,7 +118,7 @@ function createDocumentSession(tabId: string, options: {
         ...options.toolbar,
     });
     if (options.workspace) {
-        session.attachWorkspace(options.workspace);
+        session.attachWorkspace(tabId, options.workspace);
     }
     return session;
 }
@@ -406,7 +406,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
         const panes = ref<IEditorPaneState[]>([createPane('pane-start', ['tab-empty'], 'tab-empty')]);
         const tabs = ref<ITab[]>([{id: 'tab-empty'}]);
         const emptySession = createWorkspaceDocumentController({tabId: 'tab-empty'});
-        emptySession.attachWorkspace(createWorkspace({}));
+        emptySession.attachWorkspace('tab-empty', createWorkspace({}));
         const recentFiles = ref<IRecentFile[]>([{
             fileName: 'Recent.djvu',
             originalPath: requireDocumentRef('/tmp/Recent.djvu'),
@@ -714,7 +714,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             },
         });
         recommitIdentity(harness.session, '/tmp/document.pdf', createDocumentIdentity('revision-2', 2));
-        harness.session.attachWorkspace(workspace);
+        harness.session.attachWorkspace('tab-1', workspace);
         const response = await pendingResponse;
 
         expect(response).toMatchObject({ok: false});

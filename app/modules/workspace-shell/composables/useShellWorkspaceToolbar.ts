@@ -4,10 +4,14 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {
+    IWorkspaceDocumentController,
+    IWorkspaceDocumentView,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 interface IUseShellWorkspaceToolbarOptions {
     activeDocumentSession: Readonly<Ref<IWorkspaceDocumentController | null>>;
+    activeDocumentView: Readonly<Ref<IWorkspaceDocumentView | null>>;
     hasWorkspaceToolbarContent: Readonly<Ref<boolean>>;
 }
 
@@ -22,7 +26,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     // the workspace fills in its toolbar snapshot only once it has mounted.
     const isActiveTabOpening = computed(() => options.activeDocumentSession.value?.snapshot.value.phase === 'opening');
     const shellToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => {
-        return options.activeDocumentSession.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot();
+        return options.activeDocumentView.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot();
     });
     const shellToolbarHasPdf = computed(() => shellToolbarSnapshot.value.hasPdf || isActiveTabOpening.value);
     const shellToolbarOcrWorkingCopyPath = computed<TDocumentRef | null>(() => (

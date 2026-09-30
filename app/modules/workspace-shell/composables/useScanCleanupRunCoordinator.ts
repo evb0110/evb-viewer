@@ -58,8 +58,9 @@ export async function recoverScanCleanupWorkspaceForDocument(
     // A hidden cleanup tab is recoverable but not visibly open. Preserve its
     // cleanup session when it already owns the surface; otherwise enter with a
     // fresh selection, then make that tab visible for persisted error details.
-    session.applyViewState(resolveScanCleanupEntryViewState(
-        session.viewState.value,
+    const view = session.getView(tabId);
+    view?.applyViewState(resolveScanCleanupEntryViewState(
+        view.viewState.value,
     ));
     activateTab(tabId);
     await nextTick();

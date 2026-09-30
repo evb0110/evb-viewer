@@ -185,7 +185,8 @@ export const useAppShellTabLifecycle = (
 
     function hasTabBusyOperation(tabId: string) {
         const session = getDocumentSession(tabId);
-        const toolbarSnapshot = session?.mountedWorkspace.value ? session.toolbarSnapshot.value : null;
+        const view = session?.getView(tabId);
+        const toolbarSnapshot = view?.mountedWorkspace.value ? view.toolbarSnapshot.value : null;
         return session?.operationLease.isBusy.value === true || Boolean(toolbarSnapshot && (
             toolbarSnapshot.isAnySaving
             || toolbarSnapshot.isHistoryBusy
@@ -230,9 +231,9 @@ export const useAppShellTabLifecycle = (
     }
 
     function tabHasCloseableDocument(tabId: string | null | undefined) {
-        const session = getDocumentSession(tabId);
-        return Boolean(session?.mountedWorkspace.value)
-            && hasWorkspaceViewerDocumentCapabilities(session?.toolbarSnapshot.value.viewerCapabilities);
+        const view = tabId ? getDocumentSession(tabId)?.getView(tabId) : null;
+        return Boolean(view?.mountedWorkspace.value)
+            && hasWorkspaceViewerDocumentCapabilities(view?.toolbarSnapshot.value.viewerCapabilities);
     }
 
     function isSingletonPlaceholderCloseBlocked(paneId: string, tabId: string) {

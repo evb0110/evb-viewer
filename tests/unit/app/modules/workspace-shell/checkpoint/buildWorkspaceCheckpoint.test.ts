@@ -63,8 +63,8 @@ describe('buildWorkspaceCheckpoint', () => {
                 isDjvu: false,
             },
         });
-        session.publishToolbarSnapshot(toolbar);
-        session.applyViewState(viewState);
+        session.getView('tab-1')?.publishToolbarSnapshot(toolbar);
+        session.getView('tab-1')?.applyViewState(viewState);
         const checkpoint = buildWorkspaceCheckpoint({
             panes: ref<IEditorPaneState[]>([pane]),
             tabs: ref([{id: 'tab-1'}]),

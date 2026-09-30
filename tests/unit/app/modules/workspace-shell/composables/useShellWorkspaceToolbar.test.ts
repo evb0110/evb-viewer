@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     ref,
     shallowRef,
 } from 'vue';
@@ -39,15 +40,17 @@ function createSession(
         isDjvu: false,
         revisionInfo,
     });
-    session.publishToolbarSnapshot(createSnapshot(snapshot));
+    session.getView('tab-1')?.publishToolbarSnapshot(createSnapshot(snapshot));
     return session;
 }
 
-function createToolbarOptions(overrides: Partial<Parameters<typeof useShellWorkspaceToolbar>[0]> = {}) {
+function createToolbarOptions(overrides: Partial<Omit<Parameters<typeof useShellWorkspaceToolbar>[0], 'activeDocumentView'>> = {}) {
+    const activeDocumentSession = overrides.activeDocumentSession ?? shallowRef<IWorkspaceDocumentController | null>(null);
     return {
-        activeDocumentSession: shallowRef<IWorkspaceDocumentController | null>(null),
         hasWorkspaceToolbarContent: ref(false),
         ...overrides,
+        activeDocumentSession,
+        activeDocumentView: computed(() => activeDocumentSession.value?.getView('tab-1') ?? null),
     };
 }
 
@@ -150,7 +153,7 @@ describe('useShellWorkspaceToolbar', () => {
         toolbar.shellToolbarZoom.value = 3;
 
         expect(toolbar.shellToolbarZoom.value).toBe(1.25);
-        expect(activeDocumentSession.value?.toolbarSnapshot.value.zoom).toBe(1.25);
+        expect(activeDocumentSession.value?.getView('tab-1')?.toolbarSnapshot.value.zoom).toBe(1.25);
     });
 
     it('runs overflow view mode commands through registry command names', () => {

@@ -73,7 +73,8 @@ function createDocumentSession(tabId: string, options: {dirty?: boolean} = {}) {
 
 // A mounted workspace that holds a closeable document until it is closed.
 function attachDocumentWorkspace(session: IWorkspaceDocumentController, expectedPersist: boolean) {
-    session.publishToolbarSnapshot({
+    const [tabId] = session.views.value.keys();
+    session.getView(tabId!)?.publishToolbarSnapshot({
         ...createDefaultWorkspaceToolbarSnapshot(),
         hasPdf: true,
         viewerCapabilities: {
@@ -92,7 +93,7 @@ function attachDocumentWorkspace(session: IWorkspaceDocumentController, expected
             return true;
         }),
     });
-    session.attachWorkspace(workspace);
+    session.attachWorkspace(tabId!, workspace);
     return workspace;
 }
 
@@ -353,7 +354,7 @@ describe('useAppShellTabLifecycle', () => {
             options?.onCloseCommit?.();
             return true;
         })});
-        session.attachWorkspace(workspace as IWorkspaceExpose);
+        session.attachWorkspace('tab-1', workspace as IWorkspaceExpose);
         const open = session.runOpen({
             kind: 'open',
             target: {

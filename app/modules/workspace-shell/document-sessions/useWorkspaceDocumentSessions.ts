@@ -6,7 +6,11 @@ import {
     type TWorkspaceDocumentAssignment,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
-/** One document controller per tab, created with the tab and disposed with it. */
+/**
+ * The document controller of every tab, created with the tab. A controller
+ * is disposed when the last tab viewing it goes; each tab reads and writes
+ * its own view record on it.
+ */
 export const useWorkspaceDocumentSessions = (options: {
     activeTabId: Ref<string | null>;
     tabs: Ref<ITab[]>;
@@ -55,30 +59,50 @@ export const useWorkspaceDocumentSessions = (options: {
             session,
         ] of [...sessionsByTabId.value]) {
             if (!liveTabIds.has(tabId)) {
-                session.dispose();
+                if (session.removeView(tabId) === 0) {
+                    session.dispose();
+                }
                 sessionsByTabId.value.delete(tabId);
                 triggerRef(sessionsByTabId);
             }
         }
     }, {immediate: true});
 
+    function getView(tabId: string | null | undefined) {
+        return tabId ? getSession(tabId)?.getView(tabId) ?? null : null;
+    }
+
     const documentSessionsByTabId = computed(() => Object.fromEntries(sessionsByTabId.value));
-    const workspaceRefs = computed(() => new Map([...sessionsByTabId.value].flatMap(([
+    const documentViewsByTabId = computed(() => Object.fromEntries([...sessionsByTabId.value].flatMap(([
         tabId,
         session,
-    ]) => session.mountedWorkspace.value ? [[
+    ]) => {
+        const view = session.views.value.get(tabId);
+        return view ? [[
+            tabId,
+            view,
+        ] as const] : [];
+    })));
+    const workspaceRefs = computed(() => new Map(Object.entries(documentViewsByTabId.value).flatMap(([
         tabId,
-        session.mountedWorkspace.value,
+        view,
+    ]) => view.mountedWorkspace.value ? [[
+        tabId,
+        view.mountedWorkspace.value,
     ] as const] : [])));
     const activeDocumentSession = computed(() => getSession(options.activeTabId.value));
-    const activeWorkspace = computed(() => activeDocumentSession.value?.mountedWorkspace.value ?? null);
+    const activeDocumentView = computed(() => getView(options.activeTabId.value));
+    const activeWorkspace = computed(() => activeDocumentView.value?.mountedWorkspace.value ?? null);
 
     return {
         activeDocumentSession,
+        activeDocumentView,
         activeWorkspace,
         assignDocument,
         documentSessionsByTabId,
+        documentViewsByTabId,
         getSession,
+        getView,
         workspaceRefs,
     };
 };

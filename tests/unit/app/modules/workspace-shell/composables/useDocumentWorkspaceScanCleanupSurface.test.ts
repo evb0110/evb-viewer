@@ -9,6 +9,7 @@ import {
 import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import type {
     IWorkspaceDocumentController,
+    IWorkspaceDocumentView,
     IWorkspaceDocumentIdentity,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
@@ -21,6 +22,7 @@ import {
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 
 type TDocumentSession = IWorkspaceDocumentController;
+type TDocumentView = IWorkspaceDocumentView;
 
 function identity(overrides: Partial<IWorkspaceDocumentIdentity> = {}): IWorkspaceDocumentIdentity {
     return {
@@ -94,14 +96,23 @@ function createSession(initialIdentity: IWorkspaceDocumentIdentity, initialViewS
     const documentSession: TDocumentSession = {
         ...({} as TDocumentSession),
         snapshot,
+    };
+    documentViews.set(documentSession, {
+        ...({} as TDocumentView),
         viewState: view,
         applyViewState,
-    };
+    });
     return {
         applyViewState,
         documentSession,
         snapshot,
     };
+}
+
+const documentViews = new WeakMap<TDocumentSession, TDocumentView>();
+
+function viewOf(documentSession: TDocumentSession) {
+    return documentViews.get(documentSession)!;
 }
 
 describe('useDocumentWorkspaceScanCleanupSurface', () => {
@@ -122,6 +133,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         }}));
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
+            documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => '/docs/current.pdf',
         });
@@ -155,6 +167,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
+            documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => '/docs/current.pdf',
         });
@@ -179,6 +192,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
+            documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => '/docs/current.pdf',
         });
@@ -202,6 +216,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         const {documentSession} = createSession(identity(), viewState({surfaceMode: 'scan-cleanup'}));
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
+            documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => documentKey,
             readSourceSha256: () => sourceSha256,
@@ -228,6 +243,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
+            documentView: viewOf(documentSession),
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => null,
         });

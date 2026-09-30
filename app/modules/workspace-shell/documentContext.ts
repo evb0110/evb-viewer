@@ -43,6 +43,7 @@ import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useW
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {
     IWorkspaceDocumentController,
+    IWorkspaceDocumentView,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { describeOpenResult } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
@@ -84,6 +85,7 @@ interface IDocumentContextDeps {
     tabId: string;
     isActive: Ref<boolean>;
     controller: IWorkspaceDocumentController;
+    documentView: IWorkspaceDocumentView;
     initialViewState: ITabViewSessionState | null;
     openSurface: IDocumentOpenSurfaceSession;
     preserveInitialStateForFirstSource: boolean;
@@ -221,6 +223,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     );
     const scanCleanup = useDocumentWorkspaceScanCleanupSurface({
         documentSession: controller,
+        documentView: deps.documentView,
         closeAllDropdowns: view.closeAllDropdowns,
         readDocumentKey: () => file.documentKey.value,
         readSourceSha256: () => scanCleanupSourceSha256.value,

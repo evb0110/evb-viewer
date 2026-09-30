@@ -256,17 +256,22 @@ const {
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = computed(() => isDesktopRuntime.value);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
+const documentView = documentSession.getView(tabId);
+if (!documentView) {
+    throw new Error(`Tab ${tabId} mounted a workspace for a document it does not view`);
+}
 // The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
 // comes back where it was.
-const initialViewState = documentSession.viewState.value;
+const initialViewState = documentView.viewState.value;
 const preserveInitialStateForFirstSource = documentSession.snapshot.value.phase === 'presented'
-    && documentSession.toolbarSnapshot.value.initialVisualReady;
+    && documentView.toolbarSnapshot.value.initialVisualReady;
 const context = createDocumentContext({
     tabId,
     isActive: computed(() => isActive),
     initialViewState,
     preserveInitialStateForFirstSource,
     controller: documentSession,
+    documentView,
     openSurface: documentOpenSurface,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emitOpenInNewTab: result => emit('open-in-new-tab', result),
@@ -490,6 +495,7 @@ const workspaceExpose = createWorkspaceExpose(context, {
 const workspaceToolbarSnapshot = computed(workspaceExpose.getToolbarSnapshot);
 const documentLifecycle = useWorkspaceDocumentLifecycle({
     documentSession,
+    documentView,
     openSurface: documentOpenSurface,
     isShown: () => isActive || isRenderActive,
     fileName: file.fileName,
@@ -503,7 +509,7 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     documentOpenAccepted: presentation.documentOpenAccepted,
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
-    readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentSession.viewState.value),
+    readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
     openPath: path => fileOps.handleOpenFileDirectWithPersist(path),
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
     hasWorkingCopy: () => workingCopyPath.value !== null,
@@ -516,7 +522,7 @@ watch(() => isActive || isRenderActive, (shown, wasShown) => {
     }
 }, {flush: 'sync'});
 onMounted(() => {
-    documentSession.attachWorkspace(workspaceExpose);
+    documentSession.attachWorkspace(tabId, workspaceExpose);
 });
 onBeforeUnmount(() => {
     if (surfaceMode.value === 'scan-cleanup') {
@@ -525,7 +531,7 @@ onBeforeUnmount(() => {
     // A cold tab can unmount in the same render that hides it; capture
     // while the workspace is still live.
     documentLifecycle.captureViewState();
-    documentSession.detachWorkspace(workspaceExpose);
+    documentSession.detachWorkspace(tabId, workspaceExpose);
 });
 defineExpose(workspaceExpose);
 </script>

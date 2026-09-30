@@ -166,14 +166,15 @@ describe('window tab transfer orchestration helpers', () => {
                 const session = createWorkspaceDocumentController({tabId: tab.id});
                 sessions.set(tab.id, session);
                 if (createdTabs === 1) {
-                    const whenMounted = session.whenMounted.bind(session);
-                    session.whenMounted = () => {
+                    const view = session.getView(tab.id)!;
+                    const whenMounted = view.whenMounted.bind(view);
+                    view.whenMounted = () => {
                         const pending = whenMounted();
                         mountWaiterStarted.resolve(undefined);
                         return pending;
                     };
                 } else {
-                    session.attachWorkspace(createWorkspaceExposeFixture({restoreSplitPayload: async () => ({status: 'cancelled'})}));
+                    session.attachWorkspace(tab.id, createWorkspaceExposeFixture({restoreSplitPayload: async () => ({status: 'cancelled'})}));
                 }
                 return tab;
             },

@@ -57,7 +57,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     const activeCommandAbortControllers = new Map<string, AbortController>();
 
     function createToolbarSnapshotSignature(tabId: string) {
-        const snapshot = options.documentSessionsByTabId.value[tabId]?.toolbarSnapshot.value;
+        const snapshot = options.documentSessionsByTabId.value[tabId]?.getView(tabId)?.toolbarSnapshot.value;
         if (!snapshot) {
             return null;
         }
@@ -72,7 +72,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function createDocumentSessionSignature(tabId: string) {
-        const snapshot = options.documentSessionsByTabId.value[tabId]?.snapshot.value ?? null;
+        const session = options.documentSessionsByTabId.value[tabId];
+        const snapshot = session?.snapshot.value ?? null;
         if (!snapshot) {
             return null;
         }
@@ -88,7 +89,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             documentRevisionToken: snapshot.identity.revisionInfo?.token ?? null,
             transactionId: snapshot.activeTransaction?.id ?? null,
             transactionKind: snapshot.activeTransaction?.kind ?? null,
-            mounted: snapshot.mounted,
+            mounted: Boolean(session?.getView(tabId)?.mountedWorkspace.value),
         };
     }
 
@@ -238,7 +239,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function getTabCommandTarget(tabId: string): TAgentWorkspaceCommandTarget | null {
-        return getTabSession(tabId)?.createCommandTarget() ?? null;
+        const session = getTabSession(tabId);
+        return session?.getView(tabId) ? session.createCommandTarget(tabId) : null;
     }
 
     function documentIdentityMatches(
@@ -313,7 +315,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
         const snapshot = unref(session.snapshot);
         if (
-            target.tabId !== snapshot.tabId
+            !session.getView(target.tabId)
             || target.sessionId !== snapshot.sessionId
             || target.documentRef !== snapshot.identity.documentRef
             || (target.documentInstanceId ?? null) !== snapshot.identity.documentInstanceId
@@ -380,7 +382,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         expectedCommandTarget: TAgentWorkspaceCommandTarget | null,
     ) {
         const session = getTabSession(tabId);
-        const workspace = await session?.whenMounted() ?? null;
+        const workspace = await session?.getView(tabId)?.whenMounted() ?? null;
         return expectedCommandTarget && session && !session.validateCommandTarget(expectedCommandTarget).ok
             ? null
             : workspace;

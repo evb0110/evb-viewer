@@ -165,9 +165,10 @@ async function mountDocumentWorkspace(options: {
         '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
     );
     const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
+    const documentView = documentSession.getView('tab-1')!;
     if (options.initialSurfaceMode) {
-        documentSession.applyViewState({
-            ...documentSession.viewState.value,
+        documentView.applyViewState({
+            ...documentView.viewState.value,
             surfaceMode: options.initialSurfaceMode,
         });
     }
@@ -229,7 +230,7 @@ async function mountDocumentWorkspace(options: {
     // has been torn down.
     await workspaceViewerChunkLoaders.chassis();
     await nextTick();
-    const expose = documentSession.mountedWorkspace.value;
+    const expose = documentView.mountedWorkspace.value;
     if (!expose) {
         throw new Error('DocumentWorkspace never attached to its tab controller.');
     }

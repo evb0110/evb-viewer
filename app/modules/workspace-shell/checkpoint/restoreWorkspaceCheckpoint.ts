@@ -117,7 +117,7 @@ async function restoreTab(
     if (!shown && !recoveryTarget) {
         return true;
     }
-    const workspace = await session.whenMounted();
+    const workspace = await session.getView(checkpointTab.tabId)?.whenMounted() ?? null;
     if (!workspace) {
         return false;
     }

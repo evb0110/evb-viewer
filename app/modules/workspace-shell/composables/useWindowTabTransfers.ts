@@ -94,7 +94,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     async function waitForWorkspace(tabId: string) {
-        return await getDocumentSession(tabId)?.whenMounted() ?? null;
+        return await getDocumentSession(tabId)?.getView(tabId)?.whenMounted() ?? null;
     }
 
     function tabHoldsDocument(tabId: string) {
@@ -316,7 +316,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<IPreparedTransferItem | null> {
         const session = getDocumentSession(tabId);
-        const commandTarget = session?.createCommandTarget() ?? null;
+        const commandTarget = session?.getView(tabId) ? session.createCommandTarget(tabId) : null;
         if (!isCommandTargetCurrent(session, commandTarget)) {
             return null;
         }

@@ -127,17 +127,18 @@ const crashFailure = shallowRef<FailurePresentation | null>(null);
 const renderKey = ref(0);
 
 const snapshot = computed(() => documentSession.snapshot.value);
+const documentView = computed(() => documentSession.getView(tabId));
 const isOpening = computed(() => snapshot.value.phase === 'opening');
 // Start belongs to a tab without a document on screen, including one whose
 // open just failed. A tab that owns a document, is opening or closing one, or
 // is about to receive a split's document does not show it.
 const isStartVisible = computed(() => {
     const phase = snapshot.value.phase;
-    const toolbar = documentSession.toolbarSnapshot.value;
+    const toolbar = documentView.value?.toolbarSnapshot.value;
     const session = splitCacheSession.value;
     return (phase === 'empty' || phase === 'failed')
-        && !toolbar.hasPdf
-        && !toolbar.isDjvuMode
+        && !toolbar?.hasPdf
+        && !toolbar?.isDjvuMode
         && !(session ? workspaceSplitCache.has(tabId, {session}) : workspaceSplitCache.has(tabId))
         && !workspaceRestoreTracker.has(tabId);
 });
@@ -170,10 +171,10 @@ function isRecentOpenReady(file: IRecentFile) {
 // commands that follow it queue behind the open; otherwise the command waits
 // for the workspace to mount.
 function withWorkspace(run: (workspace: IWorkspaceExpose) => Promise<boolean>) {
-    const workspace = documentSession.mountedWorkspace.value;
+    const workspace = documentView.value?.mountedWorkspace.value;
     return workspace
         ? run(workspace)
-        : documentSession.whenMounted().then(mounted => (mounted ? run(mounted) : false));
+        : (documentView.value?.whenMounted() ?? Promise.resolve(null)).then(mounted => (mounted ? run(mounted) : false));
 }
 
 async function openRecentFile(file: IRecentFile) {
@@ -203,7 +204,7 @@ async function openPicked(pick: () => Promise<TOpenFileResult | null>) {
 }
 
 function openInWorkspace(request: IWorkspaceOpenRequest, open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
-    const mounted = documentSession.mountedWorkspace.value;
+    const mounted = documentView.value?.mountedWorkspace.value;
     if (mounted) {
         return open(mounted);
     }

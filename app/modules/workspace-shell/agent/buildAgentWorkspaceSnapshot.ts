@@ -20,7 +20,10 @@ import { parseDocumentRef } from '@contracts/documentRef';
 import { requireIsoTimestamp } from '@contracts/timestamps';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireTabId } from '@contracts/windowTabs';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    type IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
@@ -171,9 +174,10 @@ function buildAgentTabSnapshot(
 ): IAgentTabSnapshot {
     const snapshot = session.snapshot.value;
     const tab = describeTabDocument(snapshot);
-    const toolbarSnapshot = session.toolbarSnapshot.value;
+    const view = session.getView(tabId);
+    const toolbarSnapshot = view?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot();
     const kind = inferDocumentKind(tab, toolbarSnapshot);
-    const commandTarget = cloneCommandTarget(session.createCommandTarget());
+    const commandTarget = view ? cloneCommandTarget(session.createCommandTarget(tabId)) : undefined;
     const documentIdentity = cloneDocumentIdentity(snapshot.identity.revisionInfo);
     const documentSessionKey = snapshot.identity.documentSessionKey;
     const documentInstanceId = snapshot.identity.documentInstanceId;
@@ -191,7 +195,7 @@ function buildAgentTabSnapshot(
         ...(commandTarget === undefined ? {} : { commandTarget }),
         isDirty: tab.isDirty,
         kind,
-        workspaceAttached: session.mountedWorkspace.value !== null,
+        workspaceAttached: (view?.mountedWorkspace.value ?? null) !== null,
         hasPdf: toolbarSnapshot.hasPdf,
         isDjvu: tab.isDjvu || toolbarSnapshot.isDjvuMode,
         isOpeningDocument: snapshot.phase === 'opening',

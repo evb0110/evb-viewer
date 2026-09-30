@@ -165,9 +165,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function dirtyTabIds() {
-        return new Set(Object.values(options.documentSessionsByTabId.value)
-            .filter(session => session.snapshot.value.dirty)
-            .map(session => session.tabId));
+        return new Set(Object.entries(options.documentSessionsByTabId.value).flatMap(([
+            tabId,
+            session,
+        ]) => session.snapshot.value.dirty ? [tabId] : []));
     }
 
     function markMutation(tabIds: Iterable<string>) {
@@ -308,6 +309,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 if (tab.workingCopyRef) {
                     try {
                         bytes = await options.documentSessionsByTabId.value[tab.tabId]
+                            ?.getView(tab.tabId)
                             ?.mountedWorkspace.value
                             ?.createRecoverySnapshotBytes();
                     } catch (error) {

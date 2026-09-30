@@ -29,8 +29,9 @@ function buildTabSignature(
     paneId: string | null,
     session: IWorkspaceDocumentController | undefined,
 ) {
-    const workspace = session?.mountedWorkspace.value ?? null;
-    const toolbar = session?.toolbarSnapshot.value ?? null;
+    const view = session?.getView(tab.id) ?? null;
+    const workspace = view?.mountedWorkspace.value ?? null;
+    const toolbar = view?.toolbarSnapshot.value ?? null;
     const identity = session?.snapshot.value.identity ?? null;
     let workspaceDocumentRefs: readonly [unknown, unknown, boolean] = [
         null,

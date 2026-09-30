@@ -360,12 +360,14 @@ const tabLifecycleById = computed(() => Object.fromEntries(
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
-        documentTabIds: new Set(Object.values(documentSessionsByTabId.value).flatMap(
-            session => snapshotOccupiesTab(session.snapshot.value) ? [session.tabId] : [],
-        )),
-        dirtyTabIds: new Set(Object.values(documentSessionsByTabId.value)
-            .filter(session => session.snapshot.value.dirty)
-            .map(session => session.tabId)),
+        documentTabIds: new Set(Object.entries(documentSessionsByTabId.value).flatMap(([
+            tabId,
+            session,
+        ]) => snapshotOccupiesTab(session.snapshot.value) ? [tabId] : [])),
+        dirtyTabIds: new Set(Object.entries(documentSessionsByTabId.value).flatMap(([
+            tabId,
+            session,
+        ]) => session.snapshot.value.dirty ? [tabId] : [])),
         tier: workspaceMemoryBudget.value.deviceTier,
         targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
     }).map(state => [
@@ -393,6 +395,7 @@ const documentSessions = useWorkspaceDocumentSessions({
 });
 const {
     activeDocumentSession,
+    activeDocumentView,
     activeWorkspace,
     documentSessionsByTabId,
     getSession: getDocumentSession,
@@ -425,6 +428,7 @@ const activeTabDocument = computed(() => {
 });
 const shellState = useWorkspaceShellState({
     activeDocumentSession,
+    activeDocumentView,
     tabs,
 });
 const {
@@ -580,6 +584,7 @@ const {
     showShellToolbar,
 } = useShellWorkspaceToolbar({
     activeDocumentSession,
+    activeDocumentView,
     hasWorkspaceToolbarContent,
 });
 
@@ -686,7 +691,7 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
         return null;
     }
 
-    const tabId = parseTabId(session.tabId);
+    const tabId = parseTabId(activeTabId.value);
     if (tabId === null) {
         return null;
     }
@@ -696,7 +701,7 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     const documentRef = tabDocument.originalPath;
     const documentBackend = resolveDocumentRefBackend(documentRef);
     const documentIdentity = identity.revisionInfo;
-    const commandTarget = session.createCommandTarget();
+    const commandTarget = session.createCommandTarget(tabId);
     const title = tabDocument.fileName ?? documentRef ?? null;
     return {
         kind: 'document',
@@ -813,6 +818,7 @@ const {
 
 useAppShellMenuSync({
     activeDocumentSession,
+    activeDocumentView,
     activePaneId,
     assistantPanelEnabled,
     shellState,

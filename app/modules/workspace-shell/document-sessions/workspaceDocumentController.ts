@@ -11,15 +11,17 @@ import type {
 } from 'vue';
 import { isEqual } from 'es-toolkit/predicate';
 import type { ITabMetadataCore } from '@contracts/windowTabs';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    type IWorkspaceExpose,
-    type IWorkspaceOpenFailure,
-    type IWorkspaceToolbarSnapshot,
+import type {
+    IWorkspaceExpose,
+    IWorkspaceOpenFailure,
 } from '@app/types/workspaceExpose';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import {
+    createWorkspaceDocumentView,
+    type IWorkspaceDocumentView,
+    type IWorkspaceDocumentViewRecord,
+} from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import { requireSessionId } from '@contracts/shared';
 import { requireTabId } from '@contracts/windowTabs';
@@ -36,6 +38,7 @@ export type {
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
     IWorkspaceDocumentTarget,
+    IWorkspaceDocumentView,
 };
 
 export interface IDocumentOperationLease {
@@ -62,16 +65,14 @@ export interface IWorkspaceOpenRequest {
 }
 
 /**
- * The per-tab owner of document identity, phase, dirty state and the commands
- * that reach the tab's workspace. The shell reads its snapshot; the mounted
- * workspace writes it through these methods.
+ * The owner of one document's identity, phase, dirty state and the commands
+ * that reach it, and of the tab views that show it. The shell reads its
+ * snapshot; a mounted workspace writes it through these methods and writes
+ * its own view through the view record.
  */
 export interface IWorkspaceDocumentController {
-    readonly tabId: string;
     readonly snapshot: Readonly<ShallowRef<IWorkspaceDocumentSnapshot>>;
-    readonly toolbarSnapshot: Readonly<ShallowRef<IWorkspaceToolbarSnapshot>>;
-    readonly viewState: Readonly<ShallowRef<ITabViewSessionState>>;
-    readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
+    readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
     runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>): Promise<boolean>;
@@ -81,14 +82,15 @@ export interface IWorkspaceDocumentController {
     markFailed(failure: IWorkspaceOpenFailure | null): void;
     dismissFailure(): void;
     setDirty(dirty: boolean): void;
-    publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
-    applyViewState(state: ITabViewSessionState): void;
-    attachWorkspace(workspace: IWorkspaceExpose): void;
-    detachWorkspace(workspace: IWorkspaceExpose): void;
-    whenMounted(): Promise<IWorkspaceExpose | null>;
+    getView(tabId: string): IWorkspaceDocumentView | null;
+    addView(tabId: string, viewState?: ITabViewSessionState): IWorkspaceDocumentView;
+    /** Removes a tab's view and returns how many views remain. */
+    removeView(tabId: string): number;
+    attachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
+    detachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
     close(request: {persist: boolean}): Promise<boolean>;
     dispose(): void;
-    createCommandTarget(mode?: 'current' | 'active-transaction'): TWorkspaceCommandTarget;
+    createCommandTarget(tabId: string, mode?: 'current' | 'active-transaction'): TWorkspaceCommandTarget;
     validateCommandTarget(target: TWorkspaceCommandTarget): {ok: true} | {
         ok: false;
         reason: string
@@ -152,6 +154,11 @@ export function describeTabDocument(snapshot: IWorkspaceDocumentSnapshot): ITabM
     };
 }
 
+/** A workspace mounted for any view of the document, for document-wide commands. */
+export function getDocumentWorkspace(controller: Pick<IWorkspaceDocumentController, 'views'>) {
+    return [...controller.views.value.values()].find(view => view.mountedWorkspace.value)?.mountedWorkspace.value ?? null;
+}
+
 /** The tab holds a document or is opening or closing one. A tab whose open failed is empty again. */
 export function snapshotOccupiesTab(snapshot: IWorkspaceDocumentSnapshot) {
     return identityHasDocument(snapshot.identity) || snapshot.phase === 'opening' || snapshot.phase === 'closing';
@@ -195,7 +202,6 @@ export function createWorkspaceDocumentController(options: {
     nextSessionIndex += 1;
     const sessionId = requireSessionId(`workspace-document-session:${tabId}:${Date.now()}:${nextSessionIndex}`);
     const snapshot = shallowRef<IWorkspaceDocumentSnapshot>({
-        tabId,
         sessionId,
         sessionRevision: 0,
         phase: 'empty',
@@ -205,13 +211,9 @@ export function createWorkspaceDocumentController(options: {
         failure: null,
         dirty: false,
         recoveryWorkingCopyPath: null,
-        mounted: false,
     });
-    const toolbarSnapshot = shallowRef(createDefaultWorkspaceToolbarSnapshot());
-    const viewState = shallowRef(createTabViewSessionState(toolbarSnapshot.value));
-    const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
+    const views = shallowRef(new Map<string, IWorkspaceDocumentViewRecord>());
     const operationLease = createDocumentOperationLease();
-    const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     const settleWaiters = new Map<string, PromiseWithResolvers<boolean>>();
     let activeClose: Promise<boolean> | null = null;
 
@@ -236,10 +238,30 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function settleMountWaiters(workspace: IWorkspaceExpose | null) {
-        for (const resolve of mountWaiters) {
-            resolve(workspace);
+        for (const view of views.value.values()) {
+            view.settleMountWaiters(workspace);
         }
-        mountWaiters.clear();
+    }
+
+    function addView(viewTabId: string, viewState?: ITabViewSessionState) {
+        const existing = views.value.get(viewTabId);
+        if (existing) {
+            return existing;
+        }
+        const view = createWorkspaceDocumentView(viewTabId, {
+            isDocumentFailed: () => snapshot.value.phase === 'failed',
+            viewState,
+        });
+        views.value = new Map(views.value).set(viewTabId, view);
+        return view;
+    }
+
+    function removeView(viewTabId: string) {
+        views.value.get(viewTabId)?.settleMountWaiters(null);
+        const next = new Map(views.value);
+        next.delete(viewTabId);
+        views.value = next;
+        return next.size;
     }
 
     function restingPhase() {
@@ -425,39 +447,22 @@ export function createWorkspaceDocumentController(options: {
         update({dirty});
     }
 
-    function publishToolbarSnapshot(next: IWorkspaceToolbarSnapshot) {
-        if (!isEqual(toolbarSnapshot.value, next)) {
-            toolbarSnapshot.value = next;
+    function attachWorkspace(viewTabId: string, workspace: IWorkspaceExpose) {
+        if (snapshot.value.phase === 'failed') {
+            update({
+                phase: restingPhase(),
+                failure: null,
+            });
         }
+        views.value.get(viewTabId)?.mount(workspace);
     }
 
-    function applyViewState(state: ITabViewSessionState) {
-        if (!isEqual(viewState.value, state)) {
-            viewState.value = state;
-        }
-    }
-
-    function attachWorkspace(workspace: IWorkspaceExpose) {
-        mountedWorkspace.value = workspace;
-        update({
-            mounted: true,
-            ...(snapshot.value.phase === 'failed'
-                ? {
-                    phase: restingPhase(),
-                    failure: null,
-                }
-                : {}),
-        });
-        settleMountWaiters(workspace);
-    }
-
-    function detachWorkspace(workspace: IWorkspaceExpose) {
-        if (mountedWorkspace.value !== workspace) {
+    function detachWorkspace(viewTabId: string, workspace: IWorkspaceExpose) {
+        if (!views.value.get(viewTabId)?.unmount(workspace) || getDocumentWorkspace({views})) {
             return;
         }
-        mountedWorkspace.value = null;
-        // An open cannot outlive the view that runs it; the next mount
-        // restores the tab's document from its identity.
+        // An open cannot outlive the views that run it; the next mount
+        // restores the document from its identity.
         const transaction = snapshot.value.activeTransaction;
         if (transaction && transaction.kind !== 'close') {
             update({
@@ -467,19 +472,6 @@ export function createWorkspaceDocumentController(options: {
             }, true);
             settle(transaction, false);
         }
-        update({mounted: false});
-    }
-
-    function whenMounted() {
-        if (mountedWorkspace.value) {
-            return Promise.resolve(mountedWorkspace.value);
-        }
-        if (snapshot.value.phase === 'failed') {
-            return Promise.resolve(null);
-        }
-        return new Promise<IWorkspaceExpose | null>((resolve) => {
-            mountWaiters.add(resolve);
-        });
     }
 
     function resetToEmpty() {
@@ -495,7 +487,7 @@ export function createWorkspaceDocumentController(options: {
     }
 
     async function runClose(request: {persist: boolean}) {
-        const workspace = mountedWorkspace.value;
+        const workspace = getDocumentWorkspace({views});
         if (!workspace) {
             supersedeActiveTransaction();
             resetToEmpty();
@@ -553,10 +545,10 @@ export function createWorkspaceDocumentController(options: {
         return info?.token === undefined ? {} : {documentRevisionToken: info.token};
     }
 
-    function createCommandTarget(mode: 'current' | 'active-transaction' = 'current'): TWorkspaceCommandTarget {
+    function createCommandTarget(viewTabId: string, mode: 'current' | 'active-transaction' = 'current'): TWorkspaceCommandTarget {
         const current = snapshot.value;
         const common = {
-            tabId: requireTabId(current.tabId),
+            tabId: requireTabId(viewTabId),
             sessionId: requireSessionId(current.sessionId),
             documentRef: current.identity.documentRef,
             ...getTargetDocumentBackend(current.identity.documentRef),
@@ -583,7 +575,7 @@ export function createWorkspaceDocumentController(options: {
         const current = snapshot.value;
         const mismatch = [
             [
-                target.tabId !== current.tabId,
+                !views.value.has(target.tabId),
                 'tab-id-mismatch',
             ],
             [
@@ -624,16 +616,14 @@ export function createWorkspaceDocumentController(options: {
             : {ok: true};
     }
 
+    addView(tabId);
     if (options.assignment) {
         assign(options.assignment);
     }
 
     return {
-        tabId,
         snapshot,
-        toolbarSnapshot,
-        viewState,
-        mountedWorkspace,
+        views,
         operationLease,
         assign,
         runOpen,
@@ -643,11 +633,11 @@ export function createWorkspaceDocumentController(options: {
         markFailed,
         dismissFailure,
         setDirty,
-        publishToolbarSnapshot,
-        applyViewState,
+        getView: viewTabId => views.value.get(viewTabId) ?? null,
+        addView,
+        removeView,
         attachWorkspace,
         detachWorkspace,
-        whenMounted,
         close,
         dispose,
         createCommandTarget,
