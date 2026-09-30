@@ -730,7 +730,15 @@ function getWindowMenu(
         label: te('menu.window'),
         submenu: [
             { role: 'minimize' },
-            { role: 'close' },
+            // Close Tab owns CmdOrCtrl+W. Off macOS the window's accelerator
+            // table keeps the last menu item bound to a key, so the role's
+            // default Ctrl+W would close the window instead of the tab.
+            config.isMac
+                ? { role: 'close' }
+                : {
+                    role: 'close',
+                    accelerator: 'Ctrl+Shift+W',
+                },
             { type: 'separator' },
             {
                 label: te('menu.moveActiveTabToNewWindow'),

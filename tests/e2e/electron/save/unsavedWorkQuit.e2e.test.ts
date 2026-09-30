@@ -174,3 +174,80 @@ describe('unsaved work on app Quit', () => {
         await windowClosed;
     }, 150_000);
 });
+
+// Ctrl+W is File > Close Tab. Window > Close must not take it over: on Linux
+// and Windows the window's accelerator table keeps the last menu item bound to
+// a key. Only Linux reaches the native accelerator from a test, through X11
+// input to the session's own display.
+describe.runIf(process.platform === 'linux')('Close Tab shortcut', () => {
+    let session: IElectronE2ESession | null = null;
+    let outputDirectory: string | null = null;
+
+    afterEach(async () => {
+        await session?.stop();
+        session = null;
+        if (outputDirectory) rmSync(outputDirectory, {
+            recursive: true,
+            force: true,
+        });
+        outputDirectory = null;
+    });
+
+    it('closes only the active tab and keeps the window', async () => {
+        const fixturePath = resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-close-tab-shortcut-'));
+        const firstPath = join(outputDirectory, 'first-tab.pdf');
+        const secondPath = join(outputDirectory, 'second-tab.pdf');
+        copyFileSync(fixturePath, firstPath);
+        copyFileSync(fixturePath, secondPath);
+        session = await startHostVisibleElectronE2ESession(createE2ERunScopedSessionName(`e2e-close-tab-shortcut-${Date.now()}`), {
+            clean: true,
+            initialOpenPaths: [
+                firstPath,
+                secondPath,
+            ],
+        });
+        const readTabs = () => session!.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.map(tab => ({
+            label: tab.querySelector('.tab-label')?.textContent?.trim() ?? '',
+            active: tab.classList.contains('is-active'),
+        })));
+        await session.page.waitForFunction(() => Array.from(document.querySelectorAll('.tab-list .tab[data-tab-id] .tab-label'))
+            .map(label => label.textContent?.trim()).join() === 'first-tab.pdf,second-tab.pdf', {timeout: 60_000});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const before = await readTabs();
+        const activeLabel = before.find(tab => tab.active)?.label;
+        expect(activeLabel).toBeTruthy();
+
+        const electronPid = getSessionInfo(session.name)?.electronPid;
+        expect(electronPid).toEqual(expect.any(Number));
+        const windowId = execFileSync('xdotool', [
+            'search',
+            '--onlyvisible',
+            '--pid',
+            String(electronPid),
+        ], { encoding: 'utf8' })
+            .trim().split('\n')[0];
+        if (!windowId) throw new Error('The visible Electron window id was missing');
+        execFileSync('xdotool', [
+            'windowfocus',
+            '--sync',
+            windowId,
+        ]);
+        const windowClosed = new Promise<'window closed'>(resolveClosed => session!.page.once('close', () => resolveClosed('window closed')));
+        execFileSync('xdotool', [
+            'key',
+            '--clearmodifiers',
+            'ctrl+w',
+        ]);
+
+        const outcome = await Promise.race([
+            session.page.waitForFunction(() => document.querySelectorAll('.tab-list .tab[data-tab-id]').length === 1, {timeout: 15_000})
+                // The wait fails as the renderer goes away, just before the page reports it closed.
+                .then(() => 'one tab closed' as const, () => windowClosed),
+            windowClosed,
+        ]);
+        expect(outcome).toBe('one tab closed');
+        expect((await readTabs()).map(tab => tab.label)).toEqual(before.map(tab => tab.label).filter(label => label !== activeLabel));
+    }, 150_000);
+});
