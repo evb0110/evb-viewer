@@ -1682,6 +1682,7 @@ export default {
             'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
+            'workingCopyMissing': 'Die temporäre Kopie des Dokuments wurde entfernt, daher können diese Änderungen nicht gespeichert werden. Öffnen Sie die Datei erneut.',
             'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
             'tooLargeForEdit': 'Diese PDF ist zu groß, als dass EVB Viewer diese Änderung hinzufügen könnte. Ihre Änderungen sind hier weiterhin geöffnet, aber „Speichern unter“ und „PDF reparieren und speichern“ stoßen an dieselbe Grenze, daher kann kein Speicherweg sie in diese Datei schreiben.',
             'unencryptedTitle': 'Ohne Passwortschutz speichern?',

@@ -494,6 +494,33 @@ describe('workspace save failure surfacing', () => {
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
+    it('tells the user the temporary copy was removed when the working copy is missing', async () => {
+        const { deps } = createDeps({
+            annotationDirty: ref(true),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+                failure: {
+                    channel: 'file:saveStructured',
+                    operation: 'saveFileStructured',
+                    phase: 'persist-working-copy',
+                    reason: 'working-copy-missing' as const,
+                    message: 'Working copy and original file are unavailable',
+                },
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(false);
+
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            color: 'error',
+            description: expect.stringContaining('errors.save.workingCopyMissing'),
+        }));
+    });
+
     it('clears the failure state once a later save succeeds', async () => {
         const validatePdfPath = vi.fn(async () => ({
             isValid: false,

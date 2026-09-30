@@ -1682,6 +1682,7 @@ export default {
             'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
+            'workingCopyMissing': 'De tijdelijke kopie van het document is verwijderd, dus deze wijzigingen kunnen niet worden opgeslagen. Open het bestand opnieuw.',
             'notCompleted': 'Het document kon niet worden weggeschreven.',
             'tooLargeForEdit': 'Deze pdf is te groot om er deze bewerking aan toe te voegen. Uw wijzigingen blijven hier geopend, maar \'Opslaan als\' en \'PDF repareren en opslaan\' lopen tegen dezelfde limiet aan, dus geen enkele manier van opslaan kan ze naar dit bestand schrijven.',
             'unencryptedTitle': 'Opslaan zonder wachtwoordbeveiliging?',

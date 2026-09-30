@@ -31,6 +31,7 @@ export type TWorkspaceSaveFailureReason =
     | 'too-large-for-edit'
     | 'persist-rejected'
     | 'document-changed'
+    | 'working-copy-missing'
     | 'unexpected-error';
 
 type TWorkspaceOpenFailureReason = 'unsupported-encryption';
@@ -83,6 +84,8 @@ export const useWorkspaceFailureSurface = () => {
                 return t('errors.save.documentChanged');
             case 'too-large-for-edit':
                 return t('errors.save.tooLargeForEdit');
+            case 'working-copy-missing':
+                return t('errors.save.workingCopyMissing');
             case 'capability-unavailable':
             case 'native-save-required':
             case 'persist-rejected':
