@@ -209,7 +209,11 @@ function createAgentOptions(
         isSameAnnotationComment: (left, right) => left.stableKey === right.stableKey,
         markAnnotationDirty: vi.fn(),
         ocrPopupOpen: ref(false),
-        ocrPopupRef: ref(null),
+        ocr: {
+            runOcrForAgent: vi.fn(async () => ({ok: true})),
+            cancelOcrForAgent: vi.fn(async () => ({ok: true})),
+            getAgentOcrSnapshot: vi.fn(() => ({})),
+        },
         openConvertDialog: vi.fn(),
         originalPath: ref<TDocumentRef | null>(null),
         pageLabelRanges,

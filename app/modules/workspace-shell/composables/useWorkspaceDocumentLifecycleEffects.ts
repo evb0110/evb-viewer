@@ -13,6 +13,7 @@ import { getSearchCapability } from '@app/utils/getSearchCapability';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -346,5 +347,17 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
     }
 
-    return {handleOcrComplete};
+    // The document's OCR run: views show it, none of them owns it.
+    const ocr = useOcrPopupPresenter({
+        context: {
+            pdfDocument,
+            currentPage,
+            totalPages,
+            workingCopyPath,
+            documentRevision: documentRevisionToken,
+        },
+        applyResult: handleOcrComplete,
+    });
+
+    return {ocr};
 };

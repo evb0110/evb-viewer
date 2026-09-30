@@ -370,4 +370,83 @@ describe('Electron E2E - OCR journey', () => {
             await agentRunSettled;
         }
     }, 300_000);
+
+    // #913: the OCR run belongs to the document, not to the view that started it.
+    it('keeps an OCR run going when the view that started it is closed, and shows it in the other view', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-closed-view-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', 24);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
+        await waitForFunctionInPage(page, (host: string) => (
+            document.querySelector(`${host} .page_container--rendered`) !== null
+        ), {timeout: 30_000}, paneHost(rightPane!));
+
+        const agentRun = callWorkspaceCommand<{ok?: boolean}>(page, 'runAgentAction', [
+            'ocr.start',
+            {
+                pageRange: 'all',
+                open: false,
+            },
+        ]);
+        const agentRunSettled = agentRun.then(() => undefined, () => undefined);
+        try {
+            await vi.waitFor(async () => {
+                const status = await callWorkspaceCommand<{ocr?: {
+                    isRunning?: boolean;
+                    processedCount?: number;
+                    totalPages?: number
+                }}>(page, 'runAgentAction', [
+                    'ocr.status',
+                    {},
+                ]);
+                const ocr = status.value?.ocr;
+                if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                    throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+                }
+            }, {timeout: 30_000});
+
+            // The user closes the view that started the run; the left view stays.
+            await page.click(`${paneHost(rightPane!)} .tab.is-active .tab-close`);
+            await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
+
+            // The left view shows the run under way, and it finishes.
+            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+            await waitForFunctionInPage(page, () => {
+                const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
+                return /Processing page \d+|OCR complete - PDF is now searchable/u.test(text);
+            }, {timeout: 30_000});
+            await waitForFunctionInPage(page, () => (
+                document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+            ), {timeout: OCR_TIMEOUT_MS});
+            await clickVisibleButton(page, '[role="dialog"]', 'Close');
+            await page.waitForSelector('[role="dialog"]', {hidden: true});
+            const recognized = await page.waitForFunction((host: string, word: string) => (
+                document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                    ?.textContent?.toLocaleLowerCase().includes(word) === true
+            ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
+            expect(recognized).toBe(true);
+        } finally {
+            await callWorkspaceCommand(page, 'runAgentAction', [
+                'ocr.cancel',
+                {},
+            ]).catch(() => undefined);
+            await agentRunSettled;
+        }
+    }, 300_000);
 });

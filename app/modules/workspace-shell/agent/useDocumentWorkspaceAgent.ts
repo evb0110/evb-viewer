@@ -1,10 +1,8 @@
-import type { Ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 import { isAgentRecord } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type {
     IAgentOcrRunOptions,
     IUseDocumentWorkspaceAgentOptions,
-    IOcrPopupAgentExpose,
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
@@ -174,7 +172,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         isDjvuMode,
         markAnnotationDirty,
         ocrPopupOpen,
-        ocrPopupRef,
+        ocr,
         openConvertDialog,
         originalPath,
         pageLabelRanges,
@@ -464,7 +462,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             run: () => ({
                 ocrPopupOpen: ocrPopupOpen.value,
-                ocr: ocrPopupRef.value?.getAgentOcrSnapshot() ?? null,
+                ocr: ocr.getAgentOcrSnapshot(),
             }),
         },
         {
@@ -475,11 +473,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 if (runOptions.open !== false) handleDropdownOpen('ocr', true);
                 await nextTick();
                 context?.assertCurrentDocument();
-                const result = await ocrPopupRef.value?.runOcrForAgent(runOptions);
-                return result ?? {
-                    ok: false,
-                    error: 'OCR popup is not mounted.',
-                };
+                return ocr.runOcrForAgent(runOptions);
             },
         },
         {
@@ -488,11 +482,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                const result = await ocrPopupRef.value?.cancelOcrForAgent();
-                return result ?? {
-                    ok: false,
-                    error: 'OCR popup is not mounted.',
-                };
+                return ocr.cancelOcrForAgent();
             },
         },
         {
@@ -1123,7 +1113,6 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
 export const useDocumentWorkspaceAgent = (
     document: TDocumentContext,
     viewContext: TDocumentViewContext,
-    ocrPopupRef: Ref<IOcrPopupAgentExpose | null>,
     waitForDocumentOpenSettled: () => Promise<void>,
 ) => {
     const { t } = useTypedI18n();
@@ -1150,7 +1139,7 @@ export const useDocumentWorkspaceAgent = (
         ...document.print,
         documentIdentity: document.file.documentRevisionInfo,
         viewerCapabilities,
-        ocrPopupRef,
+        ocr: document.ocr,
         tabId: viewContext.tabId,
         t,
         waitForDocumentOpenSettled,

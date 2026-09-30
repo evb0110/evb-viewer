@@ -183,42 +183,23 @@ function setSearchableResult(
 function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     useOcrMock.mockReturnValue(ocr);
 
-    const isOpen = ref(false);
     const currentPage = ref(3);
     const totalPages = ref(12);
     const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
     const documentRevision = ref(requireDocumentRevisionToken('drt1:ocr-presenter-test'));
     const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
-    const disabled = ref(false);
-    const externalError = ref<string | null | undefined>(null);
-    const onRunningChange = vi.fn();
     const onOcrComplete = vi.fn();
-    const onExportDocx = vi.fn();
-    const onCancelDocxExport = vi.fn();
 
     const scope = effectScope();
     const presenter = scope.run(() => useOcrPopupPresenter({
-        isOpen: computed({
-            get: () => isOpen.value,
-            set: value => {
-                isOpen.value = value;
-            },
-        }),
         context: {
             pdfDocument,
             currentPage,
             totalPages,
             workingCopyPath,
             documentRevision,
-            disabled,
-            externalError,
         },
-        events: {
-            onRunningChange,
-            onOcrComplete,
-            onExportDocx,
-            onCancelDocxExport,
-        },
+        applyResult: onOcrComplete,
     }));
 
     if (!presenter) {
@@ -229,20 +210,15 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
         scope,
         presenter,
         ocr,
-        isOpen,
+        isOpen: presenter.isOpen,
         currentPage,
         totalPages,
         workingCopyPath,
         documentRevision,
         pdfDocument,
-        disabled,
-        externalError,
-        events: {
-            onRunningChange,
-            onOcrComplete,
-            onExportDocx,
-            onCancelDocxExport,
-        },
+        disabled: presenter.disabled,
+        externalError: presenter.externalError,
+        events: {onOcrComplete},
     };
 }
 
@@ -450,17 +426,6 @@ describe('useOcrPopupPresenter', () => {
                 sourceWorkingCopyPath: '/tmp/source.pdf',
                 sourcePageToRestore: 3,
             }));
-        } finally {
-            stopHarness(harness.scope);
-        }
-    });
-
-    it('forwards DOCX export cancellation to the workspace owner', () => {
-        const harness = createPresenterHarness();
-
-        try {
-            harness.presenter.handleCancelDocxExport();
-            expect(harness.events.onCancelDocxExport).toHaveBeenCalledOnce();
         } finally {
             stopHarness(harness.scope);
         }

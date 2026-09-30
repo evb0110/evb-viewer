@@ -78,7 +78,7 @@ export interface IUseDocumentWorkspaceAgentOptions {
     isSameAnnotationComment: (left: IAnnotationCommentSummary, right: IAnnotationCommentSummary) => boolean;
     markAnnotationDirty: () => void;
     ocrPopupOpen: Ref<boolean>;
-    ocrPopupRef: Ref<IOcrPopupAgentExpose | null>;
+    ocr: IOcrPopupAgentExpose;
     openConvertDialog: () => void;
     originalPath: Ref<TDocumentRef | null>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;

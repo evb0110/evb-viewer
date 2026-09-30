@@ -624,7 +624,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         runWithDocumentOperationLease: runExclusive,
     });
 
-    const {handleOcrComplete} = useWorkspaceDocumentLifecycleEffects({
+    const {ocr} = useWorkspaceDocumentLifecycleEffects({
         currentPage,
         totalPages,
         pdfDocument,
@@ -695,7 +695,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         fileOps,
         print,
         splitPayload,
-        handleOcrComplete,
+        ocr,
         views,
     };
 };

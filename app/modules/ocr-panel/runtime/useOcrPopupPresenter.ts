@@ -1,5 +1,3 @@
-// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
@@ -17,10 +15,7 @@ import {
     useClipboard,
     useTimeoutFn,
 } from '@vueuse/core';
-import type {
-    MaybeRefOrGetter,
-    WritableComputedRef,
-} from 'vue';
+import type { MaybeRefOrGetter } from 'vue';
 import { useOcr } from '@app/composables/useOcr';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
@@ -258,26 +253,18 @@ interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
 }
 
 interface IOcrPopupPresenterContext {
-    pdfDocument: MaybeRefOrGetter<IPdfDocument | null>;
+    /** Only its identity matters: a new document ends the pending apply. */
+    pdfDocument: MaybeRefOrGetter<unknown>;
     currentPage: MaybeRefOrGetter<number>;
     totalPages: MaybeRefOrGetter<number>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevision: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    disabled: MaybeRefOrGetter<boolean>;
-    externalError: MaybeRefOrGetter<string | null | undefined>;
-}
-
-interface IOcrPopupPresenterEvents {
-    onRunningChange: (value: boolean) => void;
-    onOcrComplete: (payload: IOcrPopupCompletePayload) => void;
-    onExportDocx: (selectedLanguages: string[]) => void;
-    onCancelDocxExport: () => void;
 }
 
 export interface IOcrPopupPresenterOptions {
-    isOpen: WritableComputedRef<boolean>;
     context: IOcrPopupPresenterContext;
-    events: IOcrPopupPresenterEvents;
+    /** Applies a finished run to the document. */
+    applyResult: (payload: IOcrPopupCompletePayload) => void | Promise<void>;
 }
 
 const ocrProgressStageKeys = {
@@ -300,10 +287,14 @@ function formatDebugLogEntry(entry: IDebugLogEntry) {
     return `[${entry.timestamp}] [${entry.source}] ${entry.message}`;
 }
 
+/**
+ * One OCR presenter per document: the run, its settings and its result belong
+ * to the document, so they outlive the popup that shows them and the view that
+ * started them. A popup only shows this state.
+ */
 export const useOcrPopupPresenter = ({
     context,
-    events,
-    isOpen,
+    applyResult,
 }: IOcrPopupPresenterOptions) => {
     const {
         locale,
@@ -338,6 +329,10 @@ export const useOcrPopupPresenter = ({
     const pendingAppliedOcrSourceDocumentRevision = ref<TDocumentRevisionToken | null>(null);
     const languageSearchQuery = ref('');
     const activeRunNeedsModelDownload = ref(false);
+    const isOpen = ref(false);
+    // What the popup showing this run knows about its own view.
+    const disabled = ref(false);
+    const externalError = ref<string | null | undefined>(null);
 
     const {
         start: startCopyLogsStateReset,
@@ -357,8 +352,6 @@ export const useOcrPopupPresenter = ({
     const workingCopyPath = computed(() => toValue(context.workingCopyPath));
     const documentRevision = computed(() => toValue(context.documentRevision));
     const pdfDocument = computed(() => toValue(context.pdfDocument));
-    const disabled = computed(() => toValue(context.disabled));
-    const externalError = computed(() => toValue(context.externalError));
     const effectiveError = computed(() => error.value ?? externalError.value ?? null);
     const isRunSettingsLocked = computed(() => progress.value.isRunning);
     const viewState = computed<TOcrViewState>(() => {
@@ -765,14 +758,6 @@ export const useOcrPopupPresenter = ({
         };
     }
 
-    function handleExportDocx() {
-        events.onExportDocx(getExportLanguages());
-    }
-
-    function handleCancelDocxExport() {
-        events.onCancelDocxExport();
-    }
-
     function handleCloseResults() {
         resetCompletedOcrState();
         isOpen.value = false;
@@ -807,8 +792,6 @@ export const useOcrPopupPresenter = ({
             };
         }
     });
-
-    watch(() => progress.value.isRunning, value => events.onRunningChange(value), {immediate: true});
 
     watch(() => settings.value.qualityProfile, (nextProfile, previousProfile) => {
         if (isRunSettingsLocked.value) {
@@ -882,7 +865,7 @@ export const useOcrPopupPresenter = ({
         if (searchablePdfResult && sourceWorkingCopyPath) {
             pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
             pendingAppliedOcrSourceDocumentRevision.value = searchablePdfResult.sourceDocumentRevisionToken;
-            events.onOcrComplete({
+            void applyResult({
                 ...searchablePdfResult,
                 sourceWorkingCopyPath,
                 sourcePageToRestore,
@@ -893,7 +876,6 @@ export const useOcrPopupPresenter = ({
     });
 
     onScopeDispose(() => {
-        events.onRunningChange(false);
         stopCopyLogsStateReset();
         stopSuccessStateReset();
     });
@@ -936,9 +918,14 @@ export const useOcrPopupPresenter = ({
         runOcrForAgent,
         handleCancel,
         cancelOcrForAgent,
-        handleExportDocx,
-        handleCancelDocxExport,
         handleCloseResults,
+        applyResult,
+        getExportLanguages,
+        isOpen,
+        disabled,
+        externalError,
         getAgentOcrSnapshot: createAgentOcrSnapshot,
     };
 };
+
+export type TOcrPopupPresenter = ReturnType<typeof useOcrPopupPresenter>;

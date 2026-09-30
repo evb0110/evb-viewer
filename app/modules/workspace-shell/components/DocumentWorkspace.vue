@@ -3,10 +3,8 @@
         <WorkspaceToolbarHost
             :is-active="isActive && surfaceMode === 'reader'"
             :can-teleport="canTeleportToolbar"
-            :keep-mounted="isOcrRunning"
         >
             <WorkspacePdfToolbarView
-                ref="ocrPopupRef"
                 :snapshot="workspaceToolbarSnapshot"
                 :has-pdf="toolbarHasPdf"
                 :can-toggle-sidebar="canToggleSidebar"
@@ -22,9 +20,8 @@
                 :page-labels="toolbarPageLabels"
                 :navigation-ticket="documentOpenSurface.navigationTicket.value"
                 :physical-page="physicalToolbarPage"
-                :ocr-pdf-document="pdfDocument"
+                :ocr="documentContext.ocr"
                 :ocr-working-copy-path="workingCopyPath"
-                :ocr-document-revision="documentRevisionToken"
                 :ocr-external-error="docxExportError"
                 :ocr-is-exporting-docx="isExportingDocx"
                 :ocr-popup-open="ocrPopupOpen"
@@ -42,7 +39,6 @@
                 @update:zoom-mode="zoomMode = $event"
                 @update:fit-mode="fitMode = $event"
                 @update:view-mode="viewMode = $event"
-                @update:ocr-running="isOcrRunning = $event"
                 @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="scanCleanup.openScanCleanup"
@@ -80,7 +76,6 @@
                 @toggle-fullscreen="emit('toggle-fullscreen')"
                 @set-view-mode="runToolbarAction(() => setViewMode($event))"
                 @go-to-page="handleGoToPage"
-                @ocr-complete="handleOcrComplete"
             />
         </WorkspaceToolbarHost>
         <WorkspaceDocumentAlerts
@@ -184,10 +179,7 @@ import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TPdfViewMode } from '@contracts/shared';
-import {
-    useDocumentWorkspaceAgent,
-    type IOcrPopupAgentExpose,
-} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
+import { useDocumentWorkspaceAgent } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import { createDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
@@ -249,7 +241,6 @@ const {
     statusHostId: 'editor-global-status-host',
 });
 const { isDesktopRuntime } = useRuntimeEnvironment();
-const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 // This mount is one view of the document its DocumentSessionHost holds.
 const context = createDocumentViewContext({
     tabId,
@@ -284,7 +275,6 @@ const {
     print,
     splitPayload,
     docxExport,
-    handleOcrComplete,
 } = documentContext;
 const {
     pdfError,
@@ -310,7 +300,6 @@ const {
     fitMode,
     viewMode,
     totalPages,
-    pdfDocument,
     continuousScroll,
     showSidebar,
 } = view;
@@ -356,7 +345,6 @@ const presentation = useWorkspacePresentation(documentContext, context, {
     preserveInitialPage: preserveInitialStateForFirstSource,
 });
 const {
-    isOcrRunning,
     showsPdfSidebar,
     toolbarHasPdf,
     canToggleSidebar,
@@ -456,7 +444,7 @@ const viewerCapabilities = computed(() => documentContext.viewerCapabilities.val
 const {
     runAgentAction,
     readAgentResource,
-} = useDocumentWorkspaceAgent(documentContext, context, ocrPopupRef, waitForDocumentOpenSettled);
+} = useDocumentWorkspaceAgent(documentContext, context, waitForDocumentOpenSettled);
 
 
 const workspaceExpose = createWorkspaceExpose(documentContext, context, {
