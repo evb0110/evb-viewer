@@ -171,6 +171,24 @@ unsaved changes asks first, and a crash or forced quit leaves recoverable work.
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
 
+**T4. A split shows one document in two views.** Applies to a PDF split from
+its tab with Split Right or Split Down; New Pane and a separately opened copy
+of the same file are independent documents. The new view opens at the source
+view's page, anchor and zoom, then keeps its own page, scroll position and zoom
+through edits, undo and saves. An edit made in either view appears in every
+view, undo in any view undoes the document's last transaction in all of them,
+every view shows the same dirty state, and Save from any view writes the file
+once with every accepted edit. An annotation is edited in one view at a time:
+starting to edit it in another view first commits the open edit, as clicking
+elsewhere does, and the other views show its current content without editing
+it. Closing a view while another remains keeps the document open and asks
+nothing; closing the last view is closing the document (T2). Opening another
+file in a linked view detaches only that view. A view moved to another window
+becomes an independent document there, and saves from both windows follow the
+existing protection against a file changed elsewhere. Between linked views, T1
+holds for page, zoom, scroll and responsiveness; annotations are shared. Added
+2026-09-30 on the owner's request (#845).
+
 ## Lifecycle
 
 **C1. Closing is clean.** Closing a tab or window at any moment, including during
