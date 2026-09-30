@@ -508,6 +508,14 @@ describe('shared PDF split', () => {
             y: 0.25,
         }, 2);
         await waitForPaneView(page, rightPane!, 'right view is dirty after the left edit', view => view.tabDirty);
+        const listedBeforeClose = [
+            savedLeftText,
+            savedRightText,
+            unsavedText,
+        ];
+        await waitForPaneView(page, leftPane!, 'the left comments list shows every comment before the right view closes', view => (
+            containsAll(view.listedTexts, listedBeforeClose)
+        ));
         await click(page, `${paneSelector(rightPane!)} .tab.is-active[data-tab-id] .tab-close`);
         await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1, {timeout: SETTLE_TIMEOUT_MS});
         expect(await page.$$eval('[role="dialog"]', dialogs => dialogs.length), 'closing one view asks nothing').toBe(0);
@@ -519,6 +527,8 @@ describe('shared PDF split', () => {
                 savedLeftText,
                 unsavedText,
             ])
+            // Sweep #845 item 5: its comments list keeps every comment too.
+            && containsAll(view.listedTexts, listedBeforeClose)
             && view.centerPage === leftPlacement.centerPage
             && sameWidth(view.pageWidthPx, leftPlacement.pageWidthPx)
         ));

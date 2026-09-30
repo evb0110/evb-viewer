@@ -1166,7 +1166,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         stopStoreOwnershipRefreshWatch();
         detachProjection();
         annotations.highlight.clearSelectionCache();
-        clearAnnotationProjectionState();
+        // The document's comments list outlives this view; its other views show it.
     });
     const saveTransaction = usePdfViewerSaveTransaction({
         pdfDocument: documentSession.pdfDocument,
