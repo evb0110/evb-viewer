@@ -457,9 +457,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         runWithDocumentOperationLease: runExclusive,
     });
     // Opening another file in a view of a shared document detaches only that
-    // view: it gets a document of its own and opens the file there (T4). The
-    // document stays with its other views, so there is nothing to ask. A
-    // hidden view whose workspace is unmounted still shows the document.
+    // view (T4); the document stays with its other views, asking nothing. A
+    // hidden, unmounted view still shows it. A tab loading the document's own
+    // file, as a restored or cold tab does when shown, loads it for all views.
     const sharesViews = computed(() => controller.views.value.size > 1);
     function openInOwnDocument(open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
         void commandView.value?.detachAndOpen(open);
@@ -490,7 +490,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         openFile: result => (sharesViews.value
             ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))
             : file.openFileWithViewerLifecycle(result)),
-        openFileDirect: path => (sharesViews.value
+        openFileDirect: path => (sharesViews.value && path !== controller.snapshot.value.identity.originalPath
             ? openInOwnDocument(workspace => workspace.handleOpenFileDirectWithPersist(path))
             : file.openFileDirectWithViewerLifecycle(path)),
         openFileDirectBatch: paths => (sharesViews.value
