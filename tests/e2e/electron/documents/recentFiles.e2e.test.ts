@@ -40,6 +40,8 @@ import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose'
 import {
     findCommittedSurfaceCausalOpenViolations,
     installCommittedSurfaceSampler,
+    isOpeningBeforePageGeometry,
+    markCommittedSurfaceInteractionCheckpoint,
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
@@ -106,8 +108,6 @@ interface IRecentOpenTransitionResult {
         openingGeometryKnown: boolean;
         viewportVisualPresentation: string | null;
         recentRowVisible: boolean;
-        neutralVisible: boolean;
-        neutralFillsViewport: boolean;
         shellVisible: boolean;
         skeletonVisible: boolean;
     } | null;
@@ -393,23 +393,10 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             ) ?? null;
             return isVisible(pageCanvas) ? pageCanvas : null;
         };
-        const getNeutralOpeningSurface = () => {
-            const neutral = getActiveHost()?.querySelector<HTMLElement>(
-                '[data-document-open-surface="neutral"]',
-            ) ?? null;
-            return isVisible(neutral) ? neutral : null;
-        };
         const readOpenSurfaceFrame = (): NonNullable<IRecentOpenTransitionResult['firstOpenSurfaceFrame']> => {
             const activeHost = getActiveHost();
             const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
             const exactPageShell = getExactPageShell();
-            const neutral = getNeutralOpeningSurface();
-            const viewport = activeHost?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
-            const neutralRect = neutral?.getBoundingClientRect();
-            const viewportRect = viewport?.getBoundingClientRect();
-            if (neutral) {
-                neutral.dataset.e2eRecentOpeningShell = 'stable';
-            }
             return {
                 activeTabTitle: document.querySelector<HTMLElement>(
                     '.tab-list .tab.is-active .tab-label',
@@ -421,21 +408,12 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                 openingGeometryKnown: chassis?.dataset.openSurfaceHasOpeningGeometry === 'true',
                 viewportVisualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
                 recentRowVisible: isVisible(getRecentRow()),
-                neutralVisible: neutral !== null,
-                neutralFillsViewport: Boolean(
-                    neutralRect
-                    && viewport
-                    && viewportRect
-                    && neutralRect.left === viewportRect.left
-                    && neutralRect.top === viewportRect.top
-                    && neutralRect.width === viewport.clientWidth
-                    && neutralRect.height === viewportRect.height,
-                ),
                 shellVisible: exactPageShell !== null,
-                skeletonVisible: Boolean(
-                    exactPageShell?.querySelector('.document-page-skeleton')
-                    || neutral?.querySelector('.document-page-skeleton'),
-                ),
+                // Any skeleton the tab paints, not only the page shell's: a
+                // placeholder that is not page-shaped is what this rules out.
+                skeletonVisible: Array.from(
+                    activeHost?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
+                ).some(isVisible),
             };
         };
         // Keep this predicate aligned with the committed-surface trace rebase
@@ -496,20 +474,12 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             const sampledAtMs = performance.now();
             framesAfterClick += 1;
             const transitionFrame = readOpenSurfaceFrame();
-            if (
-                firstOpenSurfaceFrame === null
-                && hasOpenSurfaceTransitionStarted(transitionFrame)
-            ) {
+            if (hasOpenSurfaceTransitionStarted(transitionFrame)) {
                 firstOpenSurfaceFrame = transitionFrame;
-            } else if (firstOpenSurfaceFrame === null) {
-                preSurfaceFrames += 1;
-            }
-            const openingSurface = getExactPageShell() ?? getNeutralOpeningSurface();
-            if (openingSurface) {
-                openingSurface.dataset.e2eRecentOpeningShell = 'stable';
                 finish(sampledAtMs);
                 return;
             }
+            preSurfaceFrames += 1;
             if (sampledAtMs - clickAtMs > shellBudgetMs) {
                 finish(null);
                 return;
@@ -636,7 +606,7 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens Recent with a neutral surface until first page geometry is available', async () => {
+    it('opens Recent to one page-shaped skeleton, showing no placeholder before the page shape is known', async () => {
         let session = sessionFixture.getSession();
 
         const fixturePath = await createScannedTextFixturePdf(
@@ -660,16 +630,22 @@ describe('Electron E2E - Recent Files', () => {
             fixturePath,
         );
         expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
-        expect(immediateOpen.firstOpenSurfaceFrame?.neutralFillsViewport).toBe(true);
+        // The open is held before its source is read, so the page shape stays
+        // unknown. A placeholder drawn now could only guess the shape and would
+        // change it once the geometry arrives.
         await delay(130);
-        const debouncedSkeletonVisible = await evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
-            return shell?.querySelector('.document-page-skeleton') !== null;
-        });
+        const skeletonWhileShapeUnknown = await evaluateInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
+            ),
+        ).some((skeleton) => {
+            const rect = skeleton.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
+        }));
         const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef);
-        expect(debouncedSkeletonVisible).toBe(true);
+        expect(skeletonWhileShapeUnknown).toBe(false);
         expect(sourceReleased).toBe(true);
         // Opening a Recent file consumes the current empty tab; it must not create
         // another tab or replace the current tab identity.
@@ -688,21 +664,9 @@ describe('Electron E2E - Recent Files', () => {
             activeTabTitle: basename(fixturePath),
             openingGeometryKnown: false,
             recentRowVisible: false,
-            neutralVisible: true,
             shellVisible: false,
+            skeletonVisible: false,
         });
-        const initialOpenSurfaceFrame = immediateOpen.firstOpenSurfaceFrame;
-        expect(
-            [
-                'skeleton',
-                'canvas',
-            ],
-            JSON.stringify(immediateOpen),
-        ).toContain(initialOpenSurfaceFrame?.viewportVisualPresentation);
-        expect(
-            initialOpenSurfaceFrame?.skeletonVisible,
-            JSON.stringify(immediateOpen),
-        ).toBe(initialOpenSurfaceFrame?.viewportVisualPresentation !== 'canvas');
         expect([
             'pending',
             'geometry-committed',
@@ -893,6 +857,104 @@ describe('Electron E2E - Recent Files', () => {
             }),
         ).toEqual([]);
         await assertRecentPdfStaysLoaded(session, fixturePath);
+    });
+
+    it('opens a dropped PDF in a new tab through one page-shaped skeleton', async () => {
+        const session = await sessionFixture.restart({clean: true});
+        await waitForStartupOverlayRemoved(session);
+        const openPath = await createScannedTextFixturePdf(`drop-target-${Date.now()}.pdf`, 'OPEN PAGE');
+        const droppedPath = await createScannedTextFixturePdf(`dropped-${Date.now()}.pdf`, 'DROPPED PAGE');
+        await openPdfInApp(session.page, openPath);
+        await waitForPdfLoaded(session.page);
+        const dropPoint = await evaluateInPage(session.page, () => {
+            const rect = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            )?.getBoundingClientRect();
+            return rect
+                ? {
+                    x: rect.left + (rect.width / 2),
+                    y: rect.top + (rect.height / 2),
+                }
+                : null;
+        });
+        expect(dropPoint).not.toBeNull();
+
+        await installCommittedSurfaceSampler(session.page);
+        await markCommittedSurfaceInteractionCheckpoint(session.page, 'drop');
+        // A file dragged in from the desktop, through the browser's drag input.
+        const cdp = await session.page.createCDPSession();
+        try {
+            const data = {
+                items: [],
+                files: [droppedPath],
+                dragOperationsMask: 1,
+            };
+            for (const type of [
+                'dragEnter',
+                'dragOver',
+                'drop',
+            ] as const) {
+                await cdp.send('Input.dispatchDragEvent', {
+                    type,
+                    x: dropPoint!.x,
+                    y: dropPoint!.y,
+                    data,
+                });
+            }
+        } finally {
+            await cdp.detach();
+        }
+        await waitForFunctionInPage(session.page, (fileName: string) => (
+            document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName
+            && document.querySelector(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered canvas',
+            ) !== null
+        ), {timeout: RECENT_OPEN_TIMEOUT_MS}, basename(droppedPath));
+        await delay(250);
+        const trace = await stopCommittedSurfaceSampler(session.page);
+        const frames = trace.frames.filter(frame => frame.interactionCheckpoint === 'drop');
+        const details = JSON.stringify(frames.map(frame => ({
+            elapsedMs: frame.elapsedMs,
+            frame: frame.frame,
+            hasOpeningGeometry: frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry,
+            hosts: frame.visibleWorkspaceHostCount,
+            kind: frame.kind,
+            phase: frame.openSurfacePhase,
+            shellRect: frame.shellRect,
+        })));
+
+        expect(trace.errors ?? [], details).toEqual([]);
+        // The tab the file was dropped on is not kept on screen over the new
+        // one, and the new tab never shows its Start page on the way.
+        expect(frames.filter(frame => (frame.visibleWorkspaceHostCount ?? 0) > 1), details).toEqual([]);
+        expect(frames.filter(frame => (
+            frame.kind === 'committed-empty' || frame.kind === 'loader' || frame.kind === 'tool-surface'
+        )), details).toEqual([]);
+        // Until the page's shape is known the new tab is the bare viewer; then
+        // it shows that shape, and then the page in the same place.
+        const firstShellIndex = frames.findIndex(frame => frame.kind === 'page-shell');
+        expect(firstShellIndex, details).toBeGreaterThan(0);
+        expect(frames.slice(0, firstShellIndex).filter(frame => (
+            frame.kind === 'blank'
+                ? frame.openSurfacePhase !== null && !isOpeningBeforePageGeometry(frame)
+                : frame.kind !== 'committed-canvas'
+        )), details).toEqual([]);
+        const opening = frames.slice(firstShellIndex);
+        const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
+        expect(firstCanvasIndex, details).toBeGreaterThan(0);
+        expect(opening.slice(0, firstCanvasIndex).every(frame => frame.kind === 'page-shell'), details).toBe(true);
+        expect(opening.slice(firstCanvasIndex).every(frame => frame.kind === 'committed-canvas'), details).toBe(true);
+        const canvasRect = opening.at(-1)!.shellRect!;
+        for (const shell of opening.slice(0, firstCanvasIndex)) {
+            for (const key of [
+                'height',
+                'left',
+                'top',
+                'width',
+            ] as const) {
+                expect(Math.abs(shell.shellRect![key] - canvasRect[key]), details).toBeLessThanOrEqual(0.5);
+            }
+        }
     });
 
     it('fits the first Recent PDF to the viewport after startup', async () => {

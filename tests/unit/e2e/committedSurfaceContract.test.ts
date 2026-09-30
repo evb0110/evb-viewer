@@ -379,7 +379,6 @@ describe('committed surface E2E contract', () => {
     it.each([
         'blank',
         'loader',
-        'neutral',
     ] as const)('rejects a visible %s frame', kind => {
         const frames = [
             frame(1),
@@ -388,6 +387,26 @@ describe('committed surface E2E contract', () => {
         ];
 
         expect(findCommittedSurfaceContractViolations({frames}).join('\n')).toContain(`exposed ${kind}`);
+    });
+
+    it('accepts the bare viewport only while the opening page shape is unknown', () => {
+        const openingFrame = (sequence: number, hasOpeningGeometry: 'true' | 'false') => frame(sequence, {
+            kind: 'blank',
+            openSurfacePhase: 'pending',
+            openSurfaceDiagnostic: {openSurfaceHasOpeningGeometry: hasOpeningGeometry},
+        });
+        const canvases = Array.from({length: 10}, (_, index) => committedCanvas(index + 3));
+
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            openingFrame(2, 'false'),
+            ...canvases,
+        ]})).toEqual([]);
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            openingFrame(2, 'true'),
+            ...canvases,
+        ]}).join('\n')).toContain('exposed blank');
     });
 
     it('rejects a detached or geometrically different skeleton shell', () => {

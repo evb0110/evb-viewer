@@ -32,7 +32,6 @@
                     :tabs="tabs"
                     :active-pane-id="activePaneId"
                     :is-tab-transition-busy="isTabTransitionBusy"
-                    :presentation-fallback-tab-id="presentationFallbackTabId"
                     :tab-context-availability="tabContextAvailabilityByPane[pane.paneId] ?? null"
                     :start-section-by-tab-id="startSectionByTabId"
                     :tab-lifecycle-by-id="tabLifecycleById"
@@ -101,7 +100,6 @@ const {
     fullscreenSupported,
     isFullscreen,
     isTabTransitionBusy,
-    presentationFallbackTabId,
     isWorkspaceLayoutResizing = false,
     layout,
     panes,
@@ -117,7 +115,6 @@ const {
     tabs: ITab[];
     activePaneId: string | null;
     isTabTransitionBusy: boolean;
-    presentationFallbackTabId: string | null;
     tabContextAvailabilityByPane: Record<string, ITabContextAvailability>;
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;

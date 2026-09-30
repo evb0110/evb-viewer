@@ -476,7 +476,6 @@ function expectVisiblePdfPagesStayedPainted(
         const stayedPainted = ![
             'blank',
             'loader',
-            'neutral',
         ].includes(frame.kind)
             && frame.outOfFrameSkeletonCount === 0
             && visiblePages.length > 0

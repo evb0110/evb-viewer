@@ -830,11 +830,7 @@ interface ILargePdfOpenSample {
     pageSkeletonTop: number | null;
     pageSkeletonVisible: boolean;
     pageSkeletonWidth: number | null;
-    openSurfaceCount: number;
-    openSurfaceSkeletonCount: number;
-    openSurfaceSpinnerCount: number;
     openSurfacePhase: string | null;
-    openSurfaceVisible: boolean;
     pageHeight: number | null;
     pageTop: number | null;
     pageWidth: number | null;
@@ -855,8 +851,6 @@ interface ILargePdfVisualState {
     renderedPageCount: number;
     visibleCanvasCount: number;
     visibleLoadingStateCount: number;
-    visibleOpenSurfaceCount: number;
-    visibleOpeningFallbackCount: number;
     visibleSkeletonCount: number;
 }
 
@@ -2215,9 +2209,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     };
                 };
                 const canvasPixels = sampleCanvasPixels(currentPageCanvas);
-                const openSurfaces = Array.from(document.querySelectorAll<HTMLElement>(
-                    '[data-document-open-surface="neutral"]',
-                ));
                 const isVisible = (element: HTMLElement) => {
                     const elementRect = element.getBoundingClientRect();
                     const style = window.getComputedStyle(element);
@@ -2227,7 +2218,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                         && style.visibility !== 'hidden'
                         && Number(style.opacity || '1') > 0;
                 };
-                const visibleOpenSurfaces = openSurfaces.filter(isVisible);
                 const visiblePageSkeletons = pageSkeletons.filter(isVisible);
                 const pageSkeleton = visiblePageSkeletons[0] ?? null;
                 const pageSkeletonRect = pageSkeleton?.getBoundingClientRect() ?? null;
@@ -2286,15 +2276,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     pageSkeletonTop: pageSkeletonRect ? Math.round(pageSkeletonRect.top) : null,
                     pageSkeletonVisible: visiblePageSkeletons.length > 0,
                     pageSkeletonWidth: pageSkeletonRect ? Math.round(pageSkeletonRect.width) : null,
-                    openSurfaceCount: visibleOpenSurfaces.length,
-                    openSurfaceSkeletonCount: visibleOpenSurfaces.reduce((count, surface) => (
-                        count + surface.querySelectorAll('.document-page-skeleton').length
-                    ), 0),
-                    openSurfaceSpinnerCount: visibleOpenSurfaces.reduce((count, surface) => (
-                        count + surface.querySelectorAll('.animate-spin').length
-                    ), 0),
                     openSurfacePhase: viewer?.dataset.openSurfacePhase ?? null,
-                    openSurfaceVisible: visibleOpenSurfaces.length > 0,
                     pageHeight: rect ? Math.round(rect.height) : null,
                     pageTop: rect ? Math.round(rect.top) : null,
                     pageWidth: rect ? Math.round(rect.width) : null,
@@ -2414,12 +2396,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 visibleLoadingStateCount: Array.from(document.querySelectorAll<HTMLElement>(
                     '.document-loading, .pdf-loading, .pdf-loading-overlay, [data-loading="true"]',
                 )).filter(isVisible).length,
-                visibleOpenSurfaceCount: Array.from(document.querySelectorAll<HTMLElement>(
-                    '[data-document-open-surface="neutral"]',
-                )).filter(isVisible).length,
-                visibleOpeningFallbackCount: Array.from(document.querySelectorAll<HTMLElement>(
-                    '.workspace-host-document-open-fallback',
-                )).filter(isVisible).length,
                 visibleSkeletonCount: Array.from(
                     viewer?.querySelectorAll('.document-page-skeleton') ?? [],
                 ).filter(isVisible).length,
@@ -2442,7 +2418,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const committedSurfaceDiagnostic = committedSurfaceTrace.frames.filter((frame, index, frames) => (
             frame.kind === 'blank'
             || frame.kind === 'loader'
-            || frame.kind === 'neutral'
             || frame.kind !== frames[index - 1]?.kind
             || frame.kind !== frames[index + 1]?.kind
         ));
@@ -2464,13 +2439,10 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(result.visualState.nestedPdfViewerCount, JSON.stringify(result)).toBe(0);
         expect(result.visualState.renderedPageCount, JSON.stringify(result)).toBeGreaterThan(0);
         expect(result.visualState.visibleLoadingStateCount, JSON.stringify(result)).toBe(0);
-        expect(result.visualState.visibleOpenSurfaceCount, JSON.stringify(result)).toBe(0);
-        expect(result.visualState.visibleOpeningFallbackCount, JSON.stringify(result)).toBe(0);
         expect(result.visualState.visibleSkeletonCount, JSON.stringify(result)).toBe(0);
 
         const firstVisibleCanvasSample = result.samples.find(sample => (
             sample.visibleCanvasReady
-            && !sample.openSurfaceVisible
             && sample.sampleSource === 'raf'
         ));
         expect(firstVisibleCanvasSample, JSON.stringify(result)).toBeDefined();
@@ -2490,14 +2462,10 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         )));
         expect(committedCanvasSizes.size, JSON.stringify(result)).toBe(1);
 
-        const transitionSamples = result.samples.filter(sample => (
-            sample.sampleSource === 'raf'
-            && (sample.openSurfaceVisible || sample.hostLoaderCount > 0)
-        ));
         expect(
-            transitionSamples.every(sample => sample.openSurfaceVisible && sample.hostLoaderCount === 0),
+            result.samples.filter(sample => sample.sampleSource === 'raf' && sample.hostLoaderCount > 0),
             JSON.stringify(result),
-        ).toBe(true);
+        ).toEqual([]);
         for (const sample of result.samples) {
             expect(
                 sample.visibleCanvasReady && sample.pageSkeletonVisible,
@@ -2516,7 +2484,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             viewportScrollTop: number;
         } => (
             sample.sampleSource === 'raf'
-            && !sample.openSurfaceVisible
             && sample.visibleCanvasReady
             && sample.pageHeight !== null
             && sample.pageTop !== null
@@ -2939,7 +2906,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const smallFixtureSurfaceDiagnostic = smallFixtureSurfaceTrace.frames.filter((frame, index, frames) => (
             frame.kind === 'blank'
             || frame.kind === 'loader'
-            || frame.kind === 'neutral'
             || frame.kind !== frames[index - 1]?.kind
             || frame.kind !== frames[index + 1]?.kind
         ));
@@ -3054,7 +3020,6 @@ runDjvuBlockingOrSkip('Electron E2E - PR Blocking DjVu Committed Surface', () =>
         const diagnostic = postClickTrace.frames.filter((frame, index, frames) => (
             frame.kind === 'blank'
             || frame.kind === 'loader'
-            || frame.kind === 'neutral'
             || frame.kind !== frames[index - 1]?.kind
             || frame.kind !== frames[index + 1]?.kind
         ));
