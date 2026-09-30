@@ -16,7 +16,7 @@ import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/p
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 export interface IUsePdfFileOptions {
-    openSurface?: IDocumentOpenSurfaceSession | undefined;
+    getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
@@ -105,7 +105,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         ensureHistoryBaselineForMutation,
         incrementSessionVersion,
         loadEpoch,
-        openSurface: options.openSurface,
+        getOpenSurface: options.getOpenSurface,
         ...(options.failureSurface?.reportOpenFailure
             ? {reportOpenFailure: options.failureSurface.reportOpenFailure}
             : {}),

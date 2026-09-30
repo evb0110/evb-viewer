@@ -187,10 +187,7 @@ import {
     useDocumentWorkspaceAgent,
     type IOcrPopupAgentExpose,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
-import {
-    createDocumentContext,
-    provideDocumentContext,
-} from '@app/modules/workspace-shell/documentContext';
+import { createDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
@@ -256,46 +253,42 @@ const {
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = computed(() => isDesktopRuntime.value);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
-const documentView = documentSession.getView(tabId);
-if (!documentView) {
-    throw new Error(`Tab ${tabId} mounted a workspace for a document it does not view`);
-}
-// The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
-// comes back where it was.
-const initialViewState = documentView.viewState.value;
-const preserveInitialStateForFirstSource = documentSession.snapshot.value.phase === 'presented'
-    && documentView.toolbarSnapshot.value.initialVisualReady;
-const context = createDocumentContext({
+// This mount is one view of the document its DocumentSessionHost holds.
+const context = createDocumentViewContext({
     tabId,
-    isActive: computed(() => isActive),
-    initialViewState,
-    preserveInitialStateForFirstSource,
     controller: documentSession,
-    documentView,
+    isActive: computed(() => isActive),
     openSurface: documentOpenSurface,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emitOpenInNewTab: result => emit('open-in-new-tab', result),
     emitOpenSettings: () => emit('open-settings'),
 });
-provideDocumentContext(context);
+const {
+    document: documentContext,
+    documentView,
+    initialViewState,
+    preserveInitialStateForFirstSource,
+} = context;
 const {
     scanCleanup,
     scanCleanup: {surfaceMode},
-    file,
     view,
     search,
-    fileOps,
     statusBar,
-    exportWorkflow,
     navigation,
+    handleCaptureRegion,
+} = context;
+const {
+    file,
+    fileOps,
+    exportWorkflow,
     history,
     save,
     print,
     splitPayload,
     docxExport,
-    handleCaptureRegion,
     handleOcrComplete,
-} = context;
+} = documentContext;
 const {
     pdfError,
     pdfFailurePresentation,
@@ -361,7 +354,7 @@ const {
     runEdit: runPdfEditAction,
 } = context.djvuProjection;
 const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
-const presentation = useWorkspacePresentation(context, {
+const presentation = useWorkspacePresentation(documentContext, context, {
     splitCacheSession: computed(() => splitCacheSession),
     isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
     initialPage: initialViewState?.currentPage,
@@ -430,13 +423,13 @@ const {
     isRenderActive: computed(() => isRenderActive && surfaceMode.value === 'reader'),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     navigationFeedbackPage: presentation.navigationFeedbackPage,
-    onInitialVisualPending: context.annotations.markAnnotationCommentsLoading,
+    onInitialVisualPending: documentContext.annotations.markAnnotationCommentsLoading,
     onInitialVisualReady: () => {
         file.notifyPdfInitialVisualReady();
         emitFirstPageRendered();
     },
 });
-const {mountedDocumentDriver} = context.driver;
+const {mountedDocumentDriver} = documentContext.driver;
 // Start shows only the shell's own actions; document commands arrive with a document.
 const toolbarSurface = computed(() => (
     toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
@@ -464,14 +457,14 @@ function toggleContinuousScroll() {
 function setViewMode(mode: TPdfViewMode) {
     viewMode.value = mode;
 }
-const viewerCapabilities = computed(() => context.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
+const viewerCapabilities = computed(() => documentContext.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 const {
     runAgentAction,
     readAgentResource,
-} = useDocumentWorkspaceAgent(context, ocrPopupRef, waitForDocumentOpenSettled);
+} = useDocumentWorkspaceAgent(documentContext, context, ocrPopupRef, waitForDocumentOpenSettled);
 
 
-const workspaceExpose = createWorkspaceExpose(context, {
+const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     ensurePdfProjectionForEdit: ensureEditProjection,
     handleSave: handleSaveWithAutomationEvent,
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),

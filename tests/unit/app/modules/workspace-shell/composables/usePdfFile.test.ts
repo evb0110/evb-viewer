@@ -204,7 +204,7 @@ describe('usePdfFile façade', () => {
             modifiedAt: number;
         }>();
         mocks.getOpeningGeometry.mockReturnValue(geometry.promise);
-        const file = createFacade({openSurface});
+        const file = createFacade({getOpenSurface: () => openSurface});
         const opening = file.openFile(result);
         geometry.resolve({
             pageNumber: requirePageNumber(1),

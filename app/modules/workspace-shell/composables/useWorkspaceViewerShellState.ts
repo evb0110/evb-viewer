@@ -1,3 +1,7 @@
+import type {
+    Ref,
+    ShallowRef,
+} from 'vue';
 import {
     createZoomState,
     getZoomMode,
@@ -27,7 +31,16 @@ import {
 
 const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
-export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState | null) => {
+/** The document's loaded proxy and page count, which every view of it reads. */
+export interface IWorkspaceViewerDocumentState {
+    totalPages: Ref<number>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
+}
+
+export const useWorkspaceViewerShellState = (
+    initialState?: ITabViewSessionState | null,
+    documentState?: IWorkspaceViewerDocumentState,
+) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
     const djvuViewerRef = ref<IDocumentViewerExpose | null>(null);
     const documentViewerRef = computed<IDocumentViewerExpose | null>(() => (
@@ -130,8 +143,8 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = ref(Math.max(1, Math.trunc(initialState?.currentPage ?? 1)));
-    const totalPages = ref(0);
-    const pdfDocument = shallowRef<IPdfDocument | null>(null);
+    const totalPages = documentState?.totalPages ?? ref(0);
+    const pdfDocument = documentState?.pdfDocument ?? shallowRef<IPdfDocument | null>(null);
     const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
 
     watch(totalPages, (pageCount) => {

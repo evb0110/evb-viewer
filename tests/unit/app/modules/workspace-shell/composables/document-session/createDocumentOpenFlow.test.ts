@@ -99,7 +99,7 @@ function createOpenFlowHarness(options: {
         ensureHistoryBaselineForMutation: vi.fn(async () => true),
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
-        ...(options.openSurface === undefined ? {} : {openSurface: options.openSurface}),
+        ...(options.openSurface === undefined ? {} : {getOpenSurface: () => options.openSurface ?? null}),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
         ...(options.reportOpenFailure === undefined ? {} : {reportOpenFailure: options.reportOpenFailure}),

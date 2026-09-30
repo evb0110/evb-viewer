@@ -34,8 +34,6 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
     } | null>;
-    showSettings: Ref<boolean>;
-    emitOpenSettings: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
@@ -52,8 +50,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         documentRevisionToken,
         currentPage,
         pdfViewerRef,
-        showSettings,
-        emitOpenSettings,
         pdfSrc,
         totalPages,
         pdfDocument,
@@ -157,15 +153,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
 
     tryOnScopeDispose(() => {
         unsubscribeDocumentRevision();
-    });
-
-    watch(showSettings, (value) => {
-        if (!value) {
-            return;
-        }
-
-        emitOpenSettings();
-        showSettings.value = false;
     });
 
     useDocumentTransitions({

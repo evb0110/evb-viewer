@@ -27,6 +27,7 @@ import {
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
@@ -191,19 +192,26 @@ async function mountDocumentWorkspace(options: {
             return () => h('div', slots.default?.({}) ?? []);
         },
     });
+    const { default: DocumentSessionHost } = await import(
+        '@app/modules/workspace-shell/components/DocumentSessionHost.vue'
+    );
     const app = createApp(defineComponent({setup() {
-        return () => h(cast<never>(DocumentWorkspace), {
-            tabId: 'tab-1',
-            isActive: true,
-            isRenderActive: true,
-            isTabTransitionBusy: false,
-            isFullscreen: false,
-            fullscreenSupported: false,
-            isWorkspaceLayoutResizing: false,
-            splitCacheSession: null,
-            startSection: 'recent',
-            documentSession,
-        });
+        provideDocumentContextRegistry();
+        return () => [
+            h(DocumentSessionHost, {documentController: documentSession}),
+            h(cast<never>(DocumentWorkspace), {
+                tabId: 'tab-1',
+                isActive: true,
+                isRenderActive: true,
+                isTabTransitionBusy: false,
+                isFullscreen: false,
+                fullscreenSupported: false,
+                isWorkspaceLayoutResizing: false,
+                splitCacheSession: null,
+                startSection: 'recent',
+                documentSession,
+            }),
+        ];
     }}));
     cast<{_context: {components: unknown}}>(app)._context.components = new Proxy({}, {
         get: () => designSystemStub,

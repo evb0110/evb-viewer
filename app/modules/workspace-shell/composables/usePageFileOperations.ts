@@ -43,7 +43,7 @@ function didCompletePageFileOpen(outcome: TPageFileOpenOutcome) {
 }
 
 export interface IPageFileOperationsDeps {
-    tabId?: string;
+    tabId?: string | undefined;
     requestDirtyTabCloseConfirmation?: TDirtyTabCloseConfirmation;
     pdfSrc: Ref<TPdfSource | null>;
     hasDocument: Ref<boolean>;
@@ -76,7 +76,6 @@ export interface IPageFileOperationsDeps {
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     const {
         pdfSrc,
-        tabId,
         requestDirtyTabCloseConfirmation: requestDirtyTabCloseConfirmationFromDeps,
         hasDocument,
         isAnySaving,
@@ -275,6 +274,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function resolveDirtySwitchDecision() {
+        const {tabId} = deps;
         if (!hasPendingPersistenceChanges()) {
             return 'clean' as const;
         }

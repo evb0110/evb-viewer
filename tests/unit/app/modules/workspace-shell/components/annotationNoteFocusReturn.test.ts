@@ -22,6 +22,10 @@ import {
     provideDocumentContext,
     type TDocumentContext,
 } from '@app/modules/workspace-shell/documentContext';
+import {
+    provideDocumentViewContext,
+    type TDocumentViewContext,
+} from '@app/modules/workspace-shell/documentViewContext';
 import { cast } from '@tests/helpers/cast';
 import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 
@@ -93,6 +97,10 @@ function mountNotes() {
     };
     const context = {
         annotations,
+        pageOps: {isPageOperationInProgress: ref(false)},
+        file: {isDjvuMode: ref(false)},
+    };
+    const viewContext = {
         annotationActions: {},
         pageContextMenu: {
             pageContextMenu: ref({
@@ -105,8 +113,6 @@ function mountNotes() {
             }),
             pageContextMenuStyle: ref({}),
         },
-        pageOps: {isPageOperationInProgress: ref(false)},
-        file: {isDjvuMode: ref(false)},
         view: {
             pdfViewerRef: ref(null),
             effectiveZoom: ref(1),
@@ -114,6 +120,7 @@ function mountNotes() {
     };
     const app = createApp(defineComponent({setup: () => {
         provideDocumentContext(cast<TDocumentContext>(context));
+        provideDocumentViewContext(cast<TDocumentViewContext>(viewContext));
         return () => h(WorkspaceAnnotationOverlays, {visible: state.visible});
     }}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));

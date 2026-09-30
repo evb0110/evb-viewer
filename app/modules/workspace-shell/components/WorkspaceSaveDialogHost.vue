@@ -68,6 +68,7 @@ import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-e
 import { PdfOptimizeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
 import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const DjvuConvertDialog = defineAsyncComponent(
     () => import('@app/modules/djvu-viewer/public')
@@ -80,14 +81,16 @@ defineProps<{
 }>();
 
 const {
-    view,
     exportWorkflow,
     print,
-    crop,
     pageOps,
     file,
     save: {optimizeDialog: optimize},
 } = useDocumentContext();
+const {
+    view,
+    crop,
+} = useDocumentViewContext();
 const {
     totalPages,
     currentPage,

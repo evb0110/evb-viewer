@@ -70,7 +70,7 @@
         @page-rotate-cw="pageOps.handlePageRotate($event, 90)"
         @page-rotate-ccw="pageOps.handlePageRotate($event, 270)"
         @page-extract="pageOps.pageOpsExtract($event)"
-        @page-export="context.exportWorkflow.handleExportImages($event)"
+        @page-export="document.exportWorkflow.handleExportImages($event)"
         @page-delete="pageOps.pageOpsDelete($event, view.totalPages.value)"
         @page-reorder="pageOps.pageOpsReorder($event)"
         @page-move="pageOps.pageOpsMove($event)"
@@ -97,6 +97,7 @@ import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const {
     documentOpening,
@@ -114,20 +115,23 @@ const {
     showsPdfSidebar: boolean;
 }>();
 
-const context = useDocumentContext();
+const document = useDocumentContext();
+const context = useDocumentViewContext();
 const {
-    view,
-    search,
     file,
-    navigation,
     annotations,
-    annotationActions,
     pageOps,
-    bookmarkNavigationIntentVersion,
     metadata: {
         pageLabelState,
         bookmarkState,
     },
+} = document;
+const {
+    view,
+    search,
+    navigation,
+    annotationActions,
+    bookmarkNavigationIntentVersion,
 } = context;
 const isReader = computed(() => context.scanCleanup.surfaceMode.value === 'reader');
 const pdfViewer = computed(() => view.pdfViewerRef.value);

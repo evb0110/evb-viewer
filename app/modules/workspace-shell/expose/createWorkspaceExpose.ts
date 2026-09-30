@@ -15,6 +15,7 @@ import type {
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
 
 /** Commands and display state the workspace owns beyond the document context. */
@@ -76,13 +77,12 @@ function cloneAnnotationInventory(
 
 /** Builds the workspace command surface that tabs, menus and automation call. */
 export function createWorkspaceExpose(
-    context: TDocumentContext,
+    document: TDocumentContext,
+    viewContext: TDocumentViewContext,
     owners: IWorkspaceExposeOwners,
 ): IWorkspaceExpose {
     const {
         file,
-        view,
-        search,
         save,
         history,
         isOpeningDocument,
@@ -90,12 +90,16 @@ export function createWorkspaceExpose(
         metadata: {
             pageLabelState, bookmarkState,
         },
-        navigation,
         pageOps,
         fileOps,
         print,
         exportWorkflow,
-    } = context;
+    } = document;
+    const {
+        view,
+        search,
+        navigation,
+    } = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
     const pdfViewer = () => view.pdfViewerRef.value;
@@ -160,7 +164,7 @@ export function createWorkspaceExpose(
             isSavingAs: save.isSavingAs.value,
             isAnySaving: save.isAnySaving.value,
             isHistoryBusy: history.isHistoryBusy.value,
-            isExportingDocx: context.docxExport.isExporting.value,
+            isExportingDocx: document.docxExport.isExporting.value,
             isFitWidthActive: navigation.isFitWidthActive.value,
             isFitHeightActive: navigation.isFitHeightActive.value,
             showSidebar: view.showSidebar.value,
@@ -171,7 +175,7 @@ export function createWorkspaceExpose(
             isDjvuMode: file.isDjvuMode.value,
             viewerCapabilities: viewerCapabilities(),
             isCapturingRegion: pdfViewer()?.isCapturingRegion ?? false,
-            isCropSelecting: context.crop.isCropSelecting.value,
+            isCropSelecting: viewContext.crop.isCropSelecting.value,
             isPlacingPageNote: annotations.annotationTool.value === 'note',
             zoom,
             effectiveZoom,
@@ -278,7 +282,7 @@ export function createWorkspaceExpose(
         handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
         handleEnableDragMode: () => { navigation.enableDragMode(); },
         handleDisableDragMode: () => { annotations.handleAnnotationToolChange('none'); },
-        handleQuickNote: () => { void context.annotationActions.handleQuickNoteAction(); },
+        handleQuickNote: () => { void viewContext.annotationActions.handleQuickNoteAction(); },
         handleInsertImageFromFile: owners.handleInsertImageFromFile,
         handlePasteImageFromClipboard: owners.handlePasteImageFromClipboard,
         handlePageDelete: (pages) => {
@@ -296,8 +300,8 @@ export function createWorkspaceExpose(
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: owners.runAgentAction,
         readAgentResource: owners.readAgentResource,
-        handleOcrComplete: payload => context.handleOcrComplete(
-            payload as Parameters<typeof context.handleOcrComplete>[0],
+        handleOcrComplete: payload => document.handleOcrComplete(
+            payload as Parameters<typeof document.handleOcrComplete>[0],
         ),
         captureCanonicalAnnotationRecovery: () => {
             const viewer = pdfViewer();
@@ -343,7 +347,7 @@ export function createWorkspaceExpose(
         handleFitHeight: () => { navigation.handleFitMode('height'); },
         handleActualSize: () => { setCustomZoomFromDisplay(1); },
         setCustomZoomFromDisplay,
-        handleCaptureRegion: whenCapable('regionCapture', context.handleCaptureRegion),
+        handleCaptureRegion: whenCapable('regionCapture', viewContext.handleCaptureRegion),
         handleCrop: whenCapable('crop', owners.handleCrop),
         handleToggleContinuousScroll: whenCapable('continuousScroll', () => {
             view.continuousScroll.value = !view.continuousScroll.value;

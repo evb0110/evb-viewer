@@ -140,19 +140,22 @@ import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowEntry } from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 import { createAnnotationOverlayRuntime } from '@app/modules/workspace-shell/annotations/createAnnotationOverlayRuntime';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const { visible } = defineProps<{visible: boolean;}>();
 const {
     annotations,
+    pageOps,
+    file,
+} = useDocumentContext();
+const {
     annotationActions,
     pageContextMenu: {
         pageContextMenu,
         pageContextMenuStyle,
     },
-    pageOps,
-    file,
     view,
-} = useDocumentContext();
+} = useDocumentViewContext();
 const {
     sortedAnnotationNoteWindows,
     annotationNotePositions,

@@ -8,6 +8,7 @@ import type {
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import {
     createDefaultWorkspaceViewerCapabilities,
     type IWorkspaceAgentCommandContext,
@@ -1120,35 +1121,36 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
 };
 
 export const useDocumentWorkspaceAgent = (
-    context: TDocumentContext,
+    document: TDocumentContext,
+    viewContext: TDocumentViewContext,
     ocrPopupRef: Ref<IOcrPopupAgentExpose | null>,
     waitForDocumentOpenSettled: () => Promise<void>,
 ) => {
     const { t } = useTypedI18n();
     const viewerCapabilities = computed(() => (
-        context.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()
+        document.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()
     ));
 
     return createDocumentWorkspaceAgent({
-        ...context.annotations,
-        ...context.metadata.bookmarkState,
-        ...context.metadata.pageLabelState,
-        ...context.save,
-        ...context.history,
-        ...context.view,
-        ...context.file,
-        ...context.viewerDefaults,
-        ...context.annotationActions,
-        ...context.djvuProjection,
-        ...context.exportWorkflow,
-        ...context.navigation,
-        ...context.fileOps,
-        ...context.pageOps,
-        ...context.print,
-        documentIdentity: context.file.documentRevisionInfo,
+        ...document.annotations,
+        ...document.metadata.bookmarkState,
+        ...document.metadata.pageLabelState,
+        ...document.save,
+        ...document.history,
+        ...viewContext.view,
+        ...document.file,
+        ...viewContext.viewerDefaults,
+        ...viewContext.annotationActions,
+        ...viewContext.djvuProjection,
+        ...document.exportWorkflow,
+        ...viewContext.navigation,
+        ...document.fileOps,
+        ...document.pageOps,
+        ...document.print,
+        documentIdentity: document.file.documentRevisionInfo,
         viewerCapabilities,
         ocrPopupRef,
-        tabId: context.tabId,
+        tabId: viewContext.tabId,
         t,
         waitForDocumentOpenSettled,
     });

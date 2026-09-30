@@ -3,6 +3,7 @@ import { until } from '@vueuse/core';
 import {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
@@ -25,18 +26,24 @@ interface IWorkspacePresentationOptions {
  * which surface is visible, which controls are live, and when the open has
  * settled for the tab controller and automation.
  */
-export const useWorkspacePresentation = (context: TDocumentContext, options: IWorkspacePresentationOptions) => {
+export const useWorkspacePresentation = (
+    document: TDocumentContext,
+    viewContext: TDocumentViewContext,
+    options: IWorkspacePresentationOptions,
+) => {
     const {
-        tabId,
-        openSurface,
         file,
-        view,
-        search,
         save,
         history,
         splitPayload,
         isOpeningDocument,
-    } = context;
+    } = document;
+    const {
+        tabId,
+        openSurface,
+        view,
+        search,
+    } = viewContext;
     const { t } = useTypedI18n();
     const isOcrRunning = ref(false);
     const isRestoringSplitPayload = ref(false);
@@ -70,8 +77,8 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
         currentPageTransitionHistory: ref([]),
     });
 
-    const capabilities = context.viewerCapabilities;
-    const driverView = computed(() => context.driver.activeDocumentDriver.value?.view);
+    const capabilities = document.viewerCapabilities;
+    const driverView = computed(() => document.driver.activeDocumentDriver.value?.view);
     const showsPdfSidebar = computed(() => driverView.value?.showPdfSidebar === true);
     const showsDjvuSource = computed(() => driverView.value?.showDjvuSource === true);
     const isDjvuOpening = computed(() => Boolean(file.djvuOpeningPath.value) && !showsDjvuSource.value);
@@ -101,13 +108,13 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
     ));
 
     useDocumentWorkspacePageSessionRestore({
-        activeViewerAdapter: context.driver.activeDocumentDriver,
+        activeViewerAdapter: document.driver.activeDocumentDriver,
         currentPage: view.currentPage,
         documentViewerRef: view.documentViewerRef,
         initialPage: options.initialPage,
         preserveInitialPage: options.preserveInitialPage,
         isLoading: view.isLoading,
-        onRestore: context.navigation.handleGoToPage,
+        onRestore: viewContext.navigation.handleGoToPage,
         totalPages: view.totalPages,
     });
     const {
@@ -156,12 +163,12 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
         && !initialVisualPending.value
     ));
     const statusZoomLabel = computed(() => (
-        initialVisualPending.value ? t('status.zoomUnknown') : context.statusBar.statusZoomLabel.value
+        initialVisualPending.value ? t('status.zoomUnknown') : viewContext.statusBar.statusZoomLabel.value
     ));
     const documentMetadataReady = computed(() => (
         toolbarHasPdf.value && view.totalPages.value > 0 && !isOpeningDocumentForDisplay.value
     ));
-    const {pageLabelState} = context.metadata;
+    const {pageLabelState} = document.metadata;
     const toolbarPageLabels = computed<TDocumentPageLabelLookup>(() => {
         if (!documentMetadataReady.value) {
             return null;
@@ -183,7 +190,7 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
     const showDjvuConversionUi = computed(() => (
         capabilities.value?.conversionBanner === true
         || capabilities.value?.conversionDialog === true
-        || context.pendingDjvuDocumentOpen.value
+        || document.pendingDjvuDocumentOpen.value
         || Boolean(file.djvuOpeningPath.value)
         || file.conversionState.value.isConverting
     ));
