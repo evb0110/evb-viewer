@@ -9,6 +9,8 @@ import {
 } from 'vitest';
 import {
     createMultiPageTextFixturePdf,
+    createOutlinePageLabelFixturePdf,
+    fixtureBookmark,
     readPdfMetadataWithQpdf,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -338,6 +340,87 @@ async function readVisibleToasts(page: Page) {
     return page.$$eval('.app-toast', toasts => toasts
         .filter(toast => toast.getBoundingClientRect().width > 0)
         .map(toast => (toast as HTMLElement).innerText.trim()));
+}
+
+function bookmarkRowsSelector(paneId: string) {
+    return `${paneSelector(paneId)} .pdf-bookmark-item-row, ${paneSelector(paneId)} .document-bookmark-item__row`;
+}
+
+/** The bookmark titles a pane's Bookmarks panel shows, in order. */
+function readBookmarkTitles(page: Page, paneId: string) {
+    return page.$$eval(bookmarkRowsSelector(paneId), rows => rows
+        .filter(row => row.getBoundingClientRect().width > 0)
+        .map(row => row.textContent?.trim() ?? ''));
+}
+
+/** Waits until the pane's Bookmarks panel lists `includes` and, if given, exactly `count` rows. */
+async function waitForBookmarkTitles(
+    page: Page,
+    paneId: string,
+    label: string,
+    expected: {
+        includes?: string;
+        count?: number;
+    },
+) {
+    try {
+        await page.waitForFunction((selector: string, includes: string | null, count: number | null) => {
+            const titles = Array.from(document.querySelectorAll(selector))
+                .filter(row => row.getBoundingClientRect().width > 0)
+                .map(row => row.textContent?.trim() ?? '');
+            return (includes === null || titles.includes(includes)) && (count === null || titles.length === count);
+        }, {timeout: SETTLE_TIMEOUT_MS}, bookmarkRowsSelector(paneId), expected.includes ?? null, expected.count ?? null);
+    } catch (error) {
+        throw new Error(`${label}: ${JSON.stringify(await readBookmarkTitles(page, paneId))}`, {cause: error});
+    }
+    return readBookmarkTitles(page, paneId);
+}
+
+/** Renames a bookmark in a pane's Bookmarks panel through its context menu, as a person does. */
+async function renameBookmark(page: Page, paneId: string, from: string, to: string) {
+    const pane = paneSelector(paneId);
+    await waitForBookmarkTitles(page, paneId, `the ${paneId} panel lists ${from}`, {includes: from});
+    if (!await page.$(`${pane} .pdf-bookmarks-tree`)) {
+        await page.waitForSelector(`${pane} .document-bookmarks-toolbar__actions button`, {
+            visible: true,
+            timeout: SETTLE_TIMEOUT_MS,
+        });
+        await click(page, `${pane} .document-bookmarks-toolbar__actions button`);
+        await page.waitForSelector(`${pane} .pdf-bookmarks-tree`, {timeout: SETTLE_TIMEOUT_MS});
+    }
+    const row = await page.waitForFunction((selector: string, title: string) => Array.from(
+        document.querySelectorAll<HTMLElement>(`${selector} .pdf-bookmark-item-row`),
+    ).find(candidate => candidate.textContent?.trim() === title) ?? null, {timeout: SETTLE_TIMEOUT_MS}, pane, from);
+    const rowPoint = await page.evaluate((element) => {
+        const rect = element!.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    }, row);
+    await row.dispose();
+    await page.mouse.click(rowPoint.x, rowPoint.y, {button: 'right'});
+    await clickVisible(page, () => Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu .pdf-context-menu__action'))
+        .find(action => action.getBoundingClientRect().width > 0) ?? null);
+    const input = `${pane} .pdf-bookmark-item-input`;
+    await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, input);
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.down(modifier);
+    await page.keyboard.press('KeyA');
+    await page.keyboard.up(modifier);
+    await page.keyboard.type(to);
+    await page.keyboard.press('Enter');
+    await waitForBookmarkTitles(page, paneId, `the ${paneId} panel shows the renamed bookmark`, {includes: to});
+}
+
+async function saveFromToolbar(page: Page, pdfPath: string) {
+    const saveBaseline = await getLatestAutomationEventId(page);
+    await clickToolbarButton(page, 'Save');
+    await waitForAutomationEvent(page, 'save-committed', {
+        afterEventId: saveBaseline,
+        path: pdfPath,
+        timeoutMs: 60_000,
+    });
 }
 
 describe('shared PDF split', () => {
@@ -821,6 +904,68 @@ describe('shared PDF split', () => {
             visibleCount: 1,
             panes: [leftPane],
             focusInVisibleMenu: true,
+        });
+    }, TIMEOUT_MS);
+
+    // Sweep #845 item 1: the second view's Bookmarks panel, first opened after
+    // a saved rename in the first view, must not bring back the old outline.
+    it('keeps a bookmark renamed and saved in one view when the other view opens its bookmarks and saves', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createOutlinePageLabelFixturePdf(`shared-pdf-split-bookmarks-${stamp}.pdf`, [
+            fixtureBookmark('First', 0),
+            fixtureBookmark('Middle', 2),
+            fixtureBookmark('Last', 3),
+        ]);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-bookmarks-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        // The left view renames Middle and saves.
+        await activatePaneByTab(page, leftPane!);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await renameBookmark(page, leftPane!, 'Middle', 'Middle from left');
+        await saveFromToolbar(page, pdfPath);
+        await waitForPaneView(page, leftPane!, 'the left view is saved', view => !view.tabDirty);
+        const titlesAfterLeftSave = (await readPdfMetadataWithQpdf(pdfPath)).outlines.map(item => item.title);
+
+        // The right view opens its Bookmarks panel for the first time, renames Last and saves.
+        await activatePaneByTab(page, rightPane!);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        const rightOpenedTitles = await waitForBookmarkTitles(page, rightPane!, 'the right panel lists the outline', {count: 3});
+        await renameBookmark(page, rightPane!, 'Last', 'Last from right');
+        await saveFromToolbar(page, pdfPath);
+
+        const savedTitles = (await readPdfMetadataWithQpdf(pdfPath)).outlines.map(item => item.title);
+        expect({
+            titlesAfterLeftSave,
+            rightOpenedTitles,
+            savedTitles,
+        }).toEqual({
+            titlesAfterLeftSave: [
+                'First',
+                'Middle from left',
+                'Last',
+            ],
+            rightOpenedTitles: [
+                'First',
+                'Middle from left',
+                'Last',
+            ],
+            savedTitles: [
+                'First',
+                'Middle from left',
+                'Last from right',
+            ],
         });
     }, TIMEOUT_MS);
 });

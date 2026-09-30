@@ -84,7 +84,8 @@ async function mountOutline(
     document.body.append(host);
     const editModeUpdates: boolean[] = [];
     const viewProps = reactive({
-        bookmarkItems: [] as IPdfBookmarkEntry[],
+        // The document has not read its bookmarks yet: the outline reads its own.
+        bookmarkItems: undefined as IPdfBookmarkEntry[] | undefined,
         bookmarksDirty: false,
         currentPage: 1,
         isEditMode: false,

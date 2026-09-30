@@ -35,7 +35,7 @@
         :selected-annotations="annotations.selectedAnnotations.value"
         :can-rotate-annotations="pdfViewer?.canRotateSelectedAnnotations"
         :bookmark-edit-mode="bookmarkState.bookmarkEditMode.value"
-        :bookmark-items="bookmarkState.bookmarkItems.value"
+        :bookmark-items="bookmarkState.bookmarksResolved.value ? bookmarkState.bookmarkItems.value : undefined"
         :bookmarks-dirty="bookmarkState.bookmarksDirty.value"
         :bookmark-navigation-intent-version="bookmarkNavigationIntentVersion"
         :is-page-operation-in-progress="pageOps.isPageOperationInProgress.value"

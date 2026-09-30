@@ -197,7 +197,8 @@ function createPdfDocumentStub(outline: unknown[]) {
 }
 
 async function mountOutline(options: {
-    bookmarkItems: IPdfBookmarkEntry[];
+    /** The document's bookmarks; undefined until it has read them. */
+    bookmarkItems: IPdfBookmarkEntry[] | undefined;
     isEditMode?: boolean;
     pdfDocument?: IPdfDocument | null;
 }) {
@@ -280,7 +281,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
             },
         ]);
         const outline = await mountOutline({
-            bookmarkItems: [],
+            bookmarkItems: undefined,
             pdfDocument: document,
         });
         await vi.waitFor(() => expect(treeStub.items).toHaveLength(2));
@@ -308,7 +309,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         ]);
         document.getDestination = vi.fn(() => destination.promise);
         const outline = await mountOutline({
-            bookmarkItems: [],
+            bookmarkItems: undefined,
             pdfDocument: document,
         });
         // The pending lookup holds the first rows for the initial-selection budget.
@@ -401,7 +402,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
 
     it('keeps ids across an external apply when a resolved bookmark carries no title', async () => {
         const outline = await mountOutline({
-            bookmarkItems: [],
+            bookmarkItems: undefined,
             pdfDocument: createPdfDocumentStub([
                 {
                     title: '',

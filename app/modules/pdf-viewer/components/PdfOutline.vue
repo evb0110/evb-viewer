@@ -611,7 +611,6 @@ provide(pdfOutlineTreeKey, {
 
 let outlineRunId = 0;
 const initialBookmarkEntries = shallowRef<IPdfBookmarkEntry[]>([]);
-const hasMaterializedBookmarkSnapshot = ref(false);
 const bookmarkDestinationCache = new Map<string, unknown[] | null>();
 const bookmarkPageRefCache = new Map<string, number | null>();
 let activeItemResolution: AbortController | null = null;
@@ -687,17 +686,14 @@ async function updateActiveItemFromCurrentPage() {
     }
 }
 
+// The document's bookmarks, once it has them for the bytes in hand, outrank
+// this panel's read of its own PDF.js outline, which may hold older bytes.
 function getPendingBookmarkEntries() {
-    return props.bookmarksDirty ? props.bookmarkItems ?? [] : null;
-}
-
-function shouldApplyExternalBookmarkItems(isDirty: boolean) {
-    return isDirty || hasMaterializedBookmarkSnapshot.value;
+    return props.bookmarkItems ?? null;
 }
 
 function syncBookmarkBaselineFromCurrentItems() {
     initialBookmarkEntries.value = editing.mapBookmarksForPersistence(bookmarks.value);
-    hasMaterializedBookmarkSnapshot.value = true;
 }
 
 function applyPendingBookmarkItems(
@@ -706,11 +702,7 @@ function applyPendingBookmarkItems(
 ) {
     outlineError.value = false;
     if (areBookmarkEntriesEqual(entries, editing.mapBookmarksForPersistence(bookmarks.value))) {
-        if (options.syncBaseline) {
-            syncBookmarkBaselineFromCurrentItems();
-        } else {
-            hasMaterializedBookmarkSnapshot.value = true;
-        }
+        if (options.syncBaseline) syncBookmarkBaselineFromCurrentItems();
         return;
     }
 
@@ -724,21 +716,17 @@ function applyPendingBookmarkItems(
     expandedBookmarkIds.value = new Set();
     activeItemId.value = null;
     void updateActiveItemFromCurrentPage();
-    if (options.syncBaseline) {
-        syncBookmarkBaselineFromCurrentItems();
-    } else {
-        hasMaterializedBookmarkSnapshot.value = true;
-    }
+    if (options.syncBaseline) syncBookmarkBaselineFromCurrentItems();
 }
 
-function applyPendingBookmarkItemsIfDirty() {
+function applyDocumentBookmarkItems() {
     const pendingBookmarkEntries = getPendingBookmarkEntries();
     if (!pendingBookmarkEntries) {
         return false;
     }
 
     stopOutlineLoading();
-    applyPendingBookmarkItems(pendingBookmarkEntries);
+    applyPendingBookmarkItems(pendingBookmarkEntries, {syncBaseline: !props.bookmarksDirty});
     return true;
 }
 
@@ -752,7 +740,7 @@ function resetOutlineInteractionState() {
 }
 
 function clearLoadedOutline() {
-    if (applyPendingBookmarkItemsIfDirty()) {
+    if (applyDocumentBookmarkItems()) {
         return;
     }
 
@@ -788,7 +776,7 @@ async function resolveBookmarksFromPdf(pdfDocument: IPdfDocument) {
 }
 
 async function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
-    if (applyPendingBookmarkItemsIfDirty()) {
+    if (applyDocumentBookmarkItems()) {
         return;
     }
 
@@ -821,7 +809,7 @@ function handleOutlineLoadError(
         return;
     }
 
-    if (applyPendingBookmarkItemsIfDirty()) {
+    if (applyDocumentBookmarkItems()) {
         return;
     }
 
@@ -864,11 +852,10 @@ async function loadOutline() {
     const pdfDocument = props.pdfDocument;
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
-    hasMaterializedBookmarkSnapshot.value = false;
     const runId = outlineRunId;
     resetOutlineInteractionState();
 
-    if (applyPendingBookmarkItemsIfDirty()) {
+    if (applyDocumentBookmarkItems()) {
         return;
     }
 
@@ -976,9 +963,8 @@ watch(
         isDirty,
         externalItems,
     ]) => {
-        const items = externalItems ?? [];
-        if (shouldApplyExternalBookmarkItems(isDirty)) {
-            applyPendingBookmarkItems(items, { syncBaseline: !isDirty });
+        if (externalItems) {
+            applyPendingBookmarkItems(externalItems, { syncBaseline: !isDirty });
         }
     },
     {immediate: true},
