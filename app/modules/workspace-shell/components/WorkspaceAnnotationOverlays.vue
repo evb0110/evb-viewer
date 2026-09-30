@@ -151,6 +151,17 @@ const {
 const {
     tabId,
     annotationActions,
+    annotationContextMenu: {
+        annotationContextMenu,
+        annotationContextMenuStyle,
+        annotationContextMenuCanCopy,
+        annotationContextMenuCanCopySelection,
+        annotationContextMenuCanCreateFree,
+        annotationContextMenuCanInsertImage,
+        annotationContextMenuIsImage,
+        contextMenuAnnotationLabel,
+        contextMenuDeleteActionLabel,
+    },
     pageContextMenu: {
         pageContextMenu,
         pageContextMenuStyle,
@@ -160,15 +171,6 @@ const {
 const {
     sortedAnnotationNoteWindows,
     annotationNotePositions,
-    annotationContextMenu,
-    annotationContextMenuStyle,
-    annotationContextMenuCanCopy,
-    annotationContextMenuCanCopySelection,
-    annotationContextMenuCanCreateFree,
-    annotationContextMenuCanInsertImage,
-    annotationContextMenuIsImage,
-    contextMenuAnnotationLabel,
-    contextMenuDeleteActionLabel,
     updateAnnotationNoteText,
     bringAnnotationNoteToFront,
 } = annotations;

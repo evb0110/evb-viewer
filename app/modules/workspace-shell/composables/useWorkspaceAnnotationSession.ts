@@ -10,7 +10,6 @@ import {
     type AnnotationId,
     type IPdfDocument,
 } from '@app/modules/pdf-viewer/public';
-import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
@@ -20,7 +19,7 @@ const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 interface IWorkspaceAnnotationSessionOptions {
     /** The document's views: commands reach the viewer of the one in use. */
-    views: Pick<TDocumentViews, 'commandView' | 'commandTabId'>;
+    views: Pick<TDocumentViews, 'commandView' | 'commandTabId' | 'closeAnnotationContextMenus'>;
     pdfDocument: Ref<IPdfDocument | null>;
     dragMode: Ref<boolean>;
 }
@@ -33,19 +32,8 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     } = options;
     const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.commandView.value?.view.pdfViewerRef.value ?? null);
 
-    const {
-        annotationContextMenu,
-        annotationContextMenuStyle,
-        annotationContextMenuCanCopy,
-        annotationContextMenuCanCopySelection,
-        annotationContextMenuCanCreateFree,
-        annotationContextMenuCanInsertImage,
-        annotationContextMenuIsImage,
-        contextMenuAnnotationLabel,
-        contextMenuDeleteActionLabel,
-        closeAnnotationContextMenu,
-        showAnnotationContextMenu,
-    } = useAnnotationContextMenu();
+    // Each view has its own annotation context menu; a document-wide change closes them all.
+    const closeAnnotationContextMenu = () => views.closeAnnotationContextMenus();
 
     function clearAnnotationChanges() {}
 
@@ -201,17 +189,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     ));
 
     return {
-        annotationContextMenu,
-        annotationContextMenuStyle,
-        annotationContextMenuCanCopy,
-        annotationContextMenuCanCopySelection,
-        annotationContextMenuCanCreateFree,
-        annotationContextMenuCanInsertImage,
-        annotationContextMenuIsImage,
-        contextMenuAnnotationLabel,
-        contextMenuDeleteActionLabel,
         closeAnnotationContextMenu,
-        showAnnotationContextMenu,
         clearAnnotationChanges,
         hasAnnotationChanges,
         hasUnsavedAnnotationChanges,

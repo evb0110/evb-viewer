@@ -658,7 +658,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         resetAnnotationTracking: annotations.resetAnnotationTracking,
         resetSearchCache: resetSearchCaches,
         closeSearch: closeSearches,
-        closeAnnotationContextMenu: annotations.closeAnnotationContextMenu,
+        closeAnnotationContextMenu: views.closeAnnotationContextMenus,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
         loadRecentFiles: () => {

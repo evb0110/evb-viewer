@@ -7,6 +7,7 @@ import {
     usePageContextMenu,
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
+import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
@@ -202,18 +203,20 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         documentRevision: documentRevisionToken,
         onNavigate: match => navigation.handleGoToPage(match.pageIndex + 1, {navigationSource: 'search'}),
     });
+    // This view's annotation context menu: one per view, like its page context menu.
+    const annotationContextMenu = useAnnotationContextMenu();
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
         annotationTool: annotations.annotationTool,
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
-        annotationContextMenu: annotations.annotationContextMenu,
+        annotationContextMenu: annotationContextMenu.annotationContextMenu,
         showSidebar: view.showSidebar,
         sidebarTab: view.sidebarTab,
         dragMode: view.dragMode,
         currentPage,
         workingCopyPath,
-        closeAnnotationContextMenu: annotations.closeAnnotationContextMenu,
-        showAnnotationContextMenu: annotations.showAnnotationContextMenu,
+        closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
+        showAnnotationContextMenu: annotationContextMenu.showAnnotationContextMenu,
         handleAnnotationToolChange: annotations.handleAnnotationToolChange,
         openAnnotationNoteWindow: annotations.openAnnotationNoteWindow,
         removeAnnotationNoteWindow: annotations.removeAnnotationNoteWindow,
@@ -273,9 +276,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         canSave: saveService.canSave,
         annotationTool: annotations.annotationTool,
         pdfViewerRef,
-        annotationContextMenuVisible: computed(() => annotations.annotationContextMenu.value.visible),
+        annotationContextMenuVisible: computed(() => annotationContextMenu.annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.pageContextMenu.value.visible),
-        closeAnnotationContextMenu: annotations.closeAnnotationContextMenu,
+        closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         openSearch: search.openSearch,
         handleAnnotationToolChange: annotations.handleAnnotationToolChange,
@@ -509,6 +512,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         navigation,
         bookmarkNavigationIntentVersion,
         pageContextMenu,
+        annotationContextMenu,
+        closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
         scanCleanup,
         scanCleanupSourceSha256,
         annotationActions,

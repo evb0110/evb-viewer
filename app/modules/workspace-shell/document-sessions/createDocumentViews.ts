@@ -39,6 +39,7 @@ export interface IDocumentViewPort {
     search: Pick<ReturnType<typeof useWorkspaceSearchSidebar>, 'resetSearchCache' | 'closeSearch'>;
     navigation: Pick<ReturnType<typeof useWorkspaceViewState>, 'canUndo' | 'canRedo'>;
     pageContextMenu: ReturnType<typeof usePageContextMenu>;
+    closeAnnotationContextMenu: () => void;
 }
 
 /**
@@ -96,8 +97,15 @@ export const createDocumentViews = () => {
             : [...viewPorts.value.values()].find(port => port.view.pdfDocument.value) ?? commandView.value
     ));
 
+    function closeAnnotationContextMenus() {
+        for (const port of viewPorts.value.values()) {
+            port.closeAnnotationContextMenu();
+        }
+    }
+
     return {
         viewPorts,
+        closeAnnotationContextMenus,
         commandTabId: computed(() => commandTabId.value),
         commandView,
         commandViewRef,

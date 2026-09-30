@@ -758,4 +758,69 @@ describe('shared PDF split', () => {
         expect(dialogs).toHaveLength(1);
         expect(dialogs[0]).toContain('Current page (2)');
     }, TIMEOUT_MS);
+
+    // Sweep #845 item 2: a right-click in one view opens one annotation menu,
+    // and keyboard focus lands in it.
+    it('opens one annotation context menu for a right-click in one of two linked views', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-menu-${stamp}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-menu-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        const text = `MENU-${stamp}`;
+        await activatePaneByTab(page, leftPane!);
+        await createCanonicalTextBoxWithPointer(page, text, {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        for (const paneId of [
+            leftPane!,
+            rightPane!,
+        ]) {
+            await waitForPaneView(page, paneId, `${paneId} renders the text box`, view => containsAll(view.renderedTexts, [text]));
+        }
+
+        const box = await page.waitForFunction((selector: string, expected: string) => Array.from(
+            document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
+        ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0) ?? null, {timeout: SETTLE_TIMEOUT_MS}, paneSelector(leftPane!), text);
+        const boxPoint = await page.evaluate((element) => {
+            const rect = element!.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        }, box);
+        await box.dispose();
+        await page.mouse.click(boxPoint.x, boxPoint.y, {button: 'right'});
+        await page.waitForSelector('.annotation-context-menu', {
+            visible: true,
+            timeout: SETTLE_TIMEOUT_MS,
+        });
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const menus = await page.$$eval('.annotation-context-menu', (elements) => {
+            const panes = elements.map(element => (element.closest('.editor-pane') as HTMLElement | null)?.dataset.editorPaneId ?? null);
+            const visible = elements.filter(element => element.getBoundingClientRect().width > 0);
+            return {
+                visibleCount: visible.length,
+                panes: visible.map(element => panes[elements.indexOf(element)]),
+                focusInVisibleMenu: visible.some(element => element.contains(document.activeElement)),
+            };
+        });
+        expect(menus).toEqual({
+            visibleCount: 1,
+            panes: [leftPane],
+            focusInVisibleMenu: true,
+        });
+    }, TIMEOUT_MS);
 });
