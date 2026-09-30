@@ -189,6 +189,8 @@ interface IFlingBackdropProbe {
 
 interface IFlingBackdropProbeWindow extends Window { __evbFlingBackdropProbe?: IFlingBackdropProbe }
 
+interface IMainThreadThrottleWindow extends Window { __evbMainThreadThrottle?: { stopped: boolean } }
+
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
@@ -688,6 +690,48 @@ async function setFitWidthAndWaitForPage(session: IElectronE2ESession, pageNumbe
     ), {timeout: 15_000});
     await waitForVisiblePageCanvas(session, pageNumber, 15_000);
     await waitForAnimationFrames(session.page, 10);
+}
+
+// Slows the renderer main thread by `rate`, as Emulation.setCPUThrottlingRate
+// does, without its signals. Chromium's Linux throttler interrupts the main
+// thread with SIGUSR2 every few hundred microseconds. Where a pending signal
+// makes shmem fallocate undo its work (Linux 6.8), the shared memory for a
+// page-sized canvas is never allocated and the renderer hangs (#908). Here each
+// slice spins `rate - 1` times as long as the page ran since the previous
+// slice, and yields between slices so input and CDP calls still run.
+async function throttleRendererMainThread(session: IElectronE2ESession, rate: number) {
+    await session.page.evaluate((throttleRate: number) => {
+        const throttle = {stopped: false};
+        (window as IMainThreadThrottleWindow).__evbMainThreadThrottle = throttle;
+        const channel = new MessageChannel();
+        let debtMs = 0;
+        let sliceEnd = performance.now();
+        channel.port1.onmessage = () => {
+            if (throttle.stopped) {
+                channel.port1.close();
+                return;
+            }
+            const sliceStart = performance.now();
+            debtMs += (sliceStart - sliceEnd) * (throttleRate - 1);
+            const spinUntil = sliceStart + Math.min(debtMs, 20);
+            while (performance.now() < spinUntil) {
+                // Occupy the main thread for this slice.
+            }
+            sliceEnd = performance.now();
+            debtMs = Math.max(0, debtMs - (sliceEnd - sliceStart));
+            channel.port2.postMessage(null);
+        };
+        channel.port2.postMessage(null);
+    }, rate);
+    return async () => {
+        await session.page.evaluate(() => {
+            const throttleWindow = window as IMainThreadThrottleWindow;
+            if (throttleWindow.__evbMainThreadThrottle) {
+                throttleWindow.__evbMainThreadThrottle.stopped = true;
+            }
+            delete throttleWindow.__evbMainThreadThrottle;
+        });
+    };
 }
 
 async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
@@ -2310,8 +2354,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             throw new Error('PDF viewport disappeared before the half-commit interruption');
         }
         await session.page.mouse.move(viewport.x, viewport.y);
-        const client = await session.page.createCDPSession();
-        await client.send('Emulation.setCPUThrottlingRate', {rate: 50});
+        const stopThrottle = await throttleRendererMainThread(session, 50);
         let inFlight: Record<string, string | undefined> = {};
         let recovered: Record<string, string | undefined> = {};
         try {
@@ -2364,8 +2407,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             });
             recovered = evidence.recovered;
         } finally {
-            await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
-            await client.detach();
+            await stopThrottle();
         }
 
         expect(inFlight.commandAvailable).toBe('true');
@@ -2699,7 +2741,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         const originalViewport = session.page.viewport();
-        const throttle = await session.page.createCDPSession();
+        let stopThrottle: (() => Promise<void>) | null = null;
         try {
             await session.page.setViewport({
                 width: 1600,
@@ -2756,12 +2798,13 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             });
             // Scanned pages render slower than a reader clicks; throttling
             // keeps each target still loading when the next click lands.
-            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 4});
+            stopThrottle = await throttleRendererMainThread(session, 4);
             for (let click = 0; click < 10; click += 1) {
                 await session.page.mouse.click(nextButton.x, nextButton.y);
                 await delay(90);
             }
-            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1});
+            await stopThrottle();
+            stopThrottle = null;
             await delay(600);
             const toolbarPage = (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? null;
             const frames = await session.page.evaluate(() => {
@@ -2795,8 +2838,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 }
                 delete probeWindow.__evbBarePageProbe;
             }).catch(() => undefined);
-            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1}).catch(() => undefined);
-            await throttle.detach().catch(() => undefined);
+            await stopThrottle?.().catch(() => undefined);
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
             }
