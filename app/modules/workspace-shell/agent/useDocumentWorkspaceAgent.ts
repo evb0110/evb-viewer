@@ -1141,6 +1141,7 @@ export const useDocumentWorkspaceAgent = (
         ...document.file,
         ...viewContext.viewerDefaults,
         ...viewContext.annotationActions,
+        ...viewContext.annotationToolState,
         ...viewContext.djvuProjection,
         ...document.exportWorkflow,
         ...viewContext.navigation,

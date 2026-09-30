@@ -181,7 +181,8 @@ every view shows the same dirty state, and Save from any view writes the file
 once with every accepted edit. An annotation is edited in one view at a time:
 starting to edit it in another view first commits the open edit, as clicking
 elsewhere does, and the other views show its current content without editing
-it. Closing a view while another remains keeps the document open and asks
+it. Each view keeps its own annotation selection and active annotation tool.
+Closing a view while another remains keeps the document open and asks
 nothing; closing the last view is closing the document (T2). Opening another
 file in a linked view detaches only that view. A view moved to another window
 becomes an independent document there, and saves from both windows follow the

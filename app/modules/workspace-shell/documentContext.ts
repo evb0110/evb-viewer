@@ -214,7 +214,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const annotations = useWorkspaceAnnotationSession({
         views,
         pdfDocument,
-        dragMode: viewPort.dragMode,
     });
     const hasPendingUnsavedChanges = computed(() => (
         annotations.hasUnsavedAnnotationChanges.value
@@ -641,7 +640,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         dragMode: viewPort.dragMode,
         showSidebar: viewPort.showSidebar,
         sidebarTab: viewPort.sidebarTab,
-        annotationTool: annotations.annotationTool,
+        annotationTool: views.annotationTools,
         annotationComments: annotations.annotationComments,
         markAnnotationCommentsLoading: annotations.markAnnotationCommentsLoading,
         clearAnnotationComments: annotations.clearAnnotationComments,

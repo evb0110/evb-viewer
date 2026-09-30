@@ -25,7 +25,7 @@
         :is-truncated="search.isTruncated.value"
         :min-query-length="search.minQueryLength"
         :width="search.sidebarWidth.value"
-        :annotation-tool="annotations.annotationTool.value"
+        :annotation-tool="annotationTool"
         :annotation-keep-active="annotations.annotationKeepActive.value"
         :annotation-settings="annotations.annotationSettings.value"
         :annotation-comments="annotations.annotationComments.value"
@@ -53,10 +53,10 @@
         @go-to-page="navigation.handleGoToPage"
         @go-to-result="goToResult"
         @update:page-label-ranges="pageLabelState.handlePageLabelRangesUpdate"
-        @update:annotation-tool="annotations.handleAnnotationToolChange"
+        @update:annotation-tool="annotationToolState.handleAnnotationToolChange"
         @update:annotation-keep-active="annotations.annotationKeepActive.value = $event"
         @annotation-setting="annotations.handleAnnotationSettingChange"
-        @annotation-edit-text-box="annotations.handleAnnotationToolChange('select'); pdfViewer?.editAnnotationTextBox?.($event)"
+        @annotation-edit-text-box="annotationToolState.handleAnnotationToolChange('select'); pdfViewer?.editAnnotationTextBox?.($event)"
         @annotation-properties="pdfViewer?.updateSelectedAnnotationProperties?.($event)"
         @update:selected-thumbnail-pages="view.handleSelectedThumbnailPagesUpdate"
         @update:selected-page-selection="view.setSelectedPageSelection"
@@ -131,6 +131,8 @@ const {
     search,
     navigation,
     annotationActions,
+    annotationTool,
+    annotationToolState,
     bookmarkNavigationIntentVersion,
 } = context;
 const isReader = computed(() => context.scanCleanup.surfaceMode.value === 'reader');

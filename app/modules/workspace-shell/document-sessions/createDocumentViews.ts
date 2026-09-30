@@ -8,6 +8,7 @@ import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/documen
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { TAnnotationTool } from '@app/types/annotations';
 
 export type TViewShellState = ReturnType<typeof useWorkspaceViewerShellState>;
 
@@ -40,6 +41,7 @@ export interface IDocumentViewPort {
     navigation: Pick<ReturnType<typeof useWorkspaceViewState>, 'canUndo' | 'canRedo'>;
     pageContextMenu: ReturnType<typeof usePageContextMenu>;
     closeAnnotationContextMenu: () => void;
+    annotationTool: Ref<TAnnotationTool>;
 }
 
 /**
@@ -97,6 +99,17 @@ export const createDocumentViews = () => {
             : [...viewPorts.value.values()].find(port => port.view.pdfDocument.value) ?? commandView.value
     ));
 
+    // Each view has its own annotation tool. The tool in use reads the view in
+    // use; a document-wide reset (a transition, drag mode) sets every view's.
+    const annotationTools = computed<TAnnotationTool>({
+        get: () => commandView.value?.annotationTool.value ?? 'none',
+        set: (tool) => {
+            for (const port of viewPorts.value.values()) {
+                port.annotationTool.value = tool;
+            }
+        },
+    });
+
     function closeAnnotationContextMenus() {
         for (const port of viewPorts.value.values()) {
             port.closeAnnotationContextMenu();
@@ -106,6 +119,7 @@ export const createDocumentViews = () => {
     return {
         viewPorts,
         closeAnnotationContextMenus,
+        annotationTools,
         commandTabId: computed(() => commandTabId.value),
         commandView,
         commandViewRef,

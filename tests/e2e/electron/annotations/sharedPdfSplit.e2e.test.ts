@@ -451,6 +451,34 @@ async function waitForSelectedTextBoxes(page: Page, paneId: string, label: strin
     }
 }
 
+/** The annotation tool a pane's annotations panel shows as pressed. */
+function readPressedTool(page: Page, paneId: string) {
+    return page.$$eval(`${paneSelector(paneId)} .tool-button[aria-pressed="true"]`, buttons => buttons
+        .filter(button => button.getBoundingClientRect().width > 0)
+        .map(button => (button as HTMLElement).dataset.tool ?? ''));
+}
+
+/** The pressed tool once it is `expected` (null: none pressed), or what the pane still shows when the wait ends. */
+async function settlePressedTool(page: Page, paneId: string, expected: string | null) {
+    await page.waitForFunction((selector: string, tool: string | null) => {
+        const pressed = Array.from(document.querySelectorAll<HTMLElement>(selector))
+            .filter(button => button.getBoundingClientRect().width > 0)
+            .map(button => button.dataset.tool ?? '');
+        return tool === null ? pressed.length === 0 : pressed.length === 1 && pressed[0] === tool;
+    }, {timeout: SETTLE_TIMEOUT_MS}, `${paneSelector(paneId)} .tool-button[aria-pressed="true"]`, expected).catch(() => undefined);
+    return readPressedTool(page, paneId);
+}
+
+async function clickPaneTool(page: Page, paneId: string, tool: string) {
+    const selector = `${paneSelector(paneId)} .tool-button[data-tool="${tool}"]`;
+    await page.waitForSelector(selector, {
+        visible: true,
+        timeout: SETTLE_TIMEOUT_MS,
+    });
+    await click(page, selector);
+    await page.waitForSelector(`${selector}[aria-pressed="true"]`, {timeout: SETTLE_TIMEOUT_MS});
+}
+
 describe('shared PDF split', () => {
     it('shows one document in two views with shared edits, undo, dirty state and save, and separate placement', async () => {
         const stamp = Date.now();
@@ -1048,5 +1076,45 @@ describe('shared PDF split', () => {
         await activatePaneByTab(page, leftPane!);
         await waitForSelectedTextBoxes(page, leftPane!, 'the left view, back in use, shows X selected', [first]);
         await waitForSelectedTextBoxes(page, rightPane!, 'the right view keeps Y selected', [second]);
+    }, TIMEOUT_MS);
+
+    // Sweep #845 item 10: the drawing tool belongs to the view that picked it.
+    it('keeps the drawing tool picked in one linked view when the other view cancels its tool', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-tool-${stamp}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-tool-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        // The left view picks Ink.
+        await activatePaneByTab(page, leftPane!);
+        await openAnnotationsTab(page);
+        await clickPaneTool(page, leftPane!, 'draw');
+
+        // The right view, taken into use, has not picked a tool, like a
+        // freshly opened document; it then picks Select.
+        await activatePaneByTab(page, rightPane!);
+        await openAnnotationsTab(page);
+        const rightToolInUse = await settlePressedTool(page, rightPane!, null);
+        await clickPaneTool(page, rightPane!, 'select');
+        const leftToolAfterRightCancel = await settlePressedTool(page, leftPane!, 'draw');
+
+        expect({
+            rightToolInUse,
+            leftToolAfterRightCancel,
+        }).toEqual({
+            rightToolInUse: [],
+            leftToolAfterRightCancel: ['draw'],
+        });
     }, TIMEOUT_MS);
 });

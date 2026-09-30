@@ -8,6 +8,7 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
+import { useViewAnnotationTool } from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
@@ -171,6 +172,19 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         currentPage,
         openSurface,
     });
+    // This view's annotation context menu and annotation tool: one per view,
+    // like its page context menu and selection.
+    const annotationContextMenu = useAnnotationContextMenu();
+    const annotationToolState = useViewAnnotationTool({
+        pdfViewerRef,
+        dragMode: view.dragMode,
+        annotationKeepActive: annotations.annotationKeepActive,
+        closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
+    });
+    const {
+        annotationTool,
+        handleAnnotationToolChange,
+    } = annotationToolState;
     const navigation = useWorkspaceViewState({
         fitMode: view.fitMode,
         zoomMode: view.zoomMode,
@@ -178,7 +192,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         dragMode: view.dragMode,
         showSidebar: view.showSidebar,
         sidebarTab: view.sidebarTab,
-        annotationTool: annotations.annotationTool,
+        annotationTool,
         annotationEditorState: annotations.annotationEditorState,
         appAnnotationUndoDepth: annotations.appAnnotationUndoDepth,
         hasOpenAnnotationNotes: annotations.hasOpenAnnotationNotes,
@@ -203,11 +217,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         documentRevision: documentRevisionToken,
         onNavigate: match => navigation.handleGoToPage(match.pageIndex + 1, {navigationSource: 'search'}),
     });
-    // This view's annotation context menu: one per view, like its page context menu.
-    const annotationContextMenu = useAnnotationContextMenu();
     const annotationActions = usePageAnnotationActions({
         pdfViewerRef,
-        annotationTool: annotations.annotationTool,
+        annotationTool,
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
         annotationContextMenu: annotationContextMenu.annotationContextMenu,
         showSidebar: view.showSidebar,
@@ -217,7 +229,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         workingCopyPath,
         closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
         showAnnotationContextMenu: annotationContextMenu.showAnnotationContextMenu,
-        handleAnnotationToolChange: annotations.handleAnnotationToolChange,
+        handleAnnotationToolChange,
         openAnnotationNoteWindow: annotations.openAnnotationNoteWindow,
         removeAnnotationNoteWindow: annotations.removeAnnotationNoteWindow,
         setAnnotationNoteWindowError: annotations.setAnnotationNoteWindowError,
@@ -274,14 +286,14 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             && (file.hasPdf.value || document.sourceCapabilities.value.directImageExport)
         )),
         canSave: saveService.canSave,
-        annotationTool: annotations.annotationTool,
+        annotationTool,
         pdfViewerRef,
         annotationContextMenuVisible: computed(() => annotationContextMenu.annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.pageContextMenu.value.visible),
         closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         openSearch: search.openSearch,
-        handleAnnotationToolChange: annotations.handleAnnotationToolChange,
+        handleAnnotationToolChange,
         handleZoomIn: viewerDefaults.handleZoomIn,
         handleZoomOut: viewerDefaults.handleZoomOut,
         handleActualSize: viewerDefaults.handleActualSize,
@@ -426,7 +438,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             annotationCursorMode: navigation.annotationCursorMode,
             annotationKeepActive: annotations.annotationKeepActive,
             annotationSettings: annotations.annotationSettings,
-            annotationTool: annotations.annotationTool,
+            annotationTool,
             authorName: computed(() => appSettings.value.authorName),
             continuousScroll: view.continuousScroll,
             currentResultNavigationId: search.currentResultNavigationId,
@@ -466,8 +478,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onAnnotationOpenNote: annotationActions.handleOpenAnnotationNote,
             onAnnotationSetting: annotations.handleAnnotationSettingChange,
             onAnnotationState: annotations.handleAnnotationState,
-            onAnnotationToolAutoReset: annotations.handleAnnotationToolAutoReset,
-            onAnnotationToolCancel: annotations.handleAnnotationToolCancel,
+            onAnnotationToolAutoReset: annotationToolState.handleAnnotationToolAutoReset,
+            onAnnotationToolCancel: annotationToolState.handleAnnotationToolCancel,
             onCurrentPageUpdate: handleCurrentPage,
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
             onEffectiveZoomUpdate: (value) => { view.effectiveZoom.value = value; },
@@ -514,6 +526,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pageContextMenu,
         annotationContextMenu,
         closeAnnotationContextMenu: annotationContextMenu.closeAnnotationContextMenu,
+        annotationTool,
+        annotationToolState,
         scanCleanup,
         scanCleanupSourceSha256,
         annotationActions,

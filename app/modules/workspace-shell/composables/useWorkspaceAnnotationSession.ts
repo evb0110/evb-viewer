@@ -19,21 +19,16 @@ const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 interface IWorkspaceAnnotationSessionOptions {
     /** The document's views: commands reach the viewer of the one in use. */
-    views: Pick<TDocumentViews, 'commandView' | 'commandTabId' | 'closeAnnotationContextMenus'>;
+    views: Pick<TDocumentViews, 'commandView' | 'commandTabId'>;
     pdfDocument: Ref<IPdfDocument | null>;
-    dragMode: Ref<boolean>;
 }
 
 export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessionOptions) => {
     const {
         views,
         pdfDocument,
-        dragMode,
     } = options;
     const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.commandView.value?.view.pdfViewerRef.value ?? null);
-
-    // Each view has its own annotation context menu; a document-wide change closes them all.
-    const closeAnnotationContextMenu = () => views.closeAnnotationContextMenus();
 
     function clearAnnotationChanges() {}
 
@@ -46,7 +41,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
 
 
     const {
-        annotationTool,
         annotationKeepActive,
         annotationSettings,
         annotationComments,
@@ -56,9 +50,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationDirty,
-        handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,
@@ -72,10 +63,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         applyAnnotationEnrichmentState,
         clearAnnotationComments,
     } = usePageAnnotationTools({
-        pdfViewerRef,
-        dragMode,
         clearAnnotationChanges,
-        closeAnnotationContextMenu,
         hasAnnotationChanges,
     });
 
@@ -189,7 +177,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     ));
 
     return {
-        closeAnnotationContextMenu,
         clearAnnotationChanges,
         hasAnnotationChanges,
         hasUnsavedAnnotationChanges,
@@ -198,7 +185,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         appAnnotationUndoDepth,
         selectedAnnotations,
         selectedTextBox,
-        annotationTool,
         annotationKeepActive,
         annotationSettings,
         annotationComments,
@@ -208,9 +194,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationDirty,
-        handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,
