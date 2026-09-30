@@ -1,0 +1,22 @@
+app/modules/workspace-shell/components/DocumentWorkspaceTab.vue
+  s_164326d4fd1782::t_dfa1ad1fca5368 49-50,70-73,188-205,212
+  s_164326d4fd1782::t_bd42ac0989ae4f 80
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_164326d4fd1782::t_84f9aa0f72cc39 238-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f8745857c1ed4229d7edb774dd83f567834bed94",
+  "prompts": {},
+  "sessions": {
+    "s_164326d4fd1782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c35d7a6a-ef12-48f6-b218-a2749f6b2ead",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
