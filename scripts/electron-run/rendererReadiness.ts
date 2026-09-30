@@ -708,8 +708,17 @@ export async function connectToBrowser(cdpPort: number): Promise<{
         }
 
         page = await waitForReadyRenderer(browser, page, optimizeDepWatcher);
-        logLauncher('debug', 'cdp', 'Connected to app');
         logTiming('Renderer bindings ready');
+        // Bindings can be ready before the GPU process has started, as on a
+        // cold CI runner. Until the window paints, a Linux menu bar is missing
+        // from the frame the renderer reports and the renderer stops taking
+        // size changes, so a window resize would settle short. Animation
+        // frames run only once the window paints.
+        await page.evaluate(() => new Promise<void>(resolve => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        logLauncher('debug', 'cdp', 'Connected to app');
+        logTiming('Renderer painted');
         return {
             browser,
             page,
