@@ -273,6 +273,14 @@ export async function pickFiles(options: {
         return [];
     }
 
+    // A browser opens a file chooser only within a user activation and reports
+    // no event when it refuses one, so without activation the input would wait
+    // forever. The pick ends as cancelled instead.
+    const userActivation: UserActivation | undefined = navigator.userActivation;
+    if (userActivation?.isActive === false) {
+        return [];
+    }
+
     return new Promise<IPickedBrowserFile[]>((resolve) => {
         const input = document.createElement('input');
         let settled = false;

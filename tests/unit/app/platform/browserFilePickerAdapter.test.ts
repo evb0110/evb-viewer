@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import {
     afterEach,
     describe,
@@ -6,9 +7,55 @@ import {
     vi,
 } from 'vitest';
 
+function setUserActivation(isActive: boolean) {
+    Object.defineProperty(navigator, 'userActivation', {
+        configurable: true,
+        value: {
+            isActive,
+            hasBeenActive: isActive,
+        },
+    });
+}
+
 describe('browser file picker adapter', () => {
     afterEach(() => {
         vi.useRealTimers();
+        Reflect.deleteProperty(navigator, 'userActivation');
+        document.body.replaceChildren();
+    });
+
+    it('ends a pick without user activation as cancelled and leaves no file input behind', async () => {
+        setUserActivation(false);
+        const {pickFiles} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+
+        await expect(pickFiles({
+            accept: '.pdf',
+            preferFileSystemAccess: false,
+        })).resolves.toEqual([]);
+        expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
+    });
+
+    it('returns the file chosen through an activated pick and removes its input', async () => {
+        setUserActivation(true);
+        const {pickFiles} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+        const chosen = new File(['%PDF-1.7'], 'chosen.pdf', {type: 'application/pdf'});
+
+        const pick = pickFiles({
+            accept: '.pdf',
+            preferFileSystemAccess: false,
+        });
+        const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+        if (!input) {
+            throw new Error('The activated pick did not attach a file input');
+        }
+        Object.defineProperty(input, 'files', {value: [chosen]});
+        input.dispatchEvent(new Event('change'));
+
+        await expect(pick).resolves.toEqual([{
+            file: chosen,
+            handle: null,
+        }]);
+        expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
     });
 
     it('aborts a writer when close times out before reporting the save as failed', async () => {
