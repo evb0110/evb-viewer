@@ -162,6 +162,8 @@ describe('checkpointed annotation recovery', () => {
                 preserveWorkspaceCheckpoint: true,
                 crashElectronBeforeStop: true,
             });
+            // The crashed session is stopped; a failed restart must not stop it again.
+            session = null;
             session = await startElectronE2ESession(sessionName, {clean: false});
             await waitForPdfLoaded(session.page, 60_000);
 
@@ -186,7 +188,8 @@ describe('checkpointed annotation recovery', () => {
                         .some(entity => entity.textContent?.trim() === text);
             }, {timeout: 60_000}, restoredLeft!, marker);
         } finally {
-            await session.stop();
+            await session?.stop();
+            session = null;
         }
     }, 360_000);
 });
