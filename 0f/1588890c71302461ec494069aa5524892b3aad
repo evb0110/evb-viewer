@@ -1,0 +1,21 @@
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_c5a255c2daf8a4 511-518,530-531
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c465d282efc2c0::t_891e38d6996c71 1169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0f1588890c71302461ec494069aa5524892b3aad",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
