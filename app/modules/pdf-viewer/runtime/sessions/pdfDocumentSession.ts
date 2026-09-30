@@ -7,6 +7,10 @@ import { clamp } from 'es-toolkit/math';
 import type { ComputedRef } from 'vue';
 import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
 import { recordPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
@@ -221,6 +225,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pageNumber: number;
         invalidatedPages: readonly number[];
         rotationDelta?: 90 | 180 | 270;
+        pageIdentityDelta?: IPageIdentityDelta;
         preservePageMetrics: boolean;
     } | null = null;
     let pendingPageMutationGeometryPreview: {
@@ -1604,6 +1609,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             pages: readonly number[],
             pageNumber: number,
             rotationDelta?: 90 | 180 | 270,
+            pageIdentityDelta?: IPageIdentityDelta,
         ) {
             const surface = options.chassisAuthority?.openSurface;
             if (
@@ -1654,9 +1660,25 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 pageNumber,
                 invalidatedPages: [...pages],
                 ...(rotationDelta === undefined ? {} : {rotationDelta}),
+                ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
                 preservePageMetrics,
             };
             return true;
+        },
+        /**
+         * Moves a reading anchor taken before a staged page mutation to that
+         * page's number after it; a removed page reads the staged page.
+         */
+        carryAnchorThroughPageMutation<TAnchor extends {page: number}>(anchor: TAnchor | null): TAnchor | null {
+            const delta = pendingPageMutationRevisionSwap?.pageIdentityDelta;
+            if (!anchor || !delta || !pendingPageMutationRevisionSwap) {
+                return anchor;
+            }
+            const page = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(anchor.page));
+            return {
+                ...anchor,
+                page: page ?? pendingPageMutationRevisionSwap.pageNumber,
+            };
         },
         invalidatePagesOnNextReload(pages: readonly number[]) {
             pendingPagesToInvalidate = [...pages];

@@ -70,6 +70,10 @@ interface IPaneView {
     centerOffsetPx: number | null;
     renderedTexts: string[];
     listedTexts: string[];
+    /** The text layer of the page at the viewport center, once it is ready. */
+    centerText: string | null;
+    /** The highest page number the pane lays out: its page count. */
+    pageCount: number;
 }
 
 let session: IElectronE2ESession | null = null;
@@ -190,6 +194,9 @@ function readPaneView(page: Page, paneId: string): Promise<IPaneView> {
                 .map(element => textOf(element) ?? '').filter(Boolean),
             listedTexts: Array.from(pane.querySelectorAll('.notes-list .note-item'))
                 .map(element => textOf(element) ?? '').filter(Boolean),
+            centerText: textOf(centerPage?.querySelector('.text-layer[data-pdf-text-layer-ready="true"]')) || null,
+            pageCount: Math.max(0, ...Array.from(pane.querySelectorAll<HTMLElement>('#pdf-viewer .page_container[data-page]'))
+                .map(container => Number(container.dataset.page) || 0)),
         };
     });
 }
@@ -344,6 +351,10 @@ async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string)
     await page.waitForFunction((selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected, {timeout: SETTLE_TIMEOUT_MS}, prefixInput, prefix);
     await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
     await waitForPaneView(page, paneId, 'numbering the pages leaves unsaved changes', view => view.tabDirty);
+}
+
+function thumbnailSelector(paneId: string, pageNumber: number) {
+    return `${paneSelector(paneId)} .pdf-thumbnails [data-thumbnail-page="${pageNumber}"]`;
 }
 
 async function readVisibleToasts(page: Page) {
@@ -1123,5 +1134,45 @@ describe('shared PDF split', () => {
             rightToolInUse: [],
             leftToolAfterRightCancel: ['draw'],
         });
+    }, TIMEOUT_MS);
+
+    it('keeps the other view on the page it reads when one view deletes an earlier page', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-delete-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-delete-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+
+        // The right view reads page 4.
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+        await goToPageViaToolbar(page, 4);
+        await waitForSteadyPaneView(page, rightPane!, 'the right view reads page 4', view => (
+            view.centerPage === 4 && view.centerText?.includes('Fixture 4/6') === true
+        ));
+
+        // The left view deletes page 1 from its Pages panel.
+        await activatePaneByTab(page, leftPane!);
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickSteadyControl(page, thumbnailSelector(leftPane!, 1));
+        await click(page, thumbnailSelector(leftPane!, 1), 'right');
+        await clickVisible(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0) ?? null);
+        await waitForPaneView(page, leftPane!, 'the left view has five pages', view => view.pageCount === 5);
+
+        // The right view still shows what it was reading, now as page 3. The
+        // reload briefly keeps the old picture, so wait for the settled text.
+        const rightView = await waitForPaneView(page, rightPane!, 'the right view must keep showing original page 4, now page 3', view => (
+            view.pageCount === 5 && view.centerPage === 3 && view.centerText?.includes('Fixture 4/6') === true
+        ));
+        expect(rightView.centerPage).toBe(3);
     }, TIMEOUT_MS);
 });

@@ -114,6 +114,8 @@ export interface IDocumentViewerExpose {
         invalidatedPages: readonly number[];
         pageNumber: number;
         rotationDelta?: 90 | 180 | 270;
+        /** How the mutation renumbers pages: a view keeps reading the page it was on. */
+        pageIdentityDelta?: IPageIdentityDelta;
     }) => boolean | Promise<boolean>;
     beginPageRotationPreview?: (input: {
         invalidatedPages: readonly number[];

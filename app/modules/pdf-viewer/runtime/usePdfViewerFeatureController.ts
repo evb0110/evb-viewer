@@ -468,6 +468,7 @@ export const usePdfViewerFeatureController = (
                 input.invalidatedPages,
                 input.pageNumber,
                 input.rotationDelta,
+                input.pageIdentityDelta,
             );
             if (!didPrepare) {
                 return false;
