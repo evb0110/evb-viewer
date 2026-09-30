@@ -317,6 +317,18 @@ async function undoTextBoxEdit(page: Page, activePane: string, otherPane: string
 }
 
 /** Numbers every page of the active pane's document through its Pages panel. */
+// Selects the focused field's text. On macOS a synthetic Cmd+A does not run
+// Select All by itself, so the key carries the editing command.
+async function selectAllInFocusedField(page: Page) {
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.down(modifier);
+    try {
+        await page.keyboard.press('KeyA', {commands: ['selectAll']});
+    } finally {
+        await page.keyboard.up(modifier);
+    }
+}
+
 async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string) {
     await openDocumentSidebarTab(page, 'Pages');
     const prefixInput = `${paneSelector(paneId)} #page-label-prefix-input`;
@@ -327,9 +339,7 @@ async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string)
     await clickSteadyControl(page, prefixInput);
     await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, prefixInput);
     // Replace whatever prefix the field still shows.
-    await page.keyboard.down('Control');
-    await page.keyboard.press('KeyA');
-    await page.keyboard.up('Control');
+    await selectAllInFocusedField(page);
     await page.keyboard.type(prefix);
     await page.waitForFunction((selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected, {timeout: SETTLE_TIMEOUT_MS}, prefixInput, prefix);
     await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
@@ -404,13 +414,7 @@ async function renameBookmark(page: Page, paneId: string, from: string, to: stri
         .find(action => action.getBoundingClientRect().width > 0) ?? null);
     const input = `${pane} .pdf-bookmark-item-input`;
     await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, input);
-    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-    await page.keyboard.down(modifier);
-    try {
-        await page.keyboard.press('KeyA');
-    } finally {
-        await page.keyboard.up(modifier);
-    }
+    await selectAllInFocusedField(page);
     await page.keyboard.type(to);
     await page.keyboard.press('Enter');
     await waitForBookmarkTitles(page, paneId, `the ${paneId} panel shows the renamed bookmark`, {includes: to});
