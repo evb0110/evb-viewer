@@ -59,6 +59,21 @@ function preventAutomaticWorkingCopyMaterialization() {
     vi.resetModules();
 }
 
+// Another program swaps in same-size bytes and restores the old mtime. On
+// POSIX it renames a new file over the source, as most editors save; Windows
+// refuses a rename over a file the open still holds, so there it rewrites the
+// source in place. Either way the witness must see a different file.
+function replaceSourceKeepingSizeAndMtime(sourcePath: string, bytes: Buffer, mtime: Date) {
+    if (originalPlatform === 'win32') {
+        writeFileSync(sourcePath, bytes);
+    } else {
+        const replacementPath = `${sourcePath}.replacement`;
+        writeFileSync(replacementPath, bytes);
+        renameSync(replacementPath, sourcePath);
+    }
+    utimesSync(sourcePath, mtime, mtime);
+}
+
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
@@ -243,10 +258,7 @@ describe('workingCopy', () => {
         vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
             rewrittenWorkingPath = workingPath;
             writeFileSync(workingPath, Buffer.alloc(64 * 1024, 31));
-            const replacementPath = join(tempRoot, 'replacement.pdf');
-            writeFileSync(replacementPath, Buffer.alloc(64 * 1024, 32));
-            utimesSync(replacementPath, fixedTime, fixedTime);
-            renameSync(replacementPath, originalPath);
+            replaceSourceKeepingSizeAndMtime(originalPath, Buffer.alloc(64 * 1024, 32), fixedTime);
             return true;
         });
 
@@ -269,10 +281,7 @@ describe('workingCopy', () => {
             return {
                 ...original,
                 setWorkingCopyOriginalPath: async (...args: Parameters<typeof original.setWorkingCopyOriginalPath>) => {
-                    const replacementPath = join(tempRoot, 'replacement-after-check.pdf');
-                    writeFileSync(replacementPath, Buffer.alloc(64 * 1024, 42));
-                    utimesSync(replacementPath, fixedTime, fixedTime);
-                    renameSync(replacementPath, originalPath);
+                    replaceSourceKeepingSizeAndMtime(originalPath, Buffer.alloc(64 * 1024, 42), fixedTime);
                     return original.setWorkingCopyOriginalPath(...args);
                 },
             };
