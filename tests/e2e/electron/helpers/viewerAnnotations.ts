@@ -987,6 +987,8 @@ export async function createStickyNoteWithPointer(
     // page can cancel an active placement gesture when a prior test leaves the
     // viewport at a different offset.
     await clickAnnotationTool(page, 'Note');
+    // The placement check below reads the active workspace through the probe.
+    await installWorkspaceExposeProbe(page);
     await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
         '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], '
         + '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',

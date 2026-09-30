@@ -212,7 +212,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
     const annotations = useWorkspaceAnnotationSession({
-        pdfViewerRef,
+        views,
         pdfDocument,
         dragMode: viewPort.dragMode,
     });

@@ -12,6 +12,8 @@ export interface IAnnotationNoteWindowState {
     draftText: string;
     minimized: boolean;
     position: IAnnotationNotePosition;
+    /** The view whose editor shows the open note; the others show its marker only. */
+    ownerViewId?: string | null;
 }
 
 /** UI-only projection; semantic annotation data remains in AnnotationStore. */

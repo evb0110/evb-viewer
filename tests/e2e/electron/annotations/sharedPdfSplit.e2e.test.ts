@@ -18,6 +18,7 @@ import {
 import {
     clickVisibleAnnotationControl,
     createCanonicalTextBoxWithPointer,
+    createStickyNoteWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     goToPageViaToolbar,
@@ -652,6 +653,66 @@ describe('shared PDF split', () => {
         });
         const metadata = await readPdfMetadataWithQpdf(pdfPath);
         expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:R-');
+    }, TIMEOUT_MS);
+
+    it('opens one editor for a note, in the view that opened it', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-note-${stamp}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-note-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+        await activatePaneByTab(page, leftPane!);
+
+        const noteText = `SPLIT-NOTE-${stamp}`;
+        await createStickyNoteWithPointer(page, noteText, {
+            x: 0.4,
+            y: 0.3,
+        }, 1);
+        const readNoteWindows = () => page.evaluate((left: string, right: string) => ({
+            left: document.querySelectorAll(`.editor-pane[data-editor-pane-id="${left}"] .note-window`).length,
+            right: document.querySelectorAll(`.editor-pane[data-editor-pane-id="${right}"] .note-window`).length,
+            focusedInLeft: Boolean(document.activeElement?.closest(`.editor-pane[data-editor-pane-id="${left}"]`)),
+        }), leftPane!, rightPane!);
+        await page.waitForSelector(`${paneSelector(leftPane!)} .note-window`, {timeout: SETTLE_TIMEOUT_MS});
+        expect(await readNoteWindows()).toMatchObject({
+            left: 1,
+            right: 0,
+        });
+
+        // Typing more keeps the focus in the left view's editor.
+        await click(page, `${paneSelector(leftPane!)} .note-window textarea.note-window__textarea`);
+        await page.keyboard.type(' more');
+        expect(await readNoteWindows()).toEqual({
+            left: 1,
+            right: 0,
+            focusedInLeft: true,
+        });
+
+        // Dragging the window moves the one editor there is, within its pane.
+        const titleSelector = `${paneSelector(leftPane!)} .note-window .note-window__title-main`;
+        const before = await centerOf(page, titleSelector);
+        await page.mouse.move(before.x, before.y);
+        await page.mouse.down();
+        await page.mouse.move(before.x - 20, before.y + 60, {steps: 6});
+        await page.mouse.up();
+        await page.waitForFunction((selector: string, y: number) => {
+            const rect = document.querySelector(selector)?.getBoundingClientRect();
+            return Boolean(rect && rect.top + rect.height / 2 > y + 20);
+        }, {timeout: SETTLE_TIMEOUT_MS}, titleSelector, before.y);
+        expect(await readNoteWindows()).toMatchObject({
+            left: 1,
+            right: 0,
+        });
     }, TIMEOUT_MS);
 
 });

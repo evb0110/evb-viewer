@@ -15,20 +15,23 @@ import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composabl
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
+import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 interface IWorkspaceAnnotationSessionOptions {
-    pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
+    /** The document's views: commands reach the viewer of the one in use. */
+    views: Pick<TDocumentViews, 'commandView' | 'commandTabId'>;
     pdfDocument: Ref<IPdfDocument | null>;
     dragMode: Ref<boolean>;
 }
 
 export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessionOptions) => {
     const {
-        pdfViewerRef,
+        views,
         pdfDocument,
         dragMode,
     } = options;
+    const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.commandView.value?.view.pdfViewerRef.value ?? null);
 
     const {
         annotationContextMenu,
@@ -156,6 +159,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         },
         isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value) && annotationCommentsStatus.value === 'ready',
         getDeletedCanonicalAnnotationIds: () => pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [],
+        getViewInUse: () => views.commandTabId.value,
     });
 
     const hasOpenAnnotationNotes = ref(false);

@@ -50,6 +50,8 @@ export interface IAnnotationNoteWindowDeps {
     ) => boolean | Promise<boolean>;
     isAnnotationCommentSyncReady?: () => boolean;
     getDeletedCanonicalAnnotationIds?: () => readonly string[];
+    /** The view in use: an open note belongs to the view that opened it. */
+    getViewInUse?: () => string | null;
 }
 
 function commandId(comment: IAnnotationCommentSummary): AnnotationId {
@@ -102,6 +104,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 enumerable: true,
                 get: () => state.position,
                 set: value => { state.position = value as IAnnotationNotePosition; },
+            },
+            ownerViewId: {
+                enumerable: true,
+                get: () => state.ownerViewId ?? null,
             },
             pageIndex: {
                 enumerable: true,
@@ -236,6 +242,29 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         metadata.hasNote = comment.hasNote === true;
     }
 
+    // One editor per open note, in the view that opened it. Opening the note
+    // from another view commits the draft it has, then moves it there with a
+    // fresh place in its new pane.
+    function claimForViewInUse(state: IAnnotationNoteWindowState) {
+        const viewId = deps.getViewInUse?.() ?? null;
+        if (viewId === null || state.ownerViewId === viewId) {
+            return;
+        }
+        const id = asAnnotationId(state.annotationId);
+        if (state.ownerViewId != null) {
+            if (runtime.get(id)?.dirty) {
+                clearTimer(id);
+                runGuardedTask(() => Promise.resolve(persistAnnotationNote(id)), {
+                    category: 'background-diagnostic',
+                    scope: 'annotations',
+                    message: `Failed to persist annotation note ${id}`,
+                });
+            }
+            state.position = ensureDefaultPosition();
+        }
+        state.ownerViewId = viewId;
+    }
+
     function upsertAnnotationNoteWindow(comment: IAnnotationCommentSummary) {
         if (disposed || !isNoteEligibleComment(comment)) {
             return;
@@ -246,6 +275,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         const existing = stateById(annotationId);
         if (existing) {
+            claimForViewInUse(existing);
             existing.minimized = false;
             const metadata = runtime.get(annotationId);
             if (!metadata) {
@@ -262,6 +292,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             draftText: comment.text,
             minimized: false,
             position: ensureDefaultPosition(),
+            ownerViewId: deps.getViewInUse?.() ?? null,
         });
         runtime.set(annotationId, {
             requiresEmbeddedSave: comment.source === 'pdf' || Boolean(comment.annotationId),
@@ -305,6 +336,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         if (!state || !id) {
             return;
         }
+        claimForViewInUse(state);
         state.minimized = false;
         const metadata = runtime.get(id);
         if (metadata) metadata.order = ++nextOrder;

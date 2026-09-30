@@ -149,6 +149,7 @@ const {
     file,
 } = useDocumentContext();
 const {
+    tabId,
     annotationActions,
     pageContextMenu: {
         pageContextMenu,
@@ -188,7 +189,11 @@ const {
     traceAnchorInteraction,
     scheduleConnectorRefreshBurst,
 } = createAnnotationOverlayRuntime({
-    getNoteWindows: () => sortedAnnotationNoteWindows.value,
+    // An open note's editor shows in the view that opened it; every view
+    // shows the markers of minimized notes.
+    getNoteWindows: () => sortedAnnotationNoteWindows.value.filter(note => (
+        note.isMinimized || note.ownerViewId === null || note.ownerViewId === tabId
+    )),
     getNotePositions: () => annotationNotePositions.value,
     getWorkspaceRoot: () => annotationViewportRoot.value?.closest<HTMLElement>('.workspace-host')
         ?? annotationViewportRoot.value,
