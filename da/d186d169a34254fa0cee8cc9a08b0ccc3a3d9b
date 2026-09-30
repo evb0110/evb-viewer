@@ -1,0 +1,21 @@
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_164326d4fd1782::t_26edde6a3b9a1f 86,94-96,170,223
+  s_164326d4fd1782::t_1bd84719985ac0 87-88,93,97-99,101-102
+  ai_agent 89-92,100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dad186d169a34254fa0cee8cc9a08b0ccc3a3d9b",
+  "prompts": {},
+  "sessions": {
+    "s_164326d4fd1782": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c35d7a6a-ef12-48f6-b218-a2749f6b2ead",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
