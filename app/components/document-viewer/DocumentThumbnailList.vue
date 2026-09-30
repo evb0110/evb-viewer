@@ -199,4 +199,10 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
     height: 100%;
     background: var(--ui-bg-accented);
 }
+
+/* A row's surface is replaced when its raster lands. Keeping the row itself
+   under the pointer lets a press that spans the swap still click the row. */
+.document-thumbnail-list__item :is(img, .document-thumbnail-list__canvas-host, .document-thumbnail-list__placeholder) {
+    pointer-events: none;
+}
 </style>

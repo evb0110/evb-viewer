@@ -1569,6 +1569,112 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect.soft(indicator.renderedPage, 'visible toolbar acknowledges clicked page').toBe(observed.downPage);
     }, 120_000);
 
+    it('navigates when a pressed placeholder row receives its raster before release', async () => {
+        const {page} = sessionFixture.getSession();
+        await page.setViewport({
+            width: 1400,
+            height: 900,
+            deviceScaleFactor: 2,
+        });
+        const fixture = await createLargeScannedFixturePdf(`thumbs-press-swap-${Date.now()}.pdf`, 348, 0);
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const sash = await page.$('.editor-pane.is-active .sidebar-resizer');
+        const sashBox = await sash!.boundingBox();
+        await page.mouse.move(sashBox!.x + sashBox!.width / 2, sashBox!.y + 200);
+        await page.mouse.down();
+        await page.mouse.move(502, sashBox!.y + 200, {steps: 20});
+        await page.mouse.up();
+        await waitForFunctionInPage(page, () => Boolean(document.querySelector('.pdf-thumbnails canvas')), {timeout: 20_000});
+        const box = await (await page.$('.pdf-thumbnails'))!.boundingBox();
+        const point = {
+            x: box!.x + box!.width / 2,
+            y: box!.y + 200,
+        };
+        await page.mouse.move(point.x, point.y);
+        await page.evaluate(() => {
+            const rail = document.querySelector<HTMLElement>('.pdf-thumbnails')!;
+            const press = {
+                downPage: 0,
+                downHadRaster: true,
+                upPage: 0,
+                upHadRaster: false,
+            };
+            Object.assign(window, {__thumbsPressSwap: press});
+            const rowOf = (event: Event) => (event.target as Element).closest<HTMLElement>('[data-thumbnail-page]');
+            rail.addEventListener('pointerdown', event => {
+                const row = rowOf(event);
+                press.downPage = Number(row?.dataset.thumbnailPage);
+                press.downHadRaster = Boolean(row?.querySelector('canvas'));
+            }, {
+                capture: true,
+                once: true,
+            });
+            rail.addEventListener('pointerup', event => {
+                const row = rowOf(event);
+                press.upPage = Number(row?.dataset.thumbnailPage);
+                press.upHadRaster = Boolean(row?.querySelector('canvas'));
+            }, {
+                capture: true,
+                once: true,
+            });
+        });
+        // pdf.js draws thumbnails on the renderer main thread, so throttling it
+        // keeps a fresh placeholder on screen long enough to press it.
+        const throttle = await page.createCDPSession();
+        await throttle.send('Emulation.setCPUThrottlingRate', {rate: 6});
+        let pressed = false;
+        try {
+            await page.mouse.wheel({deltaY: 9_000});
+            await waitForFunctionInPage(page, ({
+                x, y,
+            }: {
+                x: number;
+                y: number
+            }) => {
+                const row = document.elementFromPoint(x, y)?.closest('[data-thumbnail-page]');
+                return Boolean(row?.querySelector('.document-thumbnail-list__placeholder'));
+            }, {
+                timeout: 20_000,
+                polling: 'raf',
+            }, point);
+            await page.mouse.down();
+            pressed = true;
+            // Hold the press until the row's raster replaces its placeholder.
+            await waitForFunctionInPage(page, () => {
+                const press = (window as Window & {__thumbsPressSwap?: {downPage: number}}).__thumbsPressSwap!;
+                return Boolean(document.querySelector(`.pdf-thumbnails [data-thumbnail-page="${String(press.downPage)}"] canvas`));
+            }, {timeout: 20_000});
+            pressed = false;
+            await page.mouse.up();
+        } finally {
+            // Later cases share this session: never leave the button down or the CPU throttled.
+            try {
+                if (pressed) await page.mouse.up();
+            } finally {
+                await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1});
+                await throttle.detach();
+            }
+        }
+        const press = await page.evaluate(() => (window as Window & {__thumbsPressSwap?: {
+            downPage: number;
+            downHadRaster: boolean;
+            upPage: number;
+            upHadRaster: boolean
+        }}).__thumbsPressSwap!);
+        expect(press.downHadRaster, 'the press lands on a placeholder').toBe(false);
+        expect(press.upHadRaster, 'the raster arrives before release').toBe(true);
+        expect(press.upPage).toBe(press.downPage);
+        const readCurrent = () => Number(document.querySelector<HTMLElement>('.pdf-thumbnails .is-current')?.dataset.thumbnailPage);
+        await waitForFunctionInPage(page, (expected: number) => (
+            Number(document.querySelector<HTMLElement>('.pdf-thumbnails .is-current')?.dataset.thumbnailPage) === expected
+        ), {timeout: 5_000}, press.downPage).catch(() => undefined);
+        expect(await page.evaluate(readCurrent), 'the pressed row becomes current').toBe(press.downPage);
+        expect((await readToolbarPageIndicator(page)).renderedPage, 'the toolbar follows the pressed row').toBe(press.downPage);
+    }, 120_000);
+
     it('selects a bookmark on the first activation and follows later page navigation', async () => {
         const {page} = sessionFixture.getSession();
         const fixture = await createOutlinePageLabelFixturePdf(`bookmark-selection-${Date.now()}.pdf`, [
