@@ -379,7 +379,7 @@ describe('Electron E2E - OCR journey', () => {
             sessionName: () => `e2e-ocr-closed-view-${Date.now()}`,
         });
         const {page} = session;
-        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', 24);
+        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', 40);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await session.command('windowResize', [
@@ -429,7 +429,7 @@ describe('Electron E2E - OCR journey', () => {
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await waitForFunctionInPage(page, () => {
                 const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
-                return /Processing page \d+|OCR complete - PDF is now searchable/u.test(text);
+                return /Processing page \d+/u.test(text);
             }, {timeout: 30_000});
             await waitForFunctionInPage(page, () => (
                 document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true

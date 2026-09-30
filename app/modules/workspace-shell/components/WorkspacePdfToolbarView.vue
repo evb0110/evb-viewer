@@ -124,7 +124,7 @@
                 :icon="getReaderCommandToolbarIcon('ocr')"
                 :active="ocrPopupOpen"
                 :tooltip="t('ocr.button')"
-                :disabled="ocrActionDisabled"
+                :disabled="ocrTriggerDisabled"
                 @click="handleOpenOcr"
             />
         </template>
@@ -174,7 +174,7 @@
                 :scan-cleanup-disabled="scanCleanupActionDisabled"
                 :scan-cleanup-running="isScanCleanupRunning"
                 :scan-cleanup-label="scanCleanupTriggerTooltip"
-                :ocr-disabled="ocrActionDisabled"
+                :ocr-disabled="ocrTriggerDisabled"
                 :can-export-docx="snapshot.canExportDocx"
                 :is-exporting-docx="snapshot.isExportingDocx"
                 :can-use-assistant="assistantPanelEnabled"
@@ -436,6 +436,8 @@ const ocrActionDisabled = computed(() => (
     || snapshot.isAnySaving
     || snapshot.isHistoryBusy
 ));
+// A running OCR can always be opened to see its progress or cancel it.
+const ocrTriggerDisabled = computed(() => ocrActionDisabled.value && !ocr?.progress.value.isRunning);
 const scanCleanupActionDisabled = computed(() => (
     ocrActionDisabled.value || !ocrWorkingCopyPath
 ));
