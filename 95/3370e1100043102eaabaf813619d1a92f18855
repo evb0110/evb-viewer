@@ -1,0 +1,21 @@
+tests/unit/app/modules/workspace-shell/components/documentWorkspaceNavigationCommand.test.ts
+  s_c465d282efc2c0::t_4d32b263242a1a 43-44,73,155,433-447
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_c465d282efc2c0::t_4d32b263242a1a 425-431,433-439,442,447,457
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "953370e1100043102eaabaf813619d1a92f18855",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
