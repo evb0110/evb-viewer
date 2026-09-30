@@ -1,0 +1,44 @@
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationToolbarToggle.test.ts
+  s_c465d282efc2c0::t_ca5dfa334852ce 20,31,40
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_86353db90752a1 461
+  s_c465d282efc2c0::t_f29393d29c259c 462-463,467,1104-1105,1108,1116
+  s_c465d282efc2c0::t_7433cf8d8e8172 454-460,464-466,468-481,1080-1103,1106-1107,1109-1115,1117-1118
+app/modules/workspace-shell/documentViewContext.ts
+  s_c465d282efc2c0::t_fde585a5e09cbe 11,175-187,195,222,232,289,296,441,481-482,529-530
+docs/architecture/behavior-contract.md
+  s_c465d282efc2c0::t_e50fe915f15e9e 184-185
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_c465d282efc2c0::t_fde585a5e09cbe 22
+app/modules/workspace-shell/composables/useViewAnnotationTool.ts
+  s_c465d282efc2c0::t_3a00f7b85eb57c 1-46
+app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts
+  s_c465d282efc2c0::t_fde585a5e09cbe 1144
+app/modules/workspace-shell/components/WorkspaceDocumentSidebar.vue
+  s_c465d282efc2c0::t_fde585a5e09cbe 28,56,59,134-135
+app/modules/workspace-shell/document-sessions/createDocumentViews.ts
+  s_c465d282efc2c0::t_fde585a5e09cbe 11,44,102-112,122
+app/modules/workspace-shell/documentContext.ts
+  s_c465d282efc2c0::t_fde585a5e09cbe 643
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_c465d282efc2c0::t_fde585a5e09cbe 180,285
+tests/unit/app/modules/workspace-shell/composables/useViewAnnotationTool.test.ts
+  s_c465d282efc2c0::t_ca5dfa334852ce 49-52,64,67,71,77,135
+  s_c465d282efc2c0::t_8ceee1960639c8 1-48,53-63,65-66,68-70,72-76,78-134,136-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ebf20d0149ebc739bed1d224e44fcb5270b1148",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
