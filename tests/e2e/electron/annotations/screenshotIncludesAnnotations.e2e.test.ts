@@ -111,7 +111,15 @@ describe('Electron E2E - screenshot annotation output', () => {
         await saveViaWindowHandle(page);
 
         await session.stop();
-        session = await startElectronE2ESession(`e2e-screenshot-annotation-reopen-${Date.now()}`, {clean: true});
+        session = await startElectronE2ESession(`e2e-screenshot-annotation-reopen-${Date.now()}`, {
+            clean: true,
+            // Chromium's lazy ClipboardItem rejects getType() once the clipboard
+            // sequence number moves after read(). On X11 this Chromium bumps it
+            // again when the echo of its own write arrives, so a read right
+            // after the copy can fail with "Clipboard data has changed". Eager
+            // reads take the bytes during read() and check the same PNG.
+            extraEnv: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--disable-blink-features=ReadClipboardDataOnClipboardItemGetType'},
+        });
         onTestFinished(async () => { await session.stop(); });
         page = session.page;
         await openPdfInApp(page, path);
