@@ -1,0 +1,38 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c465d282efc2c0::t_1613aa57ff2de0 834
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_ba9e436178615c 426-453,999-1050
+app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands.ts
+  s_c465d282efc2c0::t_dd0fb2e019de0c 9-12
+  s_c465d282efc2c0::t_1613aa57ff2de0 20-21,118
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSequenceInvariants.test.ts
+  s_c465d282efc2c0::t_1901c666ee772d 166
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEvents.test.ts
+  s_c465d282efc2c0::t_0bdeae0e5be18e 183
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c465d282efc2c0::t_521f5bef30f9ad 473
+tests/unit/app/modules/pdf-viewer/usePdfAnnotationColorCommands.test.ts
+  s_c465d282efc2c0::t_44dfc86b966c02 10-13,99-100,105,153,207,234
+  s_c465d282efc2c0::t_521f5bef30f9ad 109
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreReplaceFromDocument.test.ts
+  s_c465d282efc2c0::t_4d58cc61a9bd5a 332
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_c465d282efc2c0::t_44fc8fd92c2a9b 736
+  s_c465d282efc2c0::t_1613aa57ff2de0 622,631,731-735,737-742,751,756
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b77bb26e08cde7b4c6ac6c4fb1d77752e80a4f6c",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
