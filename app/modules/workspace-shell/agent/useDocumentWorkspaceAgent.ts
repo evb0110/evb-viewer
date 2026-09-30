@@ -462,7 +462,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             run: () => ({
                 ocrPopupOpen: ocrPopupOpen.value,
-                ocr: ocr.getAgentOcrSnapshot(),
+                ocr: {
+                    ...ocr.getAgentOcrSnapshot(),
+                    isOpen: ocrPopupOpen.value,
+                },
             }),
         },
         {

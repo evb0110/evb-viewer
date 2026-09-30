@@ -423,7 +423,7 @@
                     variant="outline"
                     :label="t('common.close')"
                     :disabled="isExporting"
-                    @click="handleCloseResults"
+                    @click="isOpen = false"
                 />
             </template>
             <template v-else>
@@ -569,9 +569,6 @@ const {
     settings,
     progress,
     progressPercent,
-    viewState,
-    effectiveError,
-    canRunOcr,
     showCustomRange,
     isCopyingLogs,
     copyLogsTooltip,
@@ -579,8 +576,6 @@ const {
     progressStatusText,
     applyingStatusText,
     triggerTooltip,
-    hasResultWarning,
-    resultStatusText,
     languageSearchQuery,
     languagePickerItems,
     languagePickerGroups,
@@ -596,22 +591,24 @@ const {
     handleCopyLogs,
     handleRunOcr,
     handleCancel,
-    handleCloseResults,
     getExportLanguages,
-    isOpen,
-    disabled: presenterDisabled,
-    externalError: presenterExternalError,
+    createViewState,
 } = presenter;
-// This popup tells the document's OCR run what its view knows, and follows
-// the view's open state.
-watchEffect(() => {
-    presenterDisabled.value = disabled;
-    presenterExternalError.value = externalError;
+// The run, its progress and its results are the document's. Whether this
+// view's dialog is open, and what only this view knows, stay here.
+const {
+    viewState,
+    effectiveError,
+    canRunOcr,
+    hasResultWarning,
+    resultStatusText,
+    isOpen,
+} = createViewState({
+    disabled: () => disabled,
+    externalError: () => externalError,
+    open: () => open,
+    setOpen: value => emit('update:open', value),
 });
-watch(() => open, (value) => {
-    isOpen.value = value;
-});
-watch(isOpen, value => emit('update:open', value), {immediate: true});
 
 function handleExportDocx() {
     emit('export-docx', getExportLanguages());

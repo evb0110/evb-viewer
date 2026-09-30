@@ -205,19 +205,38 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     if (!presenter) {
         throw new Error('Failed to create OCR popup presenter');
     }
+    // What one view's popup adds to the document's run.
+    const disabled = ref(false);
+    const externalError = ref<string | null | undefined>(null);
+    const isOpen = ref(false);
+    const view = scope.run(() => presenter.createViewState({
+        disabled,
+        externalError,
+        open: isOpen,
+        setOpen: (value) => {
+            isOpen.value = value;
+        },
+    }));
+
+    if (!view) {
+        throw new Error('Failed to create OCR view state');
+    }
 
     return {
         scope,
-        presenter,
+        presenter: {
+            ...presenter,
+            ...view,
+        },
         ocr,
-        isOpen: presenter.isOpen,
         currentPage,
         totalPages,
         workingCopyPath,
         documentRevision,
         pdfDocument,
-        disabled: presenter.disabled,
-        externalError: presenter.externalError,
+        isOpen,
+        disabled,
+        externalError,
         events: {onOcrComplete},
     };
 }
@@ -267,7 +286,6 @@ describe('useOcrPopupPresenter', () => {
                 replaceAllAcknowledged: true,
             });
 
-            expect(harness.isOpen.value).toBe(true);
             expect(harness.ocr.settings.value).toMatchObject({
                 pageRange: 'custom',
                 customRange: '2-5',
@@ -397,8 +415,10 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.ocr.cancelOcr).toHaveBeenCalledTimes(1);
             expect(harness.events.onOcrComplete).not.toHaveBeenCalled();
 
-            harness.presenter.handleCloseResults();
-            expect(harness.isOpen.value).toBe(false);
+            harness.isOpen.value = true;
+            await nextTick();
+            harness.isOpen.value = false;
+            await nextTick();
             expect(harness.ocr.clearResults).toHaveBeenCalled();
             expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalled();
         } finally {
@@ -524,7 +544,7 @@ describe('useOcrPopupPresenter', () => {
             expect(copyClipboardTextMock).not.toHaveBeenCalled();
             expect(harness.presenter.copyLogsState.value).toBe('idle');
 
-            harness.externalError.value = 'OCR failed';
+            harness.ocr.error.value = 'OCR failed';
             await harness.presenter.handleCopyLogs();
 
             expect(getDebugLogsMock).toHaveBeenCalledTimes(1);
@@ -674,6 +694,30 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.presenter.languageInventoryState.value).toBe('unavailable');
         } finally {
             harness.scope.stop();
+        }
+    });
+
+    it('keeps what one view knows out of the document run', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            const otherView = harness.presenter.createViewState({
+                disabled: () => false,
+                externalError: () => null,
+                open: () => false,
+                setOpen: () => undefined,
+            });
+            harness.disabled.value = true;
+            harness.externalError.value = 'DOCX export failed';
+            await nextTick();
+
+            expect(harness.presenter.canRunOcr.value).toBe(false);
+            expect(harness.presenter.effectiveError.value).toBe('DOCX export failed');
+            expect(otherView.canRunOcr.value).toBe(true);
+            expect(otherView.effectiveError.value).toBeNull();
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.not.toMatchObject({error: 'errors.ocr.disabled'});
+        } finally {
+            stopHarness(harness.scope);
         }
     });
 });

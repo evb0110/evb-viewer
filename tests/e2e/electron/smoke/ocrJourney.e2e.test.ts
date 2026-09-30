@@ -449,4 +449,54 @@ describe('Electron E2E - OCR journey', () => {
             await agentRunSettled;
         }
     }, 300_000);
+
+    // The OCR dialog belongs to the view that opened it (T4); only the run is shared.
+    it('opens the OCR dialog only in the view that opened it', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-dialog-per-view-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-dialog-per-view-scan.pdf', 3);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
+        await waitForFunctionInPage(page, (host: string) => (
+            document.querySelector(`${host} .page_container--rendered`) !== null
+        ), {timeout: 30_000}, paneHost(rightPane!));
+        const dialogIsOpen = () => page.$$eval('[role="dialog"]', dialogs => dialogs.some(dialog => dialog.getBoundingClientRect().width > 0));
+        const settleFrames = () => page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+        // The dialog is modal, so the other view is activated the way a shortcut or
+        // an agent does it, not with a click on the tab.
+        const activateByScript = async (paneId: string) => {
+            await page.evaluate((id: string) => {
+                document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${id}"] .tab.is-active[data-tab-id]`)?.click();
+            }, paneId);
+            await waitForFunctionInPage(page, (id: string) => (
+                document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === id
+            ), {timeout: 20_000}, paneId);
+            await settleFrames();
+        };
+
+        await activatePaneByTab(page, rightPane!);
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+
+        await activateByScript(leftPane!);
+        expect(await dialogIsOpen(), 'the left view shows no OCR dialog it was never asked to open').toBe(false);
+
+        await activateByScript(rightPane!);
+        expect(await dialogIsOpen(), 'the right view still has the dialog the user left open').toBe(true);
+    }, 200_000);
 });
