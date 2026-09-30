@@ -23,6 +23,10 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
+    activatePaneByTab,
+    splitActiveTabFromTabMenu,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
     getLatestAutomationEventId,
     waitForAutomationEvent,
     type IWorkspaceExposeProbeWindow,
@@ -134,19 +138,7 @@ async function paneIds(page: Page) {
     return page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
 }
 
-async function activatePane(page: Page, paneId: string) {
-    await click(page, `${paneSelector(paneId)} .tab.is-active[data-tab-id]`);
-    await page.waitForFunction((id: string) => (
-        document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === id
-    ), {timeout: SETTLE_TIMEOUT_MS}, paneId);
-}
 
-async function splitRightFromTabMenu(page: Page) {
-    await click(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
-    await clickVisible(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find(item => item.textContent?.trim() === 'Split Right' && item.getBoundingClientRect().width > 0) ?? null);
-    await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2, {timeout: SETTLE_TIMEOUT_MS});
-}
 
 function readPaneView(page: Page, paneId: string): Promise<IPaneView> {
     return page.$eval(paneSelector(paneId), (pane) => {
@@ -287,7 +279,7 @@ describe('shared PDF split', () => {
         const sourcePlacement = placementOf(sourceView);
 
         // Split Right shows the same document at the source's page and zoom.
-        await splitRightFromTabMenu(page);
+        await splitActiveTabFromTabMenu(page, 'right');
         const [
             leftPane,
             rightPane,
@@ -314,7 +306,7 @@ describe('shared PDF split', () => {
         await waitForPaneView(page, rightPane!, 'right view is dirty after its edit', view => (
             view.tabDirty && view.saveDotLabel === 'Save changes'
         ));
-        await activatePane(page, leftPane!);
+        await activatePaneByTab(page, leftPane!);
         await createCanonicalTextBoxWithPointer(page, leftText, {
             x: 0.6,
             y: 0.6,
@@ -327,7 +319,7 @@ describe('shared PDF split', () => {
         ));
 
         // The views diverge: the right view moves to page 4 and zooms in again.
-        await activatePane(page, rightPane!);
+        await activatePaneByTab(page, rightPane!);
         await openAnnotationsTab(page);
         await goToPageViaToolbar(page, 4);
         const rightBeforeZoom = await readPaneView(page, rightPane!);
@@ -352,7 +344,7 @@ describe('shared PDF split', () => {
         ));
 
         // Undo in the left view removes the right view's edit from both.
-        await activatePane(page, leftPane!);
+        await activatePaneByTab(page, leftPane!);
         await clickToolbarButton(page, 'Undo');
         await waitForPaneView(page, rightPane!, 'undo from the left view removes the right edit from the right list', view => (
             containsNone(view.listedTexts, [
@@ -375,7 +367,7 @@ describe('shared PDF split', () => {
             x: 0.4,
             y: 0.4,
         }, 2);
-        await activatePane(page, rightPane!);
+        await activatePaneByTab(page, rightPane!);
         await createCanonicalTextBoxWithPointer(page, savedRightText, {
             x: 0.4,
             y: 0.4,
@@ -419,7 +411,7 @@ describe('shared PDF split', () => {
 
         // Closing one view keeps the document, with its unsaved edit, in the other.
         const unsavedText = `UNSAVED-${stamp}`;
-        await activatePane(page, leftPane!);
+        await activatePaneByTab(page, leftPane!);
         await createCanonicalTextBoxWithPointer(page, unsavedText, {
             x: 0.7,
             y: 0.25,
