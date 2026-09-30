@@ -422,18 +422,29 @@ export function createWorkspaceExpose(
         },
         captureReadingAnchor: () => view.documentViewerRef.value?.captureReadingAnchor?.() ?? null,
         placeReadingAnchorAfterOpen: async (anchor) => {
-            // The reader outranks the anchor: a navigation of theirs, or any
-            // scroll, before the open settles leaves the view where they took
-            // it. The opening's own navigations are restores.
+            // The reader outranks the anchor: a navigation of theirs, or a
+            // scroll after the placement began, before the open settles leaves
+            // the view where they took it. The opening's own navigations are
+            // restores. The viewer counts the reader's scrolls; the count it
+            // had when the placement began (or when it appears) is the baseline.
+            const readInteractionEpoch = () => view.documentViewerRef.value?.getUserViewportInteractionEpoch?.() ?? null;
+            let interactionBaseline = readInteractionEpoch();
             let superseded = false;
+            const readerMoved = (interactionEpoch: number | null) => {
+                if (interactionEpoch === null) {
+                    return false;
+                }
+                interactionBaseline ??= interactionEpoch;
+                return interactionEpoch > interactionBaseline;
+            };
             const stop = watch(() => [
                 openSurface.navigationTicket.value?.request.source ?? 'restore',
-                view.documentViewerRef.value?.getUserViewportInteractionEpoch?.() ?? 0,
+                readInteractionEpoch(),
             ] as const, ([
                 navigationSource,
                 interactionEpoch,
             ]) => {
-                superseded ||= navigationSource !== 'restore' || interactionEpoch > 0;
+                superseded ||= navigationSource !== 'restore' || readerMoved(interactionEpoch);
             }, {
                 immediate: true,
                 flush: 'sync',
@@ -443,7 +454,7 @@ export function createWorkspaceExpose(
             } finally {
                 stop();
             }
-            if (!superseded) {
+            if (!superseded && !readerMoved(readInteractionEpoch())) {
                 view.documentViewerRef.value?.restoreReadingAnchor?.(anchor);
             }
         },

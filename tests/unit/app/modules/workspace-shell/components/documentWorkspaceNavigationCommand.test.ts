@@ -40,6 +40,8 @@ const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
     openSurface: null as IDocumentOpenSurfaceSession | null,
     restoreReadingAnchor: null as ((anchor: unknown) => void) | null,
+    // The viewer's count of the reader's scrolls and drags.
+    interactionEpoch: {value: 0},
     sidebars: [] as Array<Record<string, unknown>>,
     viewers: [] as Array<Record<string, unknown>>,
 }));
@@ -68,6 +70,7 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
             scrollToPage: vi.fn(),
             getViewerContainer: () => null,
             restoreReadingAnchor: (anchor: unknown) => surfaceRenders.restoreReadingAnchor?.(anchor),
+            getUserViewportInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
         });
         return () => {
             surfaceRenders.viewers.push({...attrs});
@@ -149,6 +152,7 @@ afterEach(() => {
     surfaceRenders.viewers.length = 0;
     surfaceRenders.openSurface = null;
     surfaceRenders.restoreReadingAnchor = null;
+    surfaceRenders.interactionEpoch.value = 0;
     nuxtState.clear();
 });
 
@@ -419,6 +423,28 @@ describe('DocumentWorkspace navigation command', () => {
 
             // The toolbar's Go to page on the page the view opens at, to see its top.
             view.expose.handleGoToPage(1);
+            await nextTick();
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([]);
+        }, 120_000);
+
+        it('places the anchor in a viewer the reader had used before the placement began', async () => {
+            surfaceRenders.interactionEpoch.value = 3;
+            const view = await mountOpeningView();
+
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([anchor]);
+        }, 120_000);
+
+        it('leaves the view where the reader scrolled while it opened', async () => {
+            surfaceRenders.interactionEpoch.value = 3;
+            const view = await mountOpeningView();
+
+            surfaceRenders.interactionEpoch.value = 4;
             await nextTick();
             view.settle();
             await view.placing;
