@@ -715,4 +715,37 @@ describe('shared PDF split', () => {
         });
     }, TIMEOUT_MS);
 
+    it('prints from one dialog that offers the invoking view\'s current page', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-print-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-print-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+        await goToPageViaToolbar(page, 5);
+        await waitForPaneView(page, rightPane!, 'the right view reads page 5', view => view.centerPage === 5);
+        await activatePaneByTab(page, leftPane!);
+        await goToPageViaToolbar(page, 2);
+        await waitForPaneView(page, leftPane!, 'the left view reads page 2', view => view.centerPage === 2);
+
+        await clickToolbarButton(page, 'Print');
+        await page.waitForSelector('[role="dialog"] [role="radio"][value="current"]', {
+            timeout: SETTLE_TIMEOUT_MS,
+            visible: true,
+        });
+        const dialogs = await page.$$eval('[role="dialog"]', elements => elements
+            .filter(element => element.getBoundingClientRect().width > 0)
+            .map(element => (element.textContent ?? '').replace(/\s+/gu, ' ')));
+        expect(dialogs).toHaveLength(1);
+        expect(dialogs[0]).toContain('Current page (2)');
+    }, TIMEOUT_MS);
 });
