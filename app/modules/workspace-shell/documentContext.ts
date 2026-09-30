@@ -172,10 +172,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
-    const lease = controller.operationLease;
     let operationQueueFeedbackShown = false;
     async function runExclusive<T>(kind: TDocumentOperationKind, operation: () => Promise<T>) {
-        if (lease.activeKind.value === 'page-operation' && !operationQueueFeedbackShown) {
+        if (controller.operationLease.activeKind.value === 'page-operation' && !operationQueueFeedbackShown) {
             operationQueueFeedbackShown = true;
             toast.add({
                 color: 'info',
@@ -184,9 +183,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             });
         }
         try {
-            return await lease.runExclusive(kind, operation);
+            return await controller.operationLease.runExclusive(kind, operation);
         } finally {
-            if (!lease.isBusy.value) {
+            if (!controller.operationLease.isBusy.value) {
                 operationQueueFeedbackShown = false;
             }
         }
@@ -473,7 +472,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         isHistoryBusy,
         isExportingDocx: docx.isExportingDocx,
         isAnyAnnotationNoteSaving: annotations.isAnyAnnotationNoteSaving,
-        isDocumentOperationInProgress: lease.isBusy,
+        isDocumentOperationInProgress: controller.operationLease.isBusy,
         hasSaveFailure: saveService.hasSaveFailure,
         annotationNoteWindows: annotations.annotationNoteWindows,
         hasPendingUnsavedChanges: computed(() => !sharesViews.value && hasPendingUnsavedChanges.value),
@@ -662,6 +661,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         loadRecentFiles: () => {
             void file.loadRecentFiles();
         },
+        isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value || isHistoryBusy.value),
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,

@@ -35,6 +35,8 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
     } | null>;
+    /** A save, history step, export or page operation holds the document. */
+    isBusy: Ref<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
@@ -355,6 +357,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             totalPages,
             workingCopyPath,
             documentRevision: documentRevisionToken,
+            busy: options.isBusy,
         },
         applyResult: handleOcrComplete,
     });

@@ -259,6 +259,8 @@ interface IOcrPopupPresenterContext {
     totalPages: MaybeRefOrGetter<number>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevision: MaybeRefOrGetter<TDocumentRevisionToken | null>;
+    /** The document is being saved, changed or exported, so a run must not start. */
+    busy: MaybeRefOrGetter<boolean>;
 }
 
 export interface IOcrPopupPresenterOptions {
@@ -427,7 +429,8 @@ export const useOcrPopupPresenter = ({
         });
     });
     const canRunOcr = computed(() =>
-        !progress.value.isRunning
+        !toValue(context.busy)
+        && !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
         && Boolean(workingCopyPath.value)
         && (
@@ -631,40 +634,36 @@ export const useOcrPopupPresenter = ({
         void runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
     }
 
+    function refuseAgentRun(error: string) {
+        return {
+            ok: false,
+            error,
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
     async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
+        if (toValue(context.busy)) {
+            return refuseAgentRun(t('errors.ocr.disabled'));
+        }
+
         if (progress.value.isRunning) {
-            return {
-                ok: false,
-                error: t('errors.ocr.alreadyRunning'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.alreadyRunning'));
         }
 
         await loadLanguages();
         applyAgentOcrOptions(options);
 
         if (!workingCopyPath.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.noDocument'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.noDocument'));
         }
 
         if (!hasSelectedAvailableLanguage.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.noLanguages'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.noLanguages'));
         }
 
         if (!canRunOcr.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.start'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.start'));
         }
 
         activeOcrSourcePath.value = workingCopyPath.value;

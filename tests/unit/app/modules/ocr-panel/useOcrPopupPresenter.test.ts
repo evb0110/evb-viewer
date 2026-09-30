@@ -189,6 +189,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const documentRevision = ref(requireDocumentRevisionToken('drt1:ocr-presenter-test'));
     const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
     const onOcrComplete = vi.fn();
+    const busy = ref(false);
 
     const scope = effectScope();
     const presenter = scope.run(() => useOcrPopupPresenter({
@@ -198,6 +199,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
             totalPages,
             workingCopyPath,
             documentRevision,
+            busy,
         },
         applyResult: onOcrComplete,
     }));
@@ -237,6 +239,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
         isOpen,
         disabled,
         externalError,
+        busy,
         events: {onOcrComplete},
     };
 }
@@ -716,6 +719,24 @@ describe('useOcrPopupPresenter', () => {
             expect(otherView.canRunOcr.value).toBe(true);
             expect(otherView.effectiveError.value).toBeNull();
             await expect(harness.presenter.runOcrForAgent({open: false})).resolves.not.toMatchObject({error: 'errors.ocr.disabled'});
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('refuses an agent run while the document is busy and starts none', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.busy.value = true;
+            await nextTick();
+
+            expect(harness.presenter.canRunOcr.value).toBe(false);
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
+                ok: false,
+                error: 'errors.ocr.disabled',
+            });
+            expect(harness.ocr.runOcr).not.toHaveBeenCalled();
         } finally {
             stopHarness(harness.scope);
         }
