@@ -26,6 +26,7 @@ import {
     mkdirSync,
 } from 'node:fs';
 import {
+    basename,
     dirname,
     join,
     resolve,
@@ -6398,9 +6399,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await waitForFunctionInPage(session.page, (selector) => (
             document.querySelector(selector) === null
         ), {timeout: 30_000}, progressSelector);
-        await waitForFunctionInPage(session.page, () => (
-            document.querySelector('.editor-pane.is-active .djvu-banner') === null
-        ), {timeout: 30_000});
+        // The PDF opens in a new tab; the DjVu tab behind it keeps converting
+        // and keeps its hidden convert prompt until it shows the result.
+        const shownBannerSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .djvu-banner';
+        await waitForFunctionInPage(session.page, (selector) => (
+            document.querySelector(selector) === null
+        ), {timeout: 30_000}, shownBannerSelector);
         const switchedDocument = await callWorkspaceCommand<Record<string, unknown>>(
             session.page,
             'getAutomationStateSnapshot',
@@ -6409,12 +6413,110 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
         );
         expect(await session.page.$(progressSelector)).toBeNull();
-        expect(await session.page.$('.editor-pane.is-active .djvu-banner')).toBeNull();
+        expect(await session.page.$(shownBannerSelector)).toBeNull();
         const switchedSnapshot = await getWorkspaceToolbarSnapshot(session.page);
         expect(switchedSnapshot?.hasPdf).toBe(true);
         expect(switchedSnapshot?.initialVisualReady).toBe(true);
 
     }, 120_000);
+
+    it('keeps typing in the shown tab when a DjVu conversion finishes in a hidden tab', async () => {
+        const deadlineAt = performance.now() + 150_000;
+        const remainingMs = () => Math.max(1, deadlineAt - performance.now());
+        let session = sessionFixture.getSession();
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-hidden-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(destinationPath), {recursive: true});
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-hidden-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+        });
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const djvuTabId = await session.page.$eval(
+            '.editor-pane.is-active .tab.is-active[data-tab-id]',
+            tab => (tab as HTMLElement).dataset.tabId ?? '',
+        );
+        const initiator = await session.page.$('.djvu-banner button');
+        expect(initiator).not.toBeNull();
+        await initiator!.click();
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickEnabledDialogButton(session.page, 'Convert');
+        await session.page.waitForSelector('.app-progress-overlay[role="dialog"]', {
+            timeout: remainingMs(),
+            visible: true,
+        });
+
+        // The PDF takes a new tab; the conversion goes on in the DjVu tab.
+        await openPdfInApp(
+            session.page,
+            resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
+            30_000,
+        );
+        const searchSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] input[aria-label="Search document"]';
+        await session.page.keyboard.down('Control');
+        await session.page.keyboard.press('f');
+        await session.page.keyboard.up('Control');
+        await waitForFunctionInPage(session.page, (selector) => (
+            document.activeElement === document.querySelector(selector)
+        ), {timeout: 5_000}, searchSelector);
+
+        // Keep typing through the moment the hidden tab finishes and shows its PDF.
+        let typed = '';
+        let typing = true;
+        const typist = (async () => {
+            while (typing) {
+                const character = 'abcdefghij'[typed.length % 10]!;
+                await session.page.keyboard.type(character);
+                typed += character;
+            }
+        })();
+        try {
+            await expect.poll(() => existsSync(destinationPath), {timeout: remainingMs()}).toBe(true);
+            await waitForFunctionInPage(session.page, (args: {
+                tabId: string;
+                label: string
+            }) => (
+                document.querySelector(`.tab[data-tab-id="${CSS.escape(args.tabId)}"] .tab-label`)?.textContent?.trim() === args.label
+            ), {timeout: remainingMs()}, {
+                tabId: djvuTabId,
+                label: basename(destinationPath),
+            });
+            const typedAtCompletion = typed.length;
+            await expect.poll(() => typed.length, {timeout: remainingMs()}).toBeGreaterThan(typedAtCompletion + 100);
+        } finally {
+            typing = false;
+            await typist;
+        }
+        const search = await session.page.evaluate((selector) => {
+            const input = document.querySelector<HTMLInputElement>(selector);
+            return {
+                focused: document.activeElement === input,
+                value: input?.value ?? '',
+            };
+        }, searchSelector);
+        expect({
+            focused: search.focused,
+            lostKeystrokes: typed.length - search.value.length,
+        }).toEqual({
+            focused: true,
+            lostKeystrokes: 0,
+        });
+        expect(search.value).toBe(typed);
+    }, 150_000);
 
     it('restores a valid focus target after native DjVu conversion completes', async () => {
         const deadlineAt = performance.now() + 120_000;
