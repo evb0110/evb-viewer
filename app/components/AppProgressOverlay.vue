@@ -98,6 +98,9 @@ const descriptionIds = computed(() => [
 ].filter((id): id is string => id !== null).join(' ') || undefined);
 
 let previouslyFocusedElement: HTMLElement | null = null;
+// Only an overlay that took the focus gives it back. One that mounts closed,
+// as every workspace's overlays do, leaves the focus where the user put it.
+let heldModalFocus = false;
 const inertSiblings = new Map<HTMLElement, boolean>();
 
 function getFocusableElements() {
@@ -222,9 +225,13 @@ watch(
                 document.removeEventListener('focusin', containOverlayFocus);
             }
             restoreModalInert();
-            restoreFocus();
+            if (heldModalFocus) {
+                heldModalFocus = false;
+                restoreFocus();
+            }
             return;
         }
+        heldModalFocus = true;
         if (typeof document !== 'undefined') {
             const activeElement = document.activeElement;
             if (activeElement instanceof HTMLElement && activeElement !== overlayElement.value) {

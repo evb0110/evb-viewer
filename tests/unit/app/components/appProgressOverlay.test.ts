@@ -148,4 +148,21 @@ describe('DjvuConversionOverlay', () => {
         expect(document.activeElement).toBe(fallback);
         fallback.remove();
     });
+
+    it('leaves the focus alone when it mounts closed, as a workspace mounting in the background does', async () => {
+        // The app's first control (the toolbar) comes before the editor in use.
+        const toolbarButton = document.createElement('button');
+        toolbarButton.type = 'button';
+        const editor = document.createElement('textarea');
+        document.body.append(toolbarButton, editor);
+        editor.focus();
+
+        mountOverlay();
+        await nextTick();
+        await nextTick();
+
+        expect(document.activeElement).toBe(editor);
+        toolbarButton.remove();
+        editor.remove();
+    });
 });
