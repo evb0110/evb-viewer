@@ -3788,6 +3788,13 @@ describe('Electron E2E - Viewer Smoke', () => {
             await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
             await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: true});
         }
+        // Fit only after the sidebar has finished sliding open: a fit taken
+        // mid-slide uses a viewer 1 px wider than the settled one, and the
+        // app re-fits once the slide ends.
+        await waitForFunctionInPage(session.page, () => {
+            const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active .sidebar-wrapper:not(.is-closed)');
+            return sidebar !== null && sidebar.getAnimations().length === 0;
+        }, {timeout: 15_000});
         await callWorkspaceCommand(session.page, 'handleFitWidth');
         await waitForFunctionInPage(session.page, () => {
             const first = document.querySelector<HTMLCanvasElement>(
