@@ -34,7 +34,7 @@ import {
     splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
-    callWorkspaceCommand,
+    requireWorkspaceCommand,
     getLatestAutomationEventId,
     waitForAutomationEvent,
     type IWorkspaceExposeProbeWindow,
@@ -1205,8 +1205,13 @@ describe('shared PDF split', () => {
             containsAll(view.renderedTexts, [edit]) && view.tabDirty
         ));
 
-        // The right view, in use, opens the same path again.
-        await callWorkspaceCommand(page, 'handleOpenFileDirectWithPersist', [pdfPath]);
+        // The right view, in use, opens the same path again. The open has taken
+        // effect once that view shows its own clean document without the edit.
+        await activatePaneByTab(page, rightPane!);
+        await requireWorkspaceCommand(page, 'handleOpenFileDirectWithPersist', [pdfPath]);
+        await waitForPaneView(page, rightPane!, 'the right view settles on its own document', view => (
+            !view.showsStart && view.centerPage !== null && !view.tabDirty && !containsAll(view.renderedTexts, [edit])
+        ));
 
         await waitForPaneView(page, leftPane!, 'the left view keeps the edit and stays dirty', view => (
             containsAll(view.renderedTexts, [edit]) && view.tabDirty
