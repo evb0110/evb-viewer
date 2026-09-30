@@ -41,7 +41,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
         clearRecentFiles: vi.fn(async () => {}),
         loadRecentFiles: vi.fn(async () => {}),
         checkForUpdates: vi.fn(async () => {}),
-        splitEditor: vi.fn(async (_direction) => {}),
+        openNewPane: vi.fn(async (_direction) => {}),
         handleWindowTabsAction: vi.fn(async (_action) => {}),
         toggleAssistant: vi.fn(),
         ...overrides,

@@ -52,10 +52,51 @@ function readWorkspaceDocumentRefs(
     }
 }
 
+// The views of a document share one context, so any view with a mounted
+// workspace speaks for the document; this tab's own view comes first.
+function findDocumentWorkspace(session: IWorkspaceDocumentController, tabId: string) {
+    const ownWorkspace = session.getView(tabId)?.mountedWorkspace.value ?? null;
+    if (ownWorkspace) {
+        return ownWorkspace;
+    }
+    for (const view of session.views.value.values()) {
+        if (view.mountedWorkspace.value) {
+            return view.mountedWorkspace.value;
+        }
+    }
+    return null;
+}
+
+// A document's unsaved annotations are one payload. Any of its views can
+// capture it; one whose viewer is still mounting captures nothing.
+function captureDocumentAnnotationRecovery(session: IWorkspaceDocumentController) {
+    for (const view of session.views.value.values()) {
+        const recovery = view.mountedWorkspace.value?.captureCanonicalAnnotationRecovery?.() ?? null;
+        if (recovery) {
+            return recovery;
+        }
+    }
+    return null;
+}
+
+// A document none of whose views is mounted still names its files.
+function readDocumentRefs(session: IWorkspaceDocumentController | undefined, workspace: IWorkspaceExpose | null, tabId: string) {
+    if (workspace || !session) {
+        return readWorkspaceDocumentRefs(workspace, tabId);
+    }
+    const {identity} = session.snapshot.value;
+    return {
+        sourceRef: identity.originalPath,
+        workingCopyRef: identity.workingCopyPath,
+        requiresSaveAsOnFirstSave: false,
+    };
+}
+
 export function buildWorkspaceCheckpoint(
     options: IBuildWorkspaceCheckpointOptions,
 ): IWorkspaceCheckpoint {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
+    const seenDocuments = new Set<IWorkspaceDocumentController>();
 
     return {
         version: 1,
@@ -71,11 +112,17 @@ export function buildWorkspaceCheckpoint(
         tabs: workspaceSnapshot.tabs.map((snapshot) => {
             const session = options.documentSessionsByTabId.value[snapshot.tabId];
             const view = session?.getView(snapshot.tabId) ?? null;
-            const workspace = view?.mountedWorkspace.value ?? null;
-            const documentRefs = readWorkspaceDocumentRefs(workspace, snapshot.tabId);
+            const workspace = session ? findDocumentWorkspace(session, snapshot.tabId) : null;
+            const documentRefs = readDocumentRefs(session, workspace, snapshot.tabId);
             const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
-            const capturedAnnotationRecovery = snapshot.isDirty
-                ? workspace?.captureCanonicalAnnotationRecovery?.() ?? null
+            // The first tab of a document carries its unsaved annotations:
+            // restore reopens the document in that tab and replays them there.
+            const firstTabOfDocument = session !== undefined && !seenDocuments.has(session);
+            if (session) {
+                seenDocuments.add(session);
+            }
+            const capturedAnnotationRecovery = snapshot.isDirty && session && firstTabOfDocument
+                ? captureDocumentAnnotationRecovery(session)
                 : null;
             const annotationRecovery = capturedAnnotationRecovery && workingByteRevision
                 ? capturedAnnotationRecovery

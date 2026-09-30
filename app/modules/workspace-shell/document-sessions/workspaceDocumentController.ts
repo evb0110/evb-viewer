@@ -16,11 +16,11 @@ import type {
     IWorkspaceOpenFailure,
 } from '@app/types/workspaceExpose';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
     createWorkspaceDocumentView,
     type IWorkspaceDocumentView,
     type IWorkspaceDocumentViewRecord,
+    type IWorkspaceDocumentViewSeed,
 } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import { requireSessionId } from '@contracts/shared';
@@ -84,7 +84,7 @@ export interface IWorkspaceDocumentController {
     dismissFailure(): void;
     setDirty(dirty: boolean): void;
     getView(tabId: string): IWorkspaceDocumentView | null;
-    addView(tabId: string, viewState?: ITabViewSessionState): IWorkspaceDocumentView;
+    addView(tabId: string, seed?: IWorkspaceDocumentViewSeed): IWorkspaceDocumentView;
     /** Removes a tab's view and returns how many views remain. */
     removeView(tabId: string): number;
     attachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
@@ -244,14 +244,14 @@ export function createWorkspaceDocumentController(options: {
         }
     }
 
-    function addView(viewTabId: string, viewState?: ITabViewSessionState) {
+    function addView(viewTabId: string, seed?: IWorkspaceDocumentViewSeed) {
         const existing = views.value.get(viewTabId);
         if (existing) {
             return existing;
         }
         const view = createWorkspaceDocumentView(viewTabId, {
             isDocumentFailed: () => snapshot.value.phase === 'failed',
-            viewState,
+            seed,
         });
         views.value = new Map(views.value).set(viewTabId, view);
         return view;

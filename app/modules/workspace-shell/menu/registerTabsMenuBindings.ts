@@ -190,7 +190,8 @@ export interface ITabsMenuBindingDeps {
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
     checkForUpdates: () => Promise<void> | void;
-    splitEditor: (direction: TPaneDirection) => Promise<void> | void;
+    /** The View menu's New Pane Right/Down: an empty pane (Split is the tab menu's linked view). */
+    openNewPane: (direction: TPaneDirection) => Promise<void> | void;
     handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
     toggleAssistant: () => void;
 }
@@ -349,7 +350,7 @@ export function registerTabsMenuBindings(
             });
         }),
         api.windowTabs?.onMenuSplitEditor?.((direction) => {
-            runMenuAction('split-editor', () => deps.splitEditor(direction));
+            runMenuAction('split-editor', () => deps.openNewPane(direction));
         }),
         api.windowTabs?.onWindowAction?.((action) => {
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));

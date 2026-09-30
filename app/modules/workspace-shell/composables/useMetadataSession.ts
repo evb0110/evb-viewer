@@ -1,8 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
+import type { Ref } from 'vue';
 import {
     useBookmarkState,
     usePageLabelState,
@@ -16,8 +13,8 @@ import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 
 interface IMetadataSessionOptions {
-    pdfDocument: ShallowRef<IPdfDocument | null>;
-    totalPages: Ref<number>;
+    pdfDocument: Readonly<Ref<IPdfDocument | null>>;
+    totalPages: Readonly<Ref<number>>;
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     markDirty: () => void;
@@ -49,6 +46,18 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     };
     setWorkspaceCommandSink?.(commandSink);
 
+    const bookmarkState = useBookmarkState({
+        markDirty,
+        onBookmarksSynchronized: () => metadataHistory?.resetToCurrentState(),
+        onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
+        onBookmarksSaved: () => metadataHistory?.markCurrentStateClean(),
+    });
+    const {
+        bookmarkItems,
+        bookmarksResolved,
+        bookmarksDirty,
+    } = bookmarkState;
+
     const pageLabelState = usePageLabelState({
         pdfDocument,
         totalPages,
@@ -65,6 +74,10 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         onPageLabelsSynchronized: () => metadataHistory?.resetToCurrentState(),
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
         onPageLabelsSaved: () => metadataHistory?.markCurrentStateClean(),
+        // The outline is re-read from new bytes, not from another view's copy of the same.
+        onDocumentBytesChanged: () => {
+            bookmarksResolved.value = false;
+        },
     });
     const {
         pageLabels,
@@ -73,21 +86,6 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         pageLabelsDirty,
     } = pageLabelState;
 
-    const bookmarkState = useBookmarkState({
-        markDirty,
-        onBookmarksSynchronized: () => metadataHistory?.resetToCurrentState(),
-        onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
-        onBookmarksSaved: () => metadataHistory?.markCurrentStateClean(),
-    });
-    const {
-        bookmarkItems,
-        bookmarksResolved,
-        bookmarksDirty,
-    } = bookmarkState;
-
-    watch(pdfDocument, () => {
-        bookmarksResolved.value = false;
-    }, { immediate: true });
 
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,

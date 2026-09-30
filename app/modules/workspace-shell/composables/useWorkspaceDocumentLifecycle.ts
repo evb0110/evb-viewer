@@ -217,16 +217,39 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             },
         }, () => options.openPath(path));
     }
+    // A view of a document that is already open (a split's second view, or a
+    // view that remounted in another pane) has no open transaction of its own.
+    // Its surface starts at the page its view state names, as an open would.
+    function presentOpenDocumentInThisView() {
+        const current = snapshot.value;
+        if (
+            !options.isShown()
+            || current.phase !== 'presented'
+            || !hasDocument.value
+            || options.openSurface.snapshot.value.phase !== 'idle'
+        ) {
+            return;
+        }
+        options.openSurface.begin({
+            documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
+            documentRevision: `open-intent:view:${view.tabId}`,
+            provisional: true,
+        }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
+    }
+    function presentWhenShown() {
+        presentOpenDocumentInThisView();
+        openOwnedDocumentWhenShown();
+    }
     watch(
         [
             options.isShown,
             snapshot,
         ],
-        openOwnedDocumentWhenShown,
+        presentWhenShown,
     );
     // The open runs through the workspace, which is complete only once it has
     // mounted; a tab shown at mount opens from here, not during setup.
-    onMounted(openOwnedDocumentWhenShown);
+    onMounted(presentWhenShown);
 
     // Closing ends the document's visual generation; Start re-arms from the
     // empty surface instead of inheriting the closed document's frame.

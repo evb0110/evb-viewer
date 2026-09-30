@@ -205,7 +205,6 @@ import {
 } from '@app/modules/document-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 const documentOpenSurface = createDocumentOpenSurfaceSession();
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
@@ -222,7 +221,6 @@ const {
     isRenderActive = isActive,
     isTabTransitionBusy,
     documentSession,
-    splitCacheSession = null,
     tabId,
 } = defineProps<{
     tabId: string;
@@ -233,7 +231,6 @@ const {
     fullscreenSupported: boolean;
     isWorkspaceLayoutResizing?: boolean | undefined;
     documentSession: IWorkspaceDocumentController;
-    splitCacheSession?: IWorkspaceSplitCacheSessionState | null | undefined;
 }>();
 const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
@@ -355,8 +352,6 @@ const {
 } = context.djvuProjection;
 const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
 const presentation = useWorkspacePresentation(documentContext, context, {
-    splitCacheSession: computed(() => splitCacheSession),
-    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
     initialPage: initialViewState?.currentPage,
     preserveInitialPage: preserveInitialStateForFirstSource,
 });

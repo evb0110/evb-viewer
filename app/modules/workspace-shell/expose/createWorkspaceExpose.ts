@@ -99,6 +99,7 @@ export function createWorkspaceExpose(
         view,
         search,
         navigation,
+        openSurface,
     } = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
@@ -418,6 +419,33 @@ export function createWorkspaceExpose(
         createRecoverySnapshotBytes: save.createRecoverySnapshotBytes,
         scrollToPage: (page: number) => {
             view.documentViewerRef.value?.scrollToPage(page);
+        },
+        captureReadingAnchor: () => view.documentViewerRef.value?.captureReadingAnchor?.() ?? null,
+        placeReadingAnchorAfterOpen: async (anchor) => {
+            // The reader outranks the anchor: a navigation of theirs, or any
+            // scroll, before the open settles leaves the view where they took
+            // it. The opening's own navigations are restores.
+            let superseded = false;
+            const stop = watch(() => [
+                openSurface.navigationTicket.value?.request.source ?? 'restore',
+                view.documentViewerRef.value?.getUserViewportInteractionEpoch?.() ?? 0,
+            ] as const, ([
+                navigationSource,
+                interactionEpoch,
+            ]) => {
+                superseded ||= navigationSource !== 'restore' || interactionEpoch > 0;
+            }, {
+                immediate: true,
+                flush: 'sync',
+            });
+            try {
+                await owners.waitForDocumentOpenSettled();
+            } finally {
+                stop();
+            }
+            if (!superseded) {
+                view.documentViewerRef.value?.restoreReadingAnchor?.(anchor);
+            }
         },
         getAllShapes: () => pdfViewer()?.getAllShapes?.() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewer()?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],

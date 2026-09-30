@@ -20,7 +20,10 @@ import type {
     TZoomMode,
 } from '@contracts/shared';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import type {
+    IPdfSemanticAnchor,
+    IScrollToPageOptions,
+} from '@app/modules/pdf-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
@@ -312,4 +315,11 @@ export interface IWorkspaceExpose {
     handleOcrComplete?: (payload: unknown) => Promise<void>;
     highlightSelection?: () => Promise<boolean>;
     scrollToPage?: (page: number) => void;
+    /** Where the view reads: the point of a page at its center. */
+    captureReadingAnchor?: () => IPdfSemanticAnchor | null;
+    /**
+     * Once the document has opened here, brings a point captured in another
+     * view of it to this view's center, unless the reader navigated first.
+     */
+    placeReadingAnchorAfterOpen?: (anchor: IPdfSemanticAnchor) => Promise<void>;
 }

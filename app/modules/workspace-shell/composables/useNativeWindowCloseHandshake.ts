@@ -30,8 +30,9 @@ export const useNativeWindowCloseHandshake = (
     const systemCapability = options.systemCapability ?? getSystemCapability();
     let closeRequestInFlight = false;
 
+    // One entry per document: tabs that show the same document share it.
     function getDirtyTabs() {
-        return Object.values(options.documentSessionsByTabId.value)
+        return [...new Set(Object.values(options.documentSessionsByTabId.value))]
             .filter(session => session.snapshot.value.dirty);
     }
 

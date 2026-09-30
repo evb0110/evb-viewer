@@ -111,13 +111,6 @@ function createLifecycle(options: {
     const getPaneById = (paneId: string | null | undefined) => (
         options.panes.value.find(pane => pane.paneId === paneId) ?? null
     );
-    const workspaceSplitCache = {
-        set: vi.fn(),
-        peek: vi.fn(),
-        consume: vi.fn(),
-        has: vi.fn(() => false),
-        clear: vi.fn(),
-    };
     const requestDirtyTabCloseConfirmation = vi.fn(async () => options.decision ?? 'discard');
     const closeTab = vi.fn(options.closeTab ?? (() => {}));
     const lifecycle = useAppShellTabLifecycle({
@@ -126,7 +119,6 @@ function createLifecycle(options: {
         activePaneId: options.activePaneId ?? ref(options.panes.value[0]?.paneId ?? null),
         activeTabId: options.activeTabId ?? ref(options.tabs.value[0]?.id ?? null),
         documentSessionsByTabId: shallowRef(options.sessions),
-        workspaceSplitCache,
         workspaceRestoreTracker: {
             start: vi.fn(),
             finish: vi.fn(),
@@ -147,7 +139,6 @@ function createLifecycle(options: {
         closeTab,
         lifecycle,
         requestDirtyTabCloseConfirmation,
-        workspaceSplitCache,
     };
 }
 
@@ -333,7 +324,6 @@ describe('useAppShellTabLifecycle', () => {
         const {
             closeTab,
             lifecycle,
-            workspaceSplitCache,
         } = createLifecycle({
             panes: ref([createPane('pane-1', 'tab-1', ['tab-1'])]),
             tabs: ref([{id: 'tab-1'}]),
@@ -344,7 +334,6 @@ describe('useAppShellTabLifecycle', () => {
 
         expect(closeTab).not.toHaveBeenCalled();
         expect(session.snapshot.value.phase).toBe('empty');
-        expect(workspaceSplitCache.clear).toHaveBeenCalledWith('tab-1');
         expect(lifecycle.isSingletonPlaceholderCloseBlocked('pane-1', 'tab-1')).toBe(true);
     });
 

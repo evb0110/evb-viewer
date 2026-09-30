@@ -54,7 +54,8 @@ export interface IEvbTestApi {
     readActiveWorkspaceStateValues: <TValues extends Record<string, unknown> = Record<string, unknown>>(
         propertyNames: string[],
     ) => TValues;
-    splitEditor: (direction: TPaneDirection) => Promise<void>;
+    /** New Pane: an empty pane beside the active one. */
+    openNewPane: (direction: TPaneDirection) => Promise<void>;
     listTargetWindows?: () => Promise<unknown>;
     transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
     waitForAutomationEvent: (

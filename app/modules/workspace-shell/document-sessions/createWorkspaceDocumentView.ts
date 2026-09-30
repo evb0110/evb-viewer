@@ -24,6 +24,11 @@ export interface IWorkspaceDocumentView {
     whenMounted(): Promise<IWorkspaceExpose | null>;
 }
 
+export interface IWorkspaceDocumentViewSeed {
+    toolbarSnapshot: IWorkspaceToolbarSnapshot;
+    viewState: ITabViewSessionState;
+}
+
 /** The controller's handle on a view: mounting and settling its waiters. */
 export interface IWorkspaceDocumentViewRecord extends IWorkspaceDocumentView {
     mount(workspace: IWorkspaceExpose): void;
@@ -37,10 +42,11 @@ export interface IWorkspaceDocumentViewRecord extends IWorkspaceDocumentView {
 export function createWorkspaceDocumentView(tabId: string, options: {
     /** A failed document resolves mount waiters with null instead of waiting. */
     isDocumentFailed: () => boolean;
-    viewState?: ITabViewSessionState | undefined;
+    /** A view of a document another view already shows starts from that view. */
+    seed?: IWorkspaceDocumentViewSeed | undefined;
 }): IWorkspaceDocumentViewRecord {
-    const toolbarSnapshot = shallowRef(createDefaultWorkspaceToolbarSnapshot());
-    const viewState = shallowRef(options.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
+    const toolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
+    const viewState = shallowRef(options.seed?.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     let retired = false;

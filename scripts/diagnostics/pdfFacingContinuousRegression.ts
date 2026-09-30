@@ -200,7 +200,7 @@ page.on('pageerror', (error: unknown) => consoleLines.push(
 try {
     await openPdfInApp(page, pdfPath, 90_000);
     const split = await page.evaluate(async () => {
-        const splitEditor = (window as Window & {__splitEditorForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorForE2E;
+        const splitEditor = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
         if (typeof splitEditor !== 'function') {
             return false;
         }

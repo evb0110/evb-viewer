@@ -22,19 +22,6 @@ export async function activateWorkspaceTab(session: IElectronE2ESession, tabInde
     }, tabIndex);
 }
 
-export async function splitActiveWorkspaceDocument(session: IElectronE2ESession, direction: 'right' | 'down') {
-    const split = await session.page.evaluate(async (targetDirection: 'right' | 'down') => {
-        const splitEditor = (window as IE2EWindow & {__splitEditorForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorForE2E;
-        if (typeof splitEditor === 'function') {
-            await splitEditor(targetDirection);
-            return true;
-        }
-        return false;
-    }, direction);
-    expect(split).toBe(true);
-    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length >= 2);
-}
-
 const SPLIT_MENU_LABELS = {
     right: 'Split Right',
     down: 'Split Down',

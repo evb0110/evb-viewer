@@ -1,4 +1,3 @@
-import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
@@ -7,16 +6,12 @@ import type { TDocumentViewContext } from '@app/modules/workspace-shell/document
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
-import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
+import { useDocumentWorkspaceRestoreState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 interface IWorkspacePresentationOptions {
-    splitCacheSession: Readonly<Ref<IWorkspaceSplitCacheSessionState | null>>;
-    isTabTransitionBusy: Readonly<Ref<boolean>>;
     initialPage: number | undefined;
     preserveInitialPage: boolean;
 }
@@ -35,7 +30,6 @@ export const useWorkspacePresentation = (
         file,
         save,
         history,
-        splitPayload,
         isOpeningDocument,
     } = document;
     const {
@@ -46,18 +40,9 @@ export const useWorkspacePresentation = (
     } = viewContext;
     const { t } = useTypedI18n();
     const isOcrRunning = ref(false);
-    const isRestoringSplitPayload = ref(false);
-    const {
-        hasQueuedSplitRestore,
-        isExternallyRestoring,
-    } = useDocumentWorkspaceSplitRestore({
+    const {isExternallyRestoring} = useDocumentWorkspaceRestoreState({
         tabId,
-        pendingDocumentOpen: isOpeningDocument,
-        isTabTransitionBusy: computed(() => options.isTabTransitionBusy.value),
-        workspaceSplitCache: useWorkspaceSplitCache(),
         workspaceRestoreTracker: useWorkspaceRestoreTracker(),
-        splitCacheSession: computed(() => options.splitCacheSession.value),
-        hasPdf: file.hasPdf,
         currentPage: view.currentPage,
         totalPages: view.totalPages,
         showSidebar: view.showSidebar,
@@ -71,9 +56,6 @@ export const useWorkspacePresentation = (
         documentViewerRef: view.documentViewerRef,
         initFromStorage: file.initFromStorage,
         cleanupSidebarResizeListeners: search.cleanupSidebarResizeListeners,
-        captureSplitPayload: splitPayload.captureSplitPayload,
-        restoreSplitPayload: splitPayload.restoreSplitPayload,
-        isRestoringSplitPayload,
         currentPageTransitionHistory: ref([]),
     });
 
@@ -82,7 +64,7 @@ export const useWorkspacePresentation = (
     const showsPdfSidebar = computed(() => driverView.value?.showPdfSidebar === true);
     const showsDjvuSource = computed(() => driverView.value?.showDjvuSource === true);
     const isDjvuOpening = computed(() => Boolean(file.djvuOpeningPath.value) && !showsDjvuSource.value);
-    const isRestoring = computed(() => isRestoringSplitPayload.value || isExternallyRestoring.value);
+    const isRestoring = isExternallyRestoring;
     const isOpeningForToolbar = computed(() => (
         isOpeningDocument.value || isDjvuOpening.value || isRestoring.value
     ));
@@ -94,7 +76,6 @@ export const useWorkspacePresentation = (
         || isOpeningDocument.value
         || showsDjvuSource.value
         || isDjvuOpening.value
-        || hasQueuedSplitRestore.value
         || isRestoring.value
     ));
     // Whether a sidebar may exist at all: the user's persisted preference and
@@ -114,7 +95,8 @@ export const useWorkspacePresentation = (
         initialPage: options.initialPage,
         preserveInitialPage: options.preserveInitialPage,
         isLoading: view.isLoading,
-        onRestore: viewContext.navigation.handleGoToPage,
+        // The view reopening its own page is a restore, not the reader's navigation.
+        onRestore: page => viewContext.navigation.handleGoToPage(page, {navigationSource: 'restore'}),
         totalPages: view.totalPages,
     });
     const {

@@ -49,6 +49,8 @@ interface IUseAppShellDirectionalTabsOptions {
     }) => ITab;
     activatePane: (paneId: string) => void;
     activateTab: (paneId: string, tabId: string) => void;
+    /** Shows the source tab's document in the target tab too; false when it cannot be linked. */
+    linkDocumentView: (sourceTabId: string, targetTabId: string) => boolean;
     isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
     enqueueTabTransition: <T>(task: () => Promise<T>) => Promise<T>;
     setWorkspaceLayoutResizing?: ((value: boolean) => void) | undefined;
@@ -150,7 +152,10 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         return result;
     });
 
-    async function splitEditor(direction: TPaneDirection) {
+    // Split Right/Down shows the active tab's PDF in the new pane as a second
+    // view of the same document; New Pane and anything that is not a presented
+    // PDF open an empty pane.
+    async function splitEditorInto(direction: TPaneDirection, linkSourceDocument: boolean) {
         options.setWorkspaceLayoutResizing?.(true);
         await nextTick();
         try {
@@ -164,10 +169,13 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                     return Promise.resolve();
                 }
 
-                createTab({
+                const newTab = createTab({
                     paneId: newPaneId,
                     activate: true,
                 });
+                if (linkSourceDocument && sourcePane.activeTabId) {
+                    options.linkDocumentView(sourcePane.activeTabId, newTab.id);
+                }
                 activatePane(newPaneId);
                 return Promise.resolve();
             });
@@ -187,9 +195,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         }
     }
 
-    async function splitEditorEmpty(direction: TPaneDirection) {
-        await splitEditor(direction);
-    }
+    const splitEditor = (direction: TPaneDirection) => splitEditorInto(direction, true);
+    const splitEditorEmpty = (direction: TPaneDirection) => splitEditorInto(direction, false);
 
     function ensureTargetPaneForDirection(direction: TPaneDirection) {
         const sourcePane = getPaneById(activePaneId.value);

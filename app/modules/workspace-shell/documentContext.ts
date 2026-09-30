@@ -61,6 +61,7 @@ import {
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
 interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
 
@@ -73,9 +74,13 @@ export interface IDocumentViewPort {
     openSurface: IDocumentOpenSurfaceSession;
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
     emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
+    /** Gives this view a document of its own and runs the open in its new workspace. */
+    detachAndOpen: (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => Promise<void>;
     view: Pick<TViewShellState,
         | 'pdfViewerRef'
         | 'documentViewerRef'
+        | 'pdfDocument'
+        | 'totalPages'
         | 'currentPage'
         | 'dragMode'
         | 'showSidebar'
@@ -149,8 +154,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const pdfViewerRef = commandViewRef<IPdfViewerExpose | null>(port => port.view.pdfViewerRef, null);
     const documentViewerRef = computed(() => commandView.value?.view.documentViewerRef.value ?? null);
     const currentPage = commandViewRef(port => port.view.currentPage, 1);
-    const totalPages = ref(0);
-    const pdfDocument = shallowRef<IPdfDocument | null>(null);
+    const totalPages = commandViewRef(port => port.view.totalPages, 0);
+    const pdfDocument = commandViewRef<IPdfDocument | null>(port => port.view.pdfDocument, null);
     const viewPort = {
         dragMode: commandViewRef(port => port.view.dragMode, false),
         showSidebar: commandViewRef(port => port.view.showSidebar, false),
@@ -165,8 +170,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         closeAllDropdowns: () => commandView.value?.view.closeAllDropdowns(),
         openDropdown: (...args: Parameters<TViewShellState['openDropdown']>) => commandView.value?.view.openDropdown(...args),
     };
+    const idlePageContextMenu = usePageContextMenu().pageContextMenu;
     const pageContextMenu = {
-        pageContextMenu: computed(() => commandView.value?.pageContextMenu.pageContextMenu.value ?? {...usePageContextMenu().pageContextMenu.value}),
+        pageContextMenu: computed(() => commandView.value?.pageContextMenu.pageContextMenu.value ?? idlePageContextMenu.value),
         closePageContextMenu: () => commandView.value?.pageContextMenu.closePageContextMenu(),
     };
     // A document source change resets every view's search, not only the one in use.
@@ -259,9 +265,16 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         }
     }
 
+    // Metadata is read from a view that has the document loaded, the one in
+    // use first: a view still loading its PDF.js document shows the same one.
+    const loadedView = computed(() => (
+        commandView.value?.view.pdfDocument.value
+            ? commandView.value
+            : [...viewPorts.value.values()].find(port => port.view.pdfDocument.value) ?? commandView.value
+    ));
     const metadata = useMetadataSession({
-        pdfDocument,
-        totalPages,
+        pdfDocument: computed(() => loadedView.value?.view.pdfDocument.value ?? null),
+        totalPages: computed(() => loadedView.value?.view.totalPages.value ?? 0),
         workingCopyPath,
         documentRevisionToken,
         markDirty: file.markDirty,
@@ -523,6 +536,15 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
     });
+    // Opening another file in a view of a shared document detaches only that
+    // view: it gets a document of its own and opens the file there (T4). The
+    // document stays with its other views, so there is nothing to ask. A
+    // hidden view whose workspace is unmounted still shows the document.
+    const sharesViews = computed(() => controller.views.value.size > 1);
+    function openInOwnDocument(open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
+        void commandView.value?.detachAndOpen(open);
+        return Promise.resolve<TDocumentOpenOutcome>({status: 'cancelled'});
+    }
     const fileOps = usePageFileOperations({
         get tabId() {
             return commandView.value?.tabId;
@@ -536,7 +558,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         isDocumentOperationInProgress: lease.isBusy,
         hasSaveFailure: saveService.hasSaveFailure,
         annotationNoteWindows: annotations.annotationNoteWindows,
-        hasPendingUnsavedChanges,
+        hasPendingUnsavedChanges: computed(() => !sharesViews.value && hasPendingUnsavedChanges.value),
         annotationDirty: annotations.annotationDirty,
         isDirty: file.isDirty,
         recoveryDirtyBaseline: file.recoveryDirtyBaseline,
@@ -545,9 +567,15 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
         handleSave: save.handleSave,
         pickFileToOpen: file.pickFileToOpen,
-        openFile: file.openFileWithViewerLifecycle,
-        openFileDirect: file.openFileDirectWithViewerLifecycle,
-        openFileDirectBatch: file.openFileDirectBatchWithViewerLifecycle,
+        openFile: result => (sharesViews.value
+            ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))
+            : file.openFileWithViewerLifecycle(result)),
+        openFileDirect: path => (sharesViews.value
+            ? openInOwnDocument(workspace => workspace.handleOpenFileDirectWithPersist(path))
+            : file.openFileDirectWithViewerLifecycle(path)),
+        openFileDirectBatch: paths => (sharesViews.value
+            ? openInOwnDocument(workspace => workspace.handleOpenFileDirectBatchWithPersist(paths))
+            : file.openFileDirectBatchWithViewerLifecycle(paths)),
         runDocumentOpen: runDocumentOpen,
         closeFile: file.closeFileWithViewerLifecycle,
         closeAllDropdowns: viewPort.closeAllDropdowns,

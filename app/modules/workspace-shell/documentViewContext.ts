@@ -20,6 +20,7 @@ import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/vie
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import type {
     IWorkspaceDocumentController,
@@ -107,10 +108,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pdfData,
         pdfSrc,
     } = file;
-    const view = useWorkspaceViewerShellState(initialViewState, {
-        totalPages: document.totalPages,
-        pdfDocument: document.pdfDocument,
-    });
+    // This view's own PDF.js document and page count; the document reads them
+    // through the view whose tab is in use and never writes another view's.
+    const view = useWorkspaceViewerShellState(initialViewState);
     const {
         pdfViewerRef,
         documentViewerRef,
@@ -489,9 +489,13 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         });
     }
 
+    const detachDocumentView = inject(documentViewDetachKey, null);
     const viewContext = {
         document,
         tabId,
+        detachAndOpen: async (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => {
+            await detachDocumentView?.(tabId, open);
+        },
         documentView,
         initialViewState,
         preserveInitialStateForFirstSource,
@@ -528,6 +532,13 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
 export type TDocumentViewContext = ReturnType<typeof createDocumentViewContext>;
 
 const documentViewContextKey: InjectionKey<TDocumentViewContext> = Symbol('documentViewContext');
+
+/** The shell's way to give a tab that shares its document one of its own, then open there. */
+export type TDocumentViewDetach = (
+    tabId: string,
+    open: (workspace: IWorkspaceExpose) => Promise<boolean>,
+) => Promise<void>;
+export const documentViewDetachKey: InjectionKey<TDocumentViewDetach> = Symbol('documentViewDetach');
 
 export const provideDocumentViewContext = (context: TDocumentViewContext) => {
     provide(documentViewContextKey, context);

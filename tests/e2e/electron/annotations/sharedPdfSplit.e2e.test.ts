@@ -15,10 +15,14 @@ import {
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    clickVisibleAnnotationControl,
+    createCanonicalTextBoxWithPointer,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     goToPageViaToolbar,
     openAnnotationsTab,
+    openDocumentSidebarTab,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -114,6 +118,19 @@ async function clickHandle(page: Page, handle: JSHandle<HTMLElement | null | und
     await page.mouse.click(point.x, point.y);
 }
 
+/** Clicks a control once it rests where a pointer reaches it; an opening panel still moves it. */
+async function clickSteadyControl(page: Page, selector: string) {
+    await page.waitForFunction((target: string) => new Promise<boolean>((resolve) => {
+        const read = () => {
+            const rect = document.querySelector(target)?.getBoundingClientRect();
+            return rect && rect.width > 0 && rect.height > 0 ? `${rect.left},${rect.top},${rect.width},${rect.height}` : null;
+        };
+        const first = read();
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(first !== null && read() === first)));
+    }), {timeout: SETTLE_TIMEOUT_MS}, selector);
+    await clickVisibleAnnotationControl(page, selector);
+}
+
 async function clickVisible(page: Page, find: () => HTMLElement | null) {
     const handle = await page.waitForFunction(find, {timeout: SETTLE_TIMEOUT_MS});
     await clickHandle(page, handle);
@@ -193,6 +210,27 @@ async function waitForPaneView(
     return view;
 }
 
+/** Like waitForPaneView, once the view has also stopped moving. */
+async function waitForSteadyPaneView(
+    page: Page,
+    paneId: string,
+    label: string,
+    accept: (view: IPaneView) => boolean,
+) {
+    const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+    let previous = await waitForPaneView(page, paneId, label, accept);
+    while (Date.now() < deadline) {
+        // Two readings a painted frame apart: a scroll still in flight moves between them.
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const view = await waitForPaneView(page, paneId, label, accept);
+        if (view.centerPage === previous.centerPage && view.centerOffsetPx === previous.centerOffsetPx) {
+            return view;
+        }
+        previous = view;
+    }
+    throw new Error(`${label}: the view did not come to rest: ${JSON.stringify(previous)}`);
+}
+
 interface IPlacement {
     centerPage: number | null;
     centerOffsetPx: number | null;
@@ -232,9 +270,11 @@ function countSaveEvents(page: Page, afterEventId: number) {
         .filter(event => event.type === 'save-committed' && event.id > after).length ?? 0, afterEventId);
 }
 
+// At least one step, so the view has a custom zoom that a narrower pane keeps
+// (a fit mode re-fits when the pane width changes, behavior contract R3).
 async function zoomInUntilPageFillsViewport(page: Page, paneId: string) {
     for (let step = 0; step < 12; step += 1) {
-        const fills = await page.$eval(paneSelector(paneId), (pane) => {
+        const fills = step > 0 && await page.$eval(paneSelector(paneId), (pane) => {
             const viewport = pane.querySelector<HTMLElement>('#pdf-viewer');
             const firstPage = pane.querySelector<HTMLElement>('#pdf-viewer .page_container[data-page]');
             return Boolean(viewport && firstPage
@@ -250,6 +290,40 @@ async function zoomInUntilPageFillsViewport(page: Page, paneId: string) {
         ));
     }
     throw new Error('Zoom In never made a page taller than the viewport');
+}
+
+/**
+ * Undoes a text box edit from the active view. As in a single view, that is
+ * two transactions: the first empties the box, the second removes it.
+ */
+async function undoTextBoxEdit(page: Page, activePane: string, otherPane: string, text: string) {
+    const before = await readPaneView(page, activePane);
+    await clickToolbarButton(page, 'Undo');
+    await waitForPaneView(page, activePane, `the first undo empties the ${text} box`, view => (
+        containsNone(view.listedTexts, [text]) && view.listedTexts.length === before.listedTexts.length
+    ));
+    await clickToolbarButton(page, 'Undo');
+    for (const paneId of [
+        activePane,
+        otherPane,
+    ]) {
+        await waitForPaneView(page, paneId, `the second undo removes the ${text} box from ${paneId}`, view => (
+            containsNone(view.renderedTexts, [text]) && view.listedTexts.length === before.listedTexts.length - 1
+        ));
+    }
+}
+
+/** Numbers every page of the active pane's document through its Pages panel. */
+async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string) {
+    await openDocumentSidebarTab(page, 'Pages');
+    const prefixInput = `${paneSelector(paneId)} #page-label-prefix-input`;
+    await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-disclosure`);
+    await clickSteadyControl(page, prefixInput);
+    await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, prefixInput);
+    await page.keyboard.type(prefix);
+    await page.waitForFunction((selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected, {timeout: SETTLE_TIMEOUT_MS}, prefixInput, prefix);
+    await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
+    await waitForPaneView(page, paneId, 'numbering the pages leaves unsaved changes', view => view.tabDirty);
 }
 
 async function readVisibleToasts(page: Page) {
@@ -275,8 +349,15 @@ describe('shared PDF split', () => {
         const [sourcePane] = await paneIds(page);
         await zoomInUntilPageFillsViewport(page, sourcePane!);
         await goToPageViaToolbar(page, 2);
-        const sourceView = await waitForPaneView(page, sourcePane!, 'source view reads page 2', view => view.centerPage === 2);
-        const sourcePlacement = placementOf(sourceView);
+        const atPageTop = await waitForSteadyPaneView(page, sourcePane!, 'source view reads page 2', view => view.centerPage === 2);
+        // It reads partway down that page: Split keeps the reading point, not only the page (T4).
+        const sourceViewport = await centerOf(page, `${paneSelector(sourcePane!)} #pdf-viewer`);
+        await page.mouse.move(sourceViewport.x, sourceViewport.y);
+        await page.mouse.wheel({deltaY: 120});
+        const sourceView = await waitForSteadyPaneView(page, sourcePane!, 'source view reads further down page 2', view => (
+            view.centerPage === 2
+            && (view.centerOffsetPx ?? 0) > (atPageTop.centerOffsetPx ?? 0) + 40
+        ));
 
         // Split Right shows the same document at the source's page and zoom.
         await splitActiveTabFromTabMenu(page, 'right');
@@ -285,11 +366,17 @@ describe('shared PDF split', () => {
             rightPane,
         ] = await paneIds(page);
         expect(leftPane).toBe(sourcePane);
-        const splitView = await waitForPaneView(page, rightPane!, 'Split Right must show the source document in the new pane', view => (
+        const sourcePlacement = placementOf(await waitForPaneView(page, leftPane!, 'the source view keeps page 2 through the split', view => (
+            view.centerPage === 2 && sameWidth(view.pageWidthPx, sourceView.pageWidthPx)
+        )));
+        const splitView = await waitForPaneView(page, rightPane!, `Split Right must show the source document at its reading point (source center ${String(sourceView.centerOffsetPx)}px into page 2)`, view => (
             !view.showsStart
             && view.statusPath === sourceView.statusPath
             && view.tabLabel === sourceView.tabLabel
             && view.centerPage === 2
+            && view.centerOffsetPx !== null
+            && sourceView.centerOffsetPx !== null
+            && Math.abs(view.centerOffsetPx - sourceView.centerOffsetPx) <= ANCHOR_TOLERANCE_PX
         ));
         expect(sameWidth(splitView.pageWidthPx, sourcePlacement.pageWidthPx), `split page width ${String(splitView.pageWidthPx)} vs source ${String(sourcePlacement.pageWidthPx)}`).toBe(true);
 
@@ -317,6 +404,10 @@ describe('shared PDF split', () => {
                 leftText,
             ])
         ));
+        // Placing the text box scrolled the left view to its page; from here
+        // on that is the placement it must keep.
+        const leftPlacement = placementOf(await readPaneView(page, leftPane!));
+        expect(leftPlacement.centerPage).toBe(2);
 
         // The views diverge: the right view moves to page 4 and zooms in again.
         await activatePaneByTab(page, rightPane!);
@@ -328,35 +419,28 @@ describe('shared PDF split', () => {
             view.centerPage === 4 && (view.pageWidthPx ?? 0) > (rightBeforeZoom.pageWidthPx ?? Infinity) + ANCHOR_TOLERANCE_PX
         ));
         const rightPlacement = placementOf(rightView);
-        expect(sameWidth(rightPlacement.pageWidthPx, sourcePlacement.pageWidthPx)).toBe(false);
+        expect(sameWidth(rightPlacement.pageWidthPx, leftPlacement.pageWidthPx)).toBe(false);
         await waitForPaneView(page, leftPane!, 'left view keeps its page and zoom while the right view moves', view => (
-            keepsPlacement(view, sourcePlacement)
+            keepsPlacement(view, leftPlacement)
         ));
 
         // Undo in the right view removes the left view's edit from both.
-        await clickToolbarButton(page, 'Undo');
-        await waitForPaneView(page, leftPane!, 'undo from the right view removes the left edit on the left', view => (
-            containsAll(view.renderedTexts, [rightText]) && containsNone(view.renderedTexts, [leftText])
+        await undoTextBoxEdit(page, rightPane!, leftPane!, leftText);
+        await waitForPaneView(page, leftPane!, 'undo from the right view keeps the right edit on the left', view => (
+            containsAll(view.renderedTexts, [rightText]) && containsAll(view.listedTexts, [rightText])
         ));
-        await waitForPaneView(page, rightPane!, 'undo from the right view removes the left edit from its list', view => (
-            containsAll(view.listedTexts, [rightText]) && containsNone(view.listedTexts, [leftText])
-            && keepsPlacement(view, rightPlacement)
+        await waitForPaneView(page, rightPane!, 'undo from the right view keeps the right view in place', view => (
+            containsAll(view.listedTexts, [rightText]) && keepsPlacement(view, rightPlacement)
         ));
 
         // Undo in the left view removes the right view's edit from both.
         await activatePaneByTab(page, leftPane!);
-        await clickToolbarButton(page, 'Undo');
-        await waitForPaneView(page, rightPane!, 'undo from the left view removes the right edit from the right list', view => (
-            containsNone(view.listedTexts, [
-                rightText,
-                leftText,
-            ]) && keepsPlacement(view, rightPlacement)
+        await undoTextBoxEdit(page, leftPane!, rightPane!, rightText);
+        await waitForPaneView(page, rightPane!, 'undo from the left view leaves the right list empty in place', view => (
+            view.listedTexts.length === 0 && keepsPlacement(view, rightPlacement)
         ));
-        const afterUndo = await waitForPaneView(page, leftPane!, 'undo from the left view removes the right edit on the left', view => (
-            containsNone(view.renderedTexts, [
-                rightText,
-                leftText,
-            ]) && keepsPlacement(view, sourcePlacement)
+        const afterUndo = await waitForPaneView(page, leftPane!, 'undo from the left view leaves the left view empty in place', view => (
+            view.renderedTexts.length === 0 && view.listedTexts.length === 0 && keepsPlacement(view, leftPlacement)
         ));
         expect((await readPaneView(page, rightPane!)).tabDirty).toBe(afterUndo.tabDirty);
 
@@ -427,8 +511,8 @@ describe('shared PDF split', () => {
                 savedLeftText,
                 unsavedText,
             ])
-            && view.centerPage === sourcePlacement.centerPage
-            && sameWidth(view.pageWidthPx, sourcePlacement.pageWidthPx)
+            && view.centerPage === leftPlacement.centerPage
+            && sameWidth(view.pageWidthPx, leftPlacement.pageWidthPx)
         ));
 
         // Closing the last view asks the normal unsaved-changes question.
@@ -439,5 +523,74 @@ describe('shared PDF split', () => {
             .find(button => button.textContent?.trim() === 'Discard changes') ?? null);
         await waitForPaneView(page, leftPane!, 'discarding the last view closes the document', view => view.showsStart);
         expect(await readFile(pdfPath)).toEqual(savedBytes);
+    }, TIMEOUT_MS);
+
+    it('saves page labels numbered in one view from the other view', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        // The left view numbers every page P-1, P-2, ...
+        await activatePaneByTab(page, leftPane!);
+        await numberPagesWithPrefix(page, leftPane!, 'P-');
+
+        // Using the right view keeps the numbering, and its Save writes it.
+        await activatePaneByTab(page, rightPane!);
+        await waitForPaneView(page, rightPane!, 'the right view in use still has the unsaved numbering', view => (
+            view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
+        ));
+        const saveBaseline = await getLatestAutomationEventId(page);
+        await clickToolbarButton(page, 'Save');
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path: pdfPath,
+            timeoutMs: 60_000,
+        });
+        const metadata = await readPdfMetadataWithQpdf(pdfPath);
+        expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:P-');
+    }, TIMEOUT_MS);
+
+    it('saves from the new view page labels numbered before the split', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-before-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-before-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const [sourcePane] = await paneIds(page);
+        await numberPagesWithPrefix(page, sourcePane!, 'Q-');
+
+        // The new view is in use before its own PDF.js document has loaded.
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            , rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'the new view shows the document with the unsaved numbering', view => (
+            !view.showsStart && view.centerPage !== null && view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
+        ));
+        const saveBaseline = await getLatestAutomationEventId(page);
+        await clickToolbarButton(page, 'Save');
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path: pdfPath,
+            timeoutMs: 60_000,
+        });
+        const metadata = await readPdfMetadataWithQpdf(pdfPath);
+        expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:Q-');
     }, TIMEOUT_MS);
 });

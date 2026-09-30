@@ -25,7 +25,7 @@ import {
 import {
     activateWorkspaceTab as activateTab,
     createNewWorkspaceTab as createNewTab,
-    splitActiveWorkspaceDocument as splitActiveDocument,
+    openNewPane,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     requireWorkspaceCommand,
@@ -955,7 +955,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
         const independentDjvuPath = createFixturePath(`split-pane-${Date.now()}.djvu`);
         copyFileSync(djvuFixture.path, independentDjvuPath);
-        await splitActiveDocument(session, 'right');
+        await openNewPane(session.page, 'right');
         await openDjvuInApp(session.page, independentDjvuPath, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForVisibleDjvuImageHosts(session, 2);

@@ -182,6 +182,7 @@ import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composabl
 import { useAppShellMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import { documentViewDetachKey } from '@app/modules/workspace-shell/documentViewContext';
 import {
     describeTabDocument,
     snapshotOccupiesTab,
@@ -196,7 +197,6 @@ import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
 import { isAutomationSession } from '@app/utils/isAutomationSession';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
 import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
@@ -334,7 +334,6 @@ const isEditorPanesResizing = ref(false);
 const isWorkspaceLayoutResizing = computed(() => isAssistantPanelResizing.value || isEditorPanesResizing.value);
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
-const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceMemoryBudget = useWorkspaceMemoryPressureMonitor();
 const tabActivationOrder = ref<string[]>([]);
 watch(activeTabId, (tabId) => {
@@ -393,6 +392,17 @@ const documentSessions = useWorkspaceDocumentSessions({
     activeTabId,
     tabs,
 });
+// Opening another file in a view of a shared document gives that tab a
+// document of its own; the open runs in the tab's new workspace.
+provide(documentViewDetachKey, async (tabId, open) => {
+    if (!documentSessions.detachView(tabId)) {
+        return;
+    }
+    const workspace = await documentSessions.getView(tabId)?.whenMounted() ?? null;
+    if (workspace) {
+        await open(workspace);
+    }
+});
 const {
     activeDocumentSession,
     activeDocumentView,
@@ -447,7 +457,6 @@ const {
     activePaneId,
     activeTabId,
     documentSessionsByTabId,
-    workspaceSplitCache,
     workspaceRestoreTracker,
     getPaneById,
     getTabById,
@@ -550,7 +559,6 @@ onMounted(() => {
             setTabMemoryPolicy: (policy) => {
                 updateSetting('tabMemoryPolicy', policy);
             },
-            splitEditor,
             splitEditorEmpty,
         });
     }
@@ -790,7 +798,6 @@ const {
 });
 const {
     tabContextAvailabilityByPane,
-    splitEditor,
     splitEditorEmpty,
     handleTabContextCommand,
     handleTabMoveDirection,
@@ -808,6 +815,7 @@ const {
     createTab,
     activatePane,
     activateTab,
+    linkDocumentView: documentSessions.linkView,
     isSingletonPlaceholderCloseBlocked,
     enqueueTabTransition,
     setWorkspaceLayoutResizing: value => { isEditorPanesResizing.value = value; },
@@ -923,7 +931,7 @@ useTabsShellBindings({
     loadRecentFiles,
     isStartupOpenClaimPending,
     checkForUpdates,
-    splitEditor,
+    openNewPane: splitEditorEmpty,
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });

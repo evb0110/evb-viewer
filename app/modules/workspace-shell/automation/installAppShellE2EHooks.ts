@@ -11,7 +11,6 @@ type TEditorSplitHook = (direction: TEditorSplitDirection) => Promise<void> | vo
 
 interface IAppShellE2EHookBindings {
     setTabMemoryPolicy: (policy: TTabMemoryPolicy) => void;
-    splitEditor: TEditorSplitHook;
     splitEditorEmpty: TEditorSplitHook;
 }
 
@@ -21,7 +20,6 @@ type TAppShellE2EWindow = Window & {
     __setTabMemoryPolicyForE2E?: (policy: TTabMemoryPolicy) => void;
     __setWorkspaceSurfacePressureForE2E?: (level: TWorkspaceResourcePressureLevel) => void;
     __splitEditorEmptyForE2E?: TEditorSplitHook;
-    __splitEditorForE2E?: TEditorSplitHook;
 };
 
 export function installAppShellE2EHooks(bindings: IAppShellE2EHookBindings) {
@@ -30,7 +28,6 @@ export function installAppShellE2EHooks(bindings: IAppShellE2EHookBindings) {
     target.__getPdfRasterProfileForE2E = () => ({maxBufferCanvasPixels: getPerformanceProfile().maxBufferCanvasPixels});
     target.__setWorkspaceSurfacePressureForE2E = level => workspaceSurfaceBudgetController.setPressureLevel(level);
     target.__setTabMemoryPolicyForE2E = bindings.setTabMemoryPolicy;
-    target.__splitEditorForE2E = bindings.splitEditor;
     target.__splitEditorEmptyForE2E = bindings.splitEditorEmpty;
 
     return () => {
@@ -38,7 +35,6 @@ export function installAppShellE2EHooks(bindings: IAppShellE2EHookBindings) {
         delete target.__getPdfRasterProfileForE2E;
         delete target.__setWorkspaceSurfacePressureForE2E;
         delete target.__setTabMemoryPolicyForE2E;
-        delete target.__splitEditorForE2E;
         delete target.__splitEditorEmptyForE2E;
     };
 }

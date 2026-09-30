@@ -1,15 +1,25 @@
 import type { Ref } from 'vue';
 import type { ITab } from '@app/types/tabs';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/public';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import type {
+    IWorkspaceDocumentView,
+    IWorkspaceDocumentViewSeed,
+} from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import {
     createWorkspaceDocumentController,
+    identityHasDocument,
+    snapshotOccupiesTab,
     type IWorkspaceDocumentController,
     type TWorkspaceDocumentAssignment,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 
 /**
- * The document controller of every tab, created with the tab. A controller
- * is disposed when the last tab viewing it goes; each tab reads and writes
- * its own view record on it.
+ * The document controller of every tab, created with the tab. A split can
+ * link a second tab to a PDF, so several tabs view one controller; it is
+ * disposed when the last tab viewing it goes. Each tab reads and writes its
+ * own view record on it.
  */
 export const useWorkspaceDocumentSessions = (options: {
     activeTabId: Ref<string | null>;
@@ -47,6 +57,70 @@ export const useWorkspaceDocumentSessions = (options: {
             return;
         }
         pendingAssignments.set(tabId, assignment);
+    }
+
+    function replaceSession(tabId: string, next: IWorkspaceDocumentController) {
+        const current = sessionsByTabId.value.get(tabId);
+        if (current && current !== next && current.removeView(tabId) === 0) {
+            current.dispose();
+        }
+        pendingAssignments.delete(tabId);
+        sessionsByTabId.value.set(tabId, next);
+        triggerRef(sessionsByTabId);
+    }
+
+    // The new view opens at the source's page, then takes the source's place on it.
+    async function placeAtReadingAnchor(view: IWorkspaceDocumentView, anchor: IPdfSemanticAnchor) {
+        const workspace = await view.whenMounted();
+        await workspace?.placeReadingAnchorAfterOpen?.(anchor);
+    }
+
+    /**
+     * Shows the source tab's PDF in the target tab too: a second view of one
+     * document that starts where the source view is (behavior contract T4),
+     * or where `seed` says, as a restored view does. The target must not
+     * hold a document of its own.
+     */
+    function linkView(sourceTabId: string, targetTabId: string, seed?: IWorkspaceDocumentViewSeed) {
+        const source = sessionsByTabId.value.get(sourceTabId);
+        const current = sessionsByTabId.value.get(targetTabId);
+        const snapshot = source?.snapshot.value;
+        if (
+            !source
+            || !snapshot
+            || source === current
+            || snapshot.phase !== 'presented'
+            || snapshot.identity.isDjvu
+            || !identityHasDocument(snapshot.identity)
+            || (current && (snapshotOccupiesTab(current.snapshot.value) || current.views.value.size > 1))
+        ) {
+            return false;
+        }
+        const sourceView = source.getView(sourceTabId);
+        const readingAnchor = seed ? null : sourceView?.mountedWorkspace.value?.captureReadingAnchor?.() ?? null;
+        // The reader's place and panels, not a scan-cleanup surface.
+        const view = source.addView(targetTabId, seed ?? (sourceView
+            ? {
+                toolbarSnapshot: sourceView.toolbarSnapshot.value,
+                viewState: createTabViewSessionState(sourceView.toolbarSnapshot.value),
+            }
+            : undefined));
+        replaceSession(targetTabId, source);
+        if (readingAnchor) {
+            placeAtReadingAnchor(view, readingAnchor).catch((error: unknown) => {
+                BrowserLogger.warn('workspace', 'A linked view could not take its source view\'s place', error);
+            });
+        }
+        return true;
+    }
+
+    /** Gives a tab that shares its document an empty document of its own. */
+    function detachView(tabId: string) {
+        if ((sessionsByTabId.value.get(tabId)?.views.value.size ?? 0) < 2) {
+            return false;
+        }
+        replaceSession(tabId, createWorkspaceDocumentController({tabId}));
+        return true;
     }
 
     watch(options.tabs, (tabs) => {
@@ -103,6 +177,8 @@ export const useWorkspaceDocumentSessions = (options: {
         documentViewsByTabId,
         getSession,
         getView,
+        linkView,
+        detachView,
         workspaceRefs,
     };
 };

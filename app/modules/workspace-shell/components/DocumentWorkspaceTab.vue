@@ -13,7 +13,6 @@
             :is-render-active="isRenderActive"
             :is-tab-transition-busy="isTabTransitionBusy"
             :document-session="documentSession"
-            :split-cache-session="splitCacheSession"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
             :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
@@ -73,13 +72,11 @@ import {
 } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
-import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
 import {
     identityHasDocument,
     type IWorkspaceDocumentController,
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import * as platformDocuments from '@app/utils/platformDocuments';
@@ -111,8 +108,6 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();
-const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(documentSession));
-const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     recentFiles,
@@ -131,15 +126,13 @@ const documentView = computed(() => documentSession.getView(tabId));
 const isOpening = computed(() => snapshot.value.phase === 'opening');
 // Start belongs to a tab without a document on screen, including one whose
 // open just failed. A tab that owns a document, is opening or closing one, or
-// is about to receive a split's document does not show it.
+// is about to receive a transferred document does not show it.
 const isStartVisible = computed(() => {
     const phase = snapshot.value.phase;
     const toolbar = documentView.value?.toolbarSnapshot.value;
-    const session = splitCacheSession.value;
     return (phase === 'empty' || phase === 'failed')
         && !toolbar?.hasPdf
         && !toolbar?.isDjvuMode
-        && !(session ? workspaceSplitCache.has(tabId, {session}) : workspaceSplitCache.has(tabId))
         && !workspaceRestoreTracker.has(tabId);
 });
 // An open started from Start keeps Start mounted but hidden until the open
