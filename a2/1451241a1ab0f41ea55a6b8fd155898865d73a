@@ -1,0 +1,54 @@
+native/pdf-page-ops/src/incremental_document.rs
+  ai_agent 138,144,497,1404
+tests/unit/electron/workingCopy.test.ts
+  s_ff931410fcd330::t_98eb6ad216cfb0 39,67-68,71
+  s_ff931410fcd330::t_57f978d65a4683 65-66,69-70
+native/pdf-page-ops/src/types.rs
+  ai_agent 744
+tests/e2e/electron/save/savePipeline.e2e.test.ts
+  s_ff931410fcd330::t_a9882e792a982e 318-320,322-333
+  s_ff931410fcd330::t_8685d0562a30bb 25-29,39,60-67,95-96,885
+  s_ff931410fcd330::t_ca377a870bbe01 272-317,321,334-357
+  s_ff931410fcd330::t_7ebc5f387ed746 1004-1009
+  s_ff931410fcd330::t_00ef16061c873d 912-1003,1010-1022
+native/pdf-page-ops/src/terminal_xref.rs
+  s_ff931410fcd330::t_c42e6fcb81fef0 1-257,263-272,277-282,285-294
+  s_ff931410fcd330::t_e7c72b180cbeaf 258-262,273-276
+  s_ff931410fcd330::t_e97e11088cc964 283-284
+electron/file-access/workingCopyCreation.ts
+  s_ff931410fcd330::t_03aa99dde9af2b 152,158,189,212,219,223
+  s_ff931410fcd330::t_0b052b5141a9e5 47-49,464-475
+  s_ff931410fcd330::t_5f335d27b6896a 151,153-157,159-160,186-188,199-201,225
+electron/features/documents/main/openInputPaths.service.ts
+  s_ff931410fcd330::t_57f978d65a4683 25
+  s_ff931410fcd330::t_014b94d6ddacc6 263-265
+electron/pdf/pdfAppendBase.ts
+  s_ff931410fcd330::t_aadb4eca303c19 1-8,10,12-25,34-81,90-119,125-130
+  s_ff931410fcd330::t_0b052b5141a9e5 82-83,88-89
+  s_ff931410fcd330::t_43d345afb04f33 84-87
+  s_ff931410fcd330::t_014b94d6ddacc6 9,11,26-33,120-124
+native/pdf-page-ops/src/cli.rs
+  ai_agent 214,231-234
+native/pdf-page-ops/src/dispatcher.rs
+  ai_agent 12-18
+electron/features/documents/main/workingCopySave.ts
+  s_ff931410fcd330::t_6cd18395b373f6 41,379
+native/pdf-page-ops/src/lib.rs
+  ai_agent 50,102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a21451241a1ab0f41ea55a6b8fd155898865d73a",
+  "prompts": {},
+  "sessions": {
+    "s_ff931410fcd330": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e4fa6e7-529f-42de-bdac-0f1d994057df",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}

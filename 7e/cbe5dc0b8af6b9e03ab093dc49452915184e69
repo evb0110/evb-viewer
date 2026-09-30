@@ -1,0 +1,34 @@
+native/pdf-page-ops/src/terminal_xref.rs
+  s_ff931410fcd330::t_422a106dfcb57a 473-488,523,526-563
+  s_ff931410fcd330::t_df599ecff09571 136-137,189-192,489-522,524-525
+  s_ff931410fcd330::t_1a946e9229fdaf 129-134,157-168,170-188,193-203
+  s_ff931410fcd330::t_9a32336b895e5f 147,225-226,228-229
+  s_ff931410fcd330::t_e48af0113a0445 81-84,97-101,125,206-224,242
+  s_ff931410fcd330::t_1491a976d63394 142-146,148-151,423-435,470
+  s_ff931410fcd330::t_450889858188d2 7-9,44
+  s_ff931410fcd330::t_92a33dccdbdc73 59-60,106
+native/pdf-page-ops/src/load_policy.rs
+  s_ff931410fcd330::t_1491a976d63394 18-21,323-337,352,354,358,405,408,411,420,428,434,456,460,478,487,490,783,786,789,800,803,807,869,876-881,886,908,910-911,917,920-923
+packages/contracts/pdfAppendAdmission.ts
+  s_ff931410fcd330::t_e48af0113a0445 7-8,19
+electron/pdf/pdfAppendBase.ts
+  s_ff931410fcd330::t_e48af0113a0445 127
+native/pdf-page-ops/src/incremental_document.rs
+  s_ff931410fcd330::t_e48af0113a0445 139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7ecbe5dc0b8af6b9e03ab093dc49452915184e69",
+  "prompts": {},
+  "sessions": {
+    "s_ff931410fcd330": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e4fa6e7-529f-42de-bdac-0f1d994057df",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
