@@ -3332,7 +3332,10 @@ interface IGateProbeLoadingTask {
     promise: Promise<{getPage: (pageNumber: number) => Promise<IGatedPdfPageProxy>}>;
 }
 
-interface IGatePdfjsLib { getDocument: (source: {data: Uint8Array}) => IGateProbeLoadingTask }
+interface IGatePdfjsLib {
+    GlobalWorkerOptions: {workerSrc?: string};
+    getDocument: (source: {data: Uint8Array}) => IGateProbeLoadingTask;
+}
 
 interface IPageRenderGateWindow extends Window {
     __evbHeldPageRenderGate?: IHeldPageRenderGate;
@@ -3348,6 +3351,12 @@ async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: 
         const pdfjs = gateWindow.pdfjsLib;
         if (!pdfjs) {
             throw new Error('PDF.js is not loaded in the renderer');
+        }
+        // The global PDF.js does not always carry the worker configuration in
+        // this page; use the worker URL the app configures for its own runtime
+        // (app/utils/viewerAssets.ts).
+        if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+            pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
         }
         const probe = pdfjs.getDocument({data: new TextEncoder().encode([
             '%PDF-1.4',
