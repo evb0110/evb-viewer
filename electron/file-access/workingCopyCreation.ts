@@ -44,6 +44,16 @@ import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOrigin
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
 import { createLogger } from '@electron/utils/createLogger';
 import {
+    normalizePdfAppendBase,
+    pdfNeedsAppendBaseRewrite,
+    type INormalizePdfAppendBaseOptions,
+} from '@electron/pdf/pdfAppendBase';
+import {
+    captureOpenSourceWitness,
+    OriginalPathSaveConflictError,
+    type IOriginalPathSaveWitness,
+} from '@electron/file-access/originalPathSaveWitness';
+import {
     initializeFreshWorkingCopyRevision,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
@@ -144,18 +154,41 @@ function assertWorkingCopyDecryptionSucceeded(result: TWorkingCopyDecryptionResu
     }
 }
 
+function normalizeWorkingCopyAppendBase(
+    sourcePath: string,
+    workingPath: string,
+    timings: IWorkingCopyPhaseTiming[],
+    options: INormalizePdfAppendBaseOptions,
+) {
+    return measureWorkingCopyPhase(timings, 'append-admission', () =>
+        normalizePdfAppendBase(sourcePath, workingPath, options));
+}
+
 async function createWorkingCopyWithOutcomeInternal(
     originalPath: TOpenPath,
     ownerWebContentsId?: number,
     password?: string,
     signal?: AbortSignal,
+    admitRewrite?: () => Promise<void>,
 ): Promise<IWorkingCopyCreationResult> {
     const operationStartedAt = performance.now();
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
+    let sourceWitness: IOriginalPathSaveWitness | null = null;
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
+        const normalizeOptions: INormalizePdfAppendBaseOptions = {
+            ...(signal === undefined ? {} : {signal}),
+            ...(admitRewrite === undefined ? {} : {admitRewrite}),
+        };
+        // A rewrite reads the source for as long as qpdf takes. The original's
+        // identity is fixed here, checked again before registration, and
+        // registered as the save baseline.
+        sourceWitness = isPdf
+            ? await measureWorkingCopyPhase(phaseTimings, 'source-witness', () =>
+                captureOpenSourceWitness(originalPath))
+            : null;
         let admissionSnapshot: Awaited<ReturnType<typeof captureWorkingCopyAdmissionSnapshot>> | undefined;
         let backingState: 'cloned' | 'eager' | 'lazy-original';
         let encrypted = false;
@@ -169,6 +202,10 @@ async function createWorkingCopyWithOutcomeInternal(
                 ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
                     isPdfFileEncrypted(originalPath))
                 : false;
+            // A lazy copy reads the original until it materializes, so a
+            // source that needs a rewrite gets one before its registration.
+            const normalized = isPdf && !encrypted
+                && await normalizeWorkingCopyAppendBase(originalPath, workingPath, phaseTimings, normalizeOptions);
             const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
                 captureWorkingCopyAdmissionSnapshot(originalPath));
             if (!workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
@@ -178,7 +215,9 @@ async function createWorkingCopyWithOutcomeInternal(
                 );
             }
             admissionSnapshot = afterProbe;
-            if (encrypted || !isPdf) {
+            if (normalized) {
+                backingState = 'eager';
+            } else if (encrypted || !isPdf) {
                 await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
                     copyFileFromStableSource(originalPath, workingPath));
                 if (isPdf) {
@@ -189,25 +228,31 @@ async function createWorkingCopyWithOutcomeInternal(
                         signal,
                     );
                     encrypted = decryption.wasEncrypted;
+                    await normalizeWorkingCopyAppendBase(workingPath, workingPath, phaseTimings, normalizeOptions);
                 }
                 backingState = 'eager';
             } else {
                 backingState = 'lazy-original';
             }
         } else {
+            let normalized = false;
             if (isPdf) {
                 const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
                 encrypted = decryption.wasEncrypted;
+                normalized = await normalizeWorkingCopyAppendBase(workingPath, workingPath, phaseTimings, normalizeOptions);
             }
-            backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
+            backingState = cloneOutcome === 'cloned' && !encrypted && !normalized ? 'cloned' : 'eager';
         }
 
+        await measureWorkingCopyPhase(phaseTimings, 'source-witness-check', async () =>
+            sourceWitness?.assertCurrent());
         await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(
             workingPath,
             originalPath,
             ownerWebContentsId,
             {
                 ...(admissionSnapshot ? {admissionSnapshot} : {}),
+                ...(sourceWitness ? {originalFileExpectation: sourceWitness.getOriginalFileExpectation()} : {}),
                 backingState,
             },
         ));
@@ -236,7 +281,11 @@ async function createWorkingCopyWithOutcomeInternal(
         };
     } catch (error) {
         await safeRemoveDirectory(workDir);
-        throw error;
+        throw error instanceof OriginalPathSaveConflictError
+            ? new WorkingCopyMaterializationError('SOURCE_BACKING_CHANGED', 'The original document changed while it was being opened')
+            : error;
+    } finally {
+        await sourceWitness?.close();
     }
 }
 
@@ -245,12 +294,14 @@ export async function createWorkingCopyWithOutcome(
     ownerWebContentsId?: number,
     password?: string,
     signal?: AbortSignal,
+    admitRewrite?: () => Promise<void>,
 ) {
     return createWorkingCopyWithOutcomeInternal(
         originalPath,
         ownerWebContentsId,
         password,
         signal,
+        admitRewrite,
     );
 }
 
@@ -438,11 +489,18 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
     try {
         mkdirSync(parentDir, { recursive: true });
         await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-        if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')
-            && await isPdfFileEncrypted(normalizedWorkingPath)) {
-            assertWorkingCopyDecryptionSucceeded(
-                await decryptWorkingCopyWithWriter(normalizedWorkingPath),
-            );
+        if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
+            if (await isPdfFileEncrypted(normalizedWorkingPath)) {
+                assertWorkingCopyDecryptionSucceeded(
+                    await decryptWorkingCopyWithWriter(normalizedWorkingPath),
+                );
+            }
+            // The lost copy was rewritten when it opened. Another rewrite of
+            // the original could number its objects differently from the ones
+            // the open document already refers to.
+            if (await pdfNeedsAppendBaseRewrite(normalizedWorkingPath)) {
+                throw new WorkingCopyMissingError('Working copy was removed and its original needs a rewrite to take edits');
+            }
         }
         if (mapping.retired) {
             const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';

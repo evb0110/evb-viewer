@@ -22,6 +22,11 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
+import {
+    PDFDocument,
+    PDFHexString,
+    PDFName,
+} from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
@@ -31,6 +36,7 @@ import {
 } from '@scripts/electron-run/electronRunProcessTree';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    createFixturePath,
     createMultiPageTextFixturePdf,
     createScannedTextFixturePdf,
     createPasswordProtectedFixturePdf,
@@ -51,7 +57,14 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    clickLatestVisibleNoteWindowClose,
+    clickVisibleAnnotationControl,
+    createFreeTextAnnotationWithPointer,
+    createStickyNoteWithPointer,
+    selectAllFocusedAnnotationText,
+    waitForNoOpenNoteWindows,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     assertOcrPdfSemanticOutput,
     consumeOcrResultIntoActiveWorkspace,
@@ -79,6 +92,8 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const E2E_TIMEOUT_MS = 180_000;
 const SAVE_TIMEOUT_MS = 60_000;
@@ -252,6 +267,131 @@ async function saveFromWorkspace(page: Page, path: string) {
         path,
         timeoutMs: SAVE_TIMEOUT_MS,
     });
+}
+
+async function clickSaveAndAwaitOutcome(page: Page, path: string) {
+    const afterEventId = await getLatestAutomationEventId(page);
+    await clickEnabledSaveButton(page);
+    return Promise.race([
+        waitForAutomationEvent(page, 'save-committed', {
+            afterEventId,
+            path,
+            timeoutMs: SAVE_TIMEOUT_MS,
+        }).then(() => 'saved' as const),
+        page.waitForSelector('[aria-label="Last save failed"]', {
+            timeout: SAVE_TIMEOUT_MS,
+            visible: true,
+        }).then(() => 'refused' as const),
+    ]);
+}
+
+const GENERATED_TEXT_FIXTURE = join(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
+// Appends a revision whose /Prev link points past the end of the file. The
+// base is first written with a classic table and no object streams, so that
+// qpdf can rebuild its cross-reference table and the file still opens.
+async function appendRevisionWithBrokenPrev(source: Buffer) {
+    const document = await PDFDocument.load(source, {updateMetadata: false});
+    const pdf = Buffer.from(await document.save({useObjectStreams: false}));
+    const text = pdf.toString('latin1');
+    const root = /\/Root\s+(\d+\s+\d+\s+R)/u.exec(text)?.[1];
+    const size = /\/Size\s+(\d+)/u.exec(text)?.[1];
+    if (!root || !size) {
+        throw new Error('The fixture trailer has no /Root or /Size');
+    }
+    const revision = [
+        'xref',
+        '0 1',
+        '0000000000 65535 f ',
+        'trailer',
+        `<< /Size ${size} /Root ${root} /Prev 999999999 >>`,
+        'startxref',
+        String(pdf.length + 1),
+        '%%EOF',
+        '',
+    ].join('\n');
+    return Buffer.concat([
+        pdf,
+        Buffer.from(`\n${revision}`, 'latin1'),
+    ]);
+}
+
+// Issue #893: qpdf can reach these files only by rebuilding their
+// cross-reference table, so an append has no revision it can extend.
+const DAMAGED_XREF_CASES = [
+    [
+        'a trailer past the startxref search window',
+        (pdf: Buffer) => Buffer.concat([
+            pdf,
+            Buffer.alloc(4096, 'x'),
+        ]),
+    ],
+    [
+        'a startxref comment after the final EOF',
+        (pdf: Buffer) => Buffer.concat([
+            pdf,
+            Buffer.from('\n% startxref\n1\n', 'latin1'),
+        ]),
+    ],
+    [
+        'a revision whose /Prev points past the file',
+        appendRevisionWithBrokenPrev,
+    ],
+] as const;
+const NAMED_FOREIGN_NOTE_NAME = 'damaged-xref-named-note';
+const NAMED_FOREIGN_NOTE_TEXT = 'Named foreign note';
+const UNNAMED_FOREIGN_NOTE_TEXT = 'Unnamed foreign note';
+
+async function createGeneratedTextPdfWithForeignNotes() {
+    const document = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE), {updateMetadata: false});
+    const page = document.getPage(0);
+    const {context} = document;
+    const note = (rect: number[], contents: string, name?: string) => context.register(context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Text'),
+        Rect: rect,
+        Contents: PDFHexString.fromText(contents),
+        ...(name === undefined ? {} : {NM: PDFHexString.fromText(name)}),
+        T: PDFHexString.fromText('Foreign author'),
+        P: page.ref,
+    }));
+    const {
+        height, width,
+    } = page.getSize();
+    page.node.set(PDFName.of('Annots'), context.obj([
+        note([
+            width * 0.55,
+            height * 0.8,
+            width * 0.55 + 24,
+            height * 0.8 + 24,
+        ], NAMED_FOREIGN_NOTE_TEXT, NAMED_FOREIGN_NOTE_NAME),
+        note([
+            width * 0.75,
+            height * 0.8,
+            width * 0.75 + 24,
+            height * 0.8 + 24,
+        ], UNNAMED_FOREIGN_NOTE_TEXT),
+    ]));
+    return Buffer.from(await document.save({useObjectStreams: false}));
+}
+
+// The saved file must be structurally clean, not merely recoverable, and carry
+// every page's original text.
+async function expectSavedPdfKeepsGeneratedText(path: string) {
+    await execFileAsync(getPdfNativeToolPaths().qpdf, [
+        '--check',
+        path,
+    ], {maxBuffer: 1024 * 1024});
+    expect(await extractTextWithPdfjs(path)).toEqual(await extractTextWithPdfjs(GENERATED_TEXT_FIXTURE));
+}
+
+async function waitForVisibleSidebarNoteText(page: Page, text: string) {
+    await openAnnotationsTab(page, 30_000);
+    await page.waitForFunction((expectedText: string) => Array.from(
+        document.querySelectorAll<HTMLElement>('.editor-pane.is-active .notes-list .note-item'),
+    ).some((item) => {
+        const rect = item.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && item.textContent?.includes(expectedText);
+    }), {timeout: SAVE_TIMEOUT_MS}, text);
 }
 
 async function installReceiptProbe(page: Page, pauseCommit: boolean) {
@@ -781,20 +921,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await writeFile(stagedExternalPath, originalBytes);
         await rename(stagedExternalPath, pdfPath);
 
-        const afterEventId = await getLatestAutomationEventId(session.page);
-        await clickEnabledSaveButton(session.page);
-        const saveOutcome = await Promise.race([
-            waitForAutomationEvent(session.page, 'save-committed', {
-                afterEventId,
-                path: pdfPath,
-                timeoutMs: SAVE_TIMEOUT_MS,
-            }).then(() => 'saved' as const),
-            session.page.waitForSelector('[aria-label="Last save failed"]', {
-                timeout: SAVE_TIMEOUT_MS,
-                visible: true,
-            }).then(() => 'refused' as const),
-        ]);
-        expect(saveOutcome).toBe('saved');
+        expect(await clickSaveAndAwaitOutcome(session.page, pdfPath)).toBe('saved');
         expect((await readPdfTextAnnotationRecords(pdfPath)).some(annotation => (
             annotation.contents.startsWith('Preserved edit ')
         ))).toBe(true);
@@ -820,6 +947,111 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         }, {timeout: SAVE_TIMEOUT_MS});
     }, E2E_TIMEOUT_MS);
 
+
+    it.each(DAMAGED_XREF_CASES)(
+        'damaged xref admission: saves a typed sticky note into a PDF with %s',
+        async (_damage, damage) => {
+            const pdfPath = createFixturePath(`save-damaged-xref-new-note-${Date.now()}.pdf`);
+            await writeFile(pdfPath, await damage(await readFile(GENERATED_TEXT_FIXTURE)));
+            const damagedHash = await hashFile(pdfPath);
+            const noteText = `Damaged xref note ${Date.now()}`;
+            session = await startElectronE2ESession(`e2e-save-damaged-xref-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForOpenedPdf(session.page, pdfPath);
+            await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS});
+            // Opening alone writes nothing and leaves nothing to save.
+            expect(await isSaveButtonEnabled(session.page)).toBe(false);
+            expect(await hashFile(pdfPath)).toBe(damagedHash);
+
+            await createStickyNoteWithPointer(session.page, noteText, {
+                x: 0.62,
+                y: 0.3,
+            });
+            await clickLatestVisibleNoteWindowClose(session.page);
+            await waitForNoOpenNoteWindows(session.page);
+            await waitForSaveFrontierReady(session.page);
+            expect(await clickSaveAndAwaitOutcome(session.page, pdfPath)).toBe('saved');
+
+            await expectSavedPdfKeepsGeneratedText(pdfPath);
+            const savedNotes = (await readPdfTextAnnotationRecords(pdfPath))
+                .filter(note => note.contents === noteText);
+            expect(savedNotes).toEqual([expect.objectContaining({subtype: '/Text'})]);
+            expect(savedNotes[0]?.popup).not.toBeNull();
+
+            await session.stop();
+            session = await startElectronE2ESession(`e2e-save-damaged-xref-reopen-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForOpenedPdf(session.page, pdfPath);
+            await waitForVisibleSidebarNoteText(session.page, noteText);
+        },
+        E2E_TIMEOUT_MS,
+    );
+
+    it.each(DAMAGED_XREF_CASES.slice(0, 2))(
+        'damaged xref admission: saves an edit to an unnamed existing note in a PDF with %s',
+        async (_damage, damage) => {
+            const pdfPath = createFixturePath(`save-damaged-xref-existing-note-${Date.now()}.pdf`);
+            await writeFile(pdfPath, await damage(await createGeneratedTextPdfWithForeignNotes()));
+            const editedText = `Edited unnamed note ${Date.now()}`;
+            session = await startElectronE2ESession(`e2e-save-damaged-xref-existing-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForOpenedPdf(session.page, pdfPath);
+            await openAnnotationsTab(session.page, 30_000);
+            await waitForVisibleSidebarNoteText(session.page, NAMED_FOREIGN_NOTE_TEXT);
+            await waitForVisibleSidebarNoteText(session.page, UNNAMED_FOREIGN_NOTE_TEXT);
+
+            const cardId = await session.page.evaluate((expectedText: string) => Array.from(
+                document.querySelectorAll<HTMLElement>('.editor-pane.is-active .notes-list .note-item'),
+            ).find(item => item.querySelector('.note-item-text')?.textContent?.includes(expectedText))
+                ?.dataset.annotationId, UNNAMED_FOREIGN_NOTE_TEXT);
+            if (!cardId) {
+                throw new Error('The unnamed foreign note has no sidebar card');
+            }
+            await clickVisibleAnnotationControl(
+                session.page,
+                `.editor-pane.is-active .note-item[data-annotation-id="${cardId}"] .note-item-content`,
+                2,
+            );
+            const textarea = await session.page.waitForSelector('textarea.note-window__textarea', {
+                timeout: SAVE_TIMEOUT_MS,
+                visible: true,
+            });
+            await textarea?.click();
+            await selectAllFocusedAnnotationText(session.page);
+            await session.page.keyboard.type(editedText, {delay: 10});
+            await session.page.keyboard.press('Tab');
+            await clickLatestVisibleNoteWindowClose(session.page);
+            await waitForNoOpenNoteWindows(session.page);
+            await waitForVisibleSidebarNoteText(session.page, editedText);
+            await waitForSaveFrontierReady(session.page);
+            expect(await clickSaveAndAwaitOutcome(session.page, pdfPath)).toBe('saved');
+
+            await expectSavedPdfKeepsGeneratedText(pdfPath);
+            const savedNotes = await readPdfTextAnnotationRecords(pdfPath);
+            expect(savedNotes.map(note => note.contents).sort()).toEqual([
+                editedText,
+                NAMED_FOREIGN_NOTE_TEXT,
+            ].sort());
+            expect(savedNotes.find(note => note.contents === NAMED_FOREIGN_NOTE_TEXT)?.name)
+                .toBe(NAMED_FOREIGN_NOTE_NAME);
+
+            await session.stop();
+            session = await startElectronE2ESession(`e2e-save-damaged-xref-existing-reopen-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await waitForOpenedPdf(session.page, pdfPath);
+            await waitForVisibleSidebarNoteText(session.page, editedText);
+            await waitForVisibleSidebarNoteText(session.page, NAMED_FOREIGN_NOTE_TEXT);
+        },
+        E2E_TIMEOUT_MS,
+    );
 
     it('uses the configured Unicode display name as the native annotation author', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-author-${Date.now()}.pdf`, 1);

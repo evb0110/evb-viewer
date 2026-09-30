@@ -50,6 +50,7 @@ export class OriginalPathSaveConflictError extends Error {
 export interface IOriginalPathSaveWitness {
     assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
     close: () => Promise<void>;
+    getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
     rebaseAfterBackup: () => Promise<void>;
     rebaseAfterPublish: () => Promise<void>;
@@ -449,6 +450,18 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         return serializeSnapshot(this.snapshot);
     }
 
+    /** The witnessed revision as the save baseline a working copy registers. */
+    getOriginalFileExpectation(): IWorkingCopyOriginalFileExpectation {
+        return {
+            ctimeNs: this.snapshot.ctimeNs.toString(),
+            deviceId: this.snapshot.deviceId.toString(),
+            inode: this.snapshot.inode.toString(),
+            mtimeMs: Number(this.snapshot.mtimeNs) / 1_000_000,
+            mtimeNs: this.snapshot.mtimeNs.toString(),
+            size: Number(this.snapshot.size),
+        };
+    }
+
     async close() {
         await this.handle.close().catch(() => undefined);
     }
@@ -496,6 +509,19 @@ export async function capturePathSaveWitness(
         await handle.close().catch(() => undefined);
         return null;
     }
+}
+
+/**
+ * Holds an open's source from before its bytes are read until its working copy
+ * is registered against the witnessed revision. A source that cannot be
+ * witnessed is treated as one that changed.
+ */
+export async function captureOpenSourceWitness(originalPath: string) {
+    const witness = await capturePathSaveWitness(originalPath);
+    if (!witness) {
+        throw new OriginalPathSaveConflictError();
+    }
+    return witness;
 }
 
 export async function captureOriginalPathSaveWitness(

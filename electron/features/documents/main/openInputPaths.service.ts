@@ -22,6 +22,7 @@ import {
     createWorkingCopyWithOutcome,
 } from '@electron/file-access/workingCopyCreation';
 import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
+import {PdfAppendBaseRewriteError} from '@electron/pdf/pdfAppendBase';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
@@ -233,6 +234,29 @@ export async function openInputPaths(
                     ownerWebContentsId,
                     options.password,
                     signal,
+                    async () => {
+                        // A whole-file qpdf rewrite needs a native process and
+                        // CPU the copy lease does not reserve. Give that lease
+                        // back before waiting so no lease is held meanwhile.
+                        openLease?.release();
+                        openLease = null;
+                        openLease = await mainJobBroker.acquire({
+                            ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
+                            kind: 'pdf-open-rewrite',
+                            priority: 'foreground',
+                            perOwnerLimit: 1,
+                            signal,
+                            resources: {
+                                cpuTokens: 1,
+                                estimatedResidentBytes: Math.min(
+                                    256 * 1024 * 1024,
+                                    Math.max(32 * 1024 * 1024, Math.ceil(inputBytes / 2)),
+                                ),
+                                nativeProcesses: 1,
+                                ioWeight: 4,
+                            },
+                        });
+                    },
                 );
                 unownedWorkingPath = workingCopy.workingPath;
                 throwIfAborted(signal);
@@ -259,6 +283,9 @@ export async function openInputPaths(
                 unownedWorkingPath = null;
                 return result;
             } catch (error) {
+                if (error instanceof PdfAppendBaseRewriteError) {
+                    throw new Error(te('errors.file.invalid'), {cause: error});
+                }
                 if (error instanceof PdfDecryptAttemptError) {
                     return {
                         kind: error.outcome === 'needs-password'

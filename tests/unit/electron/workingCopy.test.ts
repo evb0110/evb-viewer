@@ -36,6 +36,7 @@ import type * as NodeFs from 'fs';
 import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type * as WorkingCopyMaterialization from '@electron/file-access/workingCopyMaterialization';
 import type * as FsPromises from 'fs/promises';
+import type * as PdfAppendBase from '@electron/pdf/pdfAppendBase';
 
 let tempRoot = '';
 const originalPlatform = process.platform;
@@ -61,6 +62,13 @@ function preventAutomaticWorkingCopyMaterialization() {
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
+// These fixtures are placeholder bytes, not PDFs; append admission of real
+// files is covered by the native crate and the save E2E lane.
+vi.mock('@electron/pdf/pdfAppendBase', async importOriginal => ({
+    ...await importOriginal<typeof PdfAppendBase>(),
+    normalizePdfAppendBase: vi.fn(async () => false),
+    pdfNeedsAppendBaseRewrite: vi.fn(async () => false),
+}));
 
 describe('workingCopy', () => {
     beforeAll(async () => {
@@ -216,6 +224,76 @@ describe('workingCopy', () => {
             expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint)
                 .toMatch(/^sha256-full-v1:[0-9a-f]{64}$/u);
         });
+    });
+
+    it('fails the open when the source is replaced with same-size, same-mtime bytes during a rewrite', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        preventAutomaticWorkingCopyMaterialization();
+        const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'replaced-during-rewrite.pdf');
+        writeFileSync(originalPath, Buffer.alloc(64 * 1024, 31));
+        const fixedTime = new Date('2026-09-01T00:00:00Z');
+        utimesSync(originalPath, fixedTime, fixedTime);
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        let rewrittenWorkingPath = '';
+        vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
+            rewrittenWorkingPath = workingPath;
+            writeFileSync(workingPath, Buffer.alloc(64 * 1024, 31));
+            const replacementPath = join(tempRoot, 'replacement.pdf');
+            writeFileSync(replacementPath, Buffer.alloc(64 * 1024, 32));
+            utimesSync(replacementPath, fixedTime, fixedTime);
+            renameSync(replacementPath, originalPath);
+            return true;
+        });
+
+        await expect(createWorkingCopyWithOutcome(trustedOriginalPath!, 7))
+            .rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+        expect(rewrittenWorkingPath).not.toBe('');
+        expect(existsSync(dirname(rewrittenWorkingPath))).toBe(false);
+        expect(getWorkingCopyBackingEntry(rewrittenWorkingPath, 7)).toBeNull();
+    });
+
+    it('keeps the witnessed original as the save baseline when the source is replaced after its last check', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        preventAutomaticWorkingCopyMaterialization();
+        const originalPath = join(tempRoot, 'replaced-before-registration.pdf');
+        writeFileSync(originalPath, Buffer.alloc(64 * 1024, 41));
+        const fixedTime = new Date('2026-09-01T00:00:00Z');
+        utimesSync(originalPath, fixedTime, fixedTime);
+        vi.doMock('@electron/file-access/workingCopyStore', async importOriginal => {
+            const original = await importOriginal<typeof WorkingCopyStore>();
+            return {
+                ...original,
+                setWorkingCopyOriginalPath: async (...args: Parameters<typeof original.setWorkingCopyOriginalPath>) => {
+                    const replacementPath = join(tempRoot, 'replacement-after-check.pdf');
+                    writeFileSync(replacementPath, Buffer.alloc(64 * 1024, 42));
+                    utimesSync(replacementPath, fixedTime, fixedTime);
+                    renameSync(replacementPath, originalPath);
+                    return original.setWorkingCopyOriginalPath(...args);
+                },
+            };
+        });
+        vi.resetModules();
+        try {
+            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+            // Saving must treat the replacement as an external change, not as
+            // the revision this working copy was made from.
+            await expect(captureOriginalPathSaveWitness(workingPath, trustedOriginalPath!, 7)).resolves.toBeNull();
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyStore');
+            vi.resetModules();
+        }
     });
 
     it('serializes explicit directory ensures with background materialization', async () => {

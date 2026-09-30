@@ -9,6 +9,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
+        Operation::AppendAdmission => {
+            return write_append_admission(
+                &config.input_path,
+                config.qpdf_path.as_deref(),
+                &mut std::io::stdout().lock(),
+            )
+        }
         Operation::ReadCatalog => {
             return write_pdf_combine_catalog(
                 &config.input_path,

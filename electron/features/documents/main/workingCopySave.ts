@@ -38,8 +38,7 @@ import {assertQueuedWorkingCopyMutationPreconditions} from '@electron/file-acces
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     optimizeLargePdfForOrdinarySave,
@@ -47,7 +46,6 @@ import {
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
-const QPDF_REPAIR_SAVE_TIMEOUT_MS = 10 * 60 * 1000;
 const logger = createLogger('working-copy-save');
 
 function requireSenderId(context: IDocumentsSenderIdContext): number {
@@ -211,31 +209,6 @@ async function replaceOriginalWithValidatedTemp(
             await rm(tempPath, { force: true }).catch(() => undefined);
         }
     }
-}
-
-async function repairPdfWithQpdf(
-    inputPath: string,
-    outputPath: string,
-    operation?: {
-        signal: AbortSignal;
-        cancelGroup: string;
-    },
-) {
-    await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
-        inputPath,
-        outputPath,
-    ], {
-        allowedExitCodes: [
-            0,
-            3,
-        ],
-        commandLabel: 'qpdf(repair-save)',
-        timeoutMs: QPDF_REPAIR_SAVE_TIMEOUT_MS,
-        ...(operation === undefined ? {} : {
-            signal: operation.signal,
-            cancelGroup: operation.cancelGroup,
-        }),
-    });
 }
 
 async function runNativePdfSaveMutation(
@@ -403,7 +376,7 @@ export async function handleRepairPdfSave(
         context,
         workingPath,
         options,
-        repairPdfWithQpdf,
+        rewritePdfWithQpdf,
         'large',
         'Failed to repair and save',
     );

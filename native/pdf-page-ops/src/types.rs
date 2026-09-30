@@ -741,6 +741,7 @@ pub(crate) enum Operation {
     AnnotationNameIndex,
     EmbeddedShapeIndex,
     PdfConformance,
+    AppendAdmission,
     Decrypt {
         password_file: Option<PathBuf>,
     },
