@@ -785,6 +785,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 ) ?? null;
                 const targetThumbnailCanvas = targetThumbnail?.querySelector<HTMLCanvasElement>('canvas') ?? null;
                 const targetThumbnailPaint = inspectCanvas(targetThumbnailCanvas);
+                const targetThumbnailCanvasRect = targetThumbnailCanvas?.getBoundingClientRect();
                 const targetThumbnailFrameRect = targetThumbnail
                     ?.querySelector<HTMLElement>('[data-document-thumbnail-frame]')
                     ?.getBoundingClientRect();
@@ -848,8 +849,14 @@ describe('Electron E2E, compact page labels through structural operations', () =
                         frameLandscape: targetThumbnailFrameRect && targetThumbnailFrameRect.height > 0
                             ? targetThumbnailFrameRect.width > targetThumbnailFrameRect.height
                             : null,
+                        // The canvas box keeps the bitmap's aspect, so the page is not stretched.
                         contained: targetThumbnailCanvas !== null
-                            && getComputedStyle(targetThumbnailCanvas).objectFit === 'contain',
+                            && targetThumbnailCanvasRect !== undefined
+                            && targetThumbnailCanvas.height > 0
+                            && Math.abs(
+                                targetThumbnailCanvasRect.width
+                                - targetThumbnailCanvasRect.height * targetThumbnailCanvas.width / targetThumbnailCanvas.height,
+                            ) <= 1,
                         // The portrait slot stays fixed while the contained bitmap rotates.
                         bitmapLandscape: targetThumbnailPaint.contentAspect === null
                             ? null

@@ -288,8 +288,7 @@
     --app-outline-action-radius: var(--app-radius-xs);
     --app-outline-row-indent: var(--app-space-12xl);
     --app-thumbnail-row-gap: var(--app-space-sm);
-    --app-thumbnail-frame-inset: var(--app-space-md);
-    --app-thumbnail-selection-offset: calc(var(--app-sidebar-row-padding-block) + var(--app-thumbnail-frame-inset) + 1px);
+    --app-thumbnail-selection-offset: calc(var(--app-sidebar-row-padding-block) + var(--app-space-sm));
     --app-thumbnail-row-radius: var(--app-radius-xs);
     --app-thumbnail-min-label-height: 1rem;
     --app-thumbnail-drop-offset: var(--app-space-md);
