@@ -39,7 +39,6 @@ export const useWorkspacePresentation = (
         search,
     } = viewContext;
     const { t } = useTypedI18n();
-    const isOcrRunning = ref(false);
     const {isExternallyRestoring} = useDocumentWorkspaceRestoreState({
         tabId,
         workspaceRestoreTracker: useWorkspaceRestoreTracker(),
@@ -69,7 +68,7 @@ export const useWorkspacePresentation = (
         isOpeningDocument.value || isDjvuOpening.value || isRestoring.value
     ));
     const toolbarDocumentBusy = computed(() => (
-        file.conversionState.value.isConverting || isOcrRunning.value || isOpeningForToolbar.value
+        file.conversionState.value.isConverting || document.ocr.progress.value.isRunning || isOpeningForToolbar.value
     ));
     const toolbarHasPdf = computed(() => (
         file.hasPdf.value
@@ -232,7 +231,6 @@ export const useWorkspacePresentation = (
     });
 
     return {
-        isOcrRunning,
         showsPdfSidebar,
         toolbarHasPdf,
         canToggleSidebar,

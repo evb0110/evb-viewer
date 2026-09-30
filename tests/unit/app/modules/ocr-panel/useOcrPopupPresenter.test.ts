@@ -183,66 +183,64 @@ function setSearchableResult(
 function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     useOcrMock.mockReturnValue(ocr);
 
-    const isOpen = ref(false);
     const currentPage = ref(3);
     const totalPages = ref(12);
     const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
     const documentRevision = ref(requireDocumentRevisionToken('drt1:ocr-presenter-test'));
     const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
-    const disabled = ref(false);
-    const externalError = ref<string | null | undefined>(null);
-    const onRunningChange = vi.fn();
     const onOcrComplete = vi.fn();
-    const onExportDocx = vi.fn();
-    const onCancelDocxExport = vi.fn();
+    const busy = ref(false);
 
     const scope = effectScope();
     const presenter = scope.run(() => useOcrPopupPresenter({
-        isOpen: computed({
-            get: () => isOpen.value,
-            set: value => {
-                isOpen.value = value;
-            },
-        }),
         context: {
             pdfDocument,
             currentPage,
             totalPages,
             workingCopyPath,
             documentRevision,
-            disabled,
-            externalError,
+            busy,
         },
-        events: {
-            onRunningChange,
-            onOcrComplete,
-            onExportDocx,
-            onCancelDocxExport,
-        },
+        applyResult: onOcrComplete,
     }));
 
     if (!presenter) {
         throw new Error('Failed to create OCR popup presenter');
     }
+    // What one view's popup adds to the document's run.
+    const disabled = ref(false);
+    const externalError = ref<string | null | undefined>(null);
+    const isOpen = ref(false);
+    const view = scope.run(() => presenter.createViewState({
+        disabled,
+        externalError,
+        open: isOpen,
+        setOpen: (value) => {
+            isOpen.value = value;
+        },
+    }));
+
+    if (!view) {
+        throw new Error('Failed to create OCR view state');
+    }
 
     return {
         scope,
-        presenter,
+        presenter: {
+            ...presenter,
+            ...view,
+        },
         ocr,
-        isOpen,
         currentPage,
         totalPages,
         workingCopyPath,
         documentRevision,
         pdfDocument,
+        isOpen,
         disabled,
         externalError,
-        events: {
-            onRunningChange,
-            onOcrComplete,
-            onExportDocx,
-            onCancelDocxExport,
-        },
+        busy,
+        events: {onOcrComplete},
     };
 }
 
@@ -291,7 +289,6 @@ describe('useOcrPopupPresenter', () => {
                 replaceAllAcknowledged: true,
             });
 
-            expect(harness.isOpen.value).toBe(true);
             expect(harness.ocr.settings.value).toMatchObject({
                 pageRange: 'custom',
                 customRange: '2-5',
@@ -421,8 +418,10 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.ocr.cancelOcr).toHaveBeenCalledTimes(1);
             expect(harness.events.onOcrComplete).not.toHaveBeenCalled();
 
-            harness.presenter.handleCloseResults();
-            expect(harness.isOpen.value).toBe(false);
+            harness.isOpen.value = true;
+            await nextTick();
+            harness.isOpen.value = false;
+            await nextTick();
             expect(harness.ocr.clearResults).toHaveBeenCalled();
             expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalled();
         } finally {
@@ -450,17 +449,6 @@ describe('useOcrPopupPresenter', () => {
                 sourceWorkingCopyPath: '/tmp/source.pdf',
                 sourcePageToRestore: 3,
             }));
-        } finally {
-            stopHarness(harness.scope);
-        }
-    });
-
-    it('forwards DOCX export cancellation to the workspace owner', () => {
-        const harness = createPresenterHarness();
-
-        try {
-            harness.presenter.handleCancelDocxExport();
-            expect(harness.events.onCancelDocxExport).toHaveBeenCalledOnce();
         } finally {
             stopHarness(harness.scope);
         }
@@ -559,7 +547,7 @@ describe('useOcrPopupPresenter', () => {
             expect(copyClipboardTextMock).not.toHaveBeenCalled();
             expect(harness.presenter.copyLogsState.value).toBe('idle');
 
-            harness.externalError.value = 'OCR failed';
+            harness.ocr.error.value = 'OCR failed';
             await harness.presenter.handleCopyLogs();
 
             expect(getDebugLogsMock).toHaveBeenCalledTimes(1);
@@ -709,6 +697,48 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.presenter.languageInventoryState.value).toBe('unavailable');
         } finally {
             harness.scope.stop();
+        }
+    });
+
+    it('keeps what one view knows out of the document run', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            const otherView = harness.presenter.createViewState({
+                disabled: () => false,
+                externalError: () => null,
+                open: () => false,
+                setOpen: () => undefined,
+            });
+            harness.disabled.value = true;
+            harness.externalError.value = 'DOCX export failed';
+            await nextTick();
+
+            expect(harness.presenter.canRunOcr.value).toBe(false);
+            expect(harness.presenter.effectiveError.value).toBe('DOCX export failed');
+            expect(otherView.canRunOcr.value).toBe(true);
+            expect(otherView.effectiveError.value).toBeNull();
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.not.toMatchObject({error: 'errors.ocr.disabled'});
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('refuses an agent run while the document is busy and starts none', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.busy.value = true;
+            await nextTick();
+
+            expect(harness.presenter.canRunOcr.value).toBe(false);
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
+                ok: false,
+                error: 'errors.ocr.disabled',
+            });
+            expect(harness.ocr.runOcr).not.toHaveBeenCalled();
+        } finally {
+            stopHarness(harness.scope);
         }
     });
 });

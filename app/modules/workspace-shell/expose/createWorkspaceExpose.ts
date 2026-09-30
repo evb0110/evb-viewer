@@ -301,8 +301,8 @@ export function createWorkspaceExpose(
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: owners.runAgentAction,
         readAgentResource: owners.readAgentResource,
-        handleOcrComplete: payload => document.handleOcrComplete(
-            payload as Parameters<typeof document.handleOcrComplete>[0],
+        handleOcrComplete: async payload => document.ocr.applyResult(
+            payload as Parameters<typeof document.ocr.applyResult>[0],
         ),
         captureCanonicalAnnotationRecovery: () => {
             const viewer = pdfViewer();

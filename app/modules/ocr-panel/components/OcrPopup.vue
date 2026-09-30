@@ -423,7 +423,7 @@
                     variant="outline"
                     :label="t('common.close')"
                     :disabled="isExporting"
-                    @click="handleCloseResults"
+                    @click="isOpen = false"
                 />
             </template>
             <template v-else>
@@ -446,11 +446,7 @@
 </template>
 
 <script setup lang="ts">
-// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TOcrPreprocessingMode,
     TOcrQualityProfile,
@@ -458,15 +454,13 @@ import type {
 import type { TTranslationKey } from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
-import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
 import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
-import { useOcrPopupPresenter } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
-import type { TOcrLanguageModelDisplayState } from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
-import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import type {
-    IOcrSearchablePdfResult,
-    TOcrPageRange,
-} from '@app/utils/ocr/ocrTypes';
+    TOcrLanguageModelDisplayState,
+    TOcrPopupPresenter,
+} from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
+import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
+import type { TOcrPageRange } from '@app/utils/ocr/ocrTypes';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 const { t } = useTypedI18n();
@@ -540,11 +534,11 @@ const languageChipGroupUi = {
 } as const;
 
 interface IProps {
-    pdfDocument: IPdfDocument | null;
+    /** The document's OCR run: it outlives this popup and the view showing it. */
+    presenter: TOcrPopupPresenter;
     currentPage: number;
     totalPages: number;
     workingCopyPath: TDocumentRef | null;
-    documentRevision: TDocumentRevisionToken | null;
     open: boolean;
     isExportingDocx?: boolean;
     externalError?: string | null;
@@ -559,35 +553,22 @@ const {
     hideTrigger = false,
     isExportingDocx,
     open,
-    pdfDocument,
+    presenter,
     totalPages,
     workingCopyPath,
-    documentRevision,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
     'update:open': [value: boolean];
-    'update:running': [value: boolean];
-    ocrComplete: [payload: IOcrSearchablePdfResult & {
-        sourceWorkingCopyPath: TDocumentRef;
-        sourcePageToRestore: number;
-    }];
     'export-docx': [selectedLanguages: string[]];
     'cancel-docx-export': [];
 }>();
 
-const isOpen = computed({
-    get: () => open,
-    set: (value: boolean) => emit('update:open', value),
-});
 const isExporting = computed(() => isExportingDocx);
 const {
     settings,
     progress,
     progressPercent,
-    viewState,
-    effectiveError,
-    canRunOcr,
     showCustomRange,
     isCopyingLogs,
     copyLogsTooltip,
@@ -595,8 +576,6 @@ const {
     progressStatusText,
     applyingStatusText,
     triggerTooltip,
-    hasResultWarning,
-    resultStatusText,
     languageSearchQuery,
     languagePickerItems,
     languagePickerGroups,
@@ -612,30 +591,32 @@ const {
     handleCopyLogs,
     handleRunOcr,
     handleCancel,
-    handleExportDocx,
-    handleCancelDocxExport,
-    handleCloseResults,
-    runOcrForAgent,
-    cancelOcrForAgent,
-    getAgentOcrSnapshot,
-} = useOcrPopupPresenter({
+    getExportLanguages,
+    createViewState,
+} = presenter;
+// The run, its progress and its results are the document's. Whether this
+// view's dialog is open, and what only this view knows, stay here.
+const {
+    viewState,
+    effectiveError,
+    canRunOcr,
+    hasResultWarning,
+    resultStatusText,
     isOpen,
-    context: {
-        pdfDocument: () => pdfDocument,
-        currentPage: () => currentPage,
-        totalPages: () => totalPages,
-        workingCopyPath: () => workingCopyPath,
-        documentRevision: () => documentRevision,
-        disabled: () => disabled,
-        externalError: () => externalError,
-    },
-    events: {
-        onRunningChange: value => emit('update:running', value),
-        onOcrComplete: payload => emit('ocrComplete', payload),
-        onExportDocx: selectedLanguages => emit('export-docx', selectedLanguages),
-        onCancelDocxExport: () => emit('cancel-docx-export'),
-    },
+} = createViewState({
+    disabled: () => disabled,
+    externalError: () => externalError,
+    open: () => open,
+    setOpen: value => emit('update:open', value),
 });
+
+function handleExportDocx() {
+    emit('export-docx', getExportLanguages());
+}
+
+function handleCancelDocxExport() {
+    emit('cancel-docx-export');
+}
 
 const repeatAdvancedOpen = ref(false);
 
@@ -767,11 +748,6 @@ function getLanguageModelStateIcon(state: string) {
     return 'i-ph-question';
 }
 
-defineExpose<IOcrPopupAgentExpose>({
-    runOcrForAgent,
-    cancelOcrForAgent,
-    getAgentOcrSnapshot,
-});
 </script>
 
 <style scoped>

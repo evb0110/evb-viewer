@@ -60,7 +60,6 @@
         @toggle-fullscreen="emit('toggle-fullscreen')"
         @set-view-mode="emit('set-view-mode', $event)"
         @go-to-page="emit('go-to-page', $event)"
-        @ocr-complete="emit('ocr-complete', $event)"
     />
 </template>
 
@@ -148,6 +147,5 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
     'set-view-mode': [mode: TPdfViewMode];
     'go-to-page': [page: number];
-    'ocr-complete': [payload: unknown];
 }>();
 </script>

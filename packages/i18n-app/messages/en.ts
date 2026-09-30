@@ -1682,6 +1682,7 @@ export default {
             'validation': 'The document did not pass its validity check, so nothing was written.',
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',
+            'workingCopyMissing': 'The temporary copy of the document was removed, so these changes cannot be saved. Reopen the file.',
             'notCompleted': 'The document could not be written.',
             'tooLargeForEdit': 'This PDF is too large for EVB Viewer to add this edit to it. Your changes are still open here, but Save As and Repair PDF and Save meet the same limit, so no save route can write them into this file.',
             'unencryptedTitle': 'Save without password protection?',

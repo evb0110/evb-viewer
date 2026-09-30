@@ -1693,6 +1693,7 @@ export default {
             'validation': 'O documento não passou na verificação de validade, por isso nada foi escrito.',
             'openNotes': 'Não foi possível guardar as notas abertas, por isso o documento não foi escrito.',
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',
+            'workingCopyMissing': 'A cópia temporária do documento foi removida, por isso estas alterações não podem ser guardadas. Volte a abrir o ficheiro.',
             'notCompleted': 'Não foi possível escrever o documento.',
             'tooLargeForEdit': 'Este PDF é demasiado grande para o EVB Viewer lhe adicionar esta edição. As suas alterações continuam abertas aqui, mas «Guardar como» e «Reparar PDF e guardar» têm o mesmo limite, pelo que nenhuma forma de guardar as consegue escrever neste ficheiro.',
             'unencryptedTitle': 'Guardar sem proteção por palavra-passe?',

@@ -124,7 +124,7 @@
                 :icon="getReaderCommandToolbarIcon('ocr')"
                 :active="ocrPopupOpen"
                 :tooltip="t('ocr.button')"
-                :disabled="ocrActionDisabled"
+                :disabled="ocrTriggerDisabled"
                 @click="handleOpenOcr"
             />
         </template>
@@ -174,7 +174,7 @@
                 :scan-cleanup-disabled="scanCleanupActionDisabled"
                 :scan-cleanup-running="isScanCleanupRunning"
                 :scan-cleanup-label="scanCleanupTriggerTooltip"
-                :ocr-disabled="ocrActionDisabled"
+                :ocr-disabled="ocrTriggerDisabled"
                 :can-export-docx="snapshot.canExportDocx"
                 :is-exporting-docx="snapshot.isExportingDocx"
                 :can-use-assistant="assistantPanelEnabled"
@@ -242,39 +242,29 @@
             />
         </template>
         <template v-if="canUseOcr" #persistent-actions>
-            <!--
-                The responsive toolbar changes its inline slots as the
-                available width changes. Keep the OCR presenter in this
-                unconditional slot so those changes never abort an in-flight
-                native OCR run; the toolbar slot above is only its trigger.
-            -->
+            <!-- The dialog for the document's OCR run; the toolbar slot above is its trigger. -->
             <OcrPopup
-                ref="ocrPopupRef"
-                :pdf-document="ocrPdfDocument"
+                v-if="ocr"
+                :presenter="ocr"
                 :current-page="snapshot.currentPage"
                 :total-pages="snapshot.totalPages"
                 :working-copy-path="ocrWorkingCopyPath"
-                :document-revision="ocrDocumentRevision"
                 :open="ocrPopupOpen"
                 :is-exporting-docx="ocrIsExportingDocx"
                 :external-error="ocrExternalError"
                 :disabled="ocrActionDisabled"
                 hide-trigger
                 @update:open="handleOcrPopupOpenUpdate"
-                @update:running="handleOcrRunningUpdate"
                 @export-docx="handleOcrExportDocx"
                 @cancel-docx-export="handleOcrCancelDocxExport"
-                @ocr-complete="handleOcrComplete"
             />
         </template>
     </PdfToolbar>
 </template>
 
 <script setup lang="ts">
-import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TFitMode,
     TPdfViewMode,
@@ -287,8 +277,7 @@ import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
-import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
-import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
+import type { TOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
 import type {
@@ -327,9 +316,8 @@ const {
     isOpeningDocument = undefined,
     isFullscreen,
     ocrExternalError = null,
-    ocrDocumentRevision = null,
     ocrIsExportingDocx: ocrIsExportingDocxProp = undefined,
-    ocrPdfDocument = null,
+    ocr = undefined,
     ocrPopupOpen,
     ocrWorkingCopyPath = null,
     overflowMenuOpen,
@@ -361,11 +349,11 @@ const {
     pageLabels?: TDocumentPageLabelLookup | undefined;
     navigationTicket?: IDocumentNavigationTicket | null | undefined;
     physicalPage?: number | undefined;
-    ocrPdfDocument?: IPdfDocument | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
-    ocrDocumentRevision?: TDocumentRevisionToken | null | undefined;
     ocrExternalError?: string | null | undefined;
     ocrIsExportingDocx?: boolean | undefined;
+    /** The document's OCR run; absent where no document is open. */
+    ocr?: TOcrPopupPresenter | undefined;
     ocrPopupOpen: boolean;
     zoomDropdownOpen: boolean;
     pageDropdownOpen: boolean;
@@ -384,7 +372,6 @@ const emit = defineEmits<{
     'update:zoomMode': [mode: TZoomMode];
     'update:fitMode': [mode: TFitMode];
     'update:viewMode': [mode: TPdfViewMode];
-    'update:ocrRunning': [running: boolean];
     'open-file': [];
     'open-settings': [];
     'open-scan-cleanup': [];
@@ -422,10 +409,8 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
     'set-view-mode': [mode: TPdfViewMode];
     'go-to-page': [page: number];
-    'ocr-complete': [payload: unknown];
 }>();
 
-const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 const {
     isAvailable: assistantPanelAvailable,
     isEnabled: assistantPanelEnabled,
@@ -451,6 +436,8 @@ const ocrActionDisabled = computed(() => (
     || snapshot.isAnySaving
     || snapshot.isHistoryBusy
 ));
+// A running OCR can always be opened to see its progress or cancel it.
+const ocrTriggerDisabled = computed(() => ocrActionDisabled.value && !ocr?.progress.value.isRunning);
 const scanCleanupActionDisabled = computed(() => (
     ocrActionDisabled.value || !ocrWorkingCopyPath
 ));
@@ -531,10 +518,6 @@ function handleAppMenuOpenUpdate(open: boolean) {
 
 function handleEffectiveZoomUpdate(zoom: number) {
     emit('update:effectiveZoom', zoom);
-}
-
-function handleOcrRunningUpdate(running: boolean) {
-    emit('update:ocrRunning', running);
 }
 
 function handleOpenFile() {
@@ -689,36 +672,6 @@ function handleOpenOcr() {
     emit('update:ocrPopupOpen', true);
 }
 
-function handleOcrComplete(payload: unknown) {
-    emit('ocr-complete', payload);
-}
-
-function runOcrForAgent(options?: IAgentOcrRunOptions) {
-    return ocrPopupRef.value?.runOcrForAgent(options) ?? Promise.resolve({
-        ok: false,
-        error: 'OCR popup is not mounted.',
-    });
-}
-
-function cancelOcrForAgent() {
-    return ocrPopupRef.value?.cancelOcrForAgent() ?? Promise.resolve({
-        ok: false,
-        error: 'OCR popup is not mounted.',
-    });
-}
-
-function getAgentOcrSnapshot() {
-    return ocrPopupRef.value?.getAgentOcrSnapshot() ?? {
-        ok: false,
-        error: 'OCR popup is not mounted.',
-    };
-}
-
-defineExpose<IOcrPopupAgentExpose>({
-    runOcrForAgent,
-    cancelOcrForAgent,
-    getAgentOcrSnapshot,
-});
 </script>
 
 <style scoped>

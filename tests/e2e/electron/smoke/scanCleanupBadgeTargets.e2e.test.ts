@@ -45,6 +45,16 @@ describe('scan cleanup badge targets', () => {
         await waitForViewerInteractive(session.page, 90_000);
 
         const clickVisible = async (selector: string) => {
+            await waitForFunctionInPage(session.page, (targetSelector: string) => (
+                Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).some((element) => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.width > 1
+                        && rect.height > 1
+                        && element.checkVisibility()
+                        && !(element as HTMLButtonElement).disabled
+                        && element.getAttribute('aria-disabled') !== 'true';
+                })
+            ), {timeout: 20_000}, selector);
             const elements = await session.page.$$(selector);
             const target = (await Promise.all(elements.map(async element => ({
                 element,

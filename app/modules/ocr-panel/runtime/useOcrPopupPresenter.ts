@@ -1,5 +1,3 @@
-// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
@@ -17,10 +15,7 @@ import {
     useClipboard,
     useTimeoutFn,
 } from '@vueuse/core';
-import type {
-    MaybeRefOrGetter,
-    WritableComputedRef,
-} from 'vue';
+import type { MaybeRefOrGetter } from 'vue';
 import { useOcr } from '@app/composables/useOcr';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
@@ -258,26 +253,20 @@ interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
 }
 
 interface IOcrPopupPresenterContext {
-    pdfDocument: MaybeRefOrGetter<IPdfDocument | null>;
+    /** Only its identity matters: a new document ends the pending apply. */
+    pdfDocument: MaybeRefOrGetter<unknown>;
     currentPage: MaybeRefOrGetter<number>;
     totalPages: MaybeRefOrGetter<number>;
     workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevision: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    disabled: MaybeRefOrGetter<boolean>;
-    externalError: MaybeRefOrGetter<string | null | undefined>;
-}
-
-interface IOcrPopupPresenterEvents {
-    onRunningChange: (value: boolean) => void;
-    onOcrComplete: (payload: IOcrPopupCompletePayload) => void;
-    onExportDocx: (selectedLanguages: string[]) => void;
-    onCancelDocxExport: () => void;
+    /** The document is being saved, changed or exported, so a run must not start. */
+    busy: MaybeRefOrGetter<boolean>;
 }
 
 export interface IOcrPopupPresenterOptions {
-    isOpen: WritableComputedRef<boolean>;
     context: IOcrPopupPresenterContext;
-    events: IOcrPopupPresenterEvents;
+    /** Applies a finished run to the document. */
+    applyResult: (payload: IOcrPopupCompletePayload) => void | Promise<void>;
 }
 
 const ocrProgressStageKeys = {
@@ -300,10 +289,14 @@ function formatDebugLogEntry(entry: IDebugLogEntry) {
     return `[${entry.timestamp}] [${entry.source}] ${entry.message}`;
 }
 
+/**
+ * One OCR presenter per document: the run, its settings and its result belong
+ * to the document, so they outlive the popup that shows them and the view that
+ * started them. A popup only shows this state.
+ */
 export const useOcrPopupPresenter = ({
     context,
-    events,
-    isOpen,
+    applyResult,
 }: IOcrPopupPresenterOptions) => {
     const {
         locale,
@@ -357,31 +350,13 @@ export const useOcrPopupPresenter = ({
     const workingCopyPath = computed(() => toValue(context.workingCopyPath));
     const documentRevision = computed(() => toValue(context.documentRevision));
     const pdfDocument = computed(() => toValue(context.pdfDocument));
-    const disabled = computed(() => toValue(context.disabled));
-    const externalError = computed(() => toValue(context.externalError));
-    const effectiveError = computed(() => error.value ?? externalError.value ?? null);
     const isRunSettingsLocked = computed(() => progress.value.isRunning);
-    const viewState = computed<TOcrViewState>(() => {
-        if (progress.value.isRunning) {
-            return 'running';
-        }
-        if (pendingAppliedOcrRequestId.value !== null) {
-            return 'applying';
-        }
-        if (hasResults.value) {
-            return 'results';
-        }
-        if (effectiveError.value !== null) {
-            return 'error';
-        }
-        return 'configure';
-    });
     const availableLanguageCodes = computed(() => new Set<string>(
         availableLanguages.value.map(language => language.code),
     ));
     const failedLanguageCodes = computed(() => findFailedOcrLanguageCodes(
         availableLanguages.value,
-        effectiveError.value,
+        error.value,
     ));
     const languagePickerItems = computed(() => buildOcrLanguagePickerItems(
         availableLanguages.value,
@@ -454,7 +429,7 @@ export const useOcrPopupPresenter = ({
         });
     });
     const canRunOcr = computed(() =>
-        !disabled.value
+        !toValue(context.busy)
         && !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
         && Boolean(workingCopyPath.value)
@@ -501,10 +476,6 @@ export const useOcrPopupPresenter = ({
         }
         return t('ocr.copyLogs');
     });
-    const hasResultWarning = computed(() => hasResults.value && effectiveError.value !== null);
-    const resultStatusText = computed(() => (
-        hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
-    ));
     const selectedLanguageModel = computed<TOcrLanguageCode | undefined>({
         get: () => settings.value.selectedLanguages.length === 1
             && isAvailableOcrLanguageCode(settings.value.selectedLanguages[0])
@@ -545,7 +516,6 @@ export const useOcrPopupPresenter = ({
         const completedSettingsSnapshot = cloneOcrSettingsSnapshot(lastCompletedRunSettings.value);
 
         return {
-            isOpen: isOpen.value,
             isRunning: progress.value.isRunning,
             phase: progress.value.phase,
             phaseLabel: progressStatusText.value,
@@ -566,7 +536,7 @@ export const useOcrPopupPresenter = ({
             supersessionPolicy: settings.value.supersessionPolicy,
             replaceAllAcknowledged: settings.value.replaceAllAcknowledged,
             hasWorkingCopy: Boolean(workingCopyPath.value),
-            error: effectiveError.value,
+            error: error.value,
             outcome: lastRunOutcome.value,
             hasResults: hasResults.value,
         };
@@ -613,7 +583,7 @@ export const useOcrPopupPresenter = ({
             `draftReplaceAllAcknowledged=${settings.value.replaceAllAcknowledged}`,
             `activeSupersessionPolicy=${activeRunSettings.value?.supersessionPolicy ?? '-'}`,
             `completedSupersessionPolicy=${lastCompletedRunSettings.value?.supersessionPolicy ?? '-'}`,
-            `uiError=${effectiveError.value ?? ''}`,
+            `uiError=${error.value ?? ''}`,
             '',
             '--- debug:log stream ---',
             ...(debugLogs.length > 0
@@ -623,7 +593,7 @@ export const useOcrPopupPresenter = ({
     }
 
     async function handleCopyLogs() {
-        if (!effectiveError.value || isCopyingLogs.value) {
+        if (!error.value || isCopyingLogs.value) {
             return;
         }
 
@@ -664,51 +634,36 @@ export const useOcrPopupPresenter = ({
         void runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
     }
 
+    function refuseAgentRun(error: string) {
+        return {
+            ok: false,
+            error,
+            ocr: createAgentOcrSnapshot(),
+        };
+    }
+
     async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
+        if (toValue(context.busy)) {
+            return refuseAgentRun(t('errors.ocr.disabled'));
+        }
+
         if (progress.value.isRunning) {
-            return {
-                ok: false,
-                error: t('errors.ocr.alreadyRunning'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.alreadyRunning'));
         }
 
-        if (disabled.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.disabled'),
-                ocr: createAgentOcrSnapshot(),
-            };
-        }
-
-        if (options.open !== false) {
-            isOpen.value = true;
-        }
         await loadLanguages();
         applyAgentOcrOptions(options);
 
         if (!workingCopyPath.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.noDocument'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.noDocument'));
         }
 
         if (!hasSelectedAvailableLanguage.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.noLanguages'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.noLanguages'));
         }
 
         if (!canRunOcr.value) {
-            return {
-                ok: false,
-                error: t('errors.ocr.start'),
-                ocr: createAgentOcrSnapshot(),
-            };
+            return refuseAgentRun(t('errors.ocr.start'));
         }
 
         activeOcrSourcePath.value = workingCopyPath.value;
@@ -728,14 +683,14 @@ export const useOcrPopupPresenter = ({
         if (hasResults.value) {
             return {
                 ok: true,
-                ...(effectiveError.value ? { warning: effectiveError.value } : {}),
+                ...(error.value ? { warning: error.value } : {}),
                 ocr: agentSnapshot,
             };
         }
 
         return {
             ok: false,
-            error: effectiveError.value ?? t('errors.ocr.incomplete'),
+            error: error.value ?? t('errors.ocr.incomplete'),
             ocr: agentSnapshot,
         };
     }
@@ -765,18 +720,6 @@ export const useOcrPopupPresenter = ({
         };
     }
 
-    function handleExportDocx() {
-        events.onExportDocx(getExportLanguages());
-    }
-
-    function handleCancelDocxExport() {
-        events.onCancelDocxExport();
-    }
-
-    function handleCloseResults() {
-        resetCompletedOcrState();
-        isOpen.value = false;
-    }
 
     function resetCompletedOcrState() {
         activeOcrSourcePath.value = null;
@@ -787,18 +730,13 @@ export const useOcrPopupPresenter = ({
         clearRunSettingsHistory();
     }
 
-    watch(isOpen, (value) => {
-        if (value) {
-            void loadLanguages();
-            return;
-        }
-        if (progress.value.isRunning) {
-            void nextTick(() => {
-                isOpen.value = true;
-            });
-            return;
-        }
+    /** The dialog showing this run opened. */
+    function handleDialogOpened() {
+        void loadLanguages();
+    }
 
+    /** The dialog closed while no run was going: the finished run is dismissed. */
+    function handleDialogClosed() {
         resetCompletedOcrState();
         if (settings.value.replaceAllAcknowledged) {
             settings.value = {
@@ -806,9 +744,61 @@ export const useOcrPopupPresenter = ({
                 replaceAllAcknowledged: false,
             };
         }
-    });
+    }
 
-    watch(() => progress.value.isRunning, value => events.onRunningChange(value), {immediate: true});
+    /**
+     * What a view's dialog shows of the run, given what only that view knows.
+     * Create it in the popup's scope so it goes away with the popup.
+     */
+    function createViewState(view: {
+        disabled: MaybeRefOrGetter<boolean>;
+        externalError: MaybeRefOrGetter<string | null | undefined>;
+        /** Whether this view's dialog is open, and how it asks to change. */
+        open: MaybeRefOrGetter<boolean>;
+        setOpen: (open: boolean) => void;
+    }) {
+        const isOpen = computed({
+            get: () => toValue(view.open),
+            set: view.setOpen,
+        });
+        if (isOpen.value) {
+            handleDialogOpened();
+        }
+        watch(isOpen, (value) => {
+            if (value) {
+                handleDialogOpened();
+                return;
+            }
+            if (progress.value.isRunning) {
+                void nextTick(() => view.setOpen(true));
+                return;
+            }
+            handleDialogClosed();
+        });
+        const effectiveError = computed(() => error.value ?? toValue(view.externalError) ?? null);
+        const hasResultWarning = computed(() => hasResults.value && effectiveError.value !== null);
+        return {
+            isOpen,
+            effectiveError,
+            hasResultWarning,
+            resultStatusText: computed(() => (
+                hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
+            )),
+            canRunOcr: computed(() => !toValue(view.disabled) && canRunOcr.value),
+            viewState: computed<TOcrViewState>(() => {
+                if (progress.value.isRunning) {
+                    return 'running';
+                }
+                if (pendingAppliedOcrRequestId.value !== null) {
+                    return 'applying';
+                }
+                if (hasResults.value) {
+                    return 'results';
+                }
+                return effectiveError.value !== null ? 'error' : 'configure';
+            }),
+        };
+    }
 
     watch(() => settings.value.qualityProfile, (nextProfile, previousProfile) => {
         if (isRunSettingsLocked.value) {
@@ -869,7 +859,7 @@ export const useOcrPopupPresenter = ({
         startSuccessStateReset();
     });
 
-    watch(effectiveError, (nextError) => {
+    watch(error, (nextError) => {
         if (nextError !== null && pendingAppliedOcrRequestId.value !== null) {
             pendingAppliedOcrRequestId.value = null;
             pendingAppliedOcrSourceDocumentRevision.value = null;
@@ -882,7 +872,7 @@ export const useOcrPopupPresenter = ({
         if (searchablePdfResult && sourceWorkingCopyPath) {
             pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
             pendingAppliedOcrSourceDocumentRevision.value = searchablePdfResult.sourceDocumentRevisionToken;
-            events.onOcrComplete({
+            void applyResult({
                 ...searchablePdfResult,
                 sourceWorkingCopyPath,
                 sourcePageToRestore,
@@ -893,7 +883,6 @@ export const useOcrPopupPresenter = ({
     });
 
     onScopeDispose(() => {
-        events.onRunningChange(false);
         stopCopyLogsStateReset();
         stopSuccessStateReset();
     });
@@ -906,9 +895,7 @@ export const useOcrPopupPresenter = ({
         hasResults,
         progressPercent,
         availableLanguages,
-        viewState,
-        effectiveError,
-        canRunOcr,
+        createViewState,
         showCustomRange,
         isCopyingLogs,
         copyLogsState,
@@ -917,8 +904,6 @@ export const useOcrPopupPresenter = ({
         progressStatusText,
         applyingStatusText,
         triggerTooltip,
-        hasResultWarning,
-        resultStatusText,
         languageSearchQuery,
         languagePickerItems,
         languagePickerGroups,
@@ -936,9 +921,12 @@ export const useOcrPopupPresenter = ({
         runOcrForAgent,
         handleCancel,
         cancelOcrForAgent,
-        handleExportDocx,
-        handleCancelDocxExport,
-        handleCloseResults,
+        handleDialogOpened,
+        handleDialogClosed,
+        applyResult,
+        getExportLanguages,
         getAgentOcrSnapshot: createAgentOcrSnapshot,
     };
 };
+
+export type TOcrPopupPresenter = ReturnType<typeof useOcrPopupPresenter>;

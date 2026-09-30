@@ -370,4 +370,133 @@ describe('Electron E2E - OCR journey', () => {
             await agentRunSettled;
         }
     }, 300_000);
+
+    // #913: the OCR run belongs to the document, not to the view that started it.
+    it('keeps an OCR run going when the view that started it is closed, and shows it in the other view', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-closed-view-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', 40);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
+        await waitForFunctionInPage(page, (host: string) => (
+            document.querySelector(`${host} .page_container--rendered`) !== null
+        ), {timeout: 30_000}, paneHost(rightPane!));
+
+        const agentRun = callWorkspaceCommand<{ok?: boolean}>(page, 'runAgentAction', [
+            'ocr.start',
+            {
+                pageRange: 'all',
+                open: false,
+            },
+        ]);
+        const agentRunSettled = agentRun.then(() => undefined, () => undefined);
+        try {
+            await vi.waitFor(async () => {
+                const status = await callWorkspaceCommand<{ocr?: {
+                    isRunning?: boolean;
+                    processedCount?: number;
+                    totalPages?: number
+                }}>(page, 'runAgentAction', [
+                    'ocr.status',
+                    {},
+                ]);
+                const ocr = status.value?.ocr;
+                if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                    throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+                }
+            }, {timeout: 30_000});
+
+            // The user closes the view that started the run; the left view stays.
+            await page.click(`${paneHost(rightPane!)} .tab.is-active .tab-close`);
+            await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
+
+            // The left view shows the run under way, and it finishes.
+            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+            await waitForFunctionInPage(page, () => {
+                const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
+                return /Processing page \d+/u.test(text);
+            }, {timeout: 30_000});
+            await waitForFunctionInPage(page, () => (
+                document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+            ), {timeout: OCR_TIMEOUT_MS});
+            await clickVisibleButton(page, '[role="dialog"]', 'Close');
+            await page.waitForSelector('[role="dialog"]', {hidden: true});
+            const recognized = await page.waitForFunction((host: string, word: string) => (
+                document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                    ?.textContent?.toLocaleLowerCase().includes(word) === true
+            ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
+            expect(recognized).toBe(true);
+        } finally {
+            await callWorkspaceCommand(page, 'runAgentAction', [
+                'ocr.cancel',
+                {},
+            ]).catch(() => undefined);
+            await agentRunSettled;
+        }
+    }, 300_000);
+
+    // The OCR dialog belongs to the view that opened it (T4); only the run is shared.
+    it('opens the OCR dialog only in the view that opened it', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-dialog-per-view-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-dialog-per-view-scan.pdf', 3);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
+        await waitForFunctionInPage(page, (host: string) => (
+            document.querySelector(`${host} .page_container--rendered`) !== null
+        ), {timeout: 30_000}, paneHost(rightPane!));
+        const dialogIsOpen = () => page.$$eval('[role="dialog"]', dialogs => dialogs.some(dialog => dialog.getBoundingClientRect().width > 0));
+        const settleFrames = () => page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+        // The dialog is modal, so the other view is activated the way a shortcut or
+        // an agent does it, not with a click on the tab.
+        const activateByScript = async (paneId: string) => {
+            await page.evaluate((id: string) => {
+                document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${id}"] .tab.is-active[data-tab-id]`)?.click();
+            }, paneId);
+            await waitForFunctionInPage(page, (id: string) => (
+                document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === id
+            ), {timeout: 20_000}, paneId);
+            await settleFrames();
+        };
+
+        await activatePaneByTab(page, rightPane!);
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+
+        await activateByScript(leftPane!);
+        expect(await dialogIsOpen(), 'the left view shows no OCR dialog it was never asked to open').toBe(false);
+
+        await activateByScript(rightPane!);
+        expect(await dialogIsOpen(), 'the right view still has the dialog the user left open').toBe(true);
+    }, 200_000);
 });

@@ -1693,6 +1693,7 @@ export default {
             'validation': 'O documento não passou na verificação de validade, então nada foi gravado.',
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',
+            'workingCopyMissing': 'A cópia temporária do documento foi removida, então estas alterações não podem ser salvas. Abra o arquivo novamente.',
             'notCompleted': 'Não foi possível gravar o documento.',
             'tooLargeForEdit': 'Este PDF é grande demais para o EVB Viewer adicionar esta edição. Suas alterações continuam abertas aqui, mas "Salvar como" e "Reparar PDF e salvar" têm o mesmo limite, então nenhuma forma de salvar consegue gravá-las neste arquivo.',
             'unencryptedTitle': 'Salvar sem proteção por senha?',

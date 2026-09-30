@@ -489,15 +489,8 @@ export async function assertPathMatchesSaveWitnessSnapshot(
     }
 }
 
-export async function capturePathSaveWitness(
-    originalPath: string,
-): Promise<IOriginalPathSaveWitness | null> {
-    let handle: FileHandle;
-    try {
-        handle = await open(originalPath, 'r');
-    } catch {
-        return null;
-    }
+async function captureRequiredPathSaveWitness(originalPath: string): Promise<IOriginalPathSaveWitness> {
+    const handle = await open(originalPath, 'r');
     try {
         const snapshot = await captureHandleSnapshot(handle);
         const pathSnapshot = await capturePathSnapshot(originalPath);
@@ -505,23 +498,29 @@ export async function capturePathSaveWitness(
             throw new OriginalPathSaveConflictError();
         }
         return new OriginalPathSaveWitness(originalPath, handle, snapshot);
-    } catch {
+    } catch (error) {
         await handle.close().catch(() => undefined);
+        throw error;
+    }
+}
+
+export async function capturePathSaveWitness(
+    originalPath: string,
+): Promise<IOriginalPathSaveWitness | null> {
+    try {
+        return await captureRequiredPathSaveWitness(originalPath);
+    } catch {
         return null;
     }
 }
 
 /**
  * Holds an open's source from before its bytes are read until its working copy
- * is registered against the witnessed revision. A source that cannot be
- * witnessed is treated as one that changed.
+ * is registered against the witnessed revision. Only a real snapshot
+ * mismatch is a conflict; an unreadable or vanished source keeps its own error.
  */
-export async function captureOpenSourceWitness(originalPath: string) {
-    const witness = await capturePathSaveWitness(originalPath);
-    if (!witness) {
-        throw new OriginalPathSaveConflictError();
-    }
-    return witness;
+export function captureOpenSourceWitness(originalPath: string) {
+    return captureRequiredPathSaveWitness(originalPath);
 }
 
 export async function captureOriginalPathSaveWitness(

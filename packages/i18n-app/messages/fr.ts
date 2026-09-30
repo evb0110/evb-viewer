@@ -1693,6 +1693,7 @@ export default {
             'validation': 'Le document n’a pas passé le contrôle de validité, rien n’a été écrit.',
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
+            'workingCopyMissing': 'La copie temporaire du document a été supprimée, donc ces modifications ne peuvent pas être enregistrées. Rouvrez le fichier.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
             'tooLargeForEdit': 'Ce PDF est trop volumineux pour qu’EVB Viewer y ajoute cette modification. Vos modifications restent ouvertes ici, mais « Enregistrer sous » et « Réparer le PDF et enregistrer » atteignent la même limite : aucun enregistrement ne peut les écrire dans ce fichier.',
             'unencryptedTitle': 'Enregistrer sans protection par mot de passe ?',

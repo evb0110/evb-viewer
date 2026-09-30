@@ -34,7 +34,6 @@ const TOOLBAR_COMMANDS = {
     'rotate-ccw': 'handleRotateCcw',
     'insert-pages': 'handleInsertPages',
     'convert-to-pdf': 'handleConvertToPdf',
-    'ocr-complete': 'handleOcrComplete',
 } as const satisfies Record<string, keyof IWorkspaceExpose>;
 
 export function createFallbackToolbarCommandListeners(activeWorkspace: Readonly<Ref<IWorkspaceExpose | null>>) {

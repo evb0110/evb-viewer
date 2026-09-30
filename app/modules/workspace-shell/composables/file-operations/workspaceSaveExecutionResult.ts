@@ -135,6 +135,10 @@ export function abortReasonForPersistResult(persisted: IPdfPersistResult): TWork
     if (persisted.failure?.reason === 'validation-failed') {
         return 'validation-rejected';
     }
+    // The document's temporary copy was removed: only reopening the file helps.
+    if (persisted.failure?.reason === 'working-copy-missing') {
+        return 'working-copy-missing';
+    }
     return 'persist-rejected';
 }
 

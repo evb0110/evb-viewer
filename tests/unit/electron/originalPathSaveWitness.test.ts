@@ -60,8 +60,14 @@ vi.mock('node:fs/promises', async importOriginal => {
                     const result = await originalRead(...readArgs);
                     readCallCount += 1;
                     if (readCallCount === 2) {
-                        await original.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
-                        await original.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+                        // Windows refuses to rename over a file that is open, so
+                        // the source changes in place there instead.
+                        if (process.platform === 'win32') {
+                            await original.writeFile(mocks.mutateDuringWitnessPath, Buffer.from('base'));
+                        } else {
+                            await original.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+                            await original.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+                        }
                     }
                     return result;
                 }) as typeof handle.read;
@@ -77,7 +83,9 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
 }));
 
 const {
+    captureOpenSourceWitness,
     captureOriginalPathSaveWitness,
+    OriginalPathSaveConflictError,
     originalPathSaveBaseMatches,
 } = await import('@electron/file-access/originalPathSaveWitness');
 
@@ -460,5 +468,39 @@ describe('originalPathSaveBaseMatches', () => {
         });
 
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+    });
+});
+
+describe('captureOpenSourceWitness', () => {
+    let tempDir = '';
+
+    beforeEach(async () => {
+        mocks.mutateDuringWitnessPath = '';
+        mocks.mutateDuringWitnessReplacementPath = '';
+        mocks.mutatePostHashStatPath = '';
+        tempDir = await mkdtemp(join(tmpdir(), 'open-source-witness-test-'));
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('reports a vanished source with its own error, not as a changed source', async () => {
+        const error = await captureOpenSourceWitness(join(tempDir, 'missing.pdf')).catch((caught: unknown) => caught);
+
+        expect(error).toMatchObject({code: 'ENOENT'});
+        expect(error).not.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it('reports a source swapped while witnessing as a conflict', async () => {
+        const originalPath = join(tempDir, 'swapped.pdf');
+        await writeFile(originalPath, Buffer.alloc(200 * 1024, 1));
+        mocks.mutateDuringWitnessPath = originalPath;
+        mocks.mutateDuringWitnessReplacementPath = `${originalPath}.replacement`;
+
+        await expect(captureOpenSourceWitness(originalPath)).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
     });
 });

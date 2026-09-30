@@ -13,6 +13,7 @@ import { getSearchCapability } from '@app/utils/getSearchCapability';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -34,6 +35,8 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
         scrollToPage: (page: number) => void;
         clearShapes: () => void;
     } | null>;
+    /** A save, history step, export or page operation holds the document. */
+    isBusy: Ref<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
@@ -346,5 +349,18 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
     }
 
-    return {handleOcrComplete};
+    // The document's OCR run: views show it, none of them owns it.
+    const ocr = useOcrPopupPresenter({
+        context: {
+            pdfDocument,
+            currentPage,
+            totalPages,
+            workingCopyPath,
+            documentRevision: documentRevisionToken,
+            busy: options.isBusy,
+        },
+        applyResult: handleOcrComplete,
+    });
+
+    return {ocr};
 };
