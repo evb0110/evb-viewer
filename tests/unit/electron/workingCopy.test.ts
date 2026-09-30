@@ -251,7 +251,7 @@ describe('workingCopy', () => {
         });
 
         await expect(createWorkingCopyWithOutcome(trustedOriginalPath!, 7))
-            .rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+            .rejects.toMatchObject({code: 'source-changed'});
         expect(rewrittenWorkingPath).not.toBe('');
         expect(existsSync(dirname(rewrittenWorkingPath))).toBe(false);
         expect(getWorkingCopyBackingEntry(rewrittenWorkingPath, 7)).toBeNull();
@@ -365,7 +365,7 @@ describe('workingCopy', () => {
 
             const copy = createWorkingCopy(trustedSourcePath!, 7);
 
-            await expect(copy).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+            await expect(copy).rejects.toMatchObject({code: 'source-changed'});
             expect(existsSync(join(tempRoot, 'replacement-source-old.djvu'))).toBe(true);
             expect(existsSync(sourcePath)).toBe(true);
         } finally {

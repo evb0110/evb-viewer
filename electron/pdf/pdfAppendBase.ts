@@ -7,6 +7,7 @@ import {
     PDF_APPEND_ADMISSION_SCHEMA,
     type TPdfAppendAdmission,
 } from '@contracts/pdfAppendAdmission';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -21,14 +22,6 @@ const QPDF_REWRITE_TIMEOUT_MS = 10 * 60 * 1000;
 // ceiling runs qpdf's page-tree walk, which has its own 110-second bound.
 const APPEND_ADMISSION_TIMEOUT_MS = 2 * 60 * 1000;
 const APPEND_ADMISSION_MAX_OUTPUT_BYTES = 64 * 1024;
-
-/** qpdf could not turn a source into a base that an edit can extend. */
-export class PdfAppendBaseRewriteError extends Error {
-    constructor(cause: unknown) {
-        super(`PDF rewrite failed: ${getErrorMessage(cause)}`, {cause});
-        this.name = 'PdfAppendBaseRewriteError';
-    }
-}
 
 /** Rewrites a PDF through qpdf, which rebuilds a damaged cross-reference table. */
 export async function rewritePdfWithQpdf(
@@ -132,7 +125,7 @@ export async function normalizePdfAppendBase(
         if (signal?.aborted || isAbortError(error)) {
             throw error;
         }
-        throw new PdfAppendBaseRewriteError(error);
+        throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {cause: error});
     } finally {
         await rm(rewrittenPath, {force: true});
     }

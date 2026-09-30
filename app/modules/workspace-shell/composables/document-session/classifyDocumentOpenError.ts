@@ -1,5 +1,6 @@
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {isBrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/public';
@@ -12,6 +13,10 @@ export function classifyDocumentOpenError(
 ) {
     if (isBrowserFilePickerSetupDeniedError(error)) {
         return t('errors.browser.filePickerSetupDenied');
+    }
+    const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
+    if (openError) {
+        return t(openError.code === 'source-changed' ? 'errors.file.changedWhileOpening' : 'errors.file.invalid');
     }
     const nativeError = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
     if (nativeError?.code === 'too-large') {

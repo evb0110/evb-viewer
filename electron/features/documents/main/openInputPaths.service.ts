@@ -22,7 +22,6 @@ import {
     createWorkingCopyWithOutcome,
 } from '@electron/file-access/workingCopyCreation';
 import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
-import {PdfAppendBaseRewriteError} from '@electron/pdf/pdfAppendBase';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
@@ -283,9 +282,6 @@ export async function openInputPaths(
                 unownedWorkingPath = null;
                 return result;
             } catch (error) {
-                if (error instanceof PdfAppendBaseRewriteError) {
-                    throw new Error(te('errors.file.invalid'), {cause: error});
-                }
                 if (error instanceof PdfDecryptAttemptError) {
                     return {
                         kind: error.outcome === 'needs-password'

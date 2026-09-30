@@ -42,6 +42,7 @@ import {
     showOpenDocumentDialogForContext,
 } from '@electron/features/documents/main/documentDialogCommon';
 import {PdfDecryptTooLargeError} from '@electron/file-access/workingCopyDecryption';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import type {
     IDocumentsDialogContext,
@@ -73,6 +74,12 @@ function createDocumentOpenError(error: unknown) {
     if (error instanceof PdfDecryptTooLargeError) {
         return new Error(encodeSerializableErrorEnvelope({
             code: 'too-large',
+            message: getErrorMessage(error),
+        }));
+    }
+    if (error instanceof DocumentOpenRefusalError) {
+        return new Error(encodeSerializableErrorEnvelope({
+            code: error.code,
             message: getErrorMessage(error),
         }));
     }

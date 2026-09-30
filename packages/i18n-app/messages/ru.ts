@@ -1709,6 +1709,7 @@ export default {
             'passwordPromptIncorrect': 'Неверный пароль. Попробуйте ещё раз.',
             'unsupportedEncryption': 'Этот PDF использует шифрование, которое EVB Viewer не может открыть.',
             'encryptedTooLarge': 'Зашифрованный PDF превышает лимит 512 МиБ и не может быть открыт.',
+            'changedWhileOpening': 'Файл изменился во время открытия. Откройте его ещё раз.',
             'invalid': 'Файл недействителен или не существует',
             'emptyPdf': 'PDF-файл пустой (0 байт)',
             'noPages': 'PDF не содержит страниц',

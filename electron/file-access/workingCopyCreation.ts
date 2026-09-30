@@ -43,6 +43,8 @@ import {
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
 import { createLogger } from '@electron/utils/createLogger';
+import {isRecord} from '@contracts/runtimeGuards';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {
     normalizePdfAppendBase,
     pdfNeedsAppendBaseRewrite,
@@ -61,7 +63,6 @@ import { readWorkingCopySyncRequired } from '@electron/file-access/workingCopyMa
 import {
     startBackgroundWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
-    WorkingCopyMaterializationError,
 } from '@electron/file-access/workingCopyMaterialization';
 
 const logger = createLogger('working-copy');
@@ -209,10 +210,7 @@ async function createWorkingCopyWithOutcomeInternal(
             const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
                 captureWorkingCopyAdmissionSnapshot(originalPath));
             if (!workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
-                throw new WorkingCopyMaterializationError(
-                    'SOURCE_BACKING_CHANGED',
-                    'The original document changed while it was being opened',
-                );
+                throw new OriginalPathSaveConflictError();
             }
             admissionSnapshot = afterProbe;
             if (normalized) {
@@ -281,8 +279,8 @@ async function createWorkingCopyWithOutcomeInternal(
         };
     } catch (error) {
         await safeRemoveDirectory(workDir);
-        throw error instanceof OriginalPathSaveConflictError
-            ? new WorkingCopyMaterializationError('SOURCE_BACKING_CHANGED', 'The original document changed while it was being opened')
+        throw error instanceof OriginalPathSaveConflictError || (isRecord(error) && error.code === 'SOURCE_BACKING_CHANGED')
+            ? new DocumentOpenRefusalError('source-changed', 'The original document changed while it was being opened', {cause: error})
             : error;
     } finally {
         await sourceWitness?.close();
