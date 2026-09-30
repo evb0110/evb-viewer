@@ -1,0 +1,37 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c465d282efc2c0::t_cfdde35384e2a3 6-7,9,11-12,175-186
+  s_c465d282efc2c0::t_e5a044f5a662a9 8
+  s_c465d282efc2c0::t_ddfbfbc489e803 10,167-169
+  s_c465d282efc2c0::t_262d6cd7f81d89 170-172,174,201,234-238,279-282,285-286,291-292,306,377,428,1205-1207
+app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations.ts
+  s_c465d282efc2c0::t_e5a044f5a662a9 141,145
+  s_c465d282efc2c0::t_a364ed586ba9c5 162-164,179
+  s_c465d282efc2c0::t_ddfbfbc489e803 2-5,183-185
+  s_c465d282efc2c0::t_f5933e3fb535cd 1,6-105,114,121-122,127-140,142-144,146-161,165-178,180-182
+  s_c465d282efc2c0::t_bcbcf3bcfd15c4 106-113,115-120,123-126
+app/modules/pdf-viewer/public.ts
+  s_c465d282efc2c0::t_ddfbfbc489e803 26
+  s_c465d282efc2c0::t_b6db8a2676dd20 24-25,27-28
+tests/e2e/electron/annotations/moveDirtyTabSave.e2e.test.ts
+  s_c465d282efc2c0::t_703e76cfbd7a79 260-276
+app/modules/workspace-shell/documentViewContext.ts
+  s_c465d282efc2c0::t_ddfbfbc489e803 5-8,524-525
+app/modules/workspace-shell/documentContext.ts
+  s_c465d282efc2c0::t_b6db8a2676dd20 8,273-278,740
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "580c627d34d97761533314b10d81e2ebbd60f602",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
