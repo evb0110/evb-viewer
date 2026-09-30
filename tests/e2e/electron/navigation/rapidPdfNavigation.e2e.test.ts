@@ -3259,3 +3259,204 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
         expect(driftPx(afterSidebarLater, afterShorterWindow)).toBeLessThanOrEqual(3);
     }, 150_000);
 });
+
+interface IHeldPageRenderGate {
+    closed: boolean;
+    started: number;
+    pending: number;
+    cancelled: number;
+    restore: () => void;
+}
+
+interface IGatedPdfPageProxy {
+    pageNumber: number;
+    render: (...args: unknown[]) => {
+        promise: Promise<unknown>;
+        onContinue: unknown;
+    };
+}
+
+interface IGateProbeLoadingTask {
+    destroy: () => Promise<void>;
+    promise: Promise<{getPage: (pageNumber: number) => Promise<IGatedPdfPageProxy>}>;
+}
+
+interface IGatePdfjsLib { getDocument: (source: {data: Uint8Array}) => IGateProbeLoadingTask }
+
+interface IPageRenderGateWindow extends Window {
+    __evbHeldPageRenderGate?: IHeldPageRenderGate;
+    pdfjsLib?: IGatePdfjsLib;
+}
+
+// While the gate is closed, a PDF.js render of the page never receives a
+// continuation, so it stalls exactly like a stuck render until the viewer's
+// own stage watchdog cancels it. Renders started after the gate opens run.
+async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.evaluate(async (targetPage: number) => {
+        const gateWindow = window as IPageRenderGateWindow;
+        const pdfjs = gateWindow.pdfjsLib;
+        if (!pdfjs) {
+            throw new Error('PDF.js is not loaded in the renderer');
+        }
+        const probe = pdfjs.getDocument({data: new TextEncoder().encode([
+            '%PDF-1.4',
+            '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
+            '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
+            '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj',
+            'trailer<</Root 1 0 R>>',
+            '%%EOF',
+        ].join('\n'))});
+        const probePage = await (await probe.promise).getPage(1);
+        const proxyPrototype = Object.getPrototypeOf(probePage) as IGatedPdfPageProxy;
+        await probe.destroy();
+        const originalRender = proxyPrototype.render;
+        const gate: IHeldPageRenderGate = {
+            closed: true,
+            started: 0,
+            pending: 0,
+            cancelled: 0,
+            restore: () => {
+                proxyPrototype.render = originalRender;
+            },
+        };
+        proxyPrototype.render = function (this: IGatedPdfPageProxy, ...args: unknown[]) {
+            const task = originalRender.apply(this, args);
+            if (!gate.closed || this.pageNumber !== targetPage) {
+                return task;
+            }
+            gate.started += 1;
+            gate.pending += 1;
+            const withheldContinuation = () => {};
+            Object.defineProperty(task, 'onContinue', {
+                configurable: true,
+                get: () => withheldContinuation,
+                set: () => {},
+            });
+            task.promise.then(() => {
+                gate.pending -= 1;
+            }, () => {
+                gate.pending -= 1;
+                gate.cancelled += 1;
+            });
+            return task;
+        };
+        gateWindow.__evbHeldPageRenderGate = gate;
+    }, pageNumber);
+}
+
+async function readPdfPageRenderGate(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
+        return gate ? {
+            cancelled: gate.cancelled,
+            pending: gate.pending,
+            started: gate.started,
+        } : null;
+    });
+}
+
+// Waits until the viewer has given up on every held render of the page: at
+// least one was cancelled by the watchdog and no reattempt starts afterwards.
+async function waitForHeldPageRenderAbandoned(session: IElectronE2ESession) {
+    while (true) {
+        await session.page.waitForFunction(() => {
+            const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
+            return Boolean(gate && gate.cancelled > 0 && gate.pending === 0);
+        }, {timeout: 40_000});
+        const settled = await readPdfPageRenderGate(session);
+        await waitForAnimationFrames(session.page, 30);
+        const after = await readPdfPageRenderGate(session);
+        if (after?.started === settled?.started && after?.pending === 0) {
+            return after;
+        }
+    }
+}
+
+async function openPdfPageRenderGate(session: IElectronE2ESession) {
+    await session.page.evaluate(() => {
+        const gateWindow = window as IPageRenderGateWindow;
+        const gate = gateWindow.__evbHeldPageRenderGate;
+        if (gate) {
+            gate.closed = false;
+            gate.restore();
+        }
+    });
+}
+
+async function readViewerPageOutcome(session: IElectronE2ESession, pageNumber: number) {
+    return session.page.evaluate((targetPage: number) => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+        const canvas = host?.querySelector<HTMLCanvasElement>(
+            `#pdf-viewer .page_container[data-page="${String(targetPage)}"] .page_canvas canvas`,
+        ) ?? null;
+        return {
+            canvasHeight: canvas?.height ?? 0,
+            canvasWidth: canvas?.width ?? 0,
+            viewportLifecycle: chassis?.dataset.viewportLifecycle ?? null,
+            visualPage: chassis?.dataset.viewportVisualPage ?? null,
+            visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+        };
+    }, pageNumber);
+}
+
+describe('Electron E2E - deliberate navigation to a page whose buffer raster failed', () => {
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-pdf-failed-buffer-raster-${Date.now()}`,
+        timeoutMs: 180_000,
+    });
+
+    it('renders a failed buffer raster after deliberate navigation', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createLargeScannedFixturePdf(`failed-buffer-raster-${Date.now()}.pdf`, 4, 0);
+        await enableBufferedPdfTrace(session);
+        await closePdfPageRenderGate(session, 2);
+        try {
+            await openPdfInApp(session.page, pdfPath, 45_000);
+            await waitForScannedFixturePageIdentity(session.page, 1, 20_000);
+            // Page 2 is the buffer page below the first one. Its held raster
+            // runs into the unchanged 15 s canvas-render watchdog.
+            const gate = await waitForHeldPageRenderAbandoned(session);
+            const timeouts = (await collectTrace(session)).filter(entry => (
+                entry.event === 'pdf-render-supervisor-watchdog'
+                && entry.payload.cause === 'page-stage-timeout'
+                && (entry.payload.metadata as Record<string, unknown> | undefined)?.pageNumber === 2
+            )).map(entry => entry.payload.metadata as Record<string, unknown>);
+            expect(timeouts.map(metadata => [
+                metadata.stage,
+                metadata.lane,
+            ]), JSON.stringify({
+                gate,
+                timeouts,
+            })).toContainEqual([
+                'canvas-render',
+                'viewport-nearby',
+            ]);
+            expect(await readViewerPageOutcome(session, 2)).toMatchObject({
+                canvasWidth: 0,
+                canvasHeight: 0,
+            });
+        } finally {
+            await openPdfPageRenderGate(session);
+        }
+
+        await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
+        const pageRendered = await waitForVisiblePageCanvas(session, 2, 15_000);
+        const outcome = {
+            ...await readViewerPageOutcome(session, 2),
+            navigationExits: (await collectTrace(session))
+                .filter(entry => entry.event === 'navigation-await-visual-exit')
+                .map(entry => entry.payload.outcome),
+            toolbarPage: (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? null,
+        };
+        // R2: the destination of a deliberate navigation becomes visible.
+        expect(pageRendered, JSON.stringify(outcome)).toBe(true);
+        await waitForScannedFixturePageIdentity(session.page, 2, 5_000);
+        // L2: the earlier stalled buffer raster is not a genuine failure of this page.
+        expect(outcome, JSON.stringify(outcome)).toMatchObject({toolbarPage: 2});
+        expect(outcome.viewportLifecycle, JSON.stringify(outcome)).not.toBe('failed');
+        expect(outcome.visualPresentation, JSON.stringify(outcome)).not.toBe('error');
+    }, 150_000);
+});
