@@ -606,8 +606,8 @@ async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumbe
 /**
  * Waits until a page visibly shows completed rendering: its canvas painted, in
  * the viewport and topmost. With `orFeedback`, a visible error alert with text
- * or a visible loading skeleton also counts, judged by the same viewport and
- * visibility tests. Resolves with what was shown, or null on timeout.
+ * also counts, judged by the same viewport and visibility tests. A loading
+ * skeleton never counts: it is not an outcome. Resolves with what was shown, or null on timeout.
  */
 async function waitForVisiblePageOutcome(
     session: IElectronE2ESession,
@@ -680,7 +680,7 @@ async function waitForVisiblePageOutcome(
                 text: alert.textContent.trim(),
             };
         }
-        return isShown(container.querySelector('.document-page-skeleton')) ? {feedback: 'loading'} : false;
+        return false;
     }, {timeout}, pageNumber, orFeedback)
         .then(async (handle): Promise<{
             feedback: string;
