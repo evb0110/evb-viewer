@@ -76,8 +76,10 @@ _Avoid_: imported annotation, external annotation, legacy annotation
 
 **Opening skeleton**:
 The page-shaped placeholder shown while a document opens, sized from the page
-geometry known at open, until the renderer paints the first page.
-_Avoid_: opening preview, native preview
+geometry known at open, until the renderer paints the first page. It is the
+only placeholder an open shows: until that geometry is known, the viewer shows
+its bare background.
+_Avoid_: opening preview, native preview, neutral surface
 
 **Document viewer runtime**:
 The module that owns one opened document's page source, viewport presentation,

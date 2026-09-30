@@ -72,7 +72,6 @@
                 :tabs="tabs"
                 :active-pane-id="activePaneId"
                 :is-tab-transition-busy="isTabTransitionBusy"
-                :presentation-fallback-tab-id="presentationFallbackTabId"
                 :tab-context-availability-by-pane="tabContextAvailabilityByPane"
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
@@ -427,7 +426,6 @@ useNativeWindowCloseHandshake({
 useBrowserDirtyUnloadGuard(() => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value)
     .some(session => session.snapshot.value.dirty));
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
-const presentationFallbackTabId = ref<string | null>(null);
 const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function activateTab(paneId: string, tabId: string) {
     activateEditorTab(paneId, tabId);
@@ -647,7 +645,6 @@ const {
 } = useAppShellWorkspaceRouting({
     activePaneId,
     activeTabId,
-    presentationFallbackTabId,
     documentSessions,
     tabLifecycleById,
     createTab,

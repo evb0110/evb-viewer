@@ -23,10 +23,9 @@ import type { ITab } from '@app/types/tabs';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
-// What the pane owns is which tabs it presents and how it marks them. Its
-// children render an identifiable placeholder, with the sidebar element the
-// pane's own stylesheet reaches into, so the assertions read the pane's markup
-// instead of a document workspace or a tab strip.
+// What the pane owns is which tabs it presents. Its children render an
+// identifiable placeholder, so the assertions read the pane's markup instead
+// of a document workspace or a tab strip.
 vi.mock('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue', () => ({default: defineComponent({
     name: 'DocumentWorkspaceTabStub',
     props: {tabId: {
@@ -37,7 +36,7 @@ vi.mock('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue', () =
         return () => h('div', {
             'class': 'workspace-host-stub',
             'data-host-tab-id': props.tabId,
-        }, [h('aside', {class: 'sidebar-wrapper'})]);
+        });
     },
 })}));
 
@@ -74,14 +73,12 @@ function createReleasedHostLifecycle(tabId: string): ITabLifecycleState {
 
 async function mountEditorPane({
     activeTabId,
-    presentationFallbackTabId = null,
     tabIds,
     tabLifecycleById = {},
     zenActiveTabId = null,
     zenMode = false,
 }: {
     activeTabId: string | null;
-    presentationFallbackTabId?: string | null;
     tabIds: string[];
     tabLifecycleById?: Record<string, ITabLifecycleState>;
     zenActiveTabId?: string | null;
@@ -114,7 +111,6 @@ async function mountEditorPane({
             tabs: tabIds.map(createTab),
             activePaneId: 'pane-1',
             isTabTransitionBusy: false,
-            presentationFallbackTabId,
             tabContextAvailability: null,
             startSectionByTabId: {},
             tabLifecycleById,
@@ -142,47 +138,10 @@ function readHost(root: HTMLElement, tabId: string) {
     return element;
 }
 
-describe('editor pane presentation fallback', () => {
-    it('marks the outgoing host so the pane stylesheet can reach its sidebar', async () => {
+describe('editor pane presentation', () => {
+    it('presents only the active tab, including while another tab opens a document', async () => {
         const {host} = await mountEditorPane({
             activeTabId: 'tab-new',
-            presentationFallbackTabId: 'tab-old',
-            tabIds: [
-                'tab-old',
-                'tab-new',
-            ],
-        });
-
-        // The fallback keeps painting, which is what stops the open from
-        // flashing; only its sidebar has to stop being presented.
-        const fallbackHost = readHost(host, 'tab-old');
-        expect(fallbackHost.style.display).not.toBe('none');
-        expect(readHost(host, 'tab-new').style.display).not.toBe('none');
-        // The rule that hides the outgoing sidebar is written against the
-        // fallback host as a direct child of the pane content, so the class has
-        // to land exactly there and the sidebar has to be inside it.
-        expect(host.querySelector('.editor-pane-content > .is-presentation-fallback')).toBe(fallbackHost);
-        expect(fallbackHost.querySelector('.sidebar-wrapper')).not.toBeNull();
-        expect(readHost(host, 'tab-new').classList.contains('is-presentation-fallback')).toBe(false);
-    });
-
-    it('never marks the active tab as its own fallback', async () => {
-        const {host} = await mountEditorPane({
-            activeTabId: 'tab-old',
-            presentationFallbackTabId: 'tab-old',
-            tabIds: ['tab-old'],
-        });
-
-        // Once the fallback tab is the tab being presented, its sidebar
-        // describes the document on screen and has to stay visible.
-        expect(host.querySelector('.is-presentation-fallback')).toBeNull();
-        expect(readHost(host, 'tab-old').style.display).not.toBe('none');
-    });
-
-    it('keeps every other mounted host out of the presented surface', async () => {
-        const {host} = await mountEditorPane({
-            activeTabId: 'tab-new',
-            presentationFallbackTabId: 'tab-old',
             tabIds: [
                 'tab-old',
                 'tab-new',
@@ -190,6 +149,10 @@ describe('editor pane presentation fallback', () => {
             ],
         });
 
+        // A new tab shows its own opening; the tab it replaced is not kept on
+        // screen over it.
+        expect(readHost(host, 'tab-new').style.display).not.toBe('none');
+        expect(readHost(host, 'tab-old').style.display).toBe('none');
         expect(readHost(host, 'tab-idle').style.display).toBe('none');
     });
 
