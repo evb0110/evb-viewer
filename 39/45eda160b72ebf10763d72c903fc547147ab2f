@@ -1,0 +1,23 @@
+tests/e2e/electron/save/unsavedWorkAnnotationRecovery.e2e.test.ts
+  s_c465d282efc2c0::t_e19c9d669a5473 177-180
+  s_c465d282efc2c0::t_7d942c90f17181 189
+  s_c465d282efc2c0::t_c28d2712070904 6,11-13,16,18-20,112-176,181-188,190-191
+app/modules/workspace-shell/documentContext.ts
+  s_c465d282efc2c0::t_a6651c97389c3b 460-462,493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3945eda160b72ebf10763d72c903fc547147ab2f",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

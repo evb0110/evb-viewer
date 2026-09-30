@@ -1,0 +1,22 @@
+tests/unit/app/components/appProgressOverlay.test.ts
+  s_c465d282efc2c0::t_7715d34e983586 151-152,156,158-164,166-167
+  s_c465d282efc2c0::t_6b77fe3efd03d8 153-155,157,165
+app/components/AppProgressOverlay.vue
+  s_c465d282efc2c0::t_7715d34e983586 101-103,228-231,234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8dd139a6ae81ba019f8e4b21e4c1c1ec56cf3a64",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

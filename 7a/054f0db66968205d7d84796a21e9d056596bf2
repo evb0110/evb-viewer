@@ -1,0 +1,22 @@
+app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery.ts
+  s_c465d282efc2c0::t_b9888a0f401480 297-305,309-323,325,327-330,336-343,359-362,367-370,388-391
+tests/unit/app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery.test.ts
+  s_c465d282efc2c0::t_2415251e5fe1a2 177-185
+  s_c465d282efc2c0::t_b9888a0f401480 1-176,186-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7a054f0db66968205d7d84796a21e9d056596bf2",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

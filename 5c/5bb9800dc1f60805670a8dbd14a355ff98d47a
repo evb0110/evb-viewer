@@ -1,0 +1,19 @@
+tests/e2e/electron/smoke/blockingPdfSaveSmoke.e2e.test.ts
+  s_c465d282efc2c0::t_beff9f54543b4e 538,545-547,553-557
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5c5bb9800dc1f60805670a8dbd14a355ff98d47a",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

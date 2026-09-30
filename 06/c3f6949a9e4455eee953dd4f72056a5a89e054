@@ -1,0 +1,36 @@
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_c465d282efc2c0::t_df13c7a714b37e 18,22-23,30,34,162
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_71402cfd92cf43 701,706,708,710-711
+  s_c465d282efc2c0::t_1f62f2daba9a74 21,658-700,702-705,707,709,712-715
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures.ts
+  s_c465d282efc2c0::t_182569a519fde7 29,31
+app/modules/workspace-shell/composables/useAnnotationNoteWindows.ts
+  s_c465d282efc2c0::t_df13c7a714b37e 53-54,108-111,245-267,278,295,339
+app/types/annotationNoteWindow.ts
+  s_c465d282efc2c0::t_df13c7a714b37e 15-16
+tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindows.test.ts
+  s_c465d282efc2c0::t_182569a519fde7 48-77
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_c465d282efc2c0::t_1f62f2daba9a74 990-991
+app/modules/workspace-shell/documentContext.ts
+  s_c465d282efc2c0::t_df13c7a714b37e 215
+app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue
+  s_c465d282efc2c0::t_df13c7a714b37e 152,192-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "06c3f6949a9e4455eee953dd4f72056a5a89e054",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

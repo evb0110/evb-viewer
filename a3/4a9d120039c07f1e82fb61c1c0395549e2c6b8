@@ -1,0 +1,25 @@
+app/modules/workspace-shell/document-sessions/createDocumentViews.ts
+  s_c465d282efc2c0::t_9c201983050917 12
+  s_c465d282efc2c0::t_4f5d92f3df89c4 1-11,13-109
+app/modules/workspace-shell/documentViewContext.ts
+  s_c465d282efc2c0::t_4f5d92f3df89c4 525
+app/modules/workspace-shell/documentContext.ts
+  s_c465d282efc2c0::t_4f5d92f3df89c4 84-87,701
+  s_c465d282efc2c0::t_9c201983050917 1,57-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a34a9d120039c07f1e82fb61c1c0395549e2c6b8",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

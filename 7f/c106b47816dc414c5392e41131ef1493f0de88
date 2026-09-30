@@ -1,0 +1,30 @@
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_f3b661be9463b8 320-323,326-329,603-656
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_c465d282efc2c0::t_87505ccf3d1f17 18,64-66,68-71,74,77-81,294
+  s_c465d282efc2c0::t_90ba4860f8112b 292-293
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_c465d282efc2c0::t_87505ccf3d1f17 10,1207
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision.ts
+  s_c465d282efc2c0::t_024adec357e0e6 10,13,18-19
+  s_c465d282efc2c0::t_87505ccf3d1f17 1-9,11-12,14-17,20
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_c465d282efc2c0::t_adeab5c04e2020 365-366
+  s_c465d282efc2c0::t_90ba4860f8112b 14,316-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7fc106b47816dc414c5392e41131ef1493f0de88",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
