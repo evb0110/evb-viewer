@@ -318,45 +318,56 @@ describe('Electron E2E - OCR journey', () => {
                 open: false,
             },
         ]);
+        // Whatever happens next, the run must not outlive the test unobserved.
+        const agentRunSettled = agentRun.then(() => undefined, () => undefined);
+        try {
         // The agent's status read is the sync point: the run is under way
         // and has pages left.
-        await vi.waitFor(async () => {
-            const status = await callWorkspaceCommand<{ocr?: {
-                isRunning?: boolean;
-                processedCount?: number;
-                totalPages?: number
-            }}>(page, 'runAgentAction', [
-                'ocr.status',
+            await vi.waitFor(async () => {
+                const status = await callWorkspaceCommand<{ocr?: {
+                    isRunning?: boolean;
+                    processedCount?: number;
+                    totalPages?: number
+                }}>(page, 'runAgentAction', [
+                    'ocr.status',
+                    {},
+                ]);
+                const ocr = status.value?.ocr;
+                if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                    throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+                }
+            }, {timeout: 30_000});
+
+            // Meanwhile the user goes on reading in the left view.
+            await activatePaneByTab(page, leftPane!);
+
+            // The run continues and the document becomes searchable in the view in use.
+            const outcome = await agentRun;
+            const recognized = await page.waitForFunction((host: string, word: string) => (
+                document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                    ?.textContent?.toLocaleLowerCase().includes(word) === true
+            ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
+            const {
+                ok, error, ocr,
+            } = outcome.value ?? {};
+            expect({
+                agentResult: outcome.value,
+                leftViewShowsRecognizedText: recognized,
+            }, JSON.stringify({
+                ok,
+                error,
+                ocr,
+            })).toMatchObject({
+                agentResult: {ok: true},
+                leftViewShowsRecognizedText: true,
+            });
+        } finally {
+            await activatePaneByTab(page, rightPane!).catch(() => undefined);
+            await callWorkspaceCommand(page, 'runAgentAction', [
+                'ocr.cancel',
                 {},
-            ]);
-            const ocr = status.value?.ocr;
-            if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
-                throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
-            }
-        }, {timeout: 30_000});
-
-        // Meanwhile the user goes on reading in the left view.
-        await activatePaneByTab(page, leftPane!);
-
-        // The run continues and the document becomes searchable in the view in use.
-        const outcome = await agentRun;
-        const recognized = await page.waitForFunction((host: string, word: string) => (
-            document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
-                ?.textContent?.toLocaleLowerCase().includes(word) === true
-        ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
-        const {
-            ok, error, ocr,
-        } = outcome.value ?? {};
-        expect({
-            agentResult: outcome.value,
-            leftViewShowsRecognizedText: recognized,
-        }, JSON.stringify({
-            ok,
-            error,
-            ocr,
-        })).toMatchObject({
-            agentResult: {ok: true},
-            leftViewShowsRecognizedText: true,
-        });
+            ]).catch(() => undefined);
+            await agentRunSettled;
+        }
     }, 300_000);
 });
