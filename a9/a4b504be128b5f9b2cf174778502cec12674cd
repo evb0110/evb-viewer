@@ -1,0 +1,21 @@
+app/modules/djvu-viewer/components/DjvuConversionOverlay.vue
+  s_83f615be0615f6::t_bc31e2638ce072 7,19-20,23,28
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_83f615be0615f6::t_bc31e2638ce072 148,150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a9a4b504be128b5f9b2cf174778502cec12674cd",
+  "prompts": {},
+  "sessions": {
+    "s_83f615be0615f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "11410ede-a399-43c2-90de-35df0d09200d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
