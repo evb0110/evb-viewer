@@ -603,18 +603,34 @@ async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumbe
     }, { timeout: 10_000 }, pageNumber);
 }
 
-async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
-    return session.page.waitForFunction((targetPageNumber: number) => {
+/**
+ * Waits until a page visibly shows completed rendering: its canvas painted, in
+ * the viewport and topmost. With `orFeedback`, a visible error alert with text
+ * or a visible loading skeleton also counts, judged by the same viewport and
+ * visibility tests. Resolves with what was shown, or null on timeout.
+ */
+async function waitForVisiblePageOutcome(
+    session: IElectronE2ESession,
+    pageNumber: number,
+    timeout: number,
+    orFeedback: boolean,
+): Promise<{
+    feedback: string;
+    text?: string
+} | null> {
+    return session.page.waitForFunction((targetPageNumber: number, acceptFeedback: boolean): {
+        feedback: string;
+        text?: string
+    } | false => {
         const viewer = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
         );
         const container = viewer?.querySelector<HTMLElement>(
             `.page_container[data-page="${targetPageNumber}"]`,
         ) ?? null;
-        const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         const viewerRect = viewer?.getBoundingClientRect();
         const rect = container?.getBoundingClientRect();
-        if (!viewer || !viewerRect || !container || !rect || !canvas) {
+        if (!viewer || !viewerRect || !container || !rect) {
             return false;
         }
         const left = Math.max(viewerRect.left, rect.left);
@@ -628,17 +644,52 @@ async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber
             left + ((right - left) / 2),
             top + ((bottom - top) / 2),
         );
-        return Boolean(
-            container?.classList.contains('page_container--rendered')
+        if (window.getComputedStyle(container).visibility === 'hidden' || topmost?.closest('.page_container') !== container) {
+            return false;
+        }
+        const isShown = (element: Element | null | undefined) => {
+            if (!element) {
+                return false;
+            }
+            const elementRect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return elementRect.width > 0
+                && elementRect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Math.min(viewerRect.right, elementRect.right) > Math.max(viewerRect.left, elementRect.left)
+                && Math.min(viewerRect.bottom, elementRect.bottom) > Math.max(viewerRect.top, elementRect.top);
+        };
+        const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+        if (
+            canvas
+            && container.classList.contains('page_container--rendered')
             && canvas.width > 0
             && canvas.height > 0
-            && window.getComputedStyle(container).visibility !== 'hidden'
             && !container.classList.contains('page_container--buffered')
-            && topmost?.closest('.page_container') === container,
-        );
-    }, { timeout }, pageNumber)
-        .then(() => true)
-        .catch(() => false);
+        ) {
+            return {feedback: 'rendered'};
+        }
+        if (!acceptFeedback) {
+            return false;
+        }
+        const alert = container.querySelector<HTMLElement>('[role="alert"]');
+        if (isShown(alert) && alert?.textContent?.trim()) {
+            return {
+                feedback: 'error',
+                text: alert.textContent.trim(),
+            };
+        }
+        return isShown(container.querySelector('.document-page-skeleton')) ? {feedback: 'loading'} : false;
+    }, {timeout}, pageNumber, orFeedback)
+        .then(async (handle): Promise<{
+            feedback: string;
+            text?: string
+        } | null> => (await handle.jsonValue()) || null, () => null);
+}
+
+async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
+    return await waitForVisiblePageOutcome(session, pageNumber, timeout, false) !== null;
 }
 
 // Tests in a suite share one viewer. A test that changes the layout puts it back,
@@ -3483,33 +3534,7 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
 
             // L2: by the settled deadline page 2 is painted, or the page itself
             // shows visible loading or error feedback.
-            const shown = await session.page.waitForFunction((): {
-                feedback: string;
-                text?: string
-            } | false => {
-                const container = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="2"]',
-                );
-                const isVisible = (element: Element | null | undefined) => {
-                    const rect = element?.getBoundingClientRect();
-                    return Boolean(rect && rect.width > 0 && rect.height > 0);
-                };
-                const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                if (canvas && canvas.width > 0 && canvas.height > 0) {
-                    return {feedback: 'rendered'};
-                }
-                const alert = container?.querySelector<HTMLElement>('[role="alert"]');
-                if (isVisible(alert) && alert?.textContent?.trim()) {
-                    return {
-                        feedback: 'error',
-                        text: alert.textContent.trim(),
-                    };
-                }
-                return isVisible(container?.querySelector('.document-page-skeleton')) ? {feedback: 'loading'} : false;
-            }, {timeout: 10_000}).then(async (handle): Promise<{
-                feedback: string;
-                text?: string
-            } | null> => (await handle.jsonValue()) || null, () => null);
+            const shown = await waitForVisiblePageOutcome(session, 2, 10_000, true);
             const outcome = {
                 shown,
                 gate: await readPdfPageRenderGate(session),
