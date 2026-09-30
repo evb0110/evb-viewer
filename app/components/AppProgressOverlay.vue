@@ -177,6 +177,17 @@ function restoreFocus() {
     });
 }
 
+function releaseModal() {
+    if (typeof document !== 'undefined') {
+        document.removeEventListener('focusin', containOverlayFocus);
+    }
+    restoreModalInert();
+    if (heldModalFocus) {
+        heldModalFocus = false;
+        restoreFocus();
+    }
+}
+
 function handleKeydown(event: KeyboardEvent) {
     if (!modal) {
         return;
@@ -221,14 +232,7 @@ watch(
         isModal,
     ]) => {
         if (!isOpen || !isModal) {
-            if (typeof document !== 'undefined') {
-                document.removeEventListener('focusin', containOverlayFocus);
-            }
-            restoreModalInert();
-            if (heldModalFocus) {
-                heldModalFocus = false;
-                restoreFocus();
-            }
+            releaseModal();
             return;
         }
         heldModalFocus = true;
@@ -252,13 +256,7 @@ watch(
     },
 );
 
-onBeforeUnmount(() => {
-    if (typeof document !== 'undefined') {
-        document.removeEventListener('focusin', containOverlayFocus);
-    }
-    restoreModalInert();
-    restoreFocus();
-});
+onBeforeUnmount(releaseModal);
 
 const formattedPercent = computed(() => typeof value === 'number' && Number.isFinite(value)
     ? `${clamp(Math.round(value), 0, 100)}%`
