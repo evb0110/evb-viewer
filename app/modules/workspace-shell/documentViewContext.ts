@@ -274,7 +274,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             if (file.isDjvuMode.value && file.djvuSourcePath.value) {
                 return `djvu:${file.djvuSourcePath.value}`;
             }
-            return workingCopyPath.value ? `pdf:${workingCopyPath.value}` : pdfSrc.value;
+            // Save As moves the working copy of the document that stays open.
+            return file.openedWorkingCopyPath.value ? `pdf:${file.openedWorkingCopyPath.value}` : pdfSrc.value;
         }),
     });
     usePageShortcuts({

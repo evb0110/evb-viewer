@@ -48,6 +48,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         wasEncrypted,
         resetForClose,
         workingCopyPath,
+        openedWorkingCopyPath,
         documentRevisionInfo,
         documentRevisionToken,
     } = sessionState;
@@ -193,6 +194,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         pdfData,
         pdfRasterDisplayProfile,
         workingCopyPath,
+        openedWorkingCopyPath,
         documentRevisionInfo,
         documentRevisionToken,
         originalPath,

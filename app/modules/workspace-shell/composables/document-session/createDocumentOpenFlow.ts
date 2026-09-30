@@ -977,6 +977,9 @@ export function createDocumentOpenFlow(
             recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,
             previousPath: state.workingCopyPath.value,
         });
+        if (didCommit) {
+            state.openedWorkingCopyPath.value = path;
+        }
         logPdfRenderTrace('pdf-open-state-commit-end', {
             path,
             ...traceContext,
