@@ -78,9 +78,13 @@ function createDocumentOpenError(error: unknown) {
         }));
     }
     if (error instanceof DocumentOpenRefusalError) {
+        // The renderer localizes the code and names the chosen file. The
+        // refusal's own message can hold tool output and working-copy paths,
+        // so it stays in the main log.
         return new Error(encodeSerializableErrorEnvelope({
             code: error.code,
-            message: getErrorMessage(error),
+            message: error.code,
+            ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
         }));
     }
     return errorWithDetails(te('errors.file.open'), error);

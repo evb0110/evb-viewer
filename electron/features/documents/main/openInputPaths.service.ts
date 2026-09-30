@@ -22,6 +22,7 @@ import {
     createWorkingCopyWithOutcome,
 } from '@electron/file-access/workingCopyCreation';
 import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
@@ -290,7 +291,14 @@ export async function openInputPaths(
                         originalPath: requireDocumentRef(originalPath),
                     };
                 }
-                throw error;
+                // A refusal names the file the user chose, never the working
+                // copy a rewrite ran on.
+                throw error instanceof DocumentOpenRefusalError
+                    ? new DocumentOpenRefusalError(error.code, error.message, {
+                        cause: error.cause,
+                        fileName: basename(originalPath),
+                    })
+                    : error;
             }
         } finally {
             openLease?.release();
