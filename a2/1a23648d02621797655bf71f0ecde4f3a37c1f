@@ -1,0 +1,46 @@
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_ff931410fcd330::t_eb41a901714162 1110-1120
+packages/i18n-app/messages/en.ts
+  s_ff931410fcd330::t_76573311325486 1686
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_ff931410fcd330::t_eb41a901714162 342-344,473-475
+packages/i18n-app/messages/pt.ts
+  s_ff931410fcd330::t_76573311325486 1697
+packages/i18n-app/messages/fr.ts
+  s_ff931410fcd330::t_76573311325486 1697
+packages/i18n-app/messages/ptBr.ts
+  s_ff931410fcd330::t_76573311325486 1697
+packages/i18n-app/messages/it.ts
+  s_ff931410fcd330::t_76573311325486 1686
+packages/i18n-app/messages/ru.ts
+  s_ff931410fcd330::t_76573311325486 1726
+packages/i18n-app/messages/de.ts
+  s_ff931410fcd330::t_76573311325486 1686
+packages/i18n-app/messages/es.ts
+  s_ff931410fcd330::t_76573311325486 1686
+app/types/pdfUi.ts
+  s_ff931410fcd330::t_eb41a901714162 155-156
+packages/i18n-app/messages/nl.ts
+  s_ff931410fcd330::t_76573311325486 1686
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_ff931410fcd330::t_eb41a901714162 31,84-85
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_ff931410fcd330::t_7f62d45c5032ce 767-777,784-788,790-795,797-806
+  s_ff931410fcd330::t_727e2fccbf0d2f 778-783,789,796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a21a23648d02621797655bf71f0ecde4f3a37c1f",
+  "prompts": {},
+  "sessions": {
+    "s_ff931410fcd330": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e4fa6e7-529f-42de-bdac-0f1d994057df",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
