@@ -2,7 +2,10 @@ import type {
     InjectionKey,
     Ref,
 } from 'vue';
-import { usePageContextMenu } from '@app/modules/pdf-viewer/public';
+import {
+    pdfDocumentAnnotationsKey,
+    usePageContextMenu,
+} from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
@@ -518,6 +521,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     onScopeDispose(document.attachView(viewContext));
     provideDocumentContext(document);
     provideDocumentViewContext(viewContext);
+    // The viewer this workspace mounts edits the document's one annotation store.
+    provide(pdfDocumentAnnotationsKey, document.pdfDocumentAnnotations);
     return viewContext;
 };
 export type TDocumentViewContext = ReturnType<typeof createDocumentViewContext>;

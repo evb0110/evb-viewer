@@ -5,6 +5,7 @@ import type {
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
+    createPdfDocumentAnnotations,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
@@ -269,6 +270,12 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const {
         pageLabelState, bookmarkState, workspaceUndoTimeline, 
     } = metadata;
+    // One canonical annotation store, history and draft set for every view.
+    const pdfDocumentAnnotations = createPdfDocumentAnnotations({
+        workingCopyPath,
+        source: pdfSrc,
+        documentRevisionToken,
+    });
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
     const annotations = useWorkspaceAnnotationSession({
@@ -723,7 +730,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pendingDjvuDocumentOpen,
         sourceCapabilities,
         failure,
-        runExclusive,
         file,
         totalPages,
         pdfDocument,
@@ -731,6 +737,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         viewerCapabilities,
         metadata,
         annotations,
+        pdfDocumentAnnotations,
         saveService,
         save,
         exportWorkflow,

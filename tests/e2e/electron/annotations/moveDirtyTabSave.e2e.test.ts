@@ -257,14 +257,23 @@ describe('dirty tab transfer and annotation save', () => {
         }, {timeout: 30_000}, targetPaneId, annotation);
         expect(await readFile(sourcePath)).toEqual(sourceBytes);
 
-        const saveTarget = await page.$$eval('button[aria-label="Save"], button[aria-label^="Save ("]', buttons => buttons.map((button) => {
-            const rect = button.getBoundingClientRect();
-            return {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-                usable: !(button as HTMLButtonElement).disabled && rect.width > 0 && rect.height > 0,
-            };
-        }).find(target => target.usable) ?? null);
+        // Save is offered once the moved view has the document again.
+        const saveHandle = await page.waitForFunction(() => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Save"], button[aria-label^="Save ("]'))
+                .find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    return !candidate.disabled && rect.width > 0 && rect.height > 0;
+                });
+            const rect = button?.getBoundingClientRect();
+            return rect
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        }, {timeout: 30_000});
+        const saveTarget = await saveHandle.jsonValue();
+        await saveHandle.dispose();
         if (!saveTarget) throw new Error('No enabled visible Save control after the pane move');
         const saveBaseline = await getLatestAutomationEventId(page);
         await page.mouse.click(saveTarget.x, saveTarget.y);

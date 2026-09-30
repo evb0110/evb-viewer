@@ -21,6 +21,11 @@ export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/p
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export type { TPageOperationCancelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
+export {
+    createPdfDocumentAnnotations,
+    pdfDocumentAnnotationsKey,
+    type TPdfDocumentAnnotations,
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 export { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
