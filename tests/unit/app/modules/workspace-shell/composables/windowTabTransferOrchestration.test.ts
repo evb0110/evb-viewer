@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import {
     describe,
     expect,
@@ -5,7 +6,12 @@ import {
     onTestFinished,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    createApp,
+    nextTick,
+    ref,
+    shallowRef,
+} from 'vue';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -24,6 +30,10 @@ import {
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import { createDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import type { IDocumentViewPort } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { cast } from '@tests/helpers/cast';
 
@@ -32,9 +42,20 @@ const transferAckMock = vi.hoisted(() => vi.fn(async (_ack: {
     success: boolean;
     error?: string
 }) => true));
+const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown}) => ({success: true})));
+// A clean document's split capture clones its working copy; the clone is the
+// only platform call a merge capture makes.
+const createWorkingCopyFromPathMock = vi.hoisted(() => vi.fn(async (path: string) => `${path}.snapshot.pdf`));
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
+    ...await importOriginal<typeof PlatformDocuments>(),
+    getDocumentWorkingCopyCapability: () => ({createWorkingCopyFromPath: createWorkingCopyFromPathMock}),
+}));
 vi.mock('@app/utils/platformWindowTabs', () => ({
     canUseNativeWindowTabTransfers: () => true,
-    getWindowTabsCapability: () => ({transferAck: transferAckMock}),
+    getWindowTabsCapability: () => ({
+        transferAck: transferAckMock,
+        transfer: transferMock,
+    }),
 }));
 
 function createTab(id: string): ITab {
@@ -248,5 +269,175 @@ describe('window tab transfer orchestration helpers', () => {
             ],
         ]);
         expect(createdTabs).toBe(2);
+    });
+
+    // Sweep #845 item 9: Merge This Window Into captures every tab without
+    // activating it. Two linked views of one document each go at their own page.
+    it('merges two linked views of one document at each view page', async () => {
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useToast', () => ({
+            add: vi.fn(),
+            remove: vi.fn(),
+            update: vi.fn(),
+        }));
+        const nuxtState = new Map<string, unknown>();
+        vi.stubGlobal('useState', (key: string, initialValue?: () => unknown) => {
+            if (!nuxtState.has(key)) {
+                nuxtState.set(key, shallowRef(initialValue?.()));
+            }
+            return nuxtState.get(key);
+        });
+        vi.stubGlobal('useCookie', (_key: string, options?: {default?: () => unknown}) => shallowRef(options?.default?.() ?? null));
+        // The earlier case's unstubAllGlobals also removed tests/setupApp.ts's stubs.
+        vi.stubGlobal('useRuntimeConfig', () => ({public: {
+            analyticsEnabled: false,
+            landingUrl: '',
+            siteUrl: '',
+        }}));
+        vi.stubGlobal('useRoute', () => ({path: '/'}));
+        onTestFinished(() => {
+            vi.unstubAllGlobals();
+        });
+        transferMock.mockClear();
+        const leftTab = 'tab-linked-left';
+        const rightTab = 'tab-linked-right';
+        const controller = createWorkspaceDocumentController({tabId: leftTab});
+        controller.addView(rightTab);
+        // The document context runs where DocumentSessionHost creates it: in a
+        // component's setup.
+        let document!: ReturnType<typeof createDocumentContext>;
+        const app = createApp({setup() {
+            document = createDocumentContext({controller});
+            return () => null;
+        }});
+        const host = globalThis.document.createElement('div');
+        globalThis.document.body.append(host);
+        app.mount(host);
+        onTestFinished(() => {
+            app.unmount();
+            host.remove();
+        });
+        document.file.workingCopyPath.value = requireDocumentRef('/docs/linked.pdf');
+        document.file.pdfSrc.value = new Blob(['%PDF-1.7'], {type: 'application/pdf'});
+        await nextTick();
+
+        const pages = new Map<string, ReturnType<typeof ref<number>>>();
+        const attach = (tabId: string, active: boolean) => document.views.attachView(cast<IDocumentViewPort>({
+            tabId,
+            isActive: ref(active),
+            openSurface: createDocumentOpenSurfaceSession(),
+            view: {
+                pdfViewerRef: ref(null),
+                documentViewerRef: ref(null),
+                pdfDocument: ref(null),
+                totalPages: ref(12),
+                currentPage: pages.set(tabId, ref(1)).get(tabId),
+                dragMode: ref(false),
+                showSidebar: ref(false),
+                sidebarTab: ref('thumbnails'),
+                selectedThumbnailPages: ref([]),
+                setSelectedThumbnailPages: vi.fn(),
+                selectedPageSelection: ref(null),
+                setSelectedPageSelection: vi.fn(),
+                requestThumbnailInvalidation: vi.fn(),
+                closeAllDropdowns: vi.fn(),
+                openDropdown: vi.fn(),
+            },
+            search: {
+                resetSearchCache: vi.fn(),
+                closeSearch: vi.fn(),
+            },
+            navigation: {
+                canUndo: ref(false),
+                canRedo: ref(false),
+            },
+            pageContextMenu: {closePageContextMenu: vi.fn()},
+            closeAnnotationContextMenu: vi.fn(),
+            annotationTool: ref('none'),
+        }));
+        attach(leftTab, false);
+        attach(rightTab, true);
+        await nextTick();
+        // The left view reads page 2; the right view, in use, reads page 4.
+        pages.get(leftTab)!.value = 2;
+        pages.get(rightTab)!.value = 4;
+        await nextTick();
+        expect([
+            pages.get(leftTab)!.value,
+            pages.get(rightTab)!.value,
+        ]).toEqual([
+            2,
+            4,
+        ]);
+        for (const tabId of [
+            leftTab,
+            rightTab,
+        ]) {
+            // Each view's DocumentWorkspace captures the document at its own page.
+            controller.attachWorkspace(tabId, createWorkspaceExposeFixture({captureSplitPayload: () => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value)}));
+        }
+
+        const leftPane = {
+            paneId: requirePaneId('pane-left'),
+            activeTabId: leftTab as string | null,
+            tabIds: [leftTab],
+        };
+        const rightPane = {
+            paneId: requirePaneId('pane-right'),
+            activeTabId: rightTab as string | null,
+            tabIds: [rightTab],
+        };
+        const panes = ref([
+            leftPane,
+            rightPane,
+        ]);
+        const tabs = ref<ITab[]>([
+            createTab(leftTab),
+            createTab(rightTab),
+        ]);
+        const transfers = useWindowTabTransfers({
+            activePaneId: ref<string | null>(rightPane.paneId),
+            panes,
+            tabs,
+            layout: ref<TEditorLayoutNode | null>({
+                type: 'split',
+                id: 'split-linked',
+                orientation: 'horizontal',
+                ratio: 0.5,
+                first: {
+                    type: 'leaf',
+                    paneId: leftPane.paneId,
+                },
+                second: {
+                    type: 'leaf',
+                    paneId: rightPane.paneId,
+                },
+            }),
+            createTab: () => createTab('unused'),
+            getPaneById: paneId => panes.value.find(candidate => candidate.paneId === paneId) ?? null,
+            getTabById: tabId => tabs.value.find(tab => tab.id === tabId) ?? null,
+            getPaneByTabId: tabId => panes.value.find(candidate => candidate.tabIds.includes(tabId)) ?? null,
+            activatePane: () => undefined,
+            activateTab: () => undefined,
+            removeTabFromState: () => undefined,
+            cleanupEmptyPanes: () => undefined,
+            closeTabInState: () => undefined,
+            documentSessions: cast<TWorkspaceDocumentSessions>({getSession: (tabId: string | null | undefined) => (
+                tabId === leftTab || tabId === rightTab ? controller : null
+            )}),
+            workspaceRestoreTracker: {
+                start: () => undefined,
+                finish: () => undefined,
+            },
+            handleCloseTab: async () => undefined,
+            handoffActiveTabBeforeClose: async () => undefined,
+        });
+
+        await transfers.mergeWindowInto(7);
+
+        expect(transferMock.mock.calls.map(([request]) => (request.payload as {currentPage?: number}).currentPage)).toEqual([
+            2,
+            4,
+        ]);
     });
 });

@@ -474,7 +474,8 @@ const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     canOptimizePdf: presentation.canOptimizePdf,
     canExportDocx,
     viewerCapabilities,
-    captureSplitPayload: splitPayload.captureSplitPayload,
+    // Each view captures the document at its own page.
+    captureSplitPayload: () => splitPayload.captureSplitPayload(view.currentPage.value),
     restoreSplitPayload: splitPayload.restoreSplitPayload,
     waitForDocumentOpenSettled,
     runAgentAction,
