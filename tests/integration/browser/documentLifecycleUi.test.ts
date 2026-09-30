@@ -839,7 +839,10 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
             await downloadPromise;
             // The Save As has taken effect once the document moved to a new working copy.
-            await expect.poll(readWorkingCopyPath, {timeout: 30_000}).not.toBe(workingCopyBefore);
+            await expect.poll(async () => {
+                const workingCopyAfter = await readWorkingCopyPath();
+                return workingCopyAfter !== null && workingCopyAfter !== workingCopyBefore;
+            }, {timeout: 30_000}).toBe(true);
             await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('The saved document did not settle');
