@@ -294,24 +294,53 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             const refreshedTabIds = new Set<TTabId>();
             const unavailableRecoveryTabIds = new Set<TTabId>();
             let shouldRetry = false;
+            // The views of one document share one recovery copy: its first
+            // dirty tab makes it (from any mounted view) or keeps the last
+            // one, and the document's other tabs name the same copy, so
+            // restore brings them back as views of one document.
+            const sessionOf = (tabId: TTabId) => options.documentSessionsByTabId.value[tabId];
+            const documentCopies = new Map<IWorkspaceDocumentController, {
+                ref: TDocumentRef | null;
+                refreshed: boolean;
+            }>();
             for (const tab of allDirtyTabs) {
                 const capturedRevision = capturedTabMutationRevisions.get(tab.tabId) ?? 0;
                 attemptedTabMutationRevisions.set(tab.tabId, capturedRevision);
+                const session = sessionOf(tab.tabId);
+                const documentCopy = session ? documentCopies.get(session) : undefined;
+                if (documentCopy) {
+                    if (documentCopy.ref === null) {
+                        unavailableRecoveryTabIds.add(tab.tabId);
+                    } else {
+                        replacements.set(tab.tabId, documentCopy.ref);
+                        if (documentCopy.refreshed) refreshedTabIds.add(tab.tabId);
+                    }
+                    continue;
+                }
+                const documentTabs = allDirtyTabs.filter(candidate => session !== undefined && sessionOf(candidate.tabId) === session);
+                const changedSincePersisted = (documentTabs.length > 0 ? documentTabs : [tab]).some(candidate => (
+                    (capturedTabMutationRevisions.get(candidate.tabId) ?? 0) > (persistedTabMutationRevisions.get(candidate.tabId) ?? -1)
+                ));
                 const retained = retainedRecoveryTabs.get(tab.tabId);
-                if (
-                    retained?.workingCopyRef
-                    && capturedRevision <= (persistedTabMutationRevisions.get(tab.tabId) ?? -1)
-                ) {
+                if (retained?.workingCopyRef && !changedSincePersisted) {
                     retainedRefs.add(retained.workingCopyRef);
+                    if (session) documentCopies.set(session, {
+                        ref: retained.workingCopyRef,
+                        refreshed: false,
+                    });
                     continue;
                 }
                 let bytes: Uint8Array | null | undefined;
                 if (tab.workingCopyRef) {
                     try {
-                        bytes = await options.documentSessionsByTabId.value[tab.tabId]
-                            ?.getView(tab.tabId)
-                            ?.mountedWorkspace.value
-                            ?.createRecoverySnapshotBytes();
+                        const mountedView = session
+                            ? [
+                                session.getView(tab.tabId),
+                                ...session.views.value.values(),
+                            ]
+                                .find(view => view?.mountedWorkspace.value)
+                            : null;
+                        bytes = await mountedView?.mountedWorkspace.value?.createRecoverySnapshotBytes();
                     } catch (error) {
                         BrowserLogger.warn(
                             'workspace-recovery',
@@ -327,10 +356,18 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                             `Dirty tab ${tab.tabId} did not produce a recovery snapshot; retrying without it`,
                         );
                         unavailableRecoveryTabIds.add(tab.tabId);
+                        if (session) documentCopies.set(session, {
+                            ref: null,
+                            refreshed: false,
+                        });
                         shouldRetry = true;
                         continue;
                     }
                     retainedRefs.add(retained.workingCopyRef);
+                    if (session) documentCopies.set(session, {
+                        ref: retained.workingCopyRef,
+                        refreshed: false,
+                    });
                     shouldRetry = true;
                     continue;
                 }
@@ -348,6 +385,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 createdRefs.push(snapshotRef);
                 replacements.set(tab.tabId, snapshotRef);
                 refreshedTabIds.add(tab.tabId);
+                if (session) documentCopies.set(session, {
+                    ref: snapshotRef,
+                    refreshed: true,
+                });
             }
 
             const recoveryTabs = checkpoint.tabs.flatMap((tab) => {
