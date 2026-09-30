@@ -1,6 +1,11 @@
 import {join} from 'node:path';
-import {stat} from 'node:fs/promises';
-import {GlobalFonts} from '@napi-rs/canvas';
+import {
+    stat, writeFile,
+} from 'node:fs/promises';
+import {
+    GlobalFonts, createCanvas,
+} from '@napi-rs/canvas';
+import {PDFDocument} from 'pdf-lib';
 import type {
     ElementHandle,
     Page,
@@ -13,7 +18,10 @@ import {
 } from 'vitest';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {createScannedTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createFixturePath,
+    createScannedTextFixturePdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {assertOcrPdfSemanticOutput} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     openDocumentSidebarTab,
@@ -22,6 +30,11 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    activatePaneByTab,
+    splitActiveTabFromTabMenu,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
 
 GlobalFonts.registerFromPath(
     join(process.cwd(), 'scripts/fixtures/ocr-language-fonts/NotoSans-Regular.ttf'),
@@ -65,6 +78,35 @@ async function waitForTextLayerWord(page: Page) {
         document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
             ?.textContent?.toLocaleLowerCase().includes(word) === true
     ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
+}
+
+/** A scanned document long enough that its OCR run is still going when the user moves on. */
+async function createScannedPagesFixturePdf(filename: string, pageCount: number) {
+    const doc = await PDFDocument.create();
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const canvas = createCanvas(1224, 1584);
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#111111';
+        context.font = '40px EvbOcrJourneySans';
+        for (let line = 0; line < 24; line += 1) {
+            context.fillText(`${SCANNED_TEXT} page ${pageNumber} line ${line + 1}`, 90, 140 + line * 56);
+        }
+        const image = await doc.embedPng(canvas.toBuffer('image/png'));
+        doc.addPage([
+            612,
+            792,
+        ]).drawImage(image, {
+            x: 0,
+            y: 0,
+            width: 612,
+            height: 792,
+        });
+    }
+    const filePath = createFixturePath(filename);
+    await writeFile(filePath, await doc.save());
+    return filePath;
 }
 
 async function installLateOcrCompletionControl(page: Page) {
@@ -237,5 +279,84 @@ describe('Electron E2E - OCR journey', () => {
                 (window as TOcrControlWindow).__lateOcrCompletionControl?.restore();
             });
         }
+    }, 300_000);
+
+    it('finishes OCR started in one linked view after the user switches to the other view', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-linked-views-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-linked-views-scan.pdf', 24);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
+        await waitForFunctionInPage(page, (host: string) => (
+            document.querySelector(`${host} .page_container--rendered`) !== null
+        ), {timeout: 30_000}, paneHost(rightPane!));
+
+        // An agent connected to EVB starts OCR of every page in the right
+        // view without opening the OCR dialog, so the window stays usable.
+        const agentRun = callWorkspaceCommand<{
+            ok?: boolean;
+            error?: string;
+            ocr?: unknown;
+        }>(page, 'runAgentAction', [
+            'ocr.start',
+            {
+                pageRange: 'all',
+                open: false,
+            },
+        ]);
+        // The agent's status read is the sync point: the run is under way
+        // and has pages left.
+        await vi.waitFor(async () => {
+            const status = await callWorkspaceCommand<{ocr?: {
+                isRunning?: boolean;
+                processedCount?: number;
+                totalPages?: number
+            }}>(page, 'runAgentAction', [
+                'ocr.status',
+                {},
+            ]);
+            const ocr = status.value?.ocr;
+            if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+            }
+        }, {timeout: 30_000});
+
+        // Meanwhile the user goes on reading in the left view.
+        await activatePaneByTab(page, leftPane!);
+
+        // The run continues and the document becomes searchable in the view in use.
+        const outcome = await agentRun;
+        const recognized = await page.waitForFunction((host: string, word: string) => (
+            document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                ?.textContent?.toLocaleLowerCase().includes(word) === true
+        ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
+        const {
+            ok, error, ocr,
+        } = outcome.value ?? {};
+        expect({
+            agentResult: outcome.value,
+            leftViewShowsRecognizedText: recognized,
+        }, JSON.stringify({
+            ok,
+            error,
+            ocr,
+        })).toMatchObject({
+            agentResult: {ok: true},
+            leftViewShowsRecognizedText: true,
+        });
     }, 300_000);
 });
