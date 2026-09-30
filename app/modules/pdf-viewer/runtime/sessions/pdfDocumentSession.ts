@@ -7,6 +7,7 @@ import { clamp } from 'es-toolkit/math';
 import type { ComputedRef } from 'vue';
 import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { recordPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
@@ -1203,6 +1204,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const deferSelectiveDocumentPublish = activePlan.isSelectiveReload
             && activePlan.preserveVisibleContent;
         const publishLoadedDocument = () => {
+            if (pdfDocument.value) recordPdfDocumentLoadedRevision(pdfDocument.value, activeDocumentRevision);
             options.emitDocument?.(pdfDocument.value);
             options.emitTotalPages?.(numPages.value);
         };

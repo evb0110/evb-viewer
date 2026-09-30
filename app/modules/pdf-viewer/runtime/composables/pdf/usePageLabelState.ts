@@ -15,6 +15,7 @@ import {
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { readPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 
@@ -60,14 +61,24 @@ export const usePageLabelState = (deps: {
     let lastResolvedDocument: IPdfDocument | null = null;
     let lastResolvedPath: TDocumentRef | null = null;
 
-    // Every view of a working copy holds its own PDF.js document of the same
-    // bytes, and the document in use follows the view in use. The labels
-    // belong to the bytes: a working-copy revision when there is one,
+    // Every view of a working copy holds its own PDF.js document, and the
+    // document in use follows the view in use. The labels belong to the bytes:
+    // the working-copy revision a document was loaded from when there is one,
     // otherwise the PDF.js document itself.
+    function loadedRevisionOf(doc: IPdfDocument) {
+        const current = documentRevisionToken?.value ?? null;
+        return readPdfDocumentLoadedRevision(doc) ?? (current === null ? null : String(current));
+    }
     function documentBytesOf(doc: IPdfDocument | null) {
         const path = workingCopyPath?.value ?? null;
-        const revision = documentRevisionToken?.value ?? null;
+        const revision = doc ? loadedRevisionOf(doc) : null;
         return doc && path !== null && revision !== null ? `${path}\n${revision}` : doc;
+    }
+    // A save that rewrites the working copy in place keeps every view's PDF.js
+    // document; theirs are then older bytes than the labels in hand.
+    function holdsOlderBytes(doc: IPdfDocument) {
+        const current = documentRevisionToken?.value ?? null;
+        return current !== null && loadedRevisionOf(doc) !== String(current);
     }
     // Reported bytes, and the bytes a read succeeded for: a failed read is
     // retried from whichever view offers the same bytes next.
@@ -278,8 +289,9 @@ export const usePageLabelState = (deps: {
         (doc) => {
             // A view switch changes the PDF.js document, not the bytes: the
             // labels read from them, and any edit made since, stay. A view
-            // still loading its PDF.js document shows the same working copy.
-            if (!doc && isWorkingCopyRevisionKnown()) {
+            // still loading its PDF.js document, or holding one of older
+            // bytes, shows the same working copy.
+            if ((!doc && isWorkingCopyRevisionKnown()) || (doc && holdsOlderBytes(doc))) {
                 return;
             }
             const bytes = documentBytesOf(doc);

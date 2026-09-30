@@ -317,9 +317,16 @@ async function undoTextBoxEdit(page: Page, activePane: string, otherPane: string
 async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string) {
     await openDocumentSidebarTab(page, 'Pages');
     const prefixInput = `${paneSelector(paneId)} #page-label-prefix-input`;
-    await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-disclosure`);
+    const disclosure = `${paneSelector(paneId)} .pdf-sidebar-pages-disclosure`;
+    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        await clickSteadyControl(page, disclosure);
+    }
     await clickSteadyControl(page, prefixInput);
     await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, prefixInput);
+    // Replace whatever prefix the field still shows.
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyA');
+    await page.keyboard.up('Control');
     await page.keyboard.type(prefix);
     await page.waitForFunction((selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected, {timeout: SETTLE_TIMEOUT_MS}, prefixInput, prefix);
     await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
@@ -593,4 +600,58 @@ describe('shared PDF split', () => {
         const metadata = await readPdfMetadataWithQpdf(pdfPath);
         expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:Q-');
     }, TIMEOUT_MS);
+
+    it('keeps page labels edited after a save when the other view is used, with their undo', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-labels-after-save-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-labels-after-save-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        // Number the pages and save: the save writes them without reloading either view.
+        await activatePaneByTab(page, leftPane!);
+        await numberPagesWithPrefix(page, leftPane!, 'P-');
+        let saveBaseline = await getLatestAutomationEventId(page);
+        await clickToolbarButton(page, 'Save');
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path: pdfPath,
+            timeoutMs: 60_000,
+        });
+        await waitForPaneView(page, leftPane!, 'the save leaves the document clean', view => !view.tabDirty);
+
+        // Number them again, then use the other view.
+        await numberPagesWithPrefix(page, leftPane!, 'R-');
+        await activatePaneByTab(page, rightPane!);
+        await waitForPaneView(page, rightPane!, 'the other view in use keeps the unsaved numbering', view => (
+            view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
+        ));
+
+        // Its undo goes back to the saved numbering and its redo forward again.
+        await clickToolbarButton(page, 'Undo');
+        await waitForPaneView(page, rightPane!, 'undo returns to the saved numbering', view => !view.tabDirty);
+        await clickToolbarButton(page, 'Redo');
+        await waitForPaneView(page, rightPane!, 'redo brings the new numbering back', view => view.tabDirty);
+
+        saveBaseline = await getLatestAutomationEventId(page);
+        await clickToolbarButton(page, 'Save');
+        await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: saveBaseline,
+            path: pdfPath,
+            timeoutMs: 60_000,
+        });
+        const metadata = await readPdfMetadataWithQpdf(pdfPath);
+        expect(metadata.pagelabels.map(label => label.label?.['/P'])).toContain('u:R-');
+    }, TIMEOUT_MS);
+
 });

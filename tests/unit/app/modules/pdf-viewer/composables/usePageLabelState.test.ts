@@ -11,6 +11,7 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
+import { recordPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
 import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/modules/document-viewer/pageLabels';
@@ -310,6 +311,57 @@ describe('usePageLabelState', () => {
         expect(state.pageLabelsDirty.value).toBe(true);
         expect(state.pageLabelRanges.value).toEqual(edited);
         expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps labels edited after a save that rewrote the working copy under both views', async () => {
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const createView = () => {
+            const view = cast<IPdfDocument>({
+                numPages: 3,
+                getPageLabels: vi.fn(async () => null),
+            });
+            recordPdfDocumentLoadedRevision(view, 'revision-1');
+            return view;
+        };
+        const leftView = createView();
+        const rightView = createView();
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(leftView));
+        const onPageLabelsSynchronized = vi.fn();
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken,
+            onPageLabelsSynchronized,
+        });
+        await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
+        state.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'R',
+            prefix: '',
+            startNumber: 1,
+        }]);
+
+        // Save writes the labels into revision 2 in place; neither view reloads.
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
+        state.markPageLabelsSaved();
+        const editedAfterSave: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'r',
+            prefix: 'x-',
+            startNumber: 1,
+        }];
+        state.handlePageLabelRangesUpdate(editedAfterSave);
+
+        pdfDocument.value = rightView;
+        await nextTick();
+        await Promise.resolve();
+
+        expect(state.pageLabelsDirty.value).toBe(true);
+        expect(state.pageLabelRanges.value).toEqual(editedAfterSave);
+        expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1);
+        expect(rightView.getPageLabels).not.toHaveBeenCalled();
     });
 
     it('reads labels again from another view when the read of the same revision failed', async () => {
