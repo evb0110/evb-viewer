@@ -634,6 +634,8 @@ describe('usePdfAnnotationEditorSurface', () => {
             fontSize: DEFAULT_ANNOTATION_SETTINGS.textSize,
             color: DEFAULT_ANNOTATION_SETTINGS.textColor,
         });
+        // The inspector reads the reactive selection; it must follow the edit.
+        expect(harness.surface.selectedTextBox.value?.fontSize).toBe(DEFAULT_ANNOTATION_SETTINGS.textSize);
         expect(harness.surface.updateSelectedTextBoxProperties({
             fontSize: 22,
             color: '#ef4444',
@@ -643,9 +645,15 @@ describe('usePdfAnnotationEditorSurface', () => {
             fontSize: 22,
             color: '#ef4444',
         });
+        expect(harness.surface.selectedAnnotations.value).toMatchObject([{
+            fontSize: 22,
+            color: '#ef4444',
+        }]);
+        expect(harness.surface.selectedTextBox.value?.fontSize).toBe(22);
         expect(harness.surface.updateSelectedTextBoxProperties({fontSize: 22})).toBe(false);
         expect(harness.surface.deleteAnnotation(created.identity.id)).toBe(true);
         expect(harness.surface.getSelectedTextBox()).toBeNull();
+        expect(harness.surface.selectedTextBox.value).toBeNull();
         expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(2);
 
         harness.stop();

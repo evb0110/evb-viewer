@@ -319,12 +319,12 @@ export const usePdfViewerPublicApiController = (
             await focusAnnotationComment(comment);
             annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
         },
-        selectedAnnotations: computed(() => annotationRuntime.annotationEditorSurface.getSelectedAnnotations()),
+        selectedAnnotations: annotationRuntime.annotationEditorSurface.selectedAnnotations,
         updateSelectedAnnotationProperties: annotationRuntime.annotationEditorSurface.updateSelectedAnnotationProperties,
         canRotateSelectedAnnotations: annotationRuntime.annotationEditorSurface.canRotateSelectedAnnotations,
         prepareAnnotationToolChange: annotationRuntime.annotationEditorSurface.prepareToolChange,
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
-        selectedTextBox: computed(() => annotationRuntime.annotationEditorSurface.getSelectedTextBox()),
+        selectedTextBox: annotationRuntime.annotationEditorSurface.selectedTextBox,
         getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
         updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,

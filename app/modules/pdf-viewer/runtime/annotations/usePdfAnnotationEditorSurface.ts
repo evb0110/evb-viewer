@@ -103,7 +103,9 @@ export interface IAnnotationEditorSurface {
     selectAll(): boolean;
     focusSelectedAnnotation(annotationId: AnnotationId): boolean;
     handleEscape(): boolean;
-    getSelectedAnnotations(): readonly AnnotationEntity[];
+    /** The selection's entities as the store last emitted them: they follow edits as well as selection changes. */
+    readonly selectedAnnotations: ComputedRef<readonly AnnotationEntity[]>;
+    readonly selectedTextBox: ComputedRef<ITextBoxEntity | null>;
     canRotateSelectedAnnotations(delta: -90 | 90): boolean;
     updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate): boolean;
     readonly entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
@@ -461,6 +463,18 @@ export const usePdfAnnotationEditorSurface = (
             return entity && !entity.deleted ? [entity] : [];
         });
     }
+    // Commands read the store; views read its emissions, which a store batch
+    // defers until it ends.
+    const selectedAnnotations = computed(() => {
+        const live = new Map([...entitiesByPage.value.values()].flat().map(entity => [
+            entity.identity.id,
+            entity,
+        ]));
+        return [...selectedIds.value].flatMap(id => live.get(id) ?? []);
+    });
+    const selectedTextBox = computed(() => (
+        selectedAnnotations.value.find((entity): entity is ITextBoxEntity => entity.kind === 'text-box') ?? null
+    ));
 
     function fitRotatedRectToPage(pageIndex: number, rect: IAnnotationMarkerRect, rotation: number) {
         const geometry = options.getPageGeometry?.(pageIndex);
@@ -1162,7 +1176,8 @@ export const usePdfAnnotationEditorSurface = (
         selectAll,
         focusSelectedAnnotation,
         handleEscape,
-        getSelectedAnnotations,
+        selectedAnnotations,
+        selectedTextBox,
         canRotateSelectedAnnotations,
         updateSelectedAnnotationProperties,
         entitiesByPage,
