@@ -127,7 +127,11 @@ export async function normalizePdfAppendBase(
         }
         throw new DocumentOpenRefusalError('invalid-pdf', `PDF rewrite failed: ${getErrorMessage(error)}`, {cause: error});
     } finally {
-        await rm(rewrittenPath, {force: true});
+        // The leftover sits in the working-copy directory, which is removed
+        // with the copy; a failed removal must not replace the outcome above.
+        await rm(rewrittenPath, {force: true}).catch((error: unknown) => {
+            logger.warn('Could not remove a PDF rewrite leftover', {error: getErrorMessage(error)});
+        });
     }
     logger.warn('Rewrote a PDF whose cross-reference chain cannot take an edit', {reason: admission.reason});
     return true;
