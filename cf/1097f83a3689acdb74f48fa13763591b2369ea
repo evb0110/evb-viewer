@@ -1,0 +1,27 @@
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationHistoryDocumentSwap.test.ts
+  s_c465d282efc2c0::t_1c5cc6b2dbf14a 84,140-141
+  s_c465d282efc2c0::t_4282c6b37b0fab 249,277,310-331
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  ai_agent 317-318
+  s_c465d282efc2c0::t_238e172ac9f025 319-320,322-323
+  s_c465d282efc2c0::t_a0303fd86657a1 321
+app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations.ts
+  s_c465d282efc2c0::t_21e3f3e68bb2c5 116-120
+  s_c465d282efc2c0::t_238e172ac9f025 135-141,194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cf1097f83a3689acdb74f48fa13763591b2369ea",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
