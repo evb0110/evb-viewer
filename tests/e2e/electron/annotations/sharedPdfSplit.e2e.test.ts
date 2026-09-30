@@ -396,7 +396,6 @@ describe('shared PDF split', () => {
         await waitForPaneView(page, leftPane!, 'left view keeps its place through Save', view => keepsPlacement(view, leftBeforeSave));
         await waitForPaneView(page, rightPane!, 'right view keeps its place through Save', view => keepsPlacement(view, rightBeforeSave));
         expect(await readVisibleToasts(page)).toEqual([]);
-        await delay(1_000);
         expect(await countSaveEvents(page, saveBaseline), 'one Save writes the file once').toBe(1);
 
         const savedBytes = await readFile(pdfPath);

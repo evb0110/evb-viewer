@@ -63,8 +63,15 @@ describe('buildWorkspaceCheckpoint', () => {
                 isDjvu: false,
             },
         });
-        session.getView('tab-1')?.publishToolbarSnapshot(toolbar);
-        session.getView('tab-1')?.applyViewState(viewState);
+        const view = session.getView('tab-1');
+        if (!view) {
+            throw new Error('The controller must create the tab view it was created for');
+        }
+        view.publishToolbarSnapshot(toolbar);
+        view.applyViewState(viewState);
+        // The capture below must have the cleanup state to leave out.
+        expect(view.viewState.value.scanCleanup).toBeDefined();
+        expect(view.viewState.value.surfaceMode).toBe(viewState.surfaceMode);
         const checkpoint = buildWorkspaceCheckpoint({
             panes: ref<IEditorPaneState[]>([pane]),
             tabs: ref([{id: 'tab-1'}]),

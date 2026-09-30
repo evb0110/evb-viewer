@@ -26,6 +26,7 @@ import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/docum
 import { requireSessionId } from '@contracts/shared';
 import { requireTabId } from '@contracts/windowTabs';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
@@ -257,7 +258,7 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function removeView(viewTabId: string) {
-        views.value.get(viewTabId)?.settleMountWaiters(null);
+        views.value.get(viewTabId)?.retire();
         const next = new Map(views.value);
         next.delete(viewTabId);
         views.value = next;
@@ -454,7 +455,15 @@ export function createWorkspaceDocumentController(options: {
                 failure: null,
             });
         }
-        views.value.get(viewTabId)?.mount(workspace);
+        const view = views.value.get(viewTabId);
+        if (!view) {
+            BrowserLogger.error('workspace', 'A workspace mounted for a tab that does not view its document', {
+                tabId: viewTabId,
+                sessionId: snapshot.value.sessionId,
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            return;
+        }
+        view.mount(workspace);
     }
 
     function detachWorkspace(viewTabId: string, workspace: IWorkspaceExpose) {

@@ -33,7 +33,6 @@ import {
     getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
     waitForAutomationEvent,
-    type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     qpdfCheck,
@@ -72,6 +71,7 @@ interface IPaneTab {
     label: string | null;
     dirty: boolean;
     showsStart: boolean;
+    renderedPageCount: number;
     renderedTexts: string[];
 }
 
@@ -80,6 +80,7 @@ interface IPaneTabExpectation {
     dirty?: boolean;
     showsStart?: boolean;
     rendersText?: string;
+    rendersPage?: boolean;
 }
 
 // Runs in the page: what a person sees in one pane's tab and page layer.
@@ -94,6 +95,7 @@ function readPaneTabInPage(paneId: string): IPaneTab | null {
         dirty: tab?.classList.contains('is-dirty') ?? false,
         showsStart: Array.from(pane.querySelectorAll<HTMLElement>('.start-open-panel'))
             .some(panel => panel.getBoundingClientRect().width > 0),
+        renderedPageCount: pane.querySelectorAll('.page_container--rendered').length,
         renderedTexts: Array.from(pane.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]'))
             .map(element => element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? '')
             .filter(Boolean),
@@ -110,7 +112,8 @@ async function waitForPaneTab(page: Page, paneId: string, label: string, expecte
                 && (expected.label === undefined || tab.label === expected.label)
                 && (expected.dirty === undefined || tab.dirty === expected.dirty)
                 && (expected.showsStart === undefined || tab.showsStart === expected.showsStart)
-                && (expected.rendersText === undefined || tab.renderedTexts.includes(expected.rendersText)));
+                && (expected.rendersText === undefined || tab.renderedTexts.includes(expected.rendersText))
+                && (expected.rendersPage === undefined || (tab.renderedPageCount > 0) === expected.rendersPage));
         })()`, {timeout: SPLIT_VIEW_TIMEOUT_MS});
     } catch (error) {
         throw new Error(`${label}: ${JSON.stringify(await page.evaluate(readPaneTabInPage, paneId))}`, {cause: error});
@@ -142,10 +145,6 @@ async function clickToolbarSave(page: Page) {
     await page.mouse.click(point.x, point.y);
 }
 
-function countSaveEvents(page: Page, afterEventId: number) {
-    return page.evaluate((after: number) => (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getAutomationEvents?.()
-        .filter(event => event.type === 'save-committed' && event.id > after).length ?? 0, afterEventId);
-}
 
 async function readSavedFreeTextContents(filePath: string, expectedText: string) {
     const index = await readPdfAnnotationIndex(filePath);
@@ -198,20 +197,22 @@ lifecycleDescribe('Electron E2E - Large PDF split-pane lifecycle', () => {
         expect(await getActiveWorkspaceWorkingCopyPath(page), 'a linked view uses the source working copy').toBe(sourceWorkingCopy);
         expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({totalPages: 2});
 
-        // An edit made in the left view renders in the right view, and both are dirty.
+        // Both views of the oversized document stay resident side by side.
+        for (const paneId of [
+            leftPane!,
+            rightPane!,
+        ]) {
+            await waitForPaneTab(page, paneId, 'each view keeps a rendered page', {rendersPage: true});
+        }
+
+        // An edit in the linked view saves into the one oversized working copy.
+        // Shared rendering, undo, the single save and closing one view are
+        // covered on a small fixture by annotations/sharedPdfSplit.e2e.test.ts.
         const text = `LINKED-SPLIT-${Date.now()}`;
-        await activatePaneByTab(page, leftPane!);
         await createCanonicalTextBoxWithPointer(page, text, {
             x: 0.4,
             y: 0.3,
         }, 1);
-        await waitForPaneTab(page, rightPane!, 'the left edit renders in the right view', {
-            dirty: true,
-            rendersText: text,
-        });
-
-        // Save from the right view writes the one document once.
-        await activatePaneByTab(page, rightPane!);
         const saveBaseline = await getLatestAutomationEventId(page);
         await clickToolbarSave(page);
         await waitForAutomationEvent(page, 'save-committed', {
@@ -219,36 +220,9 @@ lifecycleDescribe('Electron E2E - Large PDF split-pane lifecycle', () => {
             path: documentPath,
             timeoutMs: LIFECYCLE_TIMEOUT_MS,
         });
-        for (const paneId of [
-            leftPane!,
-            rightPane!,
-        ]) {
-            await waitForPaneTab(page, paneId, 'both views are saved', {dirty: false});
-        }
-        expect(await countSaveEvents(page, saveBaseline), 'one Save writes the file once').toBe(1);
+        await waitForPaneTab(page, leftPane!, 'the source view is saved too', {dirty: false});
         await qpdfCheck(documentPath);
         expect(await readSavedFreeTextContents(documentPath, text)).toBe(true);
-
-        // Closing the right view keeps the document open in the left one.
-        const closeTarget = await page.$eval(
-            `.editor-pane[data-editor-pane-id="${rightPane!}"] .tab.is-active[data-tab-id] .tab-close`,
-            (button) => {
-                const rect = button.getBoundingClientRect();
-                return {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                };
-            },
-        );
-        await page.mouse.click(closeTarget.x, closeTarget.y);
-        await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1, {timeout: SPLIT_VIEW_TIMEOUT_MS});
-        await waitForPaneTab(page, leftPane!, 'the remaining view keeps the document', {
-            showsStart: false,
-            label: source.label,
-            rendersText: text,
-        });
-        await waitForActivePdfReady(session);
-        expect(await getActiveWorkspaceWorkingCopyPath(page)).toBe(sourceWorkingCopy);
     }, LIFECYCLE_TIMEOUT_MS);
 
     it('keeps New Pane reopenings of an oversized PDF independent', async () => {

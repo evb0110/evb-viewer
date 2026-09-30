@@ -20,7 +20,7 @@ export interface IWorkspaceDocumentView {
     readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
     publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
     applyViewState(state: ITabViewSessionState): void;
-    /** The mounted workspace, or null once the document has failed or the view is gone. */
+    /** The mounted workspace, or null once the document has failed or the view was removed. */
     whenMounted(): Promise<IWorkspaceExpose | null>;
 }
 
@@ -30,6 +30,8 @@ export interface IWorkspaceDocumentViewRecord extends IWorkspaceDocumentView {
     /** Clears the mount if it is this workspace; reports whether it was. */
     unmount(workspace: IWorkspaceExpose): boolean;
     settleMountWaiters(workspace: IWorkspaceExpose | null): void;
+    /** Ends the view: it drops its workspace, answers every waiter with null and takes no new mount. */
+    retire(): void;
 }
 
 export function createWorkspaceDocumentView(tabId: string, options: {
@@ -41,6 +43,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
     const viewState = shallowRef(options.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
+    let retired = false;
 
     function settleMountWaiters(workspace: IWorkspaceExpose | null) {
         for (const resolve of mountWaiters) {
@@ -68,7 +71,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
             if (mountedWorkspace.value) {
                 return Promise.resolve(mountedWorkspace.value);
             }
-            if (options.isDocumentFailed()) {
+            if (retired || options.isDocumentFailed()) {
                 return Promise.resolve(null);
             }
             return new Promise<IWorkspaceExpose | null>((resolve) => {
@@ -76,6 +79,9 @@ export function createWorkspaceDocumentView(tabId: string, options: {
             });
         },
         mount(workspace) {
+            if (retired) {
+                return;
+            }
             mountedWorkspace.value = workspace;
             settleMountWaiters(workspace);
         },
@@ -87,5 +93,10 @@ export function createWorkspaceDocumentView(tabId: string, options: {
             return true;
         },
         settleMountWaiters,
+        retire() {
+            retired = true;
+            mountedWorkspace.value = null;
+            settleMountWaiters(null);
+        },
     };
 }
