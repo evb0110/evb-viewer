@@ -113,10 +113,11 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     // Save and file-history undo rewrite the working copy in place and reload
     // the same path, so each viewer reports the revision of the document that
     // replaced the one it had loaded. The store follows the document's current
-    // revision: the first report of it starts a fresh store and history (a
-    // save's own reload keeps the store it just wrote), later reports of the
-    // same revision keep it, and a report of an older revision, from a viewer
-    // that finished loading after the document moved on, changes nothing.
+    // revision: the first report of it starts a fresh store and history,
+    // later reports of the same revision keep it, and a report of an older
+    // revision, from a viewer that finished loading after the document moved
+    // on, changes nothing. A revision a save wrote from this store keeps it.
+    // Without revision tokens only a reload during a save keeps the store.
     function replaceLoadedDocument(loadedRevision: string | null, duringSave: boolean) {
         const currentRevision = options.documentRevisionToken.value;
         if (currentRevision !== null) {
@@ -129,6 +130,13 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             reset(documentIdentity.value);
         }
         storeRevision = currentRevision;
+    }
+
+    // A revision a save mints holds this store's annotations, so its reloads
+    // keep the store and its history, even when they land after the save
+    // has let the document go.
+    function adoptSavedRevision(revision: TDocumentRevisionToken) {
+        storeRevision = revision;
     }
 
     // One editor per annotation: editing it in one viewer first commits the
@@ -183,6 +191,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         setTextBoxDraft,
         restoreTextBoxDrafts,
         replaceLoadedDocument,
+        adoptSavedRevision,
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
             for (const view of views) {

@@ -314,6 +314,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
     });
     onScopeDispose(() => stopAnnotationApplicationProjection());
+    // A save reports the revision it mints while it still holds the document;
+    // the reloads of that revision may land after it has let go.
+    watch(options.documentRevisionToken, (revision) => {
+        if (options.isAnySaving.value && revision !== null) {
+            documentAnnotations.adoptSavedRevision(revision);
+        }
+    }, {flush: 'sync'});
 
     const linkAnnotations = options.linkAnnotations ?? ref<ILinkAnnotation[]>([]);
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
