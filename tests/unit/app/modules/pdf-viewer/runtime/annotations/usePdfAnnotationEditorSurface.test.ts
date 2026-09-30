@@ -470,7 +470,7 @@ describe('usePdfAnnotationEditorSurface', () => {
 
         harness.surface.select([asAnnotationId('text-markup')]);
         harness.surface.select([asAnnotationId('shape')], {additive: true});
-        expect(store.selectedIds).toEqual(new Set([
+        expect(harness.surface.selectedIds.value).toEqual(new Set([
             asAnnotationId('text-markup'),
             asAnnotationId('shape'),
         ]));

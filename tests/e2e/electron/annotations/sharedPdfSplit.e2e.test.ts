@@ -423,6 +423,34 @@ async function saveFromToolbar(page: Page, pdfPath: string) {
     });
 }
 
+/** Clicks the text box showing `text` in a pane, as a person selects it. */
+async function clickTextBoxInPane(page: Page, paneId: string, text: string) {
+    const box = await page.waitForFunction((selector: string, expected: string) => Array.from(
+        document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
+    ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0) ?? null, {timeout: SETTLE_TIMEOUT_MS}, paneSelector(paneId), text);
+    await clickHandle(page, box);
+}
+
+/** The texts of the text boxes a pane shows as selected. */
+function readSelectedTextBoxes(page: Page, paneId: string) {
+    return page.$$eval(`${paneSelector(paneId)} .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-selected`, boxes => boxes
+        .filter(box => box.getBoundingClientRect().width > 0)
+        .map(box => box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? ''));
+}
+
+async function waitForSelectedTextBoxes(page: Page, paneId: string, label: string, expected: string[]) {
+    try {
+        await page.waitForFunction((selector: string, texts: string[]) => {
+            const selected = Array.from(document.querySelectorAll(selector))
+                .filter(box => box.getBoundingClientRect().width > 0)
+                .map(box => box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? '');
+            return selected.length === texts.length && texts.every(text => selected.some(candidate => candidate.includes(text)));
+        }, {timeout: SETTLE_TIMEOUT_MS}, `${paneSelector(paneId)} .pdf-annotation-editor-layer [data-annotation-kind="text-box"].is-selected`, expected);
+    } catch (error) {
+        throw new Error(`${label}: ${JSON.stringify(await readSelectedTextBoxes(page, paneId))}`, {cause: error});
+    }
+}
+
 describe('shared PDF split', () => {
     it('shows one document in two views with shared edits, undo, dirty state and save, and separate placement', async () => {
         const stamp = Date.now();
@@ -967,5 +995,58 @@ describe('shared PDF split', () => {
                 'Last from right',
             ],
         });
+    }, TIMEOUT_MS);
+
+    // Sweep #845 item 3: each view keeps the annotation it selected, as it
+    // keeps its own page and zoom.
+    it('keeps the annotation selected in one linked view when the other view selects another', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-selection-${stamp}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-selection-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        const first = `SELECT-X-${stamp}`;
+        const second = `SELECT-Y-${stamp}`;
+        await activatePaneByTab(page, leftPane!);
+        await createCanonicalTextBoxWithPointer(page, first, {
+            x: 0.3,
+            y: 0.25,
+        }, 1);
+        await createCanonicalTextBoxWithPointer(page, second, {
+            x: 0.3,
+            y: 0.6,
+        }, 1);
+        for (const paneId of [
+            leftPane!,
+            rightPane!,
+        ]) {
+            await waitForPaneView(page, paneId, `${paneId} renders both text boxes`, view => containsAll(view.renderedTexts, [
+                first,
+                second,
+            ]));
+        }
+
+        // The left view selects X; the right view selects Y.
+        await clickTextBoxInPane(page, leftPane!, first);
+        await waitForSelectedTextBoxes(page, leftPane!, 'the left view selects X', [first]);
+        await activatePaneByTab(page, rightPane!);
+        await clickTextBoxInPane(page, rightPane!, second);
+        await waitForSelectedTextBoxes(page, rightPane!, 'the right view selects Y', [second]);
+
+        // Back in the left view through its tab, X is still its selection.
+        await activatePaneByTab(page, leftPane!);
+        await waitForSelectedTextBoxes(page, leftPane!, 'the left view, back in use, shows X selected', [first]);
+        await waitForSelectedTextBoxes(page, rightPane!, 'the right view keeps Y selected', [second]);
     }, TIMEOUT_MS);
 });

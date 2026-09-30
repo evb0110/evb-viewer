@@ -7,7 +7,10 @@ import {
 import {shallowRef} from 'vue';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    type AnnotationId,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationColorCommands} from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -93,13 +96,17 @@ function createHarness() {
         updateCachedColor: vi.fn(),
     };
     const emitForcedAnnotationMutation = vi.fn();
+    // The invoking view's selection.
+    const selectedIds = new Set<AnnotationId>();
     const commands = usePdfAnnotationColorCommands({
         annotationApplication: shallowRef(application),
         annotationCommentModel: annotationCommentModel as never,
         emitForcedAnnotationMutation,
+        getSelectedIds: () => selectedIds,
     });
     return {
         application,
+        selectedIds,
         commands,
         annotationCommentModel,
         emitForcedAnnotationMutation,
@@ -143,6 +150,7 @@ describe('usePdfAnnotationColorCommands', () => {
             annotationApplication: shallowRef(application),
             annotationCommentModel: annotationCommentModel as never,
             emitForcedAnnotationMutation,
+            getSelectedIds: () => new Set(),
         });
 
         const result = commands.updateTextMarkupAnnotationColor(createNoteComment(), '#22c55e');
@@ -196,7 +204,7 @@ describe('usePdfAnnotationColorCommands', () => {
 
     it('updates the selected canonical text markup without a PDF.js editor', () => {
         const harness = createHarness();
-        harness.application.store.select([asAnnotationId('anno-markup')]);
+        harness.selectedIds.add(asAnnotationId('anno-markup'));
 
         const result = harness.commands.updateSelectedTextMarkupAnnotationColor('#22c55e');
 
@@ -216,7 +224,6 @@ describe('usePdfAnnotationColorCommands', () => {
 
     it('does not report a mutation when the selected entity is not text markup', () => {
         const application = new AnnotationApplication('test');
-        application.store.select([asAnnotationId('missing')]);
         const commands = usePdfAnnotationColorCommands({
             annotationApplication: shallowRef(application),
             annotationCommentModel: {
@@ -224,6 +231,7 @@ describe('usePdfAnnotationColorCommands', () => {
                 updateCachedColor: vi.fn(),
             } as never,
             emitForcedAnnotationMutation: vi.fn(),
+            getSelectedIds: () => new Set([asAnnotationId('missing')]),
         });
 
         expect(commands.updateSelectedTextMarkupAnnotationColor('#22c55e')).toMatchObject({updated: false});

@@ -831,6 +831,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationApplication,
         annotationCommentModel,
         emitForcedAnnotationMutation,
+        getSelectedIds: () => annotationEditorSurface.selectedIds.value,
     });
     const {
         focusAnnotationComment,
@@ -941,12 +942,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         nextTick,
     });
     const scheduleSetAnnotationTool = (_tool: TAnnotationTool, _reason: string) => {};
-    function clearAnnotationProjectionState() {
-        annotationCommentModel.clearProjection();
-        activeCommentStableKey.value = null;
-        options.emitAnnotationComments([]);
-        options.emitAnnotationInventory(null);
-    }
     let writerParseRequest = 0;
     let writerParseAbortController: AbortController | null = null;
     let writerParseTask: {
@@ -1097,7 +1092,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotations.commentSync.incrementSyncToken();
             annotations.highlight.clearSelectionCache();
             if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
-                clearAnnotationProjectionState();
+                annotationCommentModel.clearProjection();
+                activeCommentStableKey.value = null;
+                options.emitAnnotationInventory(null);
             }
             return;
         }

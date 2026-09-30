@@ -619,6 +619,7 @@ export const usePdfAnnotationEditorSurface = (
             editingId.value = null;
             editingPageIndex = null;
             clearPendingTextBoxDrafts();
+            selectedIds.value = new Set();
         }
         subscribedApplication = application;
         stopSubscription?.();
@@ -627,7 +628,7 @@ export const usePdfAnnotationEditorSurface = (
             // The store emission is the only retained projection. Group it in
             // one pass so each page component reads the same stable snapshot.
             entitiesByPage.value = groupAnnotationEntitiesByPage(entities);
-            selectedIds.value = new Set(application.store.selectedIds);
+            setSelection([...selectedIds.value]);
         });
     }
 
@@ -727,6 +728,18 @@ export const usePdfAnnotationEditorSurface = (
         return entitiesByPage.value.get(pageIndex) ?? [];
     }
 
+    // The selection belongs to this view, like its page and zoom; another view
+    // of the document keeps its own. It holds only annotations that still exist.
+    function setSelection(ids: readonly AnnotationId[]) {
+        const next = new Set(ids.filter((id) => {
+            const entity = store().get(id);
+            return Boolean(entity && !entity.deleted);
+        }));
+        if (next.size !== selectedIds.value.size || [...next].some(id => !selectedIds.value.has(id))) {
+            selectedIds.value = next;
+        }
+    }
+
     function select(ids: readonly AnnotationId[], selectionOptions: { additive?: boolean } = {}) {
         if (editingId.value !== null && !ids.includes(editingId.value)) commitTextSession();
         const nextIds = selectionOptions.additive
@@ -735,12 +748,12 @@ export const usePdfAnnotationEditorSurface = (
                 ...ids,
             ])
             : new Set(ids);
-        store().select([...nextIds]);
+        setSelection([...nextIds]);
     }
 
     function clearSelection() {
         commitTextSession();
-        store().clearSelection();
+        setSelection([]);
     }
 
     function getSelectedTextBox() {

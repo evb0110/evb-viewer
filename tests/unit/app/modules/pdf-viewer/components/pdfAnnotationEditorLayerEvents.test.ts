@@ -180,7 +180,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(layer).not.toBeNull();
         expect(rect).not.toBeNull();
         expect(entityRoot).not.toBeNull();
-        annotationApplication.value.store.select([annotationId]);
+        surface.select([annotationId]);
         await nextTick();
         expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).toBe(entityRoot);
         vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue({
@@ -203,7 +203,6 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             pointerId: 11,
         }));
         expect(host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')).toBe(layer);
-        expect(annotationApplication.value.store.selectedIds).toEqual(new Set([annotationId]));
         expect(surface.selectedIds.value).toEqual(new Set([annotationId]));
 
         layer!.dispatchEvent(new PointerEvent('pointerup', {
@@ -217,7 +216,6 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         await nextTick();
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
-        expect(annotationApplication.value.store.selectedIds).toEqual(new Set([annotationId]));
         expect(surface.selectedIds.value).toEqual(new Set([annotationId]));
         expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
 
@@ -238,7 +236,6 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         layer!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         await nextTick();
 
-        expect(annotationApplication.value.store.selectedIds).toEqual(new Set());
         expect(surface.selectedIds.value).toEqual(new Set());
         expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).toBeNull();
         app.unmount();

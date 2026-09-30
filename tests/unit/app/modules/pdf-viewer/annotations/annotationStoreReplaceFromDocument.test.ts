@@ -317,7 +317,6 @@ describe('AnnotationStore.replaceFromDocument', () => {
             annotationId: id,
             pdfRef: `${index + 1} 0 R`,
         })));
-        store.select([ids[2]!]);
 
         store.replaceFromDocument(ids.map((_, index) => textMarkup(`parsed-${index}`, {
             identity: {
@@ -328,10 +327,9 @@ describe('AnnotationStore.replaceFromDocument', () => {
         })), []);
 
         expect(store.list().map(entity => entity.identity.id)).toEqual(ids);
-        expect(store.selectedIds).toEqual(new Set([ids[2]! ]));
     });
 
-    it('retains omitted dirty entities, including tombstones, and intersects selection with live ids', () => {
+    it('retains omitted dirty entities, including tombstones', () => {
         const store = new AnnotationStore();
         const deleted = store.createNote(note('deleted'));
         store.markPersisted(store.beginSave(), [{
@@ -342,12 +340,6 @@ describe('AnnotationStore.replaceFromDocument', () => {
         const dirty = store.createNote(note('dirty'));
         store.updateNote(dirty.identity.id, {contents: 'unsaved'});
         const parsed = store.createTextBox(textBox('parsed'));
-        store.select([
-            dirty.identity.id,
-            deleted.identity.id,
-            parsed.identity.id,
-            asAnnotationId('missing'),
-        ]);
         const notifications: Array<readonly AnnotationEntity[]> = [];
         store.subscribe(entities => notifications.push(entities));
         const beforeReplacementNotificationCount = notifications.length;
@@ -363,10 +355,6 @@ describe('AnnotationStore.replaceFromDocument', () => {
             identity: {},
         });
         expect(store.get(parsed.identity.id)).toMatchObject({identity: {pdfRef: '5R'}});
-        expect(store.selectedIds).toEqual(new Set([
-            dirty.identity.id,
-            parsed.identity.id,
-        ]));
         expect(store.foreign).toEqual([foreign()]);
         expect(store.getForeignAnnotations()).toEqual([foreign()]);
         expect(notifications).toHaveLength(beforeReplacementNotificationCount + 1);

@@ -289,7 +289,6 @@ export class AnnotationStore {
     readonly #saveFrontiers = new WeakMap<IAnnotationSaveFrontier, true>();
     readonly #persistenceIdentities = new AnnotationPersistenceIdentityLedger();
     readonly #retainedHistoryTargets = new Map<AnnotationId, number>();
-    readonly #selectedIds = new Set<AnnotationId>();
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
@@ -420,32 +419,6 @@ export class AnnotationStore {
 
     getForeignAnnotations() {
         return this.foreign;
-    }
-
-    get selectedIds(): ReadonlySet<AnnotationId> {
-        return new Set(this.#selectedIds);
-    }
-
-    select(ids: readonly AnnotationId[]) {
-        const liveIds = new Set(Array.from(this.#entities.values())
-            .filter(entity => !entity.deleted)
-            .map(entity => entity.identity.id));
-        const next = new Set(ids.filter(id => liveIds.has(id)));
-        if (next.size === this.#selectedIds.size
-            && Array.from(next).every(id => this.#selectedIds.has(id))) {
-            return;
-        }
-        this.#selectedIds.clear();
-        next.forEach(id => this.#selectedIds.add(id));
-        this.#emit();
-    }
-
-    clearSelection() {
-        if (!this.#selectedIds.size) {
-            return;
-        }
-        this.#selectedIds.clear();
-        this.#emit();
     }
 
     createTextBox(entity: ITextBoxEntity) {
@@ -851,7 +824,6 @@ export class AnnotationStore {
         if (!removed.size) {
             return;
         }
-        removed.forEach(id => this.#selectedIds.delete(id));
         this.#history.forgetCommands(removed);
         this.#rebindIdentities();
         this.#mutationEpoch += 1;
@@ -881,7 +853,6 @@ export class AnnotationStore {
                 });
         });
         this.#rebindIdentities();
-        this.#pruneSelection();
         this.#mutationEpoch += 1;
         this.#emit();
     }
@@ -1203,7 +1174,6 @@ export class AnnotationStore {
                 this.#entities.delete(entry.id);
             }
         });
-        this.#pruneSelection();
     }
 
     #replaceAllEntities(next: ReadonlyMap<AnnotationId, AnnotationEntity>) {
@@ -1220,7 +1190,6 @@ export class AnnotationStore {
         this.#identities.replace(changes);
         this.#entities.clear();
         next.forEach((entity, id) => this.#entities.set(id, cloneEntity(entity)));
-        this.#pruneSelection();
     }
 
     #require(id: AnnotationId) {
@@ -1229,15 +1198,6 @@ export class AnnotationStore {
             throw new Error(`Unknown annotation ${id}`);
         }
         return entity;
-    }
-
-    #pruneSelection() {
-        const live = new Set(Array.from(this.#entities.values())
-            .filter(entity => !entity.deleted)
-            .map(entity => entity.identity.id));
-        Array.from(this.#selectedIds)
-            .filter(id => !live.has(id))
-            .forEach(id => this.#selectedIds.delete(id));
     }
 
     #rebindIdentities() {
