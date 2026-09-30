@@ -1,0 +1,128 @@
+app/modules/workspace-shell/composables/useNativeWindowCloseHandshake.ts
+  s_c465d282efc2c0::t_6da215c1bbea74 33,35
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle.ts
+  s_c465d282efc2c0::t_da1180aee0b154 220-242,248,252
+app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView.ts
+  s_c465d282efc2c0::t_6f6c17cadfca52 27-31,45-46,48-49
+app/modules/workspace-shell/composables/useMetadataSession.ts
+  s_c465d282efc2c0::t_8a06279e45a3be 52-63,80-83
+app/modules/workspace-shell/composables/useAppShellTabLifecycle.ts
+  s_c465d282efc2c0::t_b84239e6bded5b 17
+  s_c465d282efc2c0::t_de73da457d1f37 457
+  s_c465d282efc2c0::t_6da215c1bbea74 473-476,485
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_c465d282efc2c0::t_c3c1b9cca65e2c 422,424
+  s_c465d282efc2c0::t_e4620a5ba88a54 423
+app/types/workspaceExpose.ts
+  s_c465d282efc2c0::t_c3c1b9cca65e2c 23-26,318-321
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_c465d282efc2c0::t_d62703a3f02078 185,395-404
+  s_c465d282efc2c0::t_f035589ca0a12d 818
+  s_c465d282efc2c0::t_bc62e67ce0d56c 934
+scripts/release/verifyPackagedScanCleanup.ts
+  s_c465d282efc2c0::t_ae3dbbe6475020 510,513,517
+app/modules/workspace-shell/composables/useWorkspacePresentation.ts
+  s_c465d282efc2c0::t_d4ada27bf6054d 9,43,67
+tests/unit/app/modules/workspace-shell/composables/tabsMenuBindings.test.ts
+  s_c465d282efc2c0::t_fcd589f66b8989 44
+app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions.ts
+  s_c465d282efc2c0::t_eff59f01e7b3b6 105
+  s_c465d282efc2c0::t_6f6c17cadfca52 107-110
+  s_c465d282efc2c0::t_c3c1b9cca65e2c 3,73
+  s_c465d282efc2c0::t_d2b6f88ce5f763 11-12,16,19-22,62-71,82-83,87,89-103,112,118-129,184-185
+  s_c465d282efc2c0::t_2a5a395be413f8 4-8,72,74-81,84-86,88,104,106,111,113-117
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_8714cd14e53ad4 293-313,413-415,417-418,423-425,427-428
+  s_c465d282efc2c0::t_a945c2270953f3 392-395,407,409,499-500
+  s_c465d282efc2c0::t_703f0c6c9ba400 25,132-133,213-221,224,226-229,337-341,343,345,512-532,537,540-555
+  s_c465d282efc2c0::t_c92b532ce99e58 222-223
+  s_c465d282efc2c0::t_67fffbc498ad3d 19-21,121-131,225,342,344,362-364,533-536,538-539
+  s_c465d282efc2c0::t_9b71a00ac58f5c 271-272,275,354-356
+  s_c465d282efc2c0::t_d7b786e80dbce0 357
+  s_c465d282efc2c0::t_64284d853dcf7b 18,230-231,556
+app/modules/pdf-viewer/public.ts
+  s_c465d282efc2c0::t_c3c1b9cca65e2c 31
+app/modules/workspace-shell/composables/useWorkspaceRestoreTracker.ts
+  s_c465d282efc2c0::t_b84239e6bded5b 3-8
+app/modules/workspace-shell/composables/useAppShellDirectionalTabs.ts
+  s_c465d282efc2c0::t_f035589ca0a12d 52-53,155-158,172,176-178,198-199
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_c465d282efc2c0::t_c3c1b9cca65e2c 18,104-107
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_c465d282efc2c0::t_2bbea1fa2b2896 19,225-272
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_c465d282efc2c0::t_8c2f84ea3417e3 2-5,10,12-42,45-50,52-94,97-107,109-145
+app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState.ts
+  s_c465d282efc2c0::t_3cbfd97374442c 6,13,34-39,187
+app/modules/workspace-shell/documentViewContext.ts
+  s_c465d282efc2c0::t_d62703a3f02078 23,492,496-498,536-541
+  s_c465d282efc2c0::t_06daa3f2e01811 111-113
+tests/unit/app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint.test.ts
+  s_c465d282efc2c0::t_0659133ae0cd95 17-18,25-27,98,104,106-108,110-119,121-122,136-145,156-158,163-164,167,176-178,183,198-199,215,217
+  s_c465d282efc2c0::t_c9ab2159b44f3b 99-103,105,109,120,127-135,184-197,218-260
+  s_c465d282efc2c0::t_ddd528dd19eab8 165-166,216
+  s_c465d282efc2c0::t_5e74fabebb3e92 123-126,146-155,159-162,168-175,179-182,200-214
+app/modules/workspace-shell/menu/registerTabsMenuBindings.ts
+  s_c465d282efc2c0::t_bc62e67ce0d56c 193-194,353
+scripts/diagnostics/pdfFacingContinuousRegression.ts
+  s_c465d282efc2c0::t_2a416b7cd6e919 203
+app/modules/workspace-shell/documentContext.ts
+  s_c465d282efc2c0::t_d62703a3f02078 64,77-78,532-533,537-540,554,563-571
+  s_c465d282efc2c0::t_d087093545aad8 173,175
+  s_c465d282efc2c0::t_21e3f3e68bb2c5 536
+  s_c465d282efc2c0::t_9b0288647bebfe 534-535
+  s_c465d282efc2c0::t_06daa3f2e01811 82-83,157-158
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_c465d282efc2c0::t_2a5a395be413f8 9-14,143-166,229-233
+  s_c465d282efc2c0::t_3d6c4c4329f6e6 25,169-186,198-202,204-211,223,225-228,234-236,238-240
+app/types/evbTestApi.ts
+  s_c465d282efc2c0::t_11751b23cc93a5 57-58
+app/modules/workspace-shell/document-sessions/workspaceDocumentController.ts
+  s_c465d282efc2c0::t_6f6c17cadfca52 23,87,247,254
+app/modules/workspace-shell/components/DocumentWorkspaceTab.vue
+  s_c465d282efc2c0::t_268bc56fcc5991 129
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_c465d282efc2c0::t_d71ebe3109c337 826-829,844
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_c465d282efc2c0::t_11751b23cc93a5 218-219
+  s_c465d282efc2c0::t_bc62e67ce0d56c 100,545
+app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController.ts
+  s_c465d282efc2c0::t_c3c1b9cca65e2c 170-172
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_c465d282efc2c0::t_8a06279e45a3be 31-32,40,63-73,95,99,271-278
+app/modules/workspace-shell/components/EditorPaneView.vue
+  s_c465d282efc2c0::t_81df90f79eb7db 25
+  s_c465d282efc2c0::t_5fcabb5512105d 29
+app/modules/workspace-shell/document-sessions/createDocumentSessionTransferState.ts
+  s_c465d282efc2c0::t_510661a3d5bdd7 1-2,6-7,9,11-12,18
+tests/e2e/electron/navigation/inactivePdfTabs.e2e.test.ts
+  s_c465d282efc2c0::t_9a0cc10b532727 27,292,331
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_c465d282efc2c0::t_510661a3d5bdd7 20,105
+  s_c465d282efc2c0::t_6da215c1bbea74 482
+tests/unit/app/modules/workspace-shell/components/documentWorkspaceNavigationCommand.test.ts
+  s_c465d282efc2c0::t_b9b4f17ccb5a6f 31-34,168-170,177-179,226-228,266-269,338-352
+tests/e2e/electron/navigation/inactiveDjvuTabs.e2e.test.ts
+  s_c465d282efc2c0::t_9a0cc10b532727 28,958
+app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts
+  s_c465d282efc2c0::t_06daa3f2e01811 30,133-134
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint.ts
+  s_c465d282efc2c0::t_711a101f04cbf5 55-82,103-104,106-109,112-114
+  s_c465d282efc2c0::t_0f00bd09c3a87f 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ccc14f40df511a05708492e8018a8e31347f6117",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
