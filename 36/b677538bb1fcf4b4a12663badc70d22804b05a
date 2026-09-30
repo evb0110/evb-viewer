@@ -1,0 +1,25 @@
+tests/e2e/electron/annotations/sharedPdfSplit.e2e.test.ts
+  s_c465d282efc2c0::t_29f129b2797fd7 26-28,282,309,322,347,370,414
+tests/e2e/electron/helpers/workspaceTabs.ts
+  s_c465d282efc2c0::t_c5f93d7d1abb3b 2,37-111
+tests/e2e/electron/nightly/large-pdf/nativePdfSplitPaneLifecycle.e2e.test.ts
+  s_c465d282efc2c0::t_784d982c9536f8 2-4,9,11,13,20-21,27-47,50-51,60-77,83-84,90,117-161,170,172-180,185-192,197-207,212-225,228-244,250-257,264,267-269,273-275,278-279,281-282,287,289-290,292
+  s_c465d282efc2c0::t_0ab3728cfe580d 106-108,110-114
+  s_c465d282efc2c0::t_cc53e51707590a 78-82,85-89,91-105,109,115-116,181-183,193-196,208-211,226,245-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "36b677538bb1fcf4b4a12663badc70d22804b05a",
+  "prompts": {},
+  "sessions": {
+    "s_c465d282efc2c0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f4871d-4e9f-40fd-bf51-73eb38c5bc93",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
