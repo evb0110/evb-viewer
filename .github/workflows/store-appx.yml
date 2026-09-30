@@ -62,6 +62,10 @@ jobs:
         env:
           EVB_NATIVE_TARGET_ARCH: ${{ matrix.arch }}
           EVB_NATIVE_TARGET_PLATFORM: win
+          # With SENTRY_AUTH_TOKEN, `pnpm run build` uploads the renderer maps
+          # before pruning them.
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
         run: pnpm run build:strict
 
       - name: Upload strict build log on failure
@@ -78,7 +82,7 @@ jobs:
         env:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-        run: node scripts/release/upload-sentry-sourcemaps.mjs dist-electron nuxt-output/public
+        run: node scripts/upload-sentry-sourcemaps.mjs dist-electron
 
       - name: Package Microsoft Store AppX
         shell: bash

@@ -135,13 +135,13 @@ impl IncrementalDocument {
     }
 }
 
-struct TempQpdfFiles {
-    structure: PathBuf,
+pub(crate) struct TempQpdfFiles {
+    pub(crate) structure: PathBuf,
     diagnostics: PathBuf,
 }
 
 impl TempQpdfFiles {
-    fn create() -> Result<Self> {
+    pub(crate) fn create() -> Result<Self> {
         remove_stale_qpdf_files(&std::env::temp_dir(), SystemTime::now());
         let nonce = qpdf_temp_nonce()?;
         let stem = format!("{QPDF_TEMP_PREFIX}{nonce}");
@@ -494,7 +494,7 @@ const MAX_QPDF_PAGE_LIST_BYTES: usize = 64 * 1024 * 1024;
 const MAX_QPDF_OBJECTS_PER_QUERY: usize = 2_048;
 const MAX_QPDF_COMMAND_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
-fn run_qpdf_bounded(
+pub(crate) fn run_qpdf_bounded(
     path: &Path,
     qpdf_path: &Path,
     arguments: &[&str],
@@ -1386,50 +1386,6 @@ fn hex_value(value: u8) -> Result<u8> {
     }
 }
 
-pub(crate) fn read_terminal_xref(
-    path: &Path,
-    file_len: u64,
-) -> Result<(u64, lopdf::xref::XrefType)> {
-    let mut file = File::open(path).map_err(io_domain_error)?;
-    read_terminal_xref_from_file(&mut file, file_len)
-}
-
-pub(crate) fn read_terminal_xref_from_file(
-    file: &mut File,
-    file_len: u64,
-) -> Result<(u64, lopdf::xref::XrefType)> {
-    const TAIL_BYTES: u64 = 1024 * 1024;
-    let tail_start = file_len.saturating_sub(TAIL_BYTES);
-    file.seek(SeekFrom::Start(tail_start))?;
-    let mut tail = Vec::new();
-    file.read_to_end(&mut tail)?;
-    let eof = find_last_bytes(&tail, b"%%EOF").ok_or("PDF terminal EOF marker is missing")?;
-    // Bytes after the last EOF marker, such as NUL padding or a download
-    // trailer, belong to no revision and an append can follow them. A later
-    // startxref among them would make qpdf and this reader disagree on which
-    // revision the append extends.
-    if find_last_bytes(&tail[eof + b"%%EOF".len()..], b"startxref").is_some() {
-        return Err("PDF has a startxref marker after its terminal EOF marker".into());
-    }
-    let marker = find_last_bytes(&tail[..eof], b"startxref")
-        .ok_or("PDF terminal startxref marker is missing")?;
-    let relative = parse_u64_token(&tail, marker + b"startxref".len())
-        .map(|(value, _)| value)
-        .ok_or("PDF terminal startxref value is invalid")?;
-    if relative >= file_len {
-        return Err("PDF terminal startxref points outside the file".into());
-    }
-    file.seek(SeekFrom::Start(relative))?;
-    let mut marker = [0_u8; 4];
-    let count = file.read(&mut marker)?;
-    let xref_type = if marker[..count].starts_with(b"xref") {
-        lopdf::xref::XrefType::CrossReferenceTable
-    } else {
-        lopdf::xref::XrefType::CrossReferenceStream
-    };
-    Ok((relative, xref_type))
-}
-
 fn read_last_byte(path: &Path, len: u64) -> Result<Option<u8>> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     read_last_byte_from_file(&mut file, len)
@@ -1445,7 +1401,7 @@ pub(crate) fn read_last_byte_from_file(file: &mut File, len: u64) -> Result<Opti
     Ok(Some(byte[0]))
 }
 
-fn io_domain_error(error: std::io::Error) -> Box<dyn Error> {
+pub(crate) fn io_domain_error(error: std::io::Error) -> Box<dyn Error> {
     domain_error(NativeErrorCode::Io, error.to_string())
 }
 
@@ -1906,49 +1862,5 @@ esac
             .downcast_ref::<NativeError>()
             .expect("qpdf process failures should carry a native error");
         assert_eq!(native_error.code, NativeErrorCode::CorruptXref);
-    }
-
-    #[test]
-    fn terminal_xref_rejects_a_later_marker_after_eof() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("evb-terminal-xref-test-{nonce}.pdf"));
-        fs::write(
-            &path,
-            b"%PDF-1.4\nxref\nstartxref\n9\n%%EOF\n% startxref\n1\n",
-        )
-        .unwrap();
-        let mut file = File::open(&path).unwrap();
-        let len = file.metadata().unwrap().len();
-        let error = read_terminal_xref_from_file(&mut file, len).unwrap_err();
-        assert!(error.to_string().contains("after its terminal EOF"));
-        fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn terminal_xref_reads_through_bytes_after_eof() {
-        for trailer in [&b"\0\0\0\0"[..], b"<html>download trailer</html>\n"] {
-            let nonce = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!("evb-terminal-xref-test-{nonce}.pdf"));
-            fs::write(
-                &path,
-                [&b"%PDF-1.4\nxref\nstartxref\n9\n%%EOF\n"[..], trailer].concat(),
-            )
-            .unwrap();
-            let mut file = File::open(&path).unwrap();
-            let len = file.metadata().unwrap().len();
-            let (offset, xref_type) = read_terminal_xref_from_file(&mut file, len).unwrap();
-            assert_eq!(offset, 9);
-            assert!(matches!(
-                xref_type,
-                lopdf::xref::XrefType::CrossReferenceTable
-            ));
-            fs::remove_file(path).unwrap();
-        }
     }
 }

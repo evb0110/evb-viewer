@@ -75,6 +75,7 @@ import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
+const UPDATE_OFFER_UI_TIMEOUT_MS = 15_000;
 const LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS = 45_000;
 const LARGE_PDF_VISUAL_READY_TIMEOUT_MS = 30_000;
 // The synthetic file is a path/range-IPC regression sentinel, not a codec-fidelity
@@ -974,6 +975,142 @@ describe('Electron E2E - PR Blocking Smoke', () => {
 
         expect(updateState).not.toBeNull();
         expect(updateState?.version).toBe(packageJson.version);
+    });
+
+    it('automatic update offer keeps reader controls reachable', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: 'e2e-pr-blocking-update-offer',
+        });
+        const page = session.page;
+        const fixturePath = await createMultiPageTextFixturePdf('update-offer-reader.pdf', 2);
+        await openPdfInApp(page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+        await waitForPdfLoaded(page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+
+        type TUpdateOfferWindow = Window & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+        const emitUpdateStatus = (phase: 'available' | 'downloaded' | 'idle', origin: 'auto' | 'manual') => evaluateInPage(
+            page,
+            (payload: {
+                phase: string;
+                origin: string
+            }) => {
+                (window as TUpdateOfferWindow).__emitUpdateStatusForAutomation?.({
+                    ...payload,
+                    version: '9.9.9',
+                    percent: null,
+                    message: null,
+                });
+            },
+            {
+                phase,
+                origin,
+            },
+        );
+        const waitForVisibleText = (text: string, selector = '*') => waitForFunctionInPage(
+            page,
+            (payload: {
+                text: string;
+                selector: string
+            }) => Array.from(document.querySelectorAll<HTMLElement>(payload.selector))
+                .some(element => element.childElementCount === 0
+                    && element.textContent?.trim() === payload.text
+                    && element.getClientRects().length > 0),
+            {timeout: UPDATE_OFFER_UI_TIMEOUT_MS},
+            {
+                text,
+                selector,
+            },
+        );
+        const readToggleSidebarTarget = () => evaluateInPage(page, () => {
+            const button = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle Sidebar"]');
+            if (!button) {
+                return null;
+            }
+            const rect = button.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            return {
+                x,
+                y,
+                pressed: button.getAttribute('aria-pressed'),
+                hit: document.elementFromPoint(x, y)?.closest('button') === button,
+            };
+        });
+
+        await emitUpdateStatus('available', 'auto');
+        await waitForVisibleText('Update available');
+        const target = await readToggleSidebarTarget();
+        expect(target).not.toBeNull();
+        expect(target?.hit).toBe(true);
+
+        await page.mouse.click(target!.x, target!.y);
+        await waitForFunctionInPage(page, (previouslyPressed: string | null) => {
+            const button = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle Sidebar"]');
+            const sidebar = document.querySelector<HTMLElement>('.sidebar-wrapper');
+            const pressed = button?.getAttribute('aria-pressed') ?? null;
+            return pressed !== previouslyPressed
+                && sidebar?.classList.contains('is-closed') === (pressed !== 'true');
+        }, {timeout: 1_000}, target!.pressed);
+
+        // The notice slides in, so its action is clickable once it has settled
+        // and the hit test at its centre reaches it.
+        const viewUpdate = await (await waitForFunctionInPage(page, () => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+                .find(candidate => candidate.textContent?.trim() === 'View update');
+            const rect = button?.getBoundingClientRect();
+            if (!button || !rect || (button.closest('li')?.getAnimations({subtree: true}).length ?? 0) > 0) {
+                return null;
+            }
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            return document.elementFromPoint(x, y)?.closest('button') === button ? {
+                x,
+                y,
+            } : null;
+        }, {timeout: UPDATE_OFFER_UI_TIMEOUT_MS})).jsonValue() as {
+            x: number;
+            y: number
+        };
+        await page.mouse.click(viewUpdate.x, viewUpdate.y);
+        await waitForVisibleText('Download and Install', '[role="dialog"] *');
+        await page.keyboard.press('Escape');
+        await waitForFunctionInPage(page, () => !document.querySelector('[role="dialog"]'), {timeout: UPDATE_OFFER_UI_TIMEOUT_MS});
+
+        await emitUpdateStatus('downloaded', 'auto');
+        await waitForVisibleText('Update ready to install');
+        expect((await readToggleSidebarTarget())?.hit).toBe(true);
+
+        await emitUpdateStatus('available', 'manual');
+        await waitForVisibleText('Download and Install', '[role="dialog"] *');
+        expect((await readToggleSidebarTarget())?.hit).toBe(false);
+
+        // "Later" answers with a manual idle status, which must not reopen a dialog.
+        const later = await (await waitForFunctionInPage(page, () => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                .find(candidate => candidate.textContent?.trim() === 'Later');
+            const dialog = button?.closest<HTMLElement>('[role="dialog"]');
+            const rect = button?.getBoundingClientRect();
+            if (!button || !rect || (dialog?.getAnimations({subtree: true}).length ?? 0) > 0) {
+                return null;
+            }
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            return document.elementFromPoint(x, y)?.closest('button') === button ? {
+                x,
+                y,
+            } : null;
+        }, {timeout: UPDATE_OFFER_UI_TIMEOUT_MS})).jsonValue() as {
+            x: number;
+            y: number
+        };
+        await page.mouse.click(later.x, later.y);
+        await waitForFunctionInPage(page, () => !document.querySelector('[role="dialog"]'), {timeout: UPDATE_OFFER_UI_TIMEOUT_MS});
+        await emitUpdateStatus('idle', 'manual');
+        await evaluateInPage(page, () => new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }));
+        expect(await evaluateInPage(page, () => Boolean(document.querySelector('[role="dialog"]')))).toBe(false);
+        expect((await readToggleSidebarTarget())?.hit).toBe(true);
     });
 
     it('keeps a long inactive-tab title clear of its hovered close button', async () => {

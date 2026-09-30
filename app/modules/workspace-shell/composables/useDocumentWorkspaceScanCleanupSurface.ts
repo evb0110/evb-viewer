@@ -2,6 +2,7 @@ import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/public/
 import type {
     IWorkspaceDocumentController,
     IWorkspaceDocumentIdentity,
+    IWorkspaceDocumentView,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {
     IScanCleanupTabSessionState,
@@ -15,6 +16,7 @@ function hasScanCleanupSourceDocument(identity: IWorkspaceDocumentIdentity) {
 
 interface IDocumentWorkspaceScanCleanupSurfaceOptions {
     documentSession: IWorkspaceDocumentController;
+    documentView: IWorkspaceDocumentView;
     closeAllDropdowns: () => void;
     readDocumentKey: () => string | null | undefined;
     readSourceSha256?: () => string | null;
@@ -24,15 +26,18 @@ interface IDocumentWorkspaceScanCleanupSurfaceOptions {
 export const useDocumentWorkspaceScanCleanupSurface = (
     options: IDocumentWorkspaceScanCleanupSurfaceOptions,
 ) => {
-    const {documentSession} = options;
+    const {
+        documentSession,
+        documentView,
+    } = options;
     const surfaceMode = computed<TDocumentSurfaceMode>({
-        get: () => documentSession.viewState.value.surfaceMode ?? 'reader',
-        set: surfaceMode => documentSession.applyViewState({
-            ...documentSession.viewState.value,
+        get: () => documentView.viewState.value.surfaceMode ?? 'reader',
+        set: surfaceMode => documentView.applyViewState({
+            ...documentView.viewState.value,
             surfaceMode,
         }),
     });
-    const scanCleanupSessionState = computed(() => documentSession.viewState.value.scanCleanup ?? null);
+    const scanCleanupSessionState = computed(() => documentView.viewState.value.scanCleanup ?? null);
     // Set once the lazily loaded cleanup surface has painted, so the reader
     // stays laid out underneath until then.
     const workspaceMounted = ref(false);
@@ -41,8 +46,8 @@ export const useDocumentWorkspaceScanCleanupSurface = (
     });
 
     function updateScanCleanupSessionState(scanCleanup: IScanCleanupTabSessionState) {
-        documentSession.applyViewState({
-            ...documentSession.viewState.value,
+        documentView.applyViewState({
+            ...documentView.viewState.value,
             scanCleanup,
         });
     }
@@ -52,8 +57,8 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         const {
             scanCleanup: _scanCleanup,
             ...viewState
-        } = documentSession.viewState.value;
-        documentSession.applyViewState(viewState);
+        } = documentView.viewState.value;
+        documentView.applyViewState(viewState);
     }
 
     function discardScanCleanupState() {

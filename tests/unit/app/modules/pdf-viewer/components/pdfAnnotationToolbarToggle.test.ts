@@ -17,7 +17,7 @@ import {
     ref,
 } from 'vue';
 import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue';
-import {usePageAnnotationTools} from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
+import {useViewAnnotationTool} from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
 import type {TAnnotationTool} from '@app/types/annotations';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -28,7 +28,7 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 function mountToolbar() {
     const prepareAnnotationToolChange = vi.fn();
     const clearSelectedShape = vi.fn();
-    const tools = usePageAnnotationTools({
+    const tools = useViewAnnotationTool({
         pdfViewerRef: ref({
             prepareAnnotationToolChange,
             clearSelectedShape,
@@ -37,9 +37,8 @@ function mountToolbar() {
             updateShape: vi.fn(),
         }),
         dragMode: ref(false),
-        clearAnnotationChanges: vi.fn(),
+        annotationKeepActive: ref(true),
         closeAnnotationContextMenu: vi.fn(),
-        hasAnnotationChanges: () => false,
     });
     const host = document.createElement('div');
     document.body.append(host);

@@ -35,7 +35,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     let lastSyncedMenuTabCount: number | null = null;
 
     function syncMenuDocumentState() {
-        const toolbar = deps.activeDocumentSession.value?.toolbarSnapshot.value;
+        const toolbar = deps.activeDocumentView.value?.toolbarSnapshot.value;
         const capabilities = toolbar?.viewerCapabilities;
         const context = deps.menuContext?.value;
         const hasDocument = shellState.hasDocument.value;
@@ -149,6 +149,7 @@ export const useAppShellMenuSync = (deps: IUseAppShellMenuSyncDeps) => {
     });
     return useMenuSync({
         activeDocumentSession: deps.activeDocumentSession,
+        activeDocumentView: deps.activeDocumentView,
         tabs: deps.tabs,
         shellState: deps.shellState,
         menuContext,

@@ -14,10 +14,7 @@ import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import type {
-    IWorkspaceRestoreTrackerLike,
-    IWorkspaceSplitCacheLike,
-} from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
+import type { IWorkspaceRestoreTrackerLike } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import {
     identityHasDocument,
     snapshotOccupiesTab,
@@ -30,7 +27,6 @@ interface IUseAppShellTabLifecycleOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
-    workspaceSplitCache: IWorkspaceSplitCacheLike;
     workspaceRestoreTracker: IWorkspaceRestoreTrackerLike;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
@@ -90,7 +86,6 @@ export const useAppShellTabLifecycle = (
         activePaneId,
         activeTabId,
         documentSessionsByTabId,
-        workspaceSplitCache,
         getPaneById,
         getTabById,
         getPaneByTabId,
@@ -155,7 +150,6 @@ export const useAppShellTabLifecycle = (
         if (pane) {
             closeTab(pane.paneId, tabId);
         }
-        workspaceSplitCache.clear(tabId);
     }
 
     function cleanupEmptyPanes() {
@@ -185,7 +179,8 @@ export const useAppShellTabLifecycle = (
 
     function hasTabBusyOperation(tabId: string) {
         const session = getDocumentSession(tabId);
-        const toolbarSnapshot = session?.mountedWorkspace.value ? session.toolbarSnapshot.value : null;
+        const view = session?.getView(tabId);
+        const toolbarSnapshot = view?.mountedWorkspace.value ? view.toolbarSnapshot.value : null;
         return session?.operationLease.isBusy.value === true || Boolean(toolbarSnapshot && (
             toolbarSnapshot.isAnySaving
             || toolbarSnapshot.isHistoryBusy
@@ -230,9 +225,9 @@ export const useAppShellTabLifecycle = (
     }
 
     function tabHasCloseableDocument(tabId: string | null | undefined) {
-        const session = getDocumentSession(tabId);
-        return Boolean(session?.mountedWorkspace.value)
-            && hasWorkspaceViewerDocumentCapabilities(session?.toolbarSnapshot.value.viewerCapabilities);
+        const view = tabId ? getDocumentSession(tabId)?.getView(tabId) : null;
+        return Boolean(view?.mountedWorkspace.value)
+            && hasWorkspaceViewerDocumentCapabilities(view?.toolbarSnapshot.value.viewerCapabilities);
     }
 
     function isSingletonPlaceholderCloseBlocked(paneId: string, tabId: string) {
@@ -382,7 +377,6 @@ export const useAppShellTabLifecycle = (
 
     function closeTabInState(paneId: string, tabId: string) {
         closeTab(paneId, tabId);
-        workspaceSplitCache.clear(tabId);
     }
 
     function closeResolvedTabInState(paneId: string, tabId: string) {
@@ -460,9 +454,7 @@ export const useAppShellTabLifecycle = (
         const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
         // The final tab is the product's required empty-tab slot. It keeps its
         // mounted workspace, so Start stays actionable in the close commit.
-        if (panes.value.length === 1 && pane?.tabIds.length === 1 && pane.tabIds[0] === tabId) {
-            workspaceSplitCache.clear(tabId);
-        } else {
+        if (panes.value.length !== 1 || pane?.tabIds.length !== 1 || pane.tabIds[0] !== tabId) {
             closeResolvedTabInState(paneId, tabId);
         }
     }
@@ -478,7 +470,10 @@ export const useAppShellTabLifecycle = (
             shouldDeferCrossPaneHandoff,
         } = resolveCloseHandoffContext(paneId, tabId);
 
-        const shouldPersistBeforeClose = await resolveClosePersistence(tabId);
+        // A view of a document that another tab still shows closes alone: the
+        // document, its unsaved work and its question stay with the other view.
+        const closesDocument = (getDocumentSession(tabId)?.views.value.size ?? 0) < 2;
+        const shouldPersistBeforeClose = closesDocument ? await resolveClosePersistence(tabId) : false;
         if (shouldPersistBeforeClose === null) {
             return;
         }
@@ -487,7 +482,7 @@ export const useAppShellTabLifecycle = (
             await handoffActiveTabBeforeClose(paneId, tabId);
         }
 
-        if (tabHoldsDocument(tabId)) {
+        if (closesDocument && tabHoldsDocument(tabId)) {
             await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose);
         } else {
             closeResolvedTabInState(paneId, tabId);

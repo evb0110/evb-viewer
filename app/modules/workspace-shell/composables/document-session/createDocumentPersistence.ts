@@ -1107,7 +1107,17 @@ export function createDocumentPersistence(
                     validation: result.validation,
                 });
                 logRendererTimings('not-applied', {validation: result.validation});
-                return null;
+                // Every save route appends through the same loader, so its size
+                // refusal is the one outcome the user has to be told about.
+                return result.error?.code === 'too-large'
+                    ? {
+                        success: false,
+                        outPath: null,
+                        saveMode: opts.saveMode,
+                        didSaveAs: false,
+                        nativeRefusalCode: 'too-large',
+                    }
+                    : null;
             }
             const materializedIdentityBindings = validateNativeIdentityBindings(
                 result.identityBindings,

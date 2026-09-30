@@ -1,43 +1,30 @@
-import type {
-    InjectionKey,
-    Ref,
-} from 'vue';
+import type { InjectionKey } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
+    createPdfDocumentAnnotations,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
+    type IPdfDocument,
+    type IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
-import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
-import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
-import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
-import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
-import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
-import { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import { usePageStatusBar } from '@app/modules/workspace-shell/composables/usePageStatusBar';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
-import { usePageShortcuts } from '@app/modules/workspace-shell/composables/usePageShortcuts';
-import { useWorkspaceCrop } from '@app/modules/workspace-shell/composables/useWorkspaceCrop';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
-import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
-import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
-import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
@@ -51,67 +38,40 @@ import {
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { runDetached } from '@app/utils/asyncGuard';
 import {
     useWorkspaceDocumentDriver,
-    useWorkspaceDocumentDriverBinding,
     type IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
-    createDocumentPageSourceSearchBackend,
-    type IDocumentOpenSurfaceSession,
+    createDocumentOpenSurfaceSession,
     type IDocumentSourceCapabilities,
+    type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/public';
-import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
-import type { IPdfPageMatches } from '@app/types/pdfUi';
-import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { getErrorMessage } from '@app/utils/error';
-import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
-import { copyTextToClipboard } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
-import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import {
+    createDocumentViews,
+    type TViewShellState,
+} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
-interface IDocumentContextDeps {
-    tabId: string;
-    isActive: Ref<boolean>;
-    controller: IWorkspaceDocumentController;
-    initialViewState: ITabViewSessionState | null;
-    openSurface: IDocumentOpenSurfaceSession;
-    preserveInitialStateForFirstSource: boolean;
-    /** Runs a user open as the tab controller's open transaction. */
-    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
-    emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
-    emitOpenSettings: () => void;
-}
-interface IDocumentViewBindingOptions {
-    mountPresentation: Ref<boolean>;
-    isRenderActive: Ref<boolean>;
-    isWorkspaceLayoutResizing: Ref<boolean>;
-    navigationFeedbackPage: Ref<number | null>;
-    onInitialVisualPending: () => void;
-    onInitialVisualReady: () => void;
-}
+interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
 
 /**
- * The per-tab document context: the tab controller, the open surface, the
- * document file and viewer state, and the feature sessions built on them.
- * DocumentWorkspace creates it once and provides it; features inject it.
+ * One document's context: the controller, the working copy and its
+ * lifecycle, metadata, annotations, save, history, page and file operations,
+ * print and export. DocumentSessionHost creates it once per document, outside
+ * any tab's mount, so it outlives the views that show it. Each mounted view
+ * attaches a port; commands that need a page, a selection or a viewer run in
+ * the view whose tab is in use.
  */
 export const createDocumentContext = (deps: IDocumentContextDeps) => {
-    const {
-        isActive,
-        controller,
-        openSurface,
-    } = deps;
+    const {controller} = deps;
     const { t } = useTypedI18n();
     const toast = useToast();
     const openingTransaction = computed(() => {
@@ -121,12 +81,70 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const isOpeningDocument = computed(() => openingTransaction.value !== null);
     const pendingDocumentPath = computed(() => openingTransaction.value?.target?.originalPath ?? null);
     const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
+    const views = createDocumentViews();
+    const {
+        viewPorts, commandView, commandViewRef, loadedView,
+    } = views;
+    const idleOpenSurface = createDocumentOpenSurfaceSession();
+    const commandOpenSurface = {
+        get snapshot() {
+            return (commandView.value?.openSurface ?? idleOpenSurface).snapshot;
+        },
+        get viewportSession() {
+            return (commandView.value?.openSurface ?? idleOpenSurface).viewportSession;
+        },
+        get navigationTicket() {
+            return (commandView.value?.openSurface ?? idleOpenSurface).navigationTicket;
+        },
+    };
+    const pdfViewerRef = commandViewRef<IPdfViewerExpose | null>(port => port.view.pdfViewerRef, null);
+    const documentViewerRef = computed(() => commandView.value?.view.documentViewerRef.value ?? null);
+    const currentPage = commandViewRef(port => port.view.currentPage, 1);
+    const totalPages = commandViewRef(port => port.view.totalPages, 0);
+    const pdfDocument = commandViewRef<IPdfDocument | null>(port => port.view.pdfDocument, null);
+    const viewPort = {
+        dragMode: commandViewRef(port => port.view.dragMode, false),
+        showSidebar: commandViewRef(port => port.view.showSidebar, false),
+        sidebarTab: commandViewRef<TDocumentSidebarTab>(port => port.view.sidebarTab, 'thumbnails'),
+        selectedThumbnailPages: commandViewRef<number[]>(port => port.view.selectedThumbnailPages, []),
+        selectedPageSelection: commandViewRef<TPageSelection | null>(port => port.view.selectedPageSelection, null),
+        setSelectedThumbnailPages: (pages: number[]) => commandView.value?.view.setSelectedThumbnailPages(pages),
+        setSelectedPageSelection: (selection: TPageSelection) => commandView.value?.view.setSelectedPageSelection(selection),
+        requestThumbnailInvalidation: (...args: Parameters<TViewShellState['requestThumbnailInvalidation']>) => (
+            commandView.value?.view.requestThumbnailInvalidation(...args)
+        ),
+        closeAllDropdowns: () => commandView.value?.view.closeAllDropdowns(),
+        openDropdown: (...args: Parameters<TViewShellState['openDropdown']>) => commandView.value?.view.openDropdown(...args),
+    };
+    const idlePageContextMenu = usePageContextMenu().pageContextMenu;
+    const pageContextMenu = {
+        pageContextMenu: computed(() => commandView.value?.pageContextMenu.pageContextMenu.value ?? idlePageContextMenu.value),
+        closePageContextMenu: () => commandView.value?.pageContextMenu.closePageContextMenu(),
+    };
+    // A document source change resets every view's search, not only the one in use.
+    function resetSearchCaches() {
+        for (const port of viewPorts.value.values()) {
+            port.search.resetSearchCache();
+        }
+    }
+    function closeSearches() {
+        for (const port of viewPorts.value.values()) {
+            port.search.closeSearch();
+        }
+    }
+    function runDocumentOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+        const port = commandView.value;
+        return port ? port.runDocumentOpen(request, run) : controller.runOpen(request, run);
+    }
+    function emitOpenInNewTab(result: TDocumentRef | TOpenFileResult) {
+        commandView.value?.emitOpenInNewTab(result);
+    }
     // Every workspace failure that reaches the user goes through this one
     // surface, so save, annotation, and open failures share one toast path.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
         createViewerLifecycleHooks: context => driver.createLifecycleHooks(context),
-        openSurface,
+        getOpenSurface: () => commandView.value?.openSurface ?? null,
         failureSurface: failure,
     });
     const {
@@ -136,23 +154,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pdfData,
         pdfSrc,
     } = file;
-    const view = useWorkspaceViewerShellState(deps.initialViewState);
-    const {
-        pdfViewerRef,
-        documentViewerRef,
-        currentPage,
-        totalPages,
-        pdfDocument,
-    } = view;
-    const search = useWorkspaceSearchSidebar({
-        workingCopyPath,
-        documentRevisionToken,
-        showSidebar: view.showSidebar,
-        sidebarTab: view.sidebarTab,
-        dragMode: view.dragMode,
-        totalPages,
-        initialSidebarWidth: deps.initialViewState?.sidebarWidth,
-    });
     const {
         settings: appSettings,
         save: saveSettings,
@@ -166,6 +167,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         search: false,
         text: false,
     });
+    const commandCanUndo = computed(() => commandView.value?.navigation.canUndo.value ?? false);
+    const commandCanRedo = computed(() => commandView.value?.navigation.canRedo.value ?? false);
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
@@ -190,8 +193,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     }
 
     const metadata = useMetadataSession({
-        pdfDocument,
-        totalPages,
+        pdfDocument: computed(() => loadedView.value?.view.pdfDocument.value ?? null),
+        totalPages: computed(() => loadedView.value?.view.totalPages.value ?? 0),
         workingCopyPath,
         documentRevisionToken,
         markDirty: file.markDirty,
@@ -200,43 +203,17 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const {
         pageLabelState, bookmarkState, workspaceUndoTimeline, 
     } = metadata;
-    watch(
-        () => ({
-            viewer: pdfViewerRef.value,
-            setCommandSink: pdfViewerRef.value?.setWorkspaceCommandSink,
-        }),
-        (current, previous) => {
-            if (
-                previous?.viewer
-                && (previous.viewer !== current.viewer || previous.setCommandSink !== current.setCommandSink)
-            ) {
-                previous.setCommandSink?.(null);
-            }
-            current.setCommandSink?.(metadata.workspaceCommandSink);
-        },
-        {
-            flush: 'post',
-            immediate: true,
-        },
-    );
-    const scanCleanup = useDocumentWorkspaceScanCleanupSurface({
-        documentSession: controller,
-        closeAllDropdowns: view.closeAllDropdowns,
-        readDocumentKey: () => file.documentKey.value,
-        readSourceSha256: () => scanCleanupSourceSha256.value,
+    // One canonical annotation store, history and draft set for every view.
+    const pdfDocumentAnnotations = createPdfDocumentAnnotations({
+        workingCopyPath,
+        source: pdfSrc,
+        documentRevisionToken,
     });
-    const scanCleanupSourceSha256 = useScanCleanupSourceSha256({
-        enabled: computed(() => isActive.value && scanCleanup.surfaceMode.value === 'scan-cleanup'),
-        sourcePath: workingCopyPath,
-        documentRevision: documentRevisionToken,
-    });
-    const pageContextMenu = usePageContextMenu();
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
     const annotations = useWorkspaceAnnotationSession({
-        pdfViewerRef,
+        views,
         pdfDocument,
-        dragMode: view.dragMode,
     });
     const hasPendingUnsavedChanges = computed(() => (
         annotations.hasUnsavedAnnotationChanges.value
@@ -251,7 +228,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pdfData,
         pdfDocument,
         pdfViewerRef,
-        openSurface,
+        openSurface: commandOpenSurface,
         workingCopyPath,
         originalPath,
         documentSessionKey: computed(() => controller.snapshot.value.identity.documentSessionKey),
@@ -303,7 +280,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             void file.loadRecentFiles();
         },
         currentPage,
-        resetSearchCache: search.resetSearchCache,
+        resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
     });
     const driver = useWorkspaceDocumentDriver({
@@ -317,7 +294,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             saveAsDjvuProjection: () => file.ensureDjvuPdfProjection('save-as-pdf'),
         },
         pendingDocumentPath: pendingDocumentPath,
-        pendingDocumentSize: computed(() => openSurface.snapshot.value.openingPageGeometry?.size ?? null),
+        pendingDocumentSize: computed(() => commandOpenSurface.snapshot.value.openingPageGeometry?.size ?? null),
     });
     const activeDriver = driver.activeDocumentDriver;
     watch(activeDriver, (active) => {
@@ -387,7 +364,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
         }));
         if (!exported && cancellationVersion === docxExportCancellationVersion) {
-            view.openDropdown('ocr');
+            viewPort.openDropdown('ocr');
         }
     }
     const exportWorkflow = useWorkspaceExport({
@@ -408,67 +385,27 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         cancel: cancelDocxExport,
     };
 
-    const bookmarkNavigationIntentVersion = ref(0);
-    const {
-        consumePageUpdate: consumeViewerCurrentPageUpdate,
-        navigationPage,
-    } = createWorkspacePageNavigationFence({
-        currentPage,
-        openSurface,
-    });
-    const navigation = useWorkspaceViewState({
-        fitMode: view.fitMode,
-        zoomMode: view.zoomMode,
-        zoom: view.zoom,
-        dragMode: view.dragMode,
-        showSidebar: view.showSidebar,
-        sidebarTab: view.sidebarTab,
-        annotationTool: annotations.annotationTool,
-        annotationEditorState: annotations.annotationEditorState,
-        appAnnotationUndoDepth: annotations.appAnnotationUndoDepth,
-        hasOpenAnnotationNotes: annotations.hasOpenAnnotationNotes,
-        canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
-        canRedoHistory: workspaceUndoTimeline.canRedoTimeline,
-        currentPage,
-        totalPages,
-        invalidateBookmarkNavigationRequests: () => {
-            bookmarkNavigationIntentVersion.value += 1;
-            logPdfRenderTrace('workspace-bookmark-navigation-invalidated', {
-                version: bookmarkNavigationIntentVersion.value,
-                currentPage: currentPage.value,
-                pendingNavigationPage: navigationPage.value,
-            });
-        },
-        requestPageNavigation: request => openSurface.navigate(request),
-        documentViewerRef,
-    });
     const pdfHistory = usePdfHistory({
         pdfDocument,
         pdfViewerRef,
-        openSurface,
+        openSurface: commandOpenSurface,
         currentPage,
         isAnySaving: saveService.isAnySaving,
         isHistoryBusy,
-        canUndo: navigation.canUndo,
-        canRedo: navigation.canRedo,
+        canUndo: commandCanUndo,
+        canRedo: commandCanRedo,
         nextUndoSource: workspaceUndoTimeline.nextUndoSource,
         nextRedoSource: workspaceUndoTimeline.nextRedoSource,
         workingCopyPath,
-        resetSearchCache: search.resetSearchCache,
+        resetSearchCache: resetSearchCaches,
         clearOcrCache: path => clearOcrCache(path),
         undoHistory: workspaceUndoTimeline.undoTimeline,
         redoHistory: workspaceUndoTimeline.redoTimeline,
     });
-    // Search over a non-PDF page source (DjVu), shown by the source sidebar.
-    const sourceSearch = useDocumentSearchSession({
-        backend: computed(() => createDocumentPageSourceSearchBackend(view.documentPageSource.value)),
-        documentRevision: documentRevisionToken,
-        onNavigate: match => navigation.handleGoToPage(match.pageIndex + 1, {navigationSource: 'search'}),
-    });
     const history = {
         isHistoryBusy,
-        canUndo: navigation.canUndo,
-        canRedo: navigation.canRedo,
+        canUndo: commandCanUndo,
+        canRedo: commandCanRedo,
         handleUndo: () => runExclusive('history', () => pdfHistory.handleUndo()),
         handleRedo: () => runExclusive('history', () => pdfHistory.handleRedo()),
     };
@@ -479,45 +416,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             && activeDriver.value.source.path !== null
         )
     ));
-    const annotationActions = usePageAnnotationActions({
-        pdfViewerRef,
-        annotationTool: annotations.annotationTool,
-        annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
-        annotationContextMenu: annotations.annotationContextMenu,
-        showSidebar: view.showSidebar,
-        sidebarTab: view.sidebarTab,
-        dragMode: view.dragMode,
-        currentPage,
-        workingCopyPath,
-        closeAnnotationContextMenu: annotations.closeAnnotationContextMenu,
-        showAnnotationContextMenu: annotations.showAnnotationContextMenu,
-        handleAnnotationToolChange: annotations.handleAnnotationToolChange,
-        openAnnotationNoteWindow: annotations.openAnnotationNoteWindow,
-        removeAnnotationNoteWindow: annotations.removeAnnotationNoteWindow,
-        setAnnotationNoteWindowError: annotations.setAnnotationNoteWindowError,
-        isSameAnnotationComment: annotations.isSameAnnotationComment,
-        annotationNoteWindows: annotations.annotationNoteWindows,
-        invalidateThumbnailPages: view.requestThumbnailInvalidation,
-        getAnnotationCommentsSnapshot: () => annotations.annotationComments.value,
-        getAnnotationCommentsStatusSnapshot: () => annotations.annotationCommentsStatus.value,
-        discardAnnotationNote: annotations.discardAnnotationNote,
-        handleAnnotationModified: annotations.handleAnnotationModified,
-    });
-
-    const statusBar = usePageStatusBar({
-        hasDocument: hasOpenDocument,
-        pdfSrc,
-        pdfData,
-        originalPath: computed(() => pendingDocumentPath.value ?? originalPath.value),
-        workingCopyPath,
-        effectiveZoom: view.effectiveZoom,
-        knownFileSizeBytes: file.djvuSourceSizeBytes,
-        canSave: saveService.canSave,
-        hasSaveFailure: saveService.hasSaveFailure,
-        isAnySaving: saveService.isAnySaving,
-        isHistoryBusy,
-        handleSave: save.handleSave,
-    });
     const preparePageOperationWorkingCopy = saveService.createPageMutationWriterSave({
         currentPage,
         waitForPdfReload: pdfHistory.waitForPdfReload,
@@ -531,21 +429,20 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pageLabelsResolved: pageLabelState.pageLabelsResolved,
         bookmarkItems: bookmarkState.bookmarkItems,
         bookmarksResolved: bookmarkState.bookmarksResolved,
-        currentPage,
+        views,
         totalPages,
-        selectedThumbnailPages: view.selectedThumbnailPages,
-        setSelectedThumbnailPages: view.setSelectedThumbnailPages,
-        selectedPageSelection: view.selectedPageSelection,
-        setSelectedPageSelection: view.setSelectedPageSelection,
-        invalidateThumbnailPages: view.requestThumbnailInvalidation,
-        pdfViewerRef,
+        selectedThumbnailPages: viewPort.selectedThumbnailPages,
+        setSelectedThumbnailPages: viewPort.setSelectedThumbnailPages,
+        selectedPageSelection: viewPort.selectedPageSelection,
+        setSelectedPageSelection: viewPort.setSelectedPageSelection,
+        invalidateThumbnailPages: viewPort.requestThumbnailInvalidation,
         pageContextMenu: pageContextMenu.pageContextMenu,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         onExportPages: (pages) => {
             void exportWorkflow.handleExportImages(pages);
         },
         canMutatePages: computed(() => sourceCapabilities.value.pageEdits),
-        onExtractedDocument: deps.emitOpenInNewTab,
+        onExtractedDocument: emitOpenInNewTab,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         saveAnnotationsForPageMutation: preparePageOperationWorkingCopy,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,
@@ -554,11 +451,22 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         ensureWorkingCopyFreshForRead: preparePageOperationWorkingCopy,
         preparePdfReloadWaiter: pdfHistory.preparePdfReloadWaiter,
         clearOcrCache,
-        resetSearchCache: search.resetSearchCache,
+        resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
     });
+    // Opening another file in a view of a shared document detaches only that
+    // view (T4); the document stays with its other views, asking nothing. A
+    // hidden, unmounted view still shows it. A tab loading the document's own
+    // file, as a restored or cold tab does when shown, loads it for all views.
+    const sharesViews = computed(() => controller.views.value.size > 1);
+    function openInOwnDocument(open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
+        void commandView.value?.detachAndOpen(open);
+        return Promise.resolve<TDocumentOpenOutcome>({status: 'cancelled'});
+    }
     const fileOps = usePageFileOperations({
-        tabId: deps.tabId,
+        get tabId() {
+            return commandView.value?.tabId;
+        },
         pdfSrc,
         hasDocument: hasOpenDocument,
         isAnySaving: saveService.isAnySaving,
@@ -568,7 +476,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         isDocumentOperationInProgress: lease.isBusy,
         hasSaveFailure: saveService.hasSaveFailure,
         annotationNoteWindows: annotations.annotationNoteWindows,
-        hasPendingUnsavedChanges,
+        hasPendingUnsavedChanges: computed(() => !sharesViews.value && hasPendingUnsavedChanges.value),
         annotationDirty: annotations.annotationDirty,
         isDirty: file.isDirty,
         recoveryDirtyBaseline: file.recoveryDirtyBaseline,
@@ -577,13 +485,19 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
         handleSave: save.handleSave,
         pickFileToOpen: file.pickFileToOpen,
-        openFile: file.openFileWithViewerLifecycle,
-        openFileDirect: file.openFileDirectWithViewerLifecycle,
-        openFileDirectBatch: file.openFileDirectBatchWithViewerLifecycle,
-        runDocumentOpen: deps.runDocumentOpen,
+        openFile: result => (sharesViews.value
+            ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))
+            : file.openFileWithViewerLifecycle(result)),
+        openFileDirect: path => (sharesViews.value && (path !== controller.snapshot.value.identity.originalPath || hasPendingUnsavedChanges.value)
+            ? openInOwnDocument(workspace => workspace.handleOpenFileDirectWithPersist(path))
+            : file.openFileDirectWithViewerLifecycle(path)),
+        openFileDirectBatch: paths => (sharesViews.value
+            ? openInOwnDocument(workspace => workspace.handleOpenFileDirectBatchWithPersist(paths))
+            : file.openFileDirectBatchWithViewerLifecycle(paths)),
+        runDocumentOpen: runDocumentOpen,
         closeFile: file.closeFileWithViewerLifecycle,
-        closeAllDropdowns: view.closeAllDropdowns,
-        emitOpenInNewTab: deps.emitOpenInNewTab,
+        closeAllDropdowns: viewPort.closeAllDropdowns,
+        emitOpenInNewTab,
     });
 
     const getPrintableSourceData = createPrintableSourceDataResolver({
@@ -625,8 +539,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const print = useWorkspacePrint({
         totalPages,
         currentPage,
-        selectedPages: view.selectedThumbnailPages,
-        selectedPageSelection: view.selectedPageSelection,
+        selectedPages: viewPort.selectedThumbnailPages,
+        selectedPageSelection: viewPort.selectedPageSelection,
         sourcePdf: pdfSrc,
         workingCopyPath,
         printPath: computed(() => activeDriver.value?.operations.print.path ?? null),
@@ -679,90 +593,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     });
 
     const viewerCapabilities = computed(() => activeDriver.value?.capabilities);
-    const viewerDefaults = useWorkspaceViewerDefaults({
-        appSettings,
-        annotationSettings: annotations.annotationSettings,
-        viewMode: view.viewMode,
-        continuousScroll: view.continuousScroll,
-        fitMode: view.fitMode,
-        zoom: view.zoom,
-        effectiveZoom: view.effectiveZoom,
-        zoomMode: view.zoomMode,
-        pdfSrc,
-        preserveInitialStateForFirstSource: deps.preserveInitialStateForFirstSource,
-        documentSourceKey: computed(() => {
-            if (file.isDjvuMode.value && file.djvuSourcePath.value) {
-                return `djvu:${file.djvuSourcePath.value}`;
-            }
-            return workingCopyPath.value ? `pdf:${workingCopyPath.value}` : pdfSrc.value;
-        }),
-    });
-    usePageShortcuts({
-        isActive,
-        hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? file.djvuSourcePath.value)),
-        pdfSrc,
-        canPrint: computed(() => (
-            activeDriver.value?.capabilities.print === true
-            && (file.hasPdf.value || sourceCapabilities.value.directImageExport)
-        )),
-        canSave: saveService.canSave,
-        annotationTool: annotations.annotationTool,
-        pdfViewerRef,
-        annotationContextMenuVisible: computed(() => annotations.annotationContextMenu.value.visible),
-        pageContextMenuVisible: computed(() => pageContextMenu.pageContextMenu.value.visible),
-        closeAnnotationContextMenu: annotations.closeAnnotationContextMenu,
-        closePageContextMenu: pageContextMenu.closePageContextMenu,
-        openSearch: search.openSearch,
-        handleAnnotationToolChange: annotations.handleAnnotationToolChange,
-        handleZoomIn: viewerDefaults.handleZoomIn,
-        handleZoomOut: viewerDefaults.handleZoomOut,
-        handleActualSize: viewerDefaults.handleActualSize,
-        handleFitMode: navigation.handleFitMode,
-        navigationPage,
-        totalPages,
-        viewMode: computed(() => resolveWorkspaceViewerViewMode(viewerCapabilities.value, view.viewMode.value)),
-        handleGoToPage: navigation.handleGoToPage,
-        handleSave: () => {
-            void runDetached(save.handleSave, {
-                category: 'user-visible-operation',
-                scope: 'workspace',
-                message: 'Failed to save document',
-            });
-        },
-        handlePrint: () => {
-            void runDetached(() => Promise.resolve(print.handlePrint()), {
-                category: 'user-visible-operation',
-                scope: 'workspace',
-                message: 'Failed to print document',
-            });
-        },
-        handleToggleSidebar: () => {
-            view.showSidebar.value = !view.showSidebar.value;
-        },
-    });
-    const crop = useWorkspaceCrop({
-        pdfViewerRef,
-        workingCopyPath,
-    });
-    function handleCaptureRegion() {
-        const viewer = pdfViewerRef.value;
-        if (!viewer || file.isDjvuMode.value) {
-            return;
-        }
-        void runDetached(async () => {
-            if (await ensureWorkingCopyFreshForRead()) {
-                await viewer.captureRegionToClipboard();
-            }
-        }, {
-            category: 'user-visible-operation',
-            scope: 'workspace',
-            message: 'Failed to capture PDF region',
-        });
-    }
     // A split restore reopens its payload as the tab's open transaction.
     async function openSplitPayloadResult(result: TOpenFileResult) {
         const opened: {outcome: TDocumentOpenOutcome} = {outcome: {status: 'cancelled'}};
-        const presented = await deps.runDocumentOpen(describeOpenResult(result), async () => {
+        const presented = await runDocumentOpen(describeOpenResult(result), async () => {
             opened.outcome = await file.openFileWithViewerLifecycle(result);
             return didOpenDocument(opened.outcome);
         });
@@ -789,30 +623,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         getNativeSaveTransactionOptions: saveService.getNativeSaveTransactionOptions,
         runWithDocumentOperationLease: runExclusive,
     });
-    function handleDropdownOpen(
-        dropdown: 'zoom' | 'page' | 'ocr' | 'overflow' | 'appMenu',
-        isOpen: boolean,
-    ) {
-        view.handleDropdownOpenChange(dropdown, isOpen);
-        if (isOpen && dropdown === 'ocr') {
-            docx.clearDocxExportError();
-        }
-    }
-
-    const djvuProjection = useDjvuProjectionActions({
-        isDjvuMode: file.isDjvuMode,
-        currentPage,
-        documentViewerRef,
-        ensureProjection: file.ensureDjvuPdfProjection,
-        saveAs: save.handleSaveAs,
-        exportDocx: handleExportDocx,
-        isExportingDocx: docx.isExportingDocx,
-        cancelExportDocx: cancelDocxExport,
-        handleDropdownOpen,
-        insertImageFromFile: annotationActions.insertImageFromFile,
-        pasteImageFromClipboard: annotationActions.pasteImageFromClipboard,
-        createQuickNote: annotationActions.handleQuickNoteAction,
-    });
 
     const {handleOcrComplete} = useWorkspaceDocumentLifecycleEffects({
         currentPage,
@@ -821,17 +631,15 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pdfViewerRef,
         isDjvuMode: file.isDjvuMode,
         djvuSourcePath: file.djvuSourcePath,
-        showSettings: view.showSettings,
-        emitOpenSettings: deps.emitOpenSettings,
         pdfSrc,
         workingCopyPath,
         documentRevisionInfo: file.documentRevisionInfo,
         documentRevisionToken,
         pdfError: file.pdfError,
-        dragMode: view.dragMode,
-        showSidebar: view.showSidebar,
-        sidebarTab: view.sidebarTab,
-        annotationTool: annotations.annotationTool,
+        dragMode: viewPort.dragMode,
+        showSidebar: viewPort.showSidebar,
+        sidebarTab: viewPort.sidebarTab,
+        annotationTool: views.annotationTools,
         annotationComments: annotations.annotationComments,
         markAnnotationCommentsLoading: annotations.markAnnotationCommentsLoading,
         clearAnnotationComments: annotations.clearAnnotationComments,
@@ -841,14 +649,14 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         bookmarksDirty: bookmarkState.bookmarksDirty,
         bookmarkEditMode: bookmarkState.bookmarkEditMode,
         consumePreservedSourceReloadMetadata: metadata.consumePreservedSourceReloadMetadata,
-        navigationTicket: computed(() => openSurface.navigationTicket.value),
+        navigationTicket: computed(() => commandOpenSurface.navigationTicket.value),
         pageLabels: pageLabelState.pageLabels,
         pageLabelRanges: pageLabelState.pageLabelRanges,
         pageLabelsDirty: pageLabelState.pageLabelsDirty,
         resetAnnotationTracking: annotations.resetAnnotationTracking,
-        resetSearchCache: search.resetSearchCache,
-        closeSearch: search.closeSearch,
-        closeAnnotationContextMenu: annotations.closeAnnotationContextMenu,
+        resetSearchCache: resetSearchCaches,
+        closeSearch: closeSearches,
+        closeAnnotationContextMenu: views.closeAnnotationContextMenus,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
         loadRecentFiles: () => {
@@ -861,177 +669,34 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         runWithDocumentOperationLease: runExclusive,
     });
 
-    function bindDocumentView(options: IDocumentViewBindingOptions) {
-        const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
-        const searchShown = computed(() => isActive.value && view.showSidebar.value);
-        const {
-            handleCurrentPage,
-            handleTotalPages,
-        } = createWorkspaceViewerUpdateHandlers({
-            tabId: deps.tabId,
-            pdfSrc,
-            currentPage,
-            totalPages,
-            showSidebar: view.showSidebar,
-            sidebarTab: view.sidebarTab,
-            isLoading: view.isLoading,
-            continuousScroll: view.continuousScroll,
-            fitMode: view.fitMode,
-            viewMode: view.viewMode,
-            zoom: view.zoom,
-            viewerRef: documentViewerRef,
-            consumePageUpdate: consumeViewerCurrentPageUpdate,
-        });
-        function handleLoadError(error: unknown) {
-            if (error === null || error === undefined) {
-                file.pdfError.value = null;
-                file.pdfFailurePresentation.value = null;
-                return;
-            }
-            const message = getErrorMessage(error).trim();
-            const hasPdfjsAssetMismatch = isPdfjsAssetVersionMismatch(message);
-            file.pdfError.value = message || t('errors.file.open');
-            const receipt = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'});
-            file.pdfFailurePresentation.value = {
-                failure: receipt,
-                title: t('errors.file.open'),
-                description: hasPdfjsAssetMismatch
-                    ? t('errors.file.pdfjsAssetMismatch')
-                    : t('errors.file.openDescription'),
-                ...(message ? {technicalDetails: message} : {}),
-                ...(hasPdfjsAssetMismatch
-                    ? {actions: [{
-                        label: t('errors.file.pdfjsAssetRepairAction'),
-                        onClick: () => {
-                            void copyTextToClipboard('pnpm install --frozen-lockfile').then((copied) => {
-                                failure.presentCopyFeedback(copied);
-                            });
-                        },
-                    }]}
-                    : {}),
-            };
-        }
-        function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
-            if (
-                annotations.annotationCommentsStatus.value === 'loading'
-                && annotations.annotationComments.value.length > 0
-                && comments.length === 0
-                && view.isLoading.value
-            ) {
-                return;
-            }
-            annotations.applyAnnotationComments(comments);
-        }
-        return useWorkspaceDocumentDriverBinding({
-            activeDocumentDriver: driver.mountedDocumentDriver,
-            annotationCursorMode: navigation.annotationCursorMode,
-            annotationKeepActive: annotations.annotationKeepActive,
-            annotationSettings: annotations.annotationSettings,
-            annotationTool: annotations.annotationTool,
-            authorName: computed(() => appSettings.value.authorName),
-            continuousScroll: view.continuousScroll,
-            currentResultNavigationId: search.currentResultNavigationId,
-            currentSearchMatch: computed(() => searchShown.value ? search.currentResult.value : null),
-            documentSourceCurrentResultIndex: computed(() => (
-                searchShown.value ? sourceSearch.currentResultIndex.value : -1
-            )),
-            documentSourceSearchResults: computed(() => searchShown.value ? sourceSearch.results.value : []),
-            currentPage,
-            dragMode: view.dragMode,
-            isAnySaving: saveService.isAnySaving,
-            isInteractionActive: isActive,
-            mountPresentation: options.mountPresentation,
-            isRenderActive: options.isRenderActive,
-            isWorkspaceLayoutResizing: options.isWorkspaceLayoutResizing,
-            pageMatches: computed(() => searchShown.value ? search.pageMatches.value : hiddenSearchPageMatches),
-            pdfReloadSrc: file.pdfReloadSrc,
-            pdfRasterDisplayProfile: file.pdfRasterDisplayProfile,
-            pdfSrc,
-            pendingDocumentPath: pendingDocumentPath,
-            pdfViewerRef,
-            djvuViewerRef: view.djvuViewerRef,
-            sourcePdfData: pdfData,
-            viewMode: view.viewMode,
-            viewRotation: view.viewRotation,
-            workingCopyPath,
-            originalPath,
-            documentRevisionToken,
-            zoomState: view.zoomState,
-            onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
-            onAnnotationComments: handleAnnotationComments,
-            onAnnotationInventory: annotations.applyAnnotationInventory,
-            onAnnotationEnrichmentState: annotations.applyAnnotationEnrichmentState,
-            onAnnotationContextMenu: annotationActions.handleViewerAnnotationContextMenu,
-            onAnnotationModified: annotationActions.handleAnnotationModified,
-            onAnnotationFailure: failure.reportAnnotationFailure,
-            onAnnotationOpenNote: annotationActions.handleOpenAnnotationNote,
-            onAnnotationSetting: annotations.handleAnnotationSettingChange,
-            onAnnotationState: annotations.handleAnnotationState,
-            onAnnotationToolAutoReset: annotations.handleAnnotationToolAutoReset,
-            onAnnotationToolCancel: annotations.handleAnnotationToolCancel,
-            onCurrentPageUpdate: handleCurrentPage,
-            onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
-            onEffectiveZoomUpdate: (value) => { view.effectiveZoom.value = value; },
-            onInitialVisualPending: options.onInitialVisualPending,
-            onInitialVisualReady: options.onInitialVisualReady,
-            onLoadError: handleLoadError,
-            onLoading: (value) => { view.isLoading.value = value; },
-            onNavigationFeedbackPageUpdate: (value) => { options.navigationFeedbackPage.value = value; },
-            onShapeContextMenu: annotationActions.handleShapeContextMenu,
-            onSourceCapabilitiesUpdate: (capabilities) => {
-                if (activeDriver.value) {
-                    sourceCapabilities.value = capabilities;
-                }
-            },
-            onPageSourceUpdate: (source) => { view.documentPageSource.value = source; },
-            onTotalPagesUpdate: (value) => {
-                if (activeDriver.value || value === 0) {
-                    handleTotalPages(value);
-                }
-            },
-            onZoomStateUpdate: view.setZoomState,
-        });
-    }
-
     return {
-        tabId: deps.tabId,
         controller,
-        openSurface,
         isOpeningDocument,
+        pendingDocumentPath,
         pendingDjvuDocumentOpen,
-        isActive,
         sourceCapabilities,
         failure,
-        runExclusive,
         file,
-        view,
-        search,
-        sourceSearch,
+        totalPages,
+        pdfDocument,
         driver,
-        bindDocumentView,
         viewerCapabilities,
         metadata,
-        bookmarkNavigationIntentVersion,
-        pageContextMenu,
-        scanCleanup,
-        scanCleanupSourceSha256,
         annotations,
-        annotationActions,
+        pdfDocumentAnnotations,
+        saveService,
         save,
         exportWorkflow,
+        docx,
         docxExport,
-        navigation,
         history,
-        statusBar,
+        hasOpenDocument,
         pageOps,
         fileOps,
         print,
-        crop,
         splitPayload,
-        viewerDefaults,
-        handleCaptureRegion,
-        djvuProjection,
         handleOcrComplete,
+        views,
     };
 };
 export type TDocumentContext = ReturnType<typeof createDocumentContext>;
@@ -1048,4 +713,22 @@ export const useDocumentContext = () => {
         throw new Error('useDocumentContext needs a DocumentWorkspace ancestor.');
     }
     return context;
+};
+
+type TDocumentContextRegistry = Map<IWorkspaceDocumentController, TDocumentContext>;
+const documentContextRegistryKey: InjectionKey<TDocumentContextRegistry> = Symbol('documentContextRegistry');
+
+/** The document contexts the editor panes host, by controller; views find theirs here. */
+export const provideDocumentContextRegistry = () => {
+    const registry: TDocumentContextRegistry = shallowReactive(new Map());
+    provide(documentContextRegistryKey, registry);
+    return registry;
+};
+
+export const useDocumentContextRegistry = () => {
+    const registry = inject(documentContextRegistryKey);
+    if (!registry) {
+        throw new Error('A document context needs an EditorPanesHost ancestor.');
+    }
+    return registry;
 };

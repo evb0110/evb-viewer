@@ -42,6 +42,7 @@ import {
     showOpenDocumentDialogForContext,
 } from '@electron/features/documents/main/documentDialogCommon';
 import {PdfDecryptTooLargeError} from '@electron/file-access/workingCopyDecryption';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import type {
     IDocumentsDialogContext,
@@ -74,6 +75,16 @@ function createDocumentOpenError(error: unknown) {
         return new Error(encodeSerializableErrorEnvelope({
             code: 'too-large',
             message: getErrorMessage(error),
+        }));
+    }
+    if (error instanceof DocumentOpenRefusalError) {
+        // The renderer localizes the code and names the chosen file. The
+        // refusal's own message can hold tool output and working-copy paths,
+        // so it stays in the main log.
+        return new Error(encodeSerializableErrorEnvelope({
+            code: error.code,
+            message: error.code,
+            ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
         }));
     }
     return errorWithDetails(te('errors.file.open'), error);

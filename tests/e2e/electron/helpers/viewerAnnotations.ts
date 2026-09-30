@@ -823,7 +823,10 @@ async function resolveAnnotationLayerPoint(
             return null;
         }
 
-        let hostRect = host.getBoundingClientRect();
+        // A click reaches the page only inside the viewer's own viewport; the
+        // host also holds the sidebar, which covers a page scrolled under it.
+        const viewport = pageContainer?.closest<HTMLElement>('#pdf-viewer') ?? host;
+        let hostRect = viewport.getBoundingClientRect();
         const getVisibleBounds = () => ({
             left: Math.max(rect.left, hostRect.left, 0) + 24,
             right: Math.min(rect.right, hostRect.right, window.innerWidth) - 24,
@@ -838,7 +841,7 @@ async function resolveAnnotationLayerPoint(
             });
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             rect = target.getBoundingClientRect();
-            hostRect = host.getBoundingClientRect();
+            hostRect = viewport.getBoundingClientRect();
             bounds = getVisibleBounds();
         }
         const {
@@ -984,6 +987,8 @@ export async function createStickyNoteWithPointer(
     // page can cancel an active placement gesture when a prior test leaves the
     // viewport at a different offset.
     await clickAnnotationTool(page, 'Note');
+    // The placement check below reads the active workspace through the probe.
+    await installWorkspaceExposeProbe(page);
     await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
         '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], '
         + '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',

@@ -6,12 +6,8 @@ import {
 } from '@app/utils/runtimeErrorFilter';
 import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
-import {
-    isElectronUserAgent,
-    waitForPreferredDesktopPlatformBridge,
-} from '@app/utils/platform';
+import {waitForPreferredDesktopPlatformBridge} from '@app/utils/platform';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
-import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
@@ -19,16 +15,6 @@ import type {FailurePresentation} from '@app/composables/useFailureToast';
 interface IRuntimeErrorLogStreamState { cleanup: () => void; }
 
 type TRuntimeErrorLogStreamWindow = Window & { __evbRuntimeErrorLogStreamState?: IRuntimeErrorLogStreamState };
-
-async function waitForRuntimeErrorLogBridge() {
-    const routePath = typeof window === 'undefined'
-        ? null
-        : window.location.pathname;
-    const bridgeResolution = await waitForPreferredDesktopPlatformBridge({ routePath });
-    return !bridgeResolution.shouldWait
-        || bridgeResolution.bridgeReady
-        || !isElectronUserAgent();
-}
 
 export default defineNuxtPlugin((nuxtApp) => {
     if (typeof window === 'undefined') {
@@ -145,24 +131,17 @@ export default defineNuxtPlugin((nuxtApp) => {
 
         void (async () => {
             try {
-                if (!await waitForRuntimeErrorLogBridge() || Boolean(cleanedUp) || Boolean(unsubscribeDebugLog)) {
-                    return;
-                }
-
-                if (isElectronUserAgent()) {
-                    const diagnostics = getRawElectronPlatformApi()?.diagnostics;
-                    if (!diagnostics) {
-                        throw new Error('Electron diagnostics capability is unavailable');
-                    }
-                    unsubscribeDebugLog = diagnostics.onDebugLog(handleDebugLog);
+                // A required desktop bridge that never arrives is app.vue's
+                // startup failure; the browser platform streams no debug logs.
+                const bridgeResolution = await waitForPreferredDesktopPlatformBridge({routePath: window.location.pathname});
+                if ((bridgeResolution.shouldWait && !bridgeResolution.bridgeReady) || cleanedUp || unsubscribeDebugLog) {
                     return;
                 }
 
                 unsubscribeDebugLog = getSettingsCapability().onDebugLog(handleDebugLog);
             } catch {
-                // The bridge readiness probe can finish before the diagnostics
-                // capability is available. This is a separate renderer fault,
-                // so it owns one occurrence and then presents that receipt.
+                // A failed subscription is a separate renderer fault, so it
+                // owns one occurrence and then presents that receipt.
                 const presentation = captureFailureForPresentation({
                     code: 'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
                     local: {

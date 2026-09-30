@@ -14,6 +14,11 @@
             @update-split-ratio="handleUpdateSplitRatio"
             @update-layout-resizing="emit('update-layout-resizing', $event)"
         />
+        <DocumentSessionHost
+            v-for="documentController in hostedDocumentControllers"
+            :key="documentController.snapshot.value.sessionId"
+            :document-controller="documentController"
+        />
         <template v-if="parkingTarget">
             <Teleport
                 v-for="pane in panes"
@@ -61,6 +66,10 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanesGrid.vue';
 import EditorPaneView from '@app/modules/workspace-shell/components/EditorPaneView.vue';
+import DocumentSessionHost from '@app/modules/workspace-shell/components/DocumentSessionHost.vue';
+import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
+import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -120,6 +129,26 @@ const {
     isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
 
+provideDocumentContextRegistry();
+// A document is hosted while any tab that views it keeps a mounted workspace.
+const hostedDocumentControllers = computed(() => [...new Set(Object.entries(documentSessionsByTabId).flatMap(([
+    tabId,
+    controller,
+]) => (tabLifecycleById[tabId]?.shouldMountHost === false ? [] : [controller])))]);
+// A document that fails in its host fails for every view of it; the tabs
+// then show why, as they do for a workspace crash.
+onErrorCaptured((error, instance, info) => {
+    const documentController = (instance as {documentController?: IWorkspaceDocumentController} | null)
+        ?.documentController;
+    if (instance?.$options.name !== 'DocumentSessionHost' || !documentController) {
+        return;
+    }
+    documentController.markFailed({
+        message: getErrorMessage(error),
+        failure: handleDocumentWorkspaceCrash(error, 'DocumentSessionHost', info, {tabId: [...documentController.views.value.keys()].join(',') || documentController.snapshot.value.sessionId}),
+    });
+    return false;
+});
 const parkingTarget = ref<HTMLElement | null>(null);
 const hostRef = ref<HTMLElement | null>(null);
 const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());

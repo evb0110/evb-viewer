@@ -10,39 +10,25 @@ import {
     type AnnotationId,
     type IPdfDocument,
 } from '@app/modules/pdf-viewer/public';
-import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
+import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 interface IWorkspaceAnnotationSessionOptions {
-    pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
+    /** The document's views: commands reach the viewer of the one in use. */
+    views: Pick<TDocumentViews, 'commandView' | 'commandTabId'>;
     pdfDocument: Ref<IPdfDocument | null>;
-    dragMode: Ref<boolean>;
 }
 
 export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessionOptions) => {
     const {
-        pdfViewerRef,
+        views,
         pdfDocument,
-        dragMode,
     } = options;
-
-    const {
-        annotationContextMenu,
-        annotationContextMenuStyle,
-        annotationContextMenuCanCopy,
-        annotationContextMenuCanCopySelection,
-        annotationContextMenuCanCreateFree,
-        annotationContextMenuCanInsertImage,
-        annotationContextMenuIsImage,
-        contextMenuAnnotationLabel,
-        contextMenuDeleteActionLabel,
-        closeAnnotationContextMenu,
-        showAnnotationContextMenu,
-    } = useAnnotationContextMenu();
+    const pdfViewerRef = computed<IWorkspacePdfViewerAnnotationSessionPort | null>(() => views.commandView.value?.view.pdfViewerRef.value ?? null);
 
     function clearAnnotationChanges() {}
 
@@ -55,7 +41,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
 
 
     const {
-        annotationTool,
         annotationKeepActive,
         annotationSettings,
         annotationComments,
@@ -65,9 +50,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationDirty,
-        handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,
@@ -81,10 +63,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         applyAnnotationEnrichmentState,
         clearAnnotationComments,
     } = usePageAnnotationTools({
-        pdfViewerRef,
-        dragMode,
         clearAnnotationChanges,
-        closeAnnotationContextMenu,
         hasAnnotationChanges,
     });
 
@@ -156,6 +135,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         },
         isAnnotationCommentSyncReady: () => Boolean(pdfDocument.value) && annotationCommentsStatus.value === 'ready',
         getDeletedCanonicalAnnotationIds: () => pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [],
+        getViewInUse: () => views.commandTabId.value,
     });
 
     const hasOpenAnnotationNotes = ref(false);
@@ -197,17 +177,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     ));
 
     return {
-        annotationContextMenu,
-        annotationContextMenuStyle,
-        annotationContextMenuCanCopy,
-        annotationContextMenuCanCopySelection,
-        annotationContextMenuCanCreateFree,
-        annotationContextMenuCanInsertImage,
-        annotationContextMenuIsImage,
-        contextMenuAnnotationLabel,
-        contextMenuDeleteActionLabel,
-        closeAnnotationContextMenu,
-        showAnnotationContextMenu,
         clearAnnotationChanges,
         hasAnnotationChanges,
         hasUnsavedAnnotationChanges,
@@ -216,7 +185,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         appAnnotationUndoDepth,
         selectedAnnotations,
         selectedTextBox,
-        annotationTool,
         annotationKeepActive,
         annotationSettings,
         annotationComments,
@@ -226,9 +194,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationActiveCommentStableKey,
         annotationEditorState,
         annotationDirty,
-        handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,

@@ -6,7 +6,6 @@ import {
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {
-    isElectronUserAgent,
     shouldPreferDesktopPlatform,
     waitForDesktopPlatformBridge,
     waitForPreferredDesktopPlatformBridge,
@@ -17,8 +16,7 @@ describe('platform runtime detection', () => {
         expect(shouldPreferDesktopPlatform('/', true, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/electron', false, false)).toBe(true);
         expect(shouldPreferDesktopPlatform('/', false, true)).toBe(true);
-        expect(shouldPreferDesktopPlatform('/', false, false, true)).toBe(false);
-        expect(shouldPreferDesktopPlatform('/', false, false, false)).toBe(false);
+        expect(shouldPreferDesktopPlatform('/', false, false)).toBe(false);
     });
 
     it('short-circuits bridge waiting when desktop is not required', async () => {
@@ -40,12 +38,6 @@ describe('platform runtime detection', () => {
             shouldWait: false,
             bridgeReady: false,
         });
-    });
-
-    it('detects Electron user agents without treating browsers as Electron', () => {
-        expect(isElectronUserAgent('Mozilla/5.0 AppleWebKit/537.36 Electron/39.2.3 Safari/537.36')).toBe(true);
-        expect(isElectronUserAgent('Mozilla/5.0 AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36')).toBe(false);
-        expect(isElectronUserAgent('')).toBe(false);
     });
 
     it('does not load the browser platform fallback while an electron api is present', async () => {

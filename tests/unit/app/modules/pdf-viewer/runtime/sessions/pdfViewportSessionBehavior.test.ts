@@ -117,6 +117,7 @@ function createDocumentFixture(pageCount = 100) {
         },
         registerDisposable: vi.fn(),
         preserveNextReloadVisibleContent: vi.fn(),
+        carryAnchorThroughPageMutation: vi.fn((anchor: unknown) => anchor),
         async emit(transition: IPdfDocumentTransition) {
             for (const subscriber of [...subscribers]) {
                 await subscriber(transition);

@@ -43,7 +43,6 @@ export interface IWorkspaceDocumentTransaction {
 }
 
 export interface IWorkspaceDocumentSnapshot {
-    tabId: string;
     sessionId: string;
     sessionRevision: number;
     phase: TWorkspaceDocumentPhase;
@@ -56,5 +55,4 @@ export interface IWorkspaceDocumentSnapshot {
     dirty: boolean;
     /** A checkpoint working copy that must be recovered before the source file. */
     recoveryWorkingCopyPath: TDocumentRef | null;
-    mounted: boolean;
 }

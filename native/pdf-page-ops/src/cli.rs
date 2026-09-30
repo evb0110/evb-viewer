@@ -211,6 +211,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
         "pdf-conformance" | "conformance" => Operation::PdfConformance,
+        "append-admission" => Operation::AppendAdmission,
         "decrypt" => Operation::Decrypt { password_file },
         "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
             page_number: page_number.ok_or("Missing --page value")?,
@@ -227,7 +228,10 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 
     let prints_result = matches!(
         operation,
-        Operation::PageGeometry { .. } | Operation::PdfConformance | Operation::ReadCatalog
+        Operation::PageGeometry { .. }
+            | Operation::PdfConformance
+            | Operation::AppendAdmission
+            | Operation::ReadCatalog
     );
     if prints_result && output_path.is_some() {
         return Err(format!("{command} prints its result on stdout and takes no --output").into());

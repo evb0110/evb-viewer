@@ -3,13 +3,14 @@
         <WorkspaceToolbarHost
             :is-active="isActive && surfaceMode === 'reader'"
             :can-teleport="canTeleportToolbar"
+            :keep-mounted="isOcrRunning"
         >
             <WorkspacePdfToolbarView
                 ref="ocrPopupRef"
                 :snapshot="workspaceToolbarSnapshot"
                 :has-pdf="toolbarHasPdf"
                 :can-toggle-sidebar="canToggleSidebar"
-                :can-use-ocr="canUseOcr"
+                :can-use-ocr="isDesktopRuntime"
                 can-use-djvu
                 :is-desktop-runtime="isDesktopRuntime"
                 :surface="toolbarSurface"
@@ -187,10 +188,7 @@ import {
     useDocumentWorkspaceAgent,
     type IOcrPopupAgentExpose,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
-import {
-    createDocumentContext,
-    provideDocumentContext,
-} from '@app/modules/workspace-shell/documentContext';
+import { createDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
@@ -208,7 +206,6 @@ import {
 } from '@app/modules/document-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 const documentOpenSurface = createDocumentOpenSurfaceSession();
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
@@ -225,7 +222,6 @@ const {
     isRenderActive = isActive,
     isTabTransitionBusy,
     documentSession,
-    splitCacheSession = null,
     tabId,
 } = defineProps<{
     tabId: string;
@@ -236,7 +232,6 @@ const {
     fullscreenSupported: boolean;
     isWorkspaceLayoutResizing?: boolean | undefined;
     documentSession: IWorkspaceDocumentController;
-    splitCacheSession?: IWorkspaceSplitCacheSessionState | null | undefined;
 }>();
 const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
@@ -254,43 +249,43 @@ const {
     statusHostId: 'editor-global-status-host',
 });
 const { isDesktopRuntime } = useRuntimeEnvironment();
-const canUseOcr = computed(() => isDesktopRuntime.value);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
-// The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
-// comes back where it was.
-const initialViewState = documentSession.viewState.value;
-const preserveInitialStateForFirstSource = documentSession.snapshot.value.phase === 'presented'
-    && documentSession.toolbarSnapshot.value.initialVisualReady;
-const context = createDocumentContext({
+// This mount is one view of the document its DocumentSessionHost holds.
+const context = createDocumentViewContext({
     tabId,
-    isActive: computed(() => isActive),
-    initialViewState,
-    preserveInitialStateForFirstSource,
     controller: documentSession,
+    isActive: computed(() => isActive),
     openSurface: documentOpenSurface,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emitOpenInNewTab: result => emit('open-in-new-tab', result),
     emitOpenSettings: () => emit('open-settings'),
 });
-provideDocumentContext(context);
+const {
+    document: documentContext,
+    documentView,
+    initialViewState,
+    preserveInitialStateForFirstSource,
+} = context;
 const {
     scanCleanup,
     scanCleanup: {surfaceMode},
-    file,
     view,
     search,
-    fileOps,
     statusBar,
-    exportWorkflow,
     navigation,
+    handleCaptureRegion,
+} = context;
+const {
+    file,
+    fileOps,
+    exportWorkflow,
     history,
     save,
     print,
     splitPayload,
     docxExport,
-    handleCaptureRegion,
     handleOcrComplete,
-} = context;
+} = documentContext;
 const {
     pdfError,
     pdfFailurePresentation,
@@ -356,9 +351,7 @@ const {
     runEdit: runPdfEditAction,
 } = context.djvuProjection;
 const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
-const presentation = useWorkspacePresentation(context, {
-    splitCacheSession: computed(() => splitCacheSession),
-    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
+const presentation = useWorkspacePresentation(documentContext, context, {
     initialPage: initialViewState?.currentPage,
     preserveInitialPage: preserveInitialStateForFirstSource,
 });
@@ -425,13 +418,13 @@ const {
     isRenderActive: computed(() => isRenderActive && surfaceMode.value === 'reader'),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     navigationFeedbackPage: presentation.navigationFeedbackPage,
-    onInitialVisualPending: context.annotations.markAnnotationCommentsLoading,
+    onInitialVisualPending: documentContext.annotations.markAnnotationCommentsLoading,
     onInitialVisualReady: () => {
         file.notifyPdfInitialVisualReady();
         emitFirstPageRendered();
     },
 });
-const {mountedDocumentDriver} = context.driver;
+const {mountedDocumentDriver} = documentContext.driver;
 // Start shows only the shell's own actions; document commands arrive with a document.
 const toolbarSurface = computed(() => (
     toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
@@ -459,14 +452,14 @@ function toggleContinuousScroll() {
 function setViewMode(mode: TPdfViewMode) {
     viewMode.value = mode;
 }
-const viewerCapabilities = computed(() => context.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
+const viewerCapabilities = computed(() => documentContext.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 const {
     runAgentAction,
     readAgentResource,
-} = useDocumentWorkspaceAgent(context, ocrPopupRef, waitForDocumentOpenSettled);
+} = useDocumentWorkspaceAgent(documentContext, context, ocrPopupRef, waitForDocumentOpenSettled);
 
 
-const workspaceExpose = createWorkspaceExpose(context, {
+const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     ensurePdfProjectionForEdit: ensureEditProjection,
     handleSave: handleSaveWithAutomationEvent,
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
@@ -490,6 +483,7 @@ const workspaceExpose = createWorkspaceExpose(context, {
 const workspaceToolbarSnapshot = computed(workspaceExpose.getToolbarSnapshot);
 const documentLifecycle = useWorkspaceDocumentLifecycle({
     documentSession,
+    documentView,
     openSurface: documentOpenSurface,
     isShown: () => isActive || isRenderActive,
     fileName: file.fileName,
@@ -503,7 +497,7 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     documentOpenAccepted: presentation.documentOpenAccepted,
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
-    readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentSession.viewState.value),
+    readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
     openPath: path => fileOps.handleOpenFileDirectWithPersist(path),
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
     hasWorkingCopy: () => workingCopyPath.value !== null,
@@ -516,7 +510,7 @@ watch(() => isActive || isRenderActive, (shown, wasShown) => {
     }
 }, {flush: 'sync'});
 onMounted(() => {
-    documentSession.attachWorkspace(workspaceExpose);
+    documentSession.attachWorkspace(tabId, workspaceExpose);
 });
 onBeforeUnmount(() => {
     if (surfaceMode.value === 'scan-cleanup') {
@@ -525,7 +519,7 @@ onBeforeUnmount(() => {
     // A cold tab can unmount in the same render that hides it; capture
     // while the workspace is still live.
     documentLifecycle.captureViewState();
-    documentSession.detachWorkspace(workspaceExpose);
+    documentSession.detachWorkspace(tabId, workspaceExpose);
 });
 defineExpose(workspaceExpose);
 </script>

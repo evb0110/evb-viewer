@@ -1,7 +1,7 @@
 <template>
     <div v-show="visible" class="workspace-save-dialog-host-root">
         <PdfExportScopeDialog
-            :open="visible && exportWorkflow.exportScopeDialogOpen.value"
+            :open="presentsDocumentDialogs && exportWorkflow.exportScopeDialogOpen.value"
             :mode="exportWorkflow.exportScopeDialogMode.value"
             :total-pages="totalPages"
             :current-page="currentPage"
@@ -12,7 +12,7 @@
         />
 
         <PdfPrintDialog
-            :open="visible && print.printDialogOpen.value"
+            :open="presentsDocumentDialogs && print.printDialogOpen.value"
             :total-pages="totalPages"
             :current-page="currentPage"
             :selected-pages="print.printDialogSelectedPages.value"
@@ -28,7 +28,7 @@
         />
 
         <PdfOptimizeDialog
-            :open="visible && optimize.optimizeDialogOpen.value"
+            :open="presentsDocumentDialogs && optimize.optimizeDialogOpen.value"
             :is-running="optimize.isOptimizeDialogRunning.value"
             :progress="optimize.optimizeProgress.value"
             :error="optimize.optimizeDialogError.value"
@@ -54,7 +54,7 @@
 
         <DjvuConvertDialog
             v-if="showDjvuConversionUi"
-            :open="visible && file.showConvertDialog.value"
+            :open="presentsDocumentDialogs && file.showConvertDialog.value"
             :djvu-path="file.djvuSourcePath.value"
             @convert="file.handleDjvuConvert"
             @update:open="file.showConvertDialog.value = $event"
@@ -68,26 +68,34 @@ import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-e
 import { PdfOptimizeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
 import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const DjvuConvertDialog = defineAsyncComponent(
     () => import('@app/modules/djvu-viewer/public')
         .then(componentModule => componentModule.DjvuConvertDialog),
 );
 
-defineProps<{
+const {visible} = defineProps<{
     visible: boolean;
     showDjvuConversionUi: boolean;
 }>();
 
 const {
-    view,
+    views,
     exportWorkflow,
     print,
-    crop,
     pageOps,
     file,
     save: {optimizeDialog: optimize},
 } = useDocumentContext();
+const {
+    tabId,
+    view,
+    crop,
+} = useDocumentViewContext();
+// The document's dialogs open in the view in use, with its page, selection
+// and layout; its other views would offer their own page for the same command.
+const presentsDocumentDialogs = computed(() => visible && views.commandView.value?.tabId === tabId);
 const {
     totalPages,
     currentPage,

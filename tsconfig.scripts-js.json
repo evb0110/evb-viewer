@@ -67,6 +67,7 @@
         "scripts/scan-cleanup-regress.mjs",
         "scripts/sync-pdfjs-viewer-css.mjs",
         "scripts/test-ocr-quality-corpus.mjs",
+        "scripts/upload-sentry-sourcemaps.mjs",
         "scripts/verify-interop-corpus.mjs",
         "scripts/verify-interop-rendering.mjs",
         "scripts/verify-pdfjs-provenance.mjs",

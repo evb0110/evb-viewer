@@ -6,7 +6,10 @@ import type {
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import type { ITextMarkupEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    AnnotationId,
+    ITextMarkupEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;
 
@@ -14,6 +17,8 @@ interface IUsePdfAnnotationColorCommandsOptions {
     annotationApplication: ShallowRef<AnnotationApplication>;
     annotationCommentModel: TAnnotationCommentModel;
     emitForcedAnnotationMutation: (options?: { scheduleCommentSync?: boolean }) => void;
+    /** The invoking view's selected annotations. */
+    getSelectedIds: () => ReadonlySet<AnnotationId>;
 }
 
 export interface ITextMarkupColorMutationResult {
@@ -110,7 +115,7 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     }
 
     function updateSelectedTextMarkupAnnotationColor(color: string) {
-        const selectedEntity = [...annotationApplication.value.store.selectedIds]
+        const selectedEntity = [...options.getSelectedIds()]
             .map(id => annotationApplication.value.store.get(id))
             .find((entity): entity is ITextMarkupEntity => entity?.kind === 'text-markup' && !entity.deleted);
         const selectedMarkup = selectedEntity ? toTextMarkupProperties(selectedEntity) : null;

@@ -311,65 +311,27 @@ function runViewerPrebuiltBuild({
     projectRoot,
     spawnSyncImpl,
 }) {
-    const buildEnvironment = getViewerBuildEnvironment(env, isProduction);
-    const packageManagerCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-    for (const step of [
-        {
-            args: ['scripts/ensure-wasm-artifacts.mjs'],
-            command: process.execPath,
-            label: 'browser WASM build',
-        },
-        {
-            args: [
-                'run',
-                'generate:build-artifacts',
-            ],
-            command: packageManagerCommand,
-            label: 'artifact generation',
-        },
-        {
-            args: [
-                'exec',
-                'nuxi',
-                'build',
-            ],
-            command: packageManagerCommand,
-            label: 'Nuxt build',
-        },
-    ]) {
-        const result = spawnSyncImpl(step.command, step.args, {
-            cwd: projectRoot,
-            env: buildEnvironment,
-            shell: false,
-            stdio: 'inherit',
-        });
-        if (result.error) {
-            throw result.error;
-        }
-        if ((result.status ?? 1) !== 0) {
-            throw new Error(`Local prebuilt viewer ${step.label} exited with ${result.status ?? 1}.`);
-        }
+    // Windows command shims require cmd.exe. Pass one fixed command string
+    // so shell argument concatenation cannot reinterpret dynamic values.
+    const result = spawnSyncImpl(process.platform === 'win32' ? 'cmd.exe' : 'pnpm', process.platform === 'win32' ? [
+        '/d',
+        '/s',
+        '/c',
+        'pnpm.cmd run build',
+    ] : [
+        'run',
+        'build',
+    ], {
+        cwd: projectRoot,
+        env: getViewerBuildEnvironment(env, isProduction),
+        shell: false,
+        stdio: 'inherit',
+    });
+    if (result.error) {
+        throw result.error;
     }
-    for (const args of [
-        [
-            'scripts/release/upload-sentry-sourcemaps.mjs',
-            '.vercel/output/static',
-        ],
-        ['scripts/prune-build-artifacts.mjs'],
-        ['scripts/check-web-deploy-assets.mjs'],
-    ]) {
-        const result = spawnSyncImpl(process.execPath, args, {
-            cwd: projectRoot,
-            env: buildEnvironment,
-            shell: false,
-            stdio: 'inherit',
-        });
-        if (result.error) {
-            throw result.error;
-        }
-        if ((result.status ?? 1) !== 0) {
-            throw new Error(`Local prebuilt viewer finalizer ${args[0]} exited with ${result.status ?? 1}.`);
-        }
+    if ((result.status ?? 1) !== 0) {
+        throw new Error(`Local prebuilt viewer build exited with ${result.status ?? 1}.`);
     }
 }
 
@@ -666,11 +628,13 @@ export async function runPrivateVercelDeploy({
     } = parsePrivateDeployOptions(rawArgs);
     // A viewer deploy that reports to Sentry builds locally so its source maps
     // can be uploaded and removed before the prebuilt output is deployed.
-    const uploadsSourceMaps = deployTarget === 'viewer'
-        && Boolean(env.SENTRY_AUTH_TOKEN && env.SENTRY_BROWSER_DSN);
-    const prebuilt = explicitPrebuilt || uploadsSourceMaps;
+    const reportsToSentry = deployTarget === 'viewer' && Boolean(env.SENTRY_BROWSER_DSN?.trim());
+    if (reportsToSentry && !env.SENTRY_AUTH_TOKEN) {
+        throw new Error('Refusing a viewer deploy with SENTRY_BROWSER_DSN but no SENTRY_AUTH_TOKEN: its stacks could not be symbolicated.');
+    }
+    const prebuilt = explicitPrebuilt || reportsToSentry;
     const isProduction = deployArgs.includes('--prod');
-    if (uploadsSourceMaps) {
+    if (reportsToSentry) {
         runViewerPrebuiltBuild({
             env,
             isProduction,

@@ -1,7 +1,6 @@
 import {
     copyFile, mkdtemp, writeFile,
 } from 'node:fs/promises';
-import {execFileSync} from 'node:child_process';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {
@@ -112,7 +111,15 @@ describe('Electron E2E - screenshot annotation output', () => {
         await saveViaWindowHandle(page);
 
         await session.stop();
-        session = await startElectronE2ESession(`e2e-screenshot-annotation-reopen-${Date.now()}`, {clean: true});
+        session = await startElectronE2ESession(`e2e-screenshot-annotation-reopen-${Date.now()}`, {
+            clean: true,
+            // Chromium's lazy ClipboardItem rejects getType() once the clipboard
+            // sequence number moves after read(). On X11 this Chromium bumps it
+            // again when the echo of its own write arrives, so a read right
+            // after the copy can fail with "Clipboard data has changed". Eager
+            // reads take the bytes during read() and check the same PNG.
+            extraEnv: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--disable-blink-features=ReadClipboardDataOnClipboardItemGetType'},
+        });
         onTestFinished(async () => { await session.stop(); });
         page = session.page;
         await openPdfInApp(page, path);
@@ -171,13 +178,11 @@ describe('Electron E2E - screenshot annotation output', () => {
         });
 
         const pngPath = join(evidenceDirectory, `clipboard-${Date.now()}.png`);
-        const clipboardPng = execFileSync('xclip', [
-            '-selection',
-            'clipboard',
-            '-t',
-            'image/png',
-            '-o',
-        ], {maxBuffer: 16 * 1024 * 1024});
+        const clipboardPng = Buffer.from(await page.evaluate(async () => {
+            const item = (await navigator.clipboard.read()).find(candidate => candidate.types.includes('image/png'));
+            if (!item) throw new Error('The clipboard holds no PNG image');
+            return Array.from(new Uint8Array(await (await item.getType('image/png')).arrayBuffer()));
+        }));
         console.log(`SCREENSHOT_CAPTURE_LATENCY_MS ${Math.round(performance.now() - captureStartedAt)}`);
         await writeFile(pngPath, clipboardPng);
         const clipboardPixels = await countAnnotationColourPixels(pngPath, screenPixels.redReference);

@@ -65,6 +65,15 @@ and fail only when `EVB_E2E_TIMING_BUDGETS=enforce`, which the nightly macOS run
 sets. A budget on a shared hosted runner measures the runner as much as the
 commit.
 
+The baseline host for these budgets is the nightly run's GitHub-hosted
+`macos-14` arm64 runner (3 CPU, 7 GB). A budget is a target on that runner:
+it is enforced there, reported on the Ubuntu runners of the required verdict,
+and reported on local and Windows verification hosts unless the run sets
+`enforce`. For example, in `compactPageLabelsStructuralOperations`, rotating
+page 2 of a three-page text PDF while Fit Width is active must paint the first
+final-scale raster within 500 ms of the menu click on the baseline; that the
+raster appears at the final zoom is checked on every host.
+
 ### A red verdict
 
 A red `gates_ok` has one owner: the commit that turned it red. Run

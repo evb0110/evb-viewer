@@ -163,7 +163,7 @@ describe('AnnotationStore interleaved sequence invariants', () => {
             redo.length = 0;
         }
         for (let step = 0; step < 150; step += 1) {
-            const op = random(7);
+            const op = random(6);
             if (op === 0 || expected.length === 0 && op < 3) {
                 record();
                 const id = `authored-${nextId++}`;
@@ -223,10 +223,6 @@ describe('AnnotationStore interleaved sequence invariants', () => {
                     persistedRevision: 0,
                 }));
                 store.replaceFromDocument(parsed, []);
-            } else {
-                trace.push('selection transition');
-                store.select(expected.map(entity => asAnnotationId(entity.id)));
-                store.clearSelection();
             }
             expect(visible(store.list()), trace.join('\n')).toEqual(expected);
             expect(store.hasChangesSinceSavedBaseline(), trace.join('\n')).toBe(JSON.stringify(expected) !== JSON.stringify(saved));

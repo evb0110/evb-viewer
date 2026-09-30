@@ -507,14 +507,14 @@ async function verifyPaneGeometry(page: Page, sourcePath: string) {
     }
     const splitCreated = await evaluateInPage(page, async () => {
         const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
-        if (!api?.splitEditor) {
+        if (!api?.openNewPane) {
             return false;
         }
-        await api.splitEditor('right');
+        await api.openNewPane('right');
         return true;
     });
     if (!splitCreated) {
-        throw new Error('Packaged automation API did not expose splitEditor');
+        throw new Error('Packaged automation API did not expose openNewPane');
     }
     console.log('Packaged verification stage: split request completed');
     try {

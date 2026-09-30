@@ -189,6 +189,8 @@ interface IFlingBackdropProbe {
 
 interface IFlingBackdropProbeWindow extends Window { __evbFlingBackdropProbe?: IFlingBackdropProbe }
 
+interface IMainThreadThrottleWindow extends Window { __evbMainThreadThrottle?: { stopped: boolean } }
+
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
@@ -601,18 +603,34 @@ async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumbe
     }, { timeout: 10_000 }, pageNumber);
 }
 
-async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
-    return session.page.waitForFunction((targetPageNumber: number) => {
+/**
+ * Waits until a page visibly shows completed rendering: its canvas painted, in
+ * the viewport and topmost. With `orFeedback`, a visible error alert with text
+ * also counts, judged by the same viewport and visibility tests. A loading
+ * skeleton never counts: it is not an outcome. Resolves with what was shown, or null on timeout.
+ */
+async function waitForVisiblePageOutcome(
+    session: IElectronE2ESession,
+    pageNumber: number,
+    timeout: number,
+    orFeedback: boolean,
+): Promise<{
+    feedback: string;
+    text?: string
+} | null> {
+    return session.page.waitForFunction((targetPageNumber: number, acceptFeedback: boolean): {
+        feedback: string;
+        text?: string
+    } | false => {
         const viewer = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
         );
         const container = viewer?.querySelector<HTMLElement>(
             `.page_container[data-page="${targetPageNumber}"]`,
         ) ?? null;
-        const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         const viewerRect = viewer?.getBoundingClientRect();
         const rect = container?.getBoundingClientRect();
-        if (!viewer || !viewerRect || !container || !rect || !canvas) {
+        if (!viewer || !viewerRect || !container || !rect) {
             return false;
         }
         const left = Math.max(viewerRect.left, rect.left);
@@ -626,17 +644,52 @@ async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber
             left + ((right - left) / 2),
             top + ((bottom - top) / 2),
         );
-        return Boolean(
-            container?.classList.contains('page_container--rendered')
+        if (window.getComputedStyle(container).visibility === 'hidden' || topmost?.closest('.page_container') !== container) {
+            return false;
+        }
+        const isShown = (element: Element | null | undefined) => {
+            if (!element) {
+                return false;
+            }
+            const elementRect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return elementRect.width > 0
+                && elementRect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Math.min(viewerRect.right, elementRect.right) > Math.max(viewerRect.left, elementRect.left)
+                && Math.min(viewerRect.bottom, elementRect.bottom) > Math.max(viewerRect.top, elementRect.top);
+        };
+        const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+        if (
+            canvas
+            && container.classList.contains('page_container--rendered')
             && canvas.width > 0
             && canvas.height > 0
-            && window.getComputedStyle(container).visibility !== 'hidden'
             && !container.classList.contains('page_container--buffered')
-            && topmost?.closest('.page_container') === container,
-        );
-    }, { timeout }, pageNumber)
-        .then(() => true)
-        .catch(() => false);
+        ) {
+            return {feedback: 'rendered'};
+        }
+        if (!acceptFeedback) {
+            return false;
+        }
+        const alert = container.querySelector<HTMLElement>('[role="alert"]');
+        if (isShown(alert) && alert?.textContent?.trim()) {
+            return {
+                feedback: 'error',
+                text: alert.textContent.trim(),
+            };
+        }
+        return false;
+    }, {timeout}, pageNumber, orFeedback)
+        .then(async (handle): Promise<{
+            feedback: string;
+            text?: string
+        } | null> => (await handle.jsonValue()) || null, () => null);
+}
+
+async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
+    return await waitForVisiblePageOutcome(session, pageNumber, timeout, false) !== null;
 }
 
 // Tests in a suite share one viewer. A test that changes the layout puts it back,
@@ -688,6 +741,48 @@ async function setFitWidthAndWaitForPage(session: IElectronE2ESession, pageNumbe
     ), {timeout: 15_000});
     await waitForVisiblePageCanvas(session, pageNumber, 15_000);
     await waitForAnimationFrames(session.page, 10);
+}
+
+// Slows the renderer main thread by `rate`, as Emulation.setCPUThrottlingRate
+// does, without its signals. Chromium's Linux throttler interrupts the main
+// thread with SIGUSR2 every few hundred microseconds. Where a pending signal
+// makes shmem fallocate undo its work (Linux 6.8), the shared memory for a
+// page-sized canvas is never allocated and the renderer hangs (#908). Here each
+// slice spins `rate - 1` times as long as the page ran since the previous
+// slice, and yields between slices so input and CDP calls still run.
+async function throttleRendererMainThread(session: IElectronE2ESession, rate: number) {
+    await session.page.evaluate((throttleRate: number) => {
+        const throttle = {stopped: false};
+        (window as IMainThreadThrottleWindow).__evbMainThreadThrottle = throttle;
+        const channel = new MessageChannel();
+        let debtMs = 0;
+        let sliceEnd = performance.now();
+        channel.port1.onmessage = () => {
+            if (throttle.stopped) {
+                channel.port1.close();
+                return;
+            }
+            const sliceStart = performance.now();
+            debtMs += (sliceStart - sliceEnd) * (throttleRate - 1);
+            const spinUntil = sliceStart + Math.min(debtMs, 20);
+            while (performance.now() < spinUntil) {
+                // Occupy the main thread for this slice.
+            }
+            sliceEnd = performance.now();
+            debtMs = Math.max(0, debtMs - (sliceEnd - sliceStart));
+            channel.port2.postMessage(null);
+        };
+        channel.port2.postMessage(null);
+    }, rate);
+    return async () => {
+        await session.page.evaluate(() => {
+            const throttleWindow = window as IMainThreadThrottleWindow;
+            if (throttleWindow.__evbMainThreadThrottle) {
+                throttleWindow.__evbMainThreadThrottle.stopped = true;
+            }
+            delete throttleWindow.__evbMainThreadThrottle;
+        });
+    };
 }
 
 async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
@@ -2310,8 +2405,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             throw new Error('PDF viewport disappeared before the half-commit interruption');
         }
         await session.page.mouse.move(viewport.x, viewport.y);
-        const client = await session.page.createCDPSession();
-        await client.send('Emulation.setCPUThrottlingRate', {rate: 50});
+        const stopThrottle = await throttleRendererMainThread(session, 50);
         let inFlight: Record<string, string | undefined> = {};
         let recovered: Record<string, string | undefined> = {};
         try {
@@ -2364,8 +2458,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             });
             recovered = evidence.recovered;
         } finally {
-            await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
-            await client.detach();
+            await stopThrottle();
         }
 
         expect(inFlight.commandAvailable).toBe('true');
@@ -2699,7 +2792,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         const originalViewport = session.page.viewport();
-        const throttle = await session.page.createCDPSession();
+        let stopThrottle: (() => Promise<void>) | null = null;
         try {
             await session.page.setViewport({
                 width: 1600,
@@ -2756,12 +2849,13 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             });
             // Scanned pages render slower than a reader clicks; throttling
             // keeps each target still loading when the next click lands.
-            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 4});
+            stopThrottle = await throttleRendererMainThread(session, 4);
             for (let click = 0; click < 10; click += 1) {
                 await session.page.mouse.click(nextButton.x, nextButton.y);
                 await delay(90);
             }
-            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1});
+            await stopThrottle();
+            stopThrottle = null;
             await delay(600);
             const toolbarPage = (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? null;
             const frames = await session.page.evaluate(() => {
@@ -2795,8 +2889,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 }
                 delete probeWindow.__evbBarePageProbe;
             }).catch(() => undefined);
-            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1}).catch(() => undefined);
-            await throttle.detach().catch(() => undefined);
+            await stopThrottle?.().catch(() => undefined);
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
             }
@@ -3215,5 +3308,252 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
         const afterShorterWindow = await readCentrePoint();
         // R3 again: a shorter window keeps the centre point, not the top edge.
         expect(driftPx(afterSidebarLater, afterShorterWindow)).toBeLessThanOrEqual(3);
+    }, 150_000);
+});
+
+interface IHeldPageRenderGate {
+    closed: boolean;
+    started: number;
+    pending: number;
+    cancelled: number;
+    restore: () => void;
+}
+
+interface IGatedPdfPageProxy {
+    pageNumber: number;
+    render: (...args: unknown[]) => {
+        promise: Promise<unknown>;
+        onContinue: unknown;
+    };
+}
+
+interface IGateProbeLoadingTask {
+    destroy: () => Promise<void>;
+    promise: Promise<{getPage: (pageNumber: number) => Promise<IGatedPdfPageProxy>}>;
+}
+
+interface IGatePdfjsLib {
+    GlobalWorkerOptions: {workerSrc?: string};
+    getDocument: (source: {data: Uint8Array}) => IGateProbeLoadingTask;
+}
+
+interface IPageRenderGateWindow extends Window {
+    __evbHeldPageRenderGate?: IHeldPageRenderGate;
+    pdfjsLib?: IGatePdfjsLib;
+}
+
+// While the gate is closed, a PDF.js render of the page never receives a
+// continuation, so it stalls exactly like a stuck render until the viewer's
+// own stage watchdog cancels it. Renders started after the gate opens run.
+async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.evaluate(async (targetPage: number) => {
+        const gateWindow = window as IPageRenderGateWindow;
+        const pdfjs = gateWindow.pdfjsLib;
+        if (!pdfjs) {
+            throw new Error('PDF.js is not loaded in the renderer');
+        }
+        // The global PDF.js does not always carry the worker configuration in
+        // this page; use the worker URL the app configures for its own runtime
+        // (app/utils/viewerAssets.ts).
+        if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+            pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
+        }
+        const probe = pdfjs.getDocument({data: new TextEncoder().encode([
+            '%PDF-1.4',
+            '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
+            '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
+            '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj',
+            'trailer<</Root 1 0 R>>',
+            '%%EOF',
+        ].join('\n'))});
+        const probePage = await (await probe.promise).getPage(1);
+        const proxyPrototype = Object.getPrototypeOf(probePage) as IGatedPdfPageProxy;
+        await probe.destroy();
+        const originalRender = proxyPrototype.render;
+        const gate: IHeldPageRenderGate = {
+            closed: true,
+            started: 0,
+            pending: 0,
+            cancelled: 0,
+            restore: () => {
+                proxyPrototype.render = originalRender;
+            },
+        };
+        proxyPrototype.render = function (this: IGatedPdfPageProxy, ...args: unknown[]) {
+            const task = originalRender.apply(this, args);
+            if (!gate.closed || this.pageNumber !== targetPage) {
+                return task;
+            }
+            gate.started += 1;
+            gate.pending += 1;
+            const withheldContinuation = () => {};
+            Object.defineProperty(task, 'onContinue', {
+                configurable: true,
+                get: () => withheldContinuation,
+                set: () => {},
+            });
+            task.promise.then(() => {
+                gate.pending -= 1;
+            }, () => {
+                gate.pending -= 1;
+                gate.cancelled += 1;
+            });
+            return task;
+        };
+        gateWindow.__evbHeldPageRenderGate = gate;
+    }, pageNumber);
+}
+
+async function readPdfPageRenderGate(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
+        return gate ? {
+            cancelled: gate.cancelled,
+            pending: gate.pending,
+            started: gate.started,
+        } : null;
+    });
+}
+
+// Waits until the viewer has given up on every held render of the page: at
+// least one was cancelled by the watchdog and no reattempt starts afterwards.
+// Reattempts that never stop fail the test instead of holding it open.
+async function waitForHeldPageRenderAbandoned(session: IElectronE2ESession) {
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+        await session.page.waitForFunction(() => {
+            const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
+            return Boolean(gate && gate.cancelled > 0 && gate.pending === 0);
+        }, {timeout: 40_000});
+        const settled = await readPdfPageRenderGate(session);
+        await waitForAnimationFrames(session.page, 30);
+        const after = await readPdfPageRenderGate(session);
+        if (after?.started === settled?.started && after?.pending === 0) {
+            return after;
+        }
+    }
+    throw new Error(`Held page renders kept restarting: ${JSON.stringify(await readPdfPageRenderGate(session))}`);
+}
+
+async function openPdfPageRenderGate(session: IElectronE2ESession) {
+    await session.page.evaluate(() => {
+        const gateWindow = window as IPageRenderGateWindow;
+        const gate = gateWindow.__evbHeldPageRenderGate;
+        if (gate) {
+            gate.closed = false;
+            gate.restore();
+        }
+    });
+}
+
+async function readViewerPageOutcome(session: IElectronE2ESession, pageNumber: number) {
+    return session.page.evaluate((targetPage: number) => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+        const canvas = host?.querySelector<HTMLCanvasElement>(
+            `#pdf-viewer .page_container[data-page="${String(targetPage)}"] .page_canvas canvas`,
+        ) ?? null;
+        return {
+            canvasHeight: canvas?.height ?? 0,
+            canvasWidth: canvas?.width ?? 0,
+            viewportLifecycle: chassis?.dataset.viewportLifecycle ?? null,
+            visualPage: chassis?.dataset.viewportVisualPage ?? null,
+            visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+        };
+    }, pageNumber);
+}
+
+describe('Electron E2E - deliberate navigation to a page whose buffer raster failed', () => {
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-pdf-failed-buffer-raster-${Date.now()}`,
+        timeoutMs: 180_000,
+    });
+
+    it('renders a failed buffer raster after deliberate navigation', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createLargeScannedFixturePdf(`failed-buffer-raster-${Date.now()}.pdf`, 4, 0);
+        await enableBufferedPdfTrace(session);
+        await closePdfPageRenderGate(session, 2);
+        try {
+            await openPdfInApp(session.page, pdfPath, 45_000);
+            await waitForScannedFixturePageIdentity(session.page, 1, 20_000);
+            // Page 2 is the buffer page below the first one. Its held raster
+            // runs into the unchanged 15 s canvas-render watchdog.
+            const gate = await waitForHeldPageRenderAbandoned(session);
+            const timeouts = (await collectTrace(session)).filter(entry => (
+                entry.event === 'pdf-render-supervisor-watchdog'
+                && entry.payload.cause === 'page-stage-timeout'
+                && (entry.payload.metadata as Record<string, unknown> | undefined)?.pageNumber === 2
+            )).map(entry => entry.payload.metadata as Record<string, unknown>);
+            expect(timeouts.map(metadata => [
+                metadata.stage,
+                metadata.lane,
+            ]), JSON.stringify({
+                gate,
+                timeouts,
+            })).toContainEqual([
+                'canvas-render',
+                'viewport-nearby',
+            ]);
+            expect(await readViewerPageOutcome(session, 2)).toMatchObject({
+                canvasWidth: 0,
+                canvasHeight: 0,
+            });
+        } finally {
+            await openPdfPageRenderGate(session);
+        }
+
+        await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
+        const pageRendered = await waitForVisiblePageCanvas(session, 2, 15_000);
+        const outcome = {
+            ...await readViewerPageOutcome(session, 2),
+            navigationExits: (await collectTrace(session))
+                .filter(entry => entry.event === 'navigation-await-visual-exit')
+                .map(entry => entry.payload.outcome),
+            toolbarPage: (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? null,
+        };
+        // R2: the destination of a deliberate navigation becomes visible.
+        expect(pageRendered, JSON.stringify(outcome)).toBe(true);
+        await waitForScannedFixturePageIdentity(session.page, 2, 5_000);
+        // L2: the earlier stalled buffer raster is not a genuine failure of this page.
+        expect(outcome, JSON.stringify(outcome)).toMatchObject({toolbarPage: 2});
+        expect(outcome.viewportLifecycle, JSON.stringify(outcome)).not.toBe('failed');
+        expect(outcome.visualPresentation, JSON.stringify(outcome)).not.toBe('error');
+    }, 150_000);
+
+    it('shows a page whose raster fails again during navigation, or explains it', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createLargeScannedFixturePdf(`failed-buffer-raster-again-${Date.now()}.pdf`, 4, 0);
+        await enableBufferedPdfTrace(session);
+        await closePdfPageRenderGate(session, 2);
+        try {
+            await openPdfInApp(session.page, pdfPath, 45_000);
+            await waitForScannedFixturePageIdentity(session.page, 1, 20_000);
+            // Page 2's buffer raster runs into the unchanged 15 s canvas-render watchdog.
+            await waitForHeldPageRenderAbandoned(session);
+
+            // Page 2 keeps failing: the navigation's own raster stalls too.
+            await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
+            await session.page.waitForFunction(() => (
+                (window as IE2EWindow & {__getPdfRenderTrace?: () => IPdfRenderTraceEntry[]}).__getPdfRenderTrace?.()
+                    .some(entry => entry.event === 'navigation-await-visual-exit' && entry.payload.outcome === 'render-settled-not-ready')
+            ), {timeout: 40_000});
+
+            // L2: by the settled deadline page 2 is painted, or the page itself
+            // shows visible loading or error feedback.
+            const shown = await waitForVisiblePageOutcome(session, 2, 10_000, true);
+            const outcome = {
+                shown,
+                gate: await readPdfPageRenderGate(session),
+                ...await readViewerPageOutcome(session, 2),
+            };
+            expect(shown, JSON.stringify(outcome)).not.toBeNull();
+            // The file opened; only this page could not be drawn.
+            expect(shown?.text, JSON.stringify(outcome)).not.toBe('Failed to open file');
+        } finally {
+            await openPdfPageRenderGate(session);
+        }
     }, 150_000);
 });

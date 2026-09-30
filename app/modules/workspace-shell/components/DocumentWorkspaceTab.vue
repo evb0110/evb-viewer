@@ -13,7 +13,6 @@
             :is-render-active="isRenderActive"
             :is-tab-transition-busy="isTabTransitionBusy"
             :document-session="documentSession"
-            :split-cache-session="splitCacheSession"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
             :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
@@ -46,8 +45,8 @@
                 can-combine-files
                 :open-combine-result="result => withWorkspace(workspace => workspace.handleOpenFileWithResult(result))"
                 @update:start-section="emit('update:start-section', $event)"
-                @open-file="withWorkspace(workspace => workspace.handleOpenFileFromUi())"
-                @open-folder="withWorkspace(workspace => workspace.handleOpenFolderFromUi())"
+                @open-file="openPicked(() => platformDocuments.getDocumentPickerCapability().openDocumentDialog())"
+                @open-folder="openPicked(() => platformDocuments.getDocumentPickerCapability().openFolderDialog())"
                 @open-recent="openRecentFile"
                 @remove-recent="removeRecentFile"
                 @reveal-recent="revealRecentFile"
@@ -67,15 +66,18 @@ import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
-import { describeDocumentTarget } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {
+    describeDocumentTarget,
+    describeOpenResult,
+} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
-import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
+import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {
     identityHasDocument,
     type IWorkspaceDocumentController,
+    type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import * as platformDocuments from '@app/utils/platformDocuments';
@@ -107,8 +109,6 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();
-const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(documentSession));
-const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     recentFiles,
@@ -123,18 +123,17 @@ const crashFailure = shallowRef<FailurePresentation | null>(null);
 const renderKey = ref(0);
 
 const snapshot = computed(() => documentSession.snapshot.value);
+const documentView = computed(() => documentSession.getView(tabId));
 const isOpening = computed(() => snapshot.value.phase === 'opening');
 // Start belongs to a tab without a document on screen, including one whose
 // open just failed. A tab that owns a document, is opening or closing one, or
-// is about to receive a split's document does not show it.
+// is about to receive a transferred document does not show it.
 const isStartVisible = computed(() => {
     const phase = snapshot.value.phase;
-    const toolbar = documentSession.toolbarSnapshot.value;
-    const session = splitCacheSession.value;
+    const toolbar = documentView.value?.toolbarSnapshot.value;
     return (phase === 'empty' || phase === 'failed')
-        && !toolbar.hasPdf
-        && !toolbar.isDjvuMode
-        && !(session ? workspaceSplitCache.has(tabId, {session}) : workspaceSplitCache.has(tabId))
+        && !toolbar?.hasPdf
+        && !toolbar?.isDjvuMode
         && !workspaceRestoreTracker.has(tabId);
 });
 // An open started from Start keeps Start mounted but hidden until the open
@@ -166,10 +165,10 @@ function isRecentOpenReady(file: IRecentFile) {
 // commands that follow it queue behind the open; otherwise the command waits
 // for the workspace to mount.
 function withWorkspace(run: (workspace: IWorkspaceExpose) => Promise<boolean>) {
-    const workspace = documentSession.mountedWorkspace.value;
+    const workspace = documentView.value?.mountedWorkspace.value;
     return workspace
         ? run(workspace)
-        : documentSession.whenMounted().then(mounted => (mounted ? run(mounted) : false));
+        : (documentView.value?.whenMounted() ?? Promise.resolve(null)).then(mounted => (mounted ? run(mounted) : false));
 }
 
 async function openRecentFile(file: IRecentFile) {
@@ -181,17 +180,39 @@ async function openRecentFile(file: IRecentFile) {
             return false;
         }
     }
-    const open = (workspace: IWorkspaceExpose) => workspace.handleOpenFileDirectWithPersist(file.originalPath);
-    const mounted = documentSession.mountedWorkspace.value;
+    return openInWorkspace({
+        kind: 'open',
+        target: describeDocumentTarget(file.originalPath),
+    }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath));
+}
+
+// The picker is requested in the click's own call: a browser shows a file
+// chooser only within the click's user activation, which can expire while the
+// workspace chunk loads. Start has no document, so there is nothing to
+// persist before picking.
+async function openPicked(pick: () => Promise<TOpenFileResult | null>) {
+    let result: TOpenFileResult | null;
+    try {
+        result = await pick();
+    } catch (error) {
+        // Main refused the chosen file before handing it over: this open
+        // failed, the workspace did not crash.
+        documentSession.markFailed(describeRefusedDocumentOpen(error, t));
+        return false;
+    }
+    return result
+        ? openInWorkspace(describeOpenResult(result), workspace => workspace.handleOpenFileWithResult(result))
+        : false;
+}
+
+function openInWorkspace(request: IWorkspaceOpenRequest, open: (workspace: IWorkspaceExpose) => Promise<boolean>) {
+    const mounted = documentView.value?.mountedWorkspace.value;
     if (mounted) {
         return open(mounted);
     }
     // The tab is opening from the click, not from when the workspace chunk
     // arrives; the workspace's own open replaces this transaction once mounted.
-    return documentSession.runOpen({
-        kind: 'open',
-        target: describeDocumentTarget(file.originalPath),
-    }, () => withWorkspace(open));
+    return documentSession.runOpen(request, () => withWorkspace(open));
 }
 
 async function revealRecentFile(file: IRecentFile) {

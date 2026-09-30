@@ -61,6 +61,42 @@ const NATIVE_PDF_IMAGE_COMBINE_PATH = join(
     process.platform === 'win32' ? 'evb-pdf-image-combine.exe' : 'evb-pdf-image-combine',
 );
 
+// A refused open names the chosen file and gives its reason. The IPC error,
+// tool output and working-copy paths are diagnostics, not text for the user.
+function expectNamedOpenRefusal(text: string, filePath: string) {
+    expect(text).toContain(`${basename(filePath)}: `);
+    expect(text).not.toMatch(/EVB_SERIALIZABLE_ERROR|Error invoking remote method|qpdf|pdf-work-/u);
+}
+
+async function clickVisibleCenter(page: Page, selector: string, label: string) {
+    const point = await page.evaluate((args: {
+        selector: string;
+        label: string;
+    }) => {
+        const target = Array.from(document.querySelectorAll<HTMLElement>(args.selector)).find((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 8
+                && rect.height > 8
+                && (element.getAttribute('aria-label') === args.label || element.textContent?.trim() === args.label);
+        });
+        if (!target) {
+            return null;
+        }
+        const rect = target.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    }, {
+        selector,
+        label,
+    });
+    if (!point) {
+        throw new Error(`No visible ${selector} labelled ${label}`);
+    }
+    await page.mouse.click(point.x, point.y);
+}
+
 function hashFile(filePath: string) {
     return createHash('sha256')
         .update(readFileSync(filePath))
@@ -442,7 +478,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
             startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
         }));
-        expect(shownState.alert).toContain(basename(brokenPath));
+        expectNamedOpenRefusal(shownState.alert, brokenPath);
         expect(shownState.activeTab).not.toContain(basename(brokenPath));
         expect(shownState.startVisible).toBe(true);
         expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
@@ -474,10 +510,69 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
             startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
         }));
-        expect(shownState.alert).toContain(basename(brokenPath));
+        expectNamedOpenRefusal(shownState.alert, brokenPath);
         expect(shownState.activeTab).not.toContain(basename(brokenPath));
         expect(shownState.startVisible).toBe(true);
         expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('keeps the open document and names the file when More tools > Open File picks a PDF that cannot be opened', async () => {
+        const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-toolbar-pick-${process.pid}-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(brokenPath, {force: true}));
+        writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+        const documentPath = await createMultiPageTextFixturePdf(`blocking-toolbar-pick-document-${Date.now()}.pdf`, 1);
+
+        session = await startElectronE2ESession(`e2e-blocking-broken-toolbar-pick-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [documentPath],
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: brokenPath},
+        });
+        const {page} = session;
+        await waitForActiveDocumentSource(page, documentPath, 45_000);
+        await waitForViewerInteractive(page, 45_000);
+        // Every notification is recorded as it appears, in case one closes
+        // before the assertions read it.
+        await page.evaluate(() => {
+            const shown: string[] = [];
+            Reflect.set(window, '__refusedOpenNotifications', shown);
+            const observer = new MutationObserver(() => {
+                for (const notification of document.querySelectorAll('[role="status"], [role="alert"]')) {
+                    const text = notification.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
+                    if (text && !shown.includes(text)) {
+                        shown.push(text);
+                    }
+                }
+            });
+            Reflect.set(window, '__refusedOpenNotificationObserver', observer);
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+        });
+        onTestFinished(async () => {
+            // The session may already have closed the window, and the observer with it.
+            if (!page.isClosed()) {
+                await page.evaluate(() => (Reflect.get(window, '__refusedOpenNotificationObserver') as MutationObserver | undefined)?.disconnect());
+            }
+        });
+
+        await clickVisibleCenter(page, 'button[aria-label]', 'More tools');
+        await page.waitForSelector('.overflow-menu', {visible: true});
+        await clickVisibleCenter(page, '.overflow-menu .overflow-menu-item', 'Open File');
+
+        await page.waitForFunction((name: string) => (
+            (Reflect.get(window, '__refusedOpenNotifications') as string[]).some(text => text.includes(name))
+        ), {timeout: 45_000}, basename(brokenPath));
+        const notifications = await page.evaluate(() => Reflect.get(window, '__refusedOpenNotifications') as string[]);
+        const refusal = notifications.find(text => text.includes(basename(brokenPath))) ?? '';
+        expect(refusal).toContain('Failed to open file');
+        expectNamedOpenRefusal(refusal, brokenPath);
+        expect(await page.$('.workspace-host__loading[role="alert"]')).toBeNull();
+        expect(await page.evaluate(() => (
+            document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''
+        ))).toBe(basename(documentPath));
+        await waitForActiveDocumentSource(page, documentPath, 5_000);
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('opens a valid PDF whose viewer has no layout for the first moments after Open', async () => {

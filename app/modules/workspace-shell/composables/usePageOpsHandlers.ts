@@ -32,6 +32,7 @@ import { usePageOperations } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
 import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
+import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 
 type TPageSelectionInput = number[] | TPageSelection;
 type TPageRotationDelta = 90 | 180 | 270;
@@ -63,6 +64,7 @@ interface IPdfViewerForPageOps {
         invalidatedPages: readonly number[];
         pageNumber: number;
         rotationDelta?: TPageRotationDelta;
+        pageIdentityDelta?: IPageIdentityDelta;
     }) => boolean | Promise<boolean>;
     beginPageRotationPreview?: (input: {
         invalidatedPages: readonly number[];
@@ -79,7 +81,8 @@ export interface IPageOpsHandlersDeps {
     pageLabelsResolved?: Ref<boolean>;
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     bookmarksResolved?: Ref<boolean>;
-    currentPage: Ref<number>;
+    /** The document's views: operations run in the one in use and keep every view on its pages. */
+    views: Pick<TDocumentViews, 'viewPorts' | 'commandViewRef'>;
     totalPages: Ref<number>;
     selectedThumbnailPages: Ref<number[]>;
     setSelectedThumbnailPages: (pages: number[]) => void;
@@ -90,7 +93,6 @@ export interface IPageOpsHandlersDeps {
         expectedDocumentRevision?: string,
         options?: {rotationOnly?: boolean},
     ) => void;
-    pdfViewerRef: Ref<IPdfViewerForPageOps | null>;
     pageContextMenu: Ref<{
         visible: boolean;
         clickedPage?: number | null;
@@ -129,7 +131,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         pageLabelsResolved,
         bookmarkItems,
         bookmarksResolved,
-        currentPage,
+        views,
         totalPages,
         selectedThumbnailPages,
         setSelectedThumbnailPages,
@@ -149,7 +151,19 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ensureWorkingCopyFreshForRead,
         runWithDocumentOperationLease,
     } = deps;
+    const currentPage = views.commandViewRef(port => port.view.currentPage, 1);
+    const pdfViewerRef = views.commandViewRef<IPdfViewerForPageOps | null>(port => port.view.pdfViewerRef, null);
     let stagedPageIdentityDelta: IPageIdentityDelta | null = null;
+
+    // Each view keeps showing the pages it was reading (T4).
+    function mapViewPages(delta: IPageIdentityDelta) {
+        const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
+        for (const port of views.viewPorts.value.values()) {
+            const page = port.view.currentPage;
+            page.value = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page.value))
+                ?? Math.min(page.value, nextPageCount ?? page.value);
+        }
+    }
 
     function runPageOperationDetached(label: string, task: () => Promise<unknown>) {
         return runDetached(task, {
@@ -208,34 +222,43 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             );
             const delta = result.pageIdentityDelta;
             if (delta) {
-                const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
-                    delta,
-                    requirePageNumber(currentPage.value),
-                );
-                const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
-                currentPage.value = mappedPageNumber
-                    ?? Math.min(currentPage.value, nextPageCount ?? currentPage.value);
+                mapViewPages(delta);
                 stagedPageIdentityDelta = delta;
             }
             if (result.documentRevision?.documentRef !== path) {
                 if (rotationDelta !== undefined) {
-                    await deps.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
+                    await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                 }
                 return;
             }
             try {
-                const didPrepare = await deps.pdfViewerRef.value?.preparePageMutationRevisionSwap?.({
-                    documentRevision: result.documentRevision.token,
-                    invalidatedPages,
-                    pageNumber: currentPage.value,
-                    ...(rotationDelta === undefined ? {} : {rotationDelta}),
-                });
+                let didPrepare: boolean | undefined;
+                for (const port of views.viewPorts.value.values()) {
+                    const viewer = port.view.pdfViewerRef.value;
+                    try {
+                        const prepared = await viewer?.preparePageMutationRevisionSwap?.({
+                            documentRevision: result.documentRevision.token,
+                            invalidatedPages,
+                            pageNumber: port.view.currentPage.value,
+                            ...(rotationDelta === undefined ? {} : {rotationDelta}),
+                            ...(delta ? {pageIdentityDelta: delta} : {}),
+                        });
+                        if (viewer === pdfViewerRef.value) {
+                            didPrepare = prepared;
+                        }
+                    } catch (error) {
+                        // Another view that fails to prepare reloads as before.
+                        if (viewer === pdfViewerRef.value) {
+                            throw error;
+                        }
+                    }
+                }
                 if (!didPrepare && rotationDelta !== undefined) {
-                    await deps.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
+                    await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                 }
             } catch (error) {
                 if (rotationDelta !== undefined) {
-                    await deps.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
+                    await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                 }
                 throw error;
             }
@@ -350,16 +373,11 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     : undefined;
                 if (delta) {
                     if (delta !== stagedPageIdentityDelta) {
-                        const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
-                            delta,
-                            requirePageNumber(currentPage.value),
-                        );
-                        const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
-                        currentPage.value = mappedPageNumber
-                            ?? Math.min(currentPage.value, nextPageCount ?? currentPage.value);
+                        mapViewPages(delta);
                     }
                     stagedPageIdentityDelta = null;
-                    deps.pdfViewerRef.value?.remapPageIdentityDelta?.(delta);
+                    // The annotations are the document's: remap them once.
+                    pdfViewerRef.value?.remapPageIdentityDelta?.(delta);
                 }
                 setSelectedThumbnailPages(remapSelection(selectedThumbnailPages.value));
             } else {
@@ -565,7 +583,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     ? [...selection]
                     : materializePageSelection(selection);
                 try {
-                    await deps.pdfViewerRef.value?.beginPageRotationPreview?.({
+                    await pdfViewerRef.value?.beginPageRotationPreview?.({
                         invalidatedPages,
                         rotationDelta: angle,
                     });
@@ -582,14 +600,14 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     );
                     if (!didRotate) {
                         reloadWaiter.cancel();
-                        await deps.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
+                        await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                         return false;
                     }
                     await reloadWaiter.promise;
                     return true;
                 } catch (error) {
                     reloadWaiter.cancel();
-                    await deps.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
+                    await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                     throw error;
                 }
             },

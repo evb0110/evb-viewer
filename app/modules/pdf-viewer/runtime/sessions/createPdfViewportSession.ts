@@ -1198,7 +1198,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         });
     }
     function preserveNextSourceReloadVisibleContent() {
-        nextReloadAnchor = singlePageScroll.captureCurrentSemanticAnchor();
+        nextReloadAnchor = documentSession.carryAnchorThroughPageMutation(singlePageScroll.captureCurrentSemanticAnchor());
         documentSession.preserveNextReloadVisibleContent(true);
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {

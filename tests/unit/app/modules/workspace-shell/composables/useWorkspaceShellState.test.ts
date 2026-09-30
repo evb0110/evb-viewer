@@ -23,10 +23,17 @@ function createAssignedSession() {
     });
 }
 
+function activeDocumentOf(session: ReturnType<typeof createAssignedSession>) {
+    return {
+        activeDocumentSession: shallowRef(session),
+        activeDocumentView: shallowRef(session.getView('tab-1')),
+    };
+}
+
 describe('useWorkspaceShellState', () => {
     it('treats an assigned document as the active document before the workspace loads it', () => {
         const shellState = useWorkspaceShellState({
-            activeDocumentSession: shallowRef(createAssignedSession()),
+            ...activeDocumentOf(createAssignedSession()),
             tabs: ref([{id: 'tab-1'}]),
         });
 
@@ -39,6 +46,7 @@ describe('useWorkspaceShellState', () => {
     it('has no document without an active tab', () => {
         const shellState = useWorkspaceShellState({
             activeDocumentSession: shallowRef(null),
+            activeDocumentView: shallowRef(null),
             tabs: ref([]),
         });
 
@@ -50,10 +58,11 @@ describe('useWorkspaceShellState', () => {
     it('reads save availability from the active workspace toolbar', () => {
         const session = createAssignedSession();
         const shellState = useWorkspaceShellState({
-            activeDocumentSession: shallowRef(session),
+            ...activeDocumentOf(session),
             tabs: ref([{id: 'tab-1'}]),
         });
-        session.publishToolbarSnapshot({
+        const view = session.getView('tab-1')!;
+        view.publishToolbarSnapshot({
             ...createDefaultWorkspaceToolbarSnapshot(),
             hasPdf: true,
             canSave: false,
@@ -63,8 +72,8 @@ describe('useWorkspaceShellState', () => {
         expect(shellState.activeWorkspaceCanSave.value).toBe(false);
         expect(shellState.activeWorkspaceCanRepairSave.value).toBe(true);
 
-        session.publishToolbarSnapshot({
-            ...session.toolbarSnapshot.value,
+        view.publishToolbarSnapshot({
+            ...view.toolbarSnapshot.value,
             canSave: true,
         });
 

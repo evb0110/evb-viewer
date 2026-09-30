@@ -16,6 +16,9 @@ pub(crate) const MAX_PATH_INPUT_PDF_PAGES: usize = 200_000;
 pub(crate) const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
 const MAX_XREF_PROBE_BYTES: usize = 64 * 1024 * 1024;
+// A revision's section is usually a few hundred bytes; a window grows only
+// when its section parse runs out of input.
+const FIRST_XREF_SECTION_WINDOW_BYTES: usize = 4 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PdfLoadPolicy {
@@ -34,7 +37,7 @@ const PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_structural_nesting: MAX_PDF_STRUCTURAL_NESTING,
 };
 
-const PDF_PATH_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+pub(crate) const PDF_PATH_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
     max_pages: Some(MAX_PATH_INPUT_PDF_PAGES),
     ..PDF_LOAD_POLICY
 };
@@ -317,6 +320,21 @@ enum AdmissionToken<'a> {
     Name(&'a [u8]),
 }
 
+thread_local! {
+    // Set when a lexer or cursor asks for a byte past the end of its input. A
+    // cross-reference section that failed to parse after that may only need a
+    // longer window; one that failed before it is damaged.
+    static INPUT_END_REACHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn input_byte(bytes: &[u8], index: usize) -> Option<&u8> {
+    let byte = bytes.get(index);
+    if byte.is_none() {
+        INPUT_END_REACHED.with(|reached| reached.set(true));
+    }
+    byte
+}
+
 struct AdmissionLexer<'a> {
     bytes: &'a [u8],
     cursor: usize,
@@ -331,13 +349,13 @@ impl<'a> AdmissionLexer<'a> {
         loop {
             self.skip_whitespace_and_comments();
             let start = self.cursor;
-            let byte = *self.bytes.get(start)?;
+            let byte = *input_byte(self.bytes, start)?;
             match byte {
-                b'<' if self.bytes.get(start + 1) == Some(&b'<') => {
+                b'<' if input_byte(self.bytes, start + 1) == Some(&b'<') => {
                     self.cursor += 2;
                     return Some(AdmissionToken::DictionaryStart);
                 }
-                b'>' if self.bytes.get(start + 1) == Some(&b'>') => {
+                b'>' if input_byte(self.bytes, start + 1) == Some(&b'>') => {
                     self.cursor += 2;
                     return Some(AdmissionToken::DictionaryEnd);
                 }
@@ -384,19 +402,13 @@ impl<'a> AdmissionLexer<'a> {
 
     fn skip_whitespace_and_comments(&mut self) {
         loop {
-            while self
-                .bytes
-                .get(self.cursor)
-                .is_some_and(|byte| is_pdf_whitespace(*byte))
-            {
+            while input_byte(self.bytes, self.cursor).is_some_and(|byte| is_pdf_whitespace(*byte)) {
                 self.cursor += 1;
             }
-            if self.bytes.get(self.cursor) != Some(&b'%') {
+            if input_byte(self.bytes, self.cursor) != Some(&b'%') {
                 return;
             }
-            while self
-                .bytes
-                .get(self.cursor)
+            while input_byte(self.bytes, self.cursor)
                 .is_some_and(|byte| !matches!(*byte, b'\r' | b'\n'))
             {
                 self.cursor += 1;
@@ -405,9 +417,7 @@ impl<'a> AdmissionLexer<'a> {
     }
 
     fn skip_regular_bytes(&mut self) {
-        while self
-            .bytes
-            .get(self.cursor)
+        while input_byte(self.bytes, self.cursor)
             .is_some_and(|byte| !is_pdf_whitespace(*byte) && !is_pdf_delimiter(*byte))
         {
             self.cursor += 1;
@@ -415,13 +425,13 @@ impl<'a> AdmissionLexer<'a> {
     }
 
     fn skip_digits(&mut self) {
-        while self.bytes.get(self.cursor).is_some_and(u8::is_ascii_digit) {
+        while input_byte(self.bytes, self.cursor).is_some_and(u8::is_ascii_digit) {
             self.cursor += 1;
         }
     }
 
     fn read_unsigned_integer(&mut self) -> Option<u64> {
-        if self.bytes.get(self.cursor) == Some(&b'+') {
+        if input_byte(self.bytes, self.cursor) == Some(&b'+') {
             self.cursor += 1;
         }
         let digit_start = self.cursor;
@@ -443,11 +453,11 @@ impl<'a> AdmissionLexer<'a> {
     fn skip_literal_string(&mut self) {
         self.cursor += 1;
         let mut depth = 1_usize;
-        while let Some(byte) = self.bytes.get(self.cursor).copied() {
+        while let Some(byte) = input_byte(self.bytes, self.cursor).copied() {
             self.cursor += 1;
             match byte {
                 b'\\' => {
-                    if self.cursor < self.bytes.len() {
+                    if input_byte(self.bytes, self.cursor).is_some() {
                         self.cursor += 1;
                     }
                 }
@@ -465,7 +475,7 @@ impl<'a> AdmissionLexer<'a> {
 
     fn skip_hex_string(&mut self) {
         self.cursor += 1;
-        while let Some(byte) = self.bytes.get(self.cursor).copied() {
+        while let Some(byte) = input_byte(self.bytes, self.cursor).copied() {
             self.cursor += 1;
             if byte == b'>' {
                 return;
@@ -474,10 +484,10 @@ impl<'a> AdmissionLexer<'a> {
     }
 
     fn skip_stream_body(&mut self, declared_length: usize) -> bool {
-        if self.bytes.get(self.cursor) == Some(&b'\r') {
+        if input_byte(self.bytes, self.cursor) == Some(&b'\r') {
             self.cursor += 1;
         }
-        if self.bytes.get(self.cursor) == Some(&b'\n') {
+        if input_byte(self.bytes, self.cursor) == Some(&b'\n') {
             self.cursor += 1;
         }
         let Some(stream_end) = self.cursor.checked_add(declared_length) else {
@@ -770,19 +780,13 @@ impl<'a> XrefCursor<'a> {
 
     fn skip_whitespace_and_comments(&mut self) {
         loop {
-            while self
-                .bytes
-                .get(self.cursor)
-                .is_some_and(|byte| is_pdf_whitespace(*byte))
-            {
+            while input_byte(self.bytes, self.cursor).is_some_and(|byte| is_pdf_whitespace(*byte)) {
                 self.cursor += 1;
             }
-            if self.bytes.get(self.cursor) != Some(&b'%') {
+            if input_byte(self.bytes, self.cursor) != Some(&b'%') {
                 return;
             }
-            while self
-                .bytes
-                .get(self.cursor)
+            while input_byte(self.bytes, self.cursor)
                 .is_some_and(|byte| !matches!(*byte, b'\r' | b'\n'))
             {
                 self.cursor += 1;
@@ -793,16 +797,14 @@ impl<'a> XrefCursor<'a> {
     fn token(&mut self) -> Option<&'a [u8]> {
         self.skip_whitespace_and_comments();
         let start = self.cursor;
-        let first = *self.bytes.get(start)?;
+        let first = *input_byte(self.bytes, start)?;
         if is_pdf_delimiter(first) {
             self.cursor += 1;
-            if matches!(first, b'<' | b'>') && self.bytes.get(self.cursor) == Some(&first) {
+            if matches!(first, b'<' | b'>') && input_byte(self.bytes, self.cursor) == Some(&first) {
                 self.cursor += 1;
             }
         } else {
-            while self
-                .bytes
-                .get(self.cursor)
+            while input_byte(self.bytes, self.cursor)
                 .is_some_and(|byte| !is_pdf_whitespace(*byte) && !is_pdf_delimiter(*byte))
             {
                 self.cursor += 1;
@@ -864,17 +866,32 @@ fn preflight_pdf_xref_chain(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
         .unsigned()
         .and_then(|value| usize::try_from(value).ok())
         .ok_or_else(|| xref_error("PDF startxref pointer is invalid"))?;
+    check_xref_chain(root, bytes.len(), policy, |offset, _window_len| {
+        Ok((std::borrow::Cow::Borrowed(&bytes[offset..]), false))
+    })
+}
 
-    let mut pending = [usize::MAX; MAX_PDF_XREF_REVISIONS];
+/// Walks a cross-reference chain from its terminal section through every
+/// `/Prev` and `/XRefStm` link with the append loader's section parsers and
+/// ceilings. `section_at(offset, window_len)` returns the input from `offset`,
+/// either to its end or as a window of at most `window_len` bytes, and says
+/// whether the window was cut short. Only a parse that failed after running
+/// out of a cut-short window is retried with a longer one; any other failure
+/// keeps its own classification. A section that still runs out at the probe
+/// ceiling exceeds it.
+pub(crate) fn check_xref_chain<'a>(
+    root: usize,
+    input_len: usize,
+    policy: PdfLoadPolicy,
+    mut section_at: impl FnMut(usize, usize) -> Result<(std::borrow::Cow<'a, [u8]>, bool)>,
+) -> Result<()> {
+    let mut pending = Vec::with_capacity(MAX_PDF_XREF_REVISIONS);
     let mut visited = HashSet::with_capacity(MAX_PDF_XREF_REVISIONS);
-    let mut pending_len = 1_usize;
     let mut scanned_bytes = 0_usize;
-    pending[0] = root;
+    pending.push(root);
 
-    while pending_len > 0 {
-        pending_len -= 1;
-        let offset = pending[pending_len];
-        if offset >= bytes.len() {
+    while let Some(offset) = pending.pop() {
+        if offset >= input_len {
             return Err(xref_error("PDF cross-reference offset is outside the file"));
         }
         if visited.len() == MAX_PDF_XREF_REVISIONS && !visited.contains(&offset) {
@@ -888,18 +905,33 @@ fn preflight_pdf_xref_chain(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
             ));
         }
 
-        let (dictionary, consumed) = if bytes
-            .get(offset..)
-            .is_some_and(|tail| tail.starts_with(b"xref"))
-        {
-            parse_classic_xref_section(bytes, offset, policy)?
-        } else {
-            parse_xref_stream_section(bytes, offset, policy)?
+        let mut window_len = FIRST_XREF_SECTION_WINDOW_BYTES;
+        let (dictionary, consumed) = loop {
+            let (section, truncated) = section_at(offset, window_len)?;
+            INPUT_END_REACHED.with(|reached| reached.set(false));
+            let parsed = if section.starts_with(b"xref") {
+                parse_classic_xref_section(&section, 0, policy)
+            } else {
+                parse_xref_stream_section(&section, 0, policy)
+            };
+            let ran_out = truncated && INPUT_END_REACHED.with(std::cell::Cell::get);
+            match parsed {
+                Ok(parsed) => break parsed,
+                Err(_error) if ran_out && window_len < MAX_XREF_PROBE_BYTES => {
+                    window_len = window_len.saturating_mul(8).min(MAX_XREF_PROBE_BYTES);
+                }
+                Err(_error) if ran_out => {
+                    return Err(limit_error(
+                        "PDF cross-reference section exceeds the structural probe ceiling",
+                    ));
+                }
+                Err(error) => return Err(error),
+            }
         };
         scanned_bytes = scanned_bytes
             .checked_add(consumed)
             .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
-        if scanned_bytes > bytes.len() {
+        if scanned_bytes > input_len {
             return Err(xref_error(
                 "PDF cross-reference sections overlap or exceed the input",
             ));
@@ -908,16 +940,15 @@ fn preflight_pdf_xref_chain(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
         for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
             let linked = usize::try_from(linked)
                 .map_err(|_| xref_error("PDF cross-reference link is too large"))?;
-            if linked >= bytes.len() {
+            if linked >= input_len {
                 return Err(xref_error("PDF cross-reference link is outside the file"));
             }
-            if pending_len == MAX_PDF_XREF_REVISIONS {
+            if pending.len() == MAX_PDF_XREF_REVISIONS {
                 return Err(limit_error(format!(
                     "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
                 )));
             }
-            pending[pending_len] = linked;
-            pending_len += 1;
+            pending.push(linked);
         }
     }
     Ok(())

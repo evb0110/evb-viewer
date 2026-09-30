@@ -20,7 +20,10 @@ import type {
     TZoomMode,
 } from '@contracts/shared';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import type {
+    IPdfSemanticAnchor,
+    IScrollToPageOptions,
+} from '@app/modules/pdf-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
@@ -157,6 +160,8 @@ export interface ICloseFileFromUiOptions {
 export interface IWorkspaceOpenFailure {
     message: string;
     failure: FailureReceipt | null;
+    /** The file the open was for, when the failure itself names it. */
+    fileName?: string | null;
 }
 
 export interface IWorkspaceAgentCommandContext {
@@ -232,7 +237,6 @@ export interface IWorkspaceExpose {
     handleRedo: () => void;
     handleSelectAll: () => void;
     handleOpenFileFromUi: () => Promise<boolean>;
-    handleOpenFolderFromUi: () => Promise<boolean>;
     handleCombineImages: () => Promise<boolean>;
     handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
@@ -278,7 +282,8 @@ export interface IWorkspaceExpose {
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
-    captureSplitPayload: () => Promise<TSplitPayload>;
+    /** Captures the document at `page`, by default the page this view reads. */
+    captureSplitPayload: (page?: number) => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
@@ -313,4 +318,11 @@ export interface IWorkspaceExpose {
     handleOcrComplete?: (payload: unknown) => Promise<void>;
     highlightSelection?: () => Promise<boolean>;
     scrollToPage?: (page: number) => void;
+    /** Where the view reads: the point of a page at its center. */
+    captureReadingAnchor?: () => IPdfSemanticAnchor | null;
+    /**
+     * Once the document has opened here, brings a point captured in another
+     * view of it to this view's center, unless the reader navigated first.
+     */
+    placeReadingAnchorAfterOpen?: (anchor: IPdfSemanticAnchor) => Promise<void>;
 }

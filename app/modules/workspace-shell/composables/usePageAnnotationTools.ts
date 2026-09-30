@@ -1,4 +1,3 @@
-import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -6,33 +5,23 @@ import type {
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationCommentsStatus,
-    TAnnotationTool,
 } from '@app/types/annotations';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/public';
 import {PENDING_ANNOTATION_ENRICHMENT_STATE} from '@app/modules/pdf-viewer/public';
-import type { IWorkspacePdfViewerAnnotationToolsPort } from '@app/modules/workspace-shell/types/workspacePdfViewerPorts.types';
 
-type IPdfViewerForAnnotationTools = IWorkspacePdfViewerAnnotationToolsPort;
 
 interface IPageAnnotationToolsDeps {
-    pdfViewerRef: Ref<IPdfViewerForAnnotationTools | null>;
-    dragMode: Ref<boolean>;
     clearAnnotationChanges: () => void;
-    closeAnnotationContextMenu: () => void;
     hasAnnotationChanges: () => boolean;
 }
 
 export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const {
-        pdfViewerRef,
-        dragMode,
         clearAnnotationChanges,
-        closeAnnotationContextMenu,
         hasAnnotationChanges,
     } = deps;
 
-    const annotationTool = ref<TAnnotationTool>('none');
     const annotationKeepActive = ref(true);
     const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
     const annotationComments = ref<IAnnotationCommentSummary[]>([]);
@@ -53,28 +42,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     const annotationRevision = ref(0);
     const annotationSavedRevision = ref(0);
     const annotationDirty = computed(() => annotationRevision.value !== annotationSavedRevision.value);
-
-    function handleAnnotationToolChange(tool: TAnnotationTool) {
-        pdfViewerRef.value?.prepareAnnotationToolChange?.();
-        annotationTool.value = tool;
-        dragMode.value = false;
-        if (tool !== 'select') {
-            pdfViewerRef.value?.clearSelectedShape();
-        }
-        closeAnnotationContextMenu();
-    }
-
-    function handleAnnotationToolAutoReset() {
-        if (annotationKeepActive.value && annotationTool.value !== 'note') {
-            return;
-        }
-        annotationTool.value = 'select';
-        closeAnnotationContextMenu();
-    }
-
-    function handleAnnotationToolCancel() {
-        handleAnnotationToolChange('select');
-    }
 
     function handleAnnotationSettingChange<K extends keyof IAnnotationSettings>(payload: {
         key: K;
@@ -171,7 +138,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     }
 
     return {
-        annotationTool,
         annotationKeepActive,
         annotationSettings,
         annotationComments,
@@ -183,9 +149,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         annotationRevision,
         annotationSavedRevision,
         annotationDirty,
-        handleAnnotationToolChange,
-        handleAnnotationToolAutoReset,
-        handleAnnotationToolCancel,
         handleAnnotationSettingChange,
         handleAnnotationState,
         handleAnnotationModified,

@@ -28,6 +28,7 @@ export type TWorkspaceSaveFailureReason =
     | 'note-persistence-failed'
     | 'capability-unavailable'
     | 'native-save-required'
+    | 'too-large-for-edit'
     | 'persist-rejected'
     | 'document-changed'
     | 'unexpected-error';
@@ -80,6 +81,8 @@ export const useWorkspaceFailureSurface = () => {
                 return t('errors.save.openNotes');
             case 'document-changed':
                 return t('errors.save.documentChanged');
+            case 'too-large-for-edit':
+                return t('errors.save.tooLargeForEdit');
             case 'capability-unavailable':
             case 'native-save-required':
             case 'persist-rejected':

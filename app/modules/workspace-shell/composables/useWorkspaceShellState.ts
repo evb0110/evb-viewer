@@ -6,6 +6,7 @@ import type { ITab } from '@app/types/tabs';
 import {
     snapshotOccupiesTab,
     type IWorkspaceDocumentController,
+    type IWorkspaceDocumentView,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 export interface IWorkspaceShellState {
@@ -22,11 +23,12 @@ export interface IWorkspaceShellState {
 
 export interface IUseWorkspaceShellStateOptions {
     activeDocumentSession: Readonly<Ref<IWorkspaceDocumentController | null>>;
+    activeDocumentView: Readonly<Ref<IWorkspaceDocumentView | null>>;
     tabs: Ref<ITab[]>;
 }
 
 export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions): IWorkspaceShellState => {
-    const activeToolbarSnapshot = computed(() => options.activeDocumentSession.value?.toolbarSnapshot.value ?? null);
+    const activeToolbarSnapshot = computed(() => options.activeDocumentView.value?.toolbarSnapshot.value ?? null);
     const activeWorkspaceHasDocument = computed(() => (
         activeToolbarSnapshot.value?.hasPdf === true
         || activeToolbarSnapshot.value?.isDjvuMode === true

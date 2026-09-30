@@ -22,6 +22,7 @@ import {
     createWorkingCopyWithOutcome,
 } from '@electron/file-access/workingCopyCreation';
 import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
@@ -233,6 +234,29 @@ export async function openInputPaths(
                     ownerWebContentsId,
                     options.password,
                     signal,
+                    async () => {
+                        // A whole-file qpdf rewrite needs a native process and
+                        // CPU the copy lease does not reserve. Give that lease
+                        // back before waiting so no lease is held meanwhile.
+                        openLease?.release();
+                        openLease = null;
+                        openLease = await mainJobBroker.acquire({
+                            ownerId: `pdf-open:${ownerWebContentsId ?? 'main'}`,
+                            kind: 'pdf-open-rewrite',
+                            priority: 'foreground',
+                            perOwnerLimit: 1,
+                            signal,
+                            resources: {
+                                cpuTokens: 1,
+                                estimatedResidentBytes: Math.min(
+                                    256 * 1024 * 1024,
+                                    Math.max(32 * 1024 * 1024, Math.ceil(inputBytes / 2)),
+                                ),
+                                nativeProcesses: 1,
+                                ioWeight: 4,
+                            },
+                        });
+                    },
                 );
                 unownedWorkingPath = workingCopy.workingPath;
                 throwIfAborted(signal);
@@ -267,7 +291,14 @@ export async function openInputPaths(
                         originalPath: requireDocumentRef(originalPath),
                     };
                 }
-                throw error;
+                // A refusal names the file the user chose, never the working
+                // copy a rewrite ran on.
+                throw error instanceof DocumentOpenRefusalError
+                    ? new DocumentOpenRefusalError(error.code, error.message, {
+                        cause: error.cause,
+                        fileName: basename(originalPath),
+                    })
+                    : error;
             }
         } finally {
             openLease?.release();

@@ -489,14 +489,11 @@ describe('createElectronApi', () => {
         );
         const callback = vi.fn();
 
-        expect(Object.keys(diagnosticsApi.diagnostics)).toEqual([
-            'startupPolicy',
-            'onDebugLog',
-        ]);
+        expect(Object.keys(diagnosticsApi.diagnostics)).toEqual(['startupPolicy']);
         expect(diagnosticsApi.diagnostics.startupPolicy).toBe(policy);
         expect(Object.isFrozen(diagnosticsApi.diagnostics.startupPolicy)).toBe(true);
 
-        diagnosticsApi.diagnostics.onDebugLog(callback);
+        diagnosticsApi.settings.onDebugLog(callback);
         listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog)?.({}, {
             source: 'main',
             message: 'closed',

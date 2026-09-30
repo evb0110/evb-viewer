@@ -85,7 +85,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             });
             return true;
         }
-        const workspace = await session.whenMounted();
+        const workspace = await session.getView(tabId)?.whenMounted() ?? null;
         if (!workspace) {
             return false;
         }
@@ -95,8 +95,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function handleFallbackToolbarOpenFile() {
-        const session = documentSessions.activeDocumentSession.value;
-        const workspace = session ? await session.whenMounted() : null;
+        const workspace = await documentSessions.activeDocumentView.value?.whenMounted() ?? null;
         if (workspace) {
             await workspace.handleOpenFileFromUi();
             return;
@@ -105,7 +104,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             paneId: activePaneId.value,
             activate: true,
         });
-        const fallbackWorkspace = await documentSessions.getSession(fallbackTab.id)?.whenMounted() ?? null;
+        const fallbackWorkspace = await documentSessions.getView(fallbackTab.id)?.whenMounted() ?? null;
         if (!fallbackWorkspace) {
             options.removeTabFromState(fallbackTab.id);
             return;

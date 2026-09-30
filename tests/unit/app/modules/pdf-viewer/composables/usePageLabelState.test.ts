@@ -11,11 +11,13 @@ import {
 } from 'vue';
 import type { Ref } from 'vue';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
+import { recordPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
 import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/modules/document-viewer/pageLabels';
 import { cast } from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 function createDeferred<T>() {
     let resolve!: (value: T) => void;
@@ -219,6 +221,181 @@ describe('usePageLabelState', () => {
         expect(state.pageLabels.value).toBeNull();
         otherLabels.resolve(null);
         await otherSync;
+    });
+
+    it('keeps edited labels when another view\'s PDF.js document of the same revision takes over', async () => {
+        const workingCopyPath = ref(requireDocumentRef('/tmp/work.pdf'));
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const createView = () => cast<IPdfDocument>({
+            numPages: 3,
+            getPageLabels: vi.fn(async () => null),
+        });
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(createView()));
+        const onPageLabelsSynchronized = vi.fn();
+        const onDocumentBytesChanged = vi.fn();
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+            workingCopyPath,
+            documentRevisionToken,
+            onPageLabelsSynchronized,
+            onDocumentBytesChanged,
+        });
+        await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
+        const edited: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1,
+        }];
+        state.handlePageLabelRangesUpdate(edited);
+
+        // The user activates the other view: its document holds the same bytes.
+        pdfDocument.value = createView();
+        await nextTick();
+        await Promise.resolve();
+
+        expect(state.pageLabelsDirty.value).toBe(true);
+        expect(state.pageLabelRanges.value).toEqual(edited);
+        expect(state.pageLabels.value).toEqual([
+            'i',
+            'ii',
+            'iii',
+        ]);
+        expect(onDocumentBytesChanged).toHaveBeenCalledTimes(1);
+
+        // A new revision is new bytes, read again.
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
+        pdfDocument.value = createView();
+        await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(2));
+        expect(state.pageLabelsDirty.value).toBe(false);
+        expect(onDocumentBytesChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps edited labels while the view in use has not loaded its PDF.js document yet', async () => {
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(cast<IPdfDocument>({
+            numPages: 3,
+            getPageLabels: vi.fn(async () => null),
+        })));
+        const onPageLabelsSynchronized = vi.fn();
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken,
+            onPageLabelsSynchronized,
+        });
+        await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
+        const edited: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'R',
+            prefix: '',
+            startNumber: 1,
+        }];
+        state.handlePageLabelRangesUpdate(edited);
+
+        // A new split view, or a remounting one, is in use before its document loads.
+        pdfDocument.value = null;
+        await nextTick();
+        await Promise.resolve();
+        pdfDocument.value = cast<IPdfDocument>({
+            numPages: 3,
+            getPageLabels: vi.fn(async () => null),
+        });
+        await nextTick();
+        await Promise.resolve();
+
+        expect(state.pageLabelsDirty.value).toBe(true);
+        expect(state.pageLabelRanges.value).toEqual(edited);
+        expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps labels edited after a save that rewrote the working copy under both views', async () => {
+        const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
+        const createView = () => {
+            const view = cast<IPdfDocument>({
+                numPages: 3,
+                getPageLabels: vi.fn(async () => null),
+            });
+            recordPdfDocumentLoadedRevision(view, 'revision-1');
+            return view;
+        };
+        const leftView = createView();
+        const rightView = createView();
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(leftView));
+        const onPageLabelsSynchronized = vi.fn();
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken,
+            onPageLabelsSynchronized,
+        });
+        await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
+        state.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'R',
+            prefix: '',
+            startNumber: 1,
+        }]);
+
+        // Save writes the labels into revision 2 in place; neither view reloads.
+        documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
+        state.markPageLabelsSaved();
+        const editedAfterSave: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'r',
+            prefix: 'x-',
+            startNumber: 1,
+        }];
+        state.handlePageLabelRangesUpdate(editedAfterSave);
+
+        pdfDocument.value = rightView;
+        await nextTick();
+        await Promise.resolve();
+
+        expect(state.pageLabelsDirty.value).toBe(true);
+        expect(state.pageLabelRanges.value).toEqual(editedAfterSave);
+        expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1);
+        expect(rightView.getPageLabels).not.toHaveBeenCalled();
+    });
+
+    it('reads labels again from another view when the read of the same revision failed', async () => {
+        const failingView = cast<IPdfDocument>({
+            numPages: 2,
+            getPageLabels: vi.fn(async () => {
+                throw new Error('bad labels');
+            }),
+        });
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(failingView));
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(2),
+            markDirty: vi.fn(),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: ref(requireDocumentRevisionToken('revision-1')),
+        });
+        await vi.waitFor(() => expect(failingView.getPageLabels).toHaveBeenCalled());
+        await Promise.resolve();
+        expect(state.pageLabelsResolved.value).toBe(false);
+
+        pdfDocument.value = cast<IPdfDocument>({
+            numPages: 2,
+            getPageLabels: vi.fn(async () => [
+                'Cover',
+                'Body',
+            ]),
+        });
+
+        await vi.waitFor(() => expect(state.pageLabelsResolved.value).toBe(true));
+        expect(state.pageLabels.value).toEqual([
+            'Cover',
+            'Body',
+        ]);
     });
 
     it('marks page labels dirty only when label ranges actually change', () => {

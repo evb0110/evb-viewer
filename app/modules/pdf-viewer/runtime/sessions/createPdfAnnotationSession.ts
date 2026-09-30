@@ -3,8 +3,13 @@ import type {
     Ref,
 } from 'vue';
 import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
-import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
+import {
+    annotationDocumentKey,
+    createPdfDocumentAnnotations,
+    pdfDocumentAnnotationsKey,
+    type IPdfDocumentAnnotationsView,
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import { usePdfAnnotationColorCommands } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions';
 import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
@@ -17,12 +22,10 @@ import type {
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     TAnnotationTool,
-    TMarkupSubtype,
     ILinkAnnotation,
     TAnnotationSettingChange,
 } from '@app/types/annotations';
 import type {TPdfSource} from '@app/types/pdfUi';
-import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     pageNumberToPageIndex,
@@ -142,47 +145,11 @@ export interface ICreatePdfAnnotationSessionOptions {
     linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
 
 }
-interface IAnnotationStoreDocumentIdentityInput {
-    workingCopyPath: string | null;
-    source: TPdfSource | null;
-}
 interface IAnnotationSnapshotDocumentIdentityInput {
     originalPath: string | null;
     workingCopyPath: string | null;
     source: TPdfSource | null;
 }
-// Pathless sources are keyed by Blob instance because their metadata can collide.
-// The `blob-instance:` prefix avoids collisions with file paths.
-const annotationBlobIdentities = new WeakMap<Blob, string>();
-let nextAnnotationBlobIdentity = 0;
-function annotationBlobIdentity(source: Blob) {
-    const existing = annotationBlobIdentities.get(source);
-    if (existing) {
-        return existing;
-    }
-    nextAnnotationBlobIdentity += 1;
-    const identity = `blob-instance:${nextAnnotationBlobIdentity}`;
-    annotationBlobIdentities.set(source, identity);
-    return identity;
-}
-
-function annotationDocumentKey(source: TPdfSource | null) {
-    if (!source) {
-        return 'no-document';
-    }
-    return source instanceof Blob
-        ? annotationBlobIdentity(source)
-        : `path:${source.path}`;
-}
-
-function resolveAnnotationStoreDocumentIdentity(
-    input: IAnnotationStoreDocumentIdentityInput,
-) {
-    return input.workingCopyPath
-        ? `path:${input.workingCopyPath}`
-        : annotationDocumentKey(input.source);
-}
-
 export function resolveAnnotationSnapshotDocumentIdentity(
     input: IAnnotationSnapshotDocumentIdentityInput,
 ) {
@@ -197,11 +164,32 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const documentSession = options.document;
     const viewport = options.viewport;
     const rendering = options.rendering;
-    const appAnnotationHistory = usePdfAppAnnotationHistory({
-        emitAnnotationState: options.emitAnnotationState,
-        markModified: options.emitAnnotationModified,
+    // Every viewer of a workspace document edits the store its workspace
+    // provides; a viewer used on its own keeps one of its own.
+    const documentAnnotations = inject(pdfDocumentAnnotationsKey, null) ?? createPdfDocumentAnnotations({
+        workingCopyPath: options.workingCopyPath,
+        source: options.src,
+        documentRevisionToken: options.documentRevisionToken,
     });
-
+    const appAnnotationHistory = documentAnnotations.history;
+    // This viewer's part in the shared document: its emits, its re-projection
+    // after an undo or redo, and the drafts open in its editor.
+    const documentAnnotationsView: IPdfDocumentAnnotationsView = {
+        emitAnnotationState: state => options.emitAnnotationState(state),
+        emitAnnotationModified: () => options.emitAnnotationModified(),
+        onHistoryReplay: () => {
+            annotations.commentSync.discardInFlightSync();
+            annotations.commentSync.scheduleAnnotationCommentsSync();
+        },
+        commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
+        commitDraftIfOpen: (annotationId) => {
+            if (annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))) {
+                annotationEditorSurface.commitPendingTextBoxDraftsForSave();
+            }
+        },
+        getTextBoxDraftRect: annotationId => annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)),
+    };
+    onScopeDispose(documentAnnotations.attachView(documentAnnotationsView));
     function emitForcedAnnotationMutation(mutationOptions: { scheduleCommentSync?: boolean } = {}) {
         options.emitAnnotationModified({ forceDirty: true });
         if (mutationOptions.scheduleCommentSync) {
@@ -216,18 +204,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         appAnnotationHistory.registerCommand(command);
     }
 
-    function createAnnotationApplication(documentKey: string) {
-        const history = appAnnotationHistory;
-        return new AnnotationApplication(documentKey, new AnnotationStore({
-            get canUndo() { return history.canUndo.value; },
-            get canRedo() { return history.canRedo.value; },
-            registerCommand: command => history.registerCommand(command),
-            forgetCommands: ids => history.forgetCommands(ids),
-            undo: () => history.undo(),
-            redo: () => history.redo(),
-        }));
-    }
-    const annotationApplication = shallowRef(createAnnotationApplication('no-document'));
+    const annotationApplication = documentAnnotations.application;
     const storeOwnedPdfAnnotationIds = shallowRef(new Set<string>());
     // A native save keeps the PDF.js document that was loaded before the
     // write, so its pages still carry every annotation the save deleted. The
@@ -260,9 +237,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     } = shapeTool;
 
     const annotationProjection = shallowRef<IAnnotationCommentSummary[]>([]);
-    const canonicalMarkupSubtypeHints = new Map<string, TMarkupSubtype>();
-    const textBoxDrafts = new Map<string, string>();
-    const textBoxDraftGenerations = new Map<string, number>();
+    const {
+        canonicalMarkupSubtypeHints,
+        textBoxDrafts,
+        textBoxDraftGenerations,
+    } = documentAnnotations;
     const annotationCommentModel = usePdfAnnotationCommentModel({
         isAnySaving: options.isAnySaving,
         annotationProjection,
@@ -303,27 +282,20 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentModel.emitCommentsForSidebar(projected);
     }
     let stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
-    const annotationDocumentIdentity = computed(() => (
-        resolveAnnotationStoreDocumentIdentity({
-            workingCopyPath: options.workingCopyPath.value,
-            source: options.src.value,
-        })
-    ));
-    function resetAnnotationApplication(documentKey: string) {
+    const annotationDocumentIdentity = documentAnnotations.documentIdentity;
+    // The document owner replaces its store when its source changes or a
+    // reload starts a new revision; this view re-projects the new store.
+    watch(annotationApplication, (application) => {
         stopAnnotationApplicationProjection();
-        canonicalMarkupSubtypeHints.clear();
-        textBoxDrafts.clear();
-        textBoxDraftGenerations.clear();
         annotationCommentModel.clearProjection();
-        annotationApplication.value = createAnnotationApplication(documentKey);
-        stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
-    }
-    watch(annotationDocumentIdentity, resetAnnotationApplication, {immediate: true});
+        stopAnnotationApplicationProjection = application.store.subscribe(projectCanonicalAnnotations);
+    }, {flush: 'sync'});
     // Canonical records describe the bytes PDF.js currently holds. Save and
     // file-history undo can rewrite the working copy in place and reload the
     // same path, so path-keyed identity cannot identify the loaded document or
     // preserve commands that invert edits. Reload clears the proxy before
-    // publishing the next one, so the swap only affects the loaded document.
+    // publishing the next one, so the swap only affects the loaded document;
+    // the document owner decides whether the swap starts a fresh store.
     let lastLoadedPdfDocument = documentSession.pdfDocument.value;
     watch(documentSession.pdfDocument, (document) => {
         if (!document || document === lastLoadedPdfDocument) {
@@ -334,13 +306,21 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (retiredPdfAnnotationIds.value.size > 0) {
             retiredPdfAnnotationIds.value = new Set();
         }
-        if (!replacesLoadedDocument || options.isAnySaving.value) {
-            return;
+        if (replacesLoadedDocument) {
+            documentAnnotations.replaceLoadedDocument(
+                documentSession.captureFence().documentRevision,
+                options.isAnySaving.value,
+            );
         }
-        appAnnotationHistory.clear();
-        resetAnnotationApplication(annotationDocumentIdentity.value);
     });
     onScopeDispose(() => stopAnnotationApplicationProjection());
+    // A save reports the revision it mints while it still holds the document;
+    // the reloads of that revision may land after it has let go.
+    watch(options.documentRevisionToken, (revision) => {
+        if (options.isAnySaving.value && revision !== null) {
+            documentAnnotations.adoptSavedRevision(revision);
+        }
+    }, {flush: 'sync'});
 
     const linkAnnotations = options.linkAnnotations ?? ref<ILinkAnnotation[]>([]);
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
@@ -409,16 +389,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         authorName: options.authorName,
         onCreationCompleted: options.emitAnnotationToolAutoReset,
         onTextBoxDraftChanged: (annotationId, text) => {
-            if (text === null) {
-                textBoxDrafts.delete(annotationId);
-                textBoxDraftGenerations.delete(annotationId);
-            } else {
-                textBoxDrafts.set(annotationId, text);
-                textBoxDraftGenerations.set(
-                    annotationId,
-                    (textBoxDraftGenerations.get(annotationId) ?? 0) + 1,
-                );
-            }
+            documentAnnotations.setTextBoxDraft(documentAnnotationsView, annotationId, text);
             projectCanonicalAnnotations();
         },
         getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
@@ -469,7 +440,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     watch(options.isActive, (isActive) => {
         if (!isActive) annotationEditorSurface.suspendInteraction();
     }, {flush: 'sync'});
-    commitPendingEditorDraftsForSave = annotationEditorSurface.commitPendingTextBoxDraftsForSave;
+    commitPendingEditorDraftsForSave = () => documentAnnotations.commitPendingDraftsForSave();
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
     const createSelectionMarkup = createPdfAnnotationSelectionMarkup({
         resolveGeometry: range => resolvePdfAnnotationSelectionGeometry({
@@ -854,19 +825,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         highlight,
         crud,
     };
-    appAnnotationHistory.setReplayEffect(() => {
-        annotations.commentSync.discardInFlightSync();
-        annotations.commentSync.scheduleAnnotationCommentsSync();
-    });
-    onScopeDispose(() => {
-        appAnnotationHistory.setReplayEffect(null);
-    });
     const highlightComposable = annotations.highlight;
     const commentCrud = annotations.crud;
     const annotationColorCommands = usePdfAnnotationColorCommands({
         annotationApplication,
         annotationCommentModel,
         emitForcedAnnotationMutation,
+        getSelectedIds: () => annotationEditorSurface.selectedIds.value,
     });
     const {
         focusAnnotationComment,
@@ -977,12 +942,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         nextTick,
     });
     const scheduleSetAnnotationTool = (_tool: TAnnotationTool, _reason: string) => {};
-    function clearAnnotationProjectionState() {
-        annotationCommentModel.clearProjection();
-        activeCommentStableKey.value = null;
-        options.emitAnnotationComments([]);
-        options.emitAnnotationInventory(null);
-    }
     let writerParseRequest = 0;
     let writerParseAbortController: AbortController | null = null;
     let writerParseTask: {
@@ -1133,7 +1092,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotations.commentSync.incrementSyncToken();
             annotations.highlight.clearSelectionCache();
             if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
-                clearAnnotationProjectionState();
+                annotationCommentModel.clearProjection();
+                activeCommentStableKey.value = null;
+                options.emitAnnotationInventory(null);
             }
             return;
         }
@@ -1202,7 +1163,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         stopStoreOwnershipRefreshWatch();
         detachProjection();
         annotations.highlight.clearSelectionCache();
-        clearAnnotationProjectionState();
+        // The document's comments list outlives this view; its other views show it.
     });
     const saveTransaction = usePdfViewerSaveTransaction({
         pdfDocument: documentSession.pdfDocument,
@@ -1232,7 +1193,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     if (entity?.kind !== 'text-box') {
                         return null;
                     }
-                    const geometry = annotationEditorSurface.getTextBoxDraftRect(entity.identity.id);
+                    // The draft's rectangle comes from the viewer whose editor holds it.
+                    const geometry = documentAnnotations.getTextBoxDraftRect(entity.identity.id);
                     return {
                         annotationId: entity.identity.id,
                         kind: 'text-box' as const,
@@ -1253,11 +1215,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
         restoreCanonicalAnnotationRecovery: (value: unknown) => {
             const recovery = restoreCanonicalAnnotationRecovery(annotationApplication.value.store, value);
-            textBoxDrafts.clear();
-            textBoxDraftGenerations.clear();
-            recovery.drafts.filter(draft => draft.kind === 'text-box').forEach((draft) => {
-                textBoxDrafts.set(draft.annotationId, draft.text);
-                textBoxDraftGenerations.set(draft.annotationId, draft.generation);
+            const textBoxDraftRecovery = recovery.drafts.filter(draft => draft.kind === 'text-box');
+            documentAnnotations.restoreTextBoxDrafts(textBoxDraftRecovery);
+            textBoxDraftRecovery.forEach((draft) => {
                 annotationEditorSurface.restoreTextBoxDraftPending(draft.annotationId, draft.geometry);
             });
             projectCanonicalAnnotations();

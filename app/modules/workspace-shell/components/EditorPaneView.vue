@@ -22,9 +22,11 @@
         />
         <div class="editor-pane-content">
             <template v-for="tab in visibleTabs" :key="tab.id">
+                <!-- A tab that starts or stops sharing a document remounts for its new one. -->
                 <DocumentWorkspaceTab
                     v-if="shouldMountHost(tab.id)"
                     v-show="tab.id === pane.activeTabId || tab.id === presentationFallbackTabId"
+                    :key="documentSessionsByTabId[tab.id]!.snapshot.value.sessionId"
                     :class="{
                         'is-presentation-fallback': tab.id === presentationFallbackTabId
                             && tab.id !== pane.activeTabId,

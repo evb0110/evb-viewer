@@ -1,5 +1,7 @@
-import { loadBrowserPlatformApi } from '@app/utils/platform';
-import { hasElectronPlatformBridge } from '@app/utils/electronPlatformBridge';
+import {
+    loadBrowserPlatformApi,
+    shouldPreferDesktopPlatform,
+} from '@app/utils/platform';
 
 // The hosted build loads its platform implementation once, before any page
 // mounts, so every caller reads one plain object.
@@ -7,12 +9,8 @@ export default defineNuxtPlugin({
     name: 'browser-platform',
     parallel: false,
     async setup() {
-        if (!hasElectronPlatformBridge() && !isElectronRoutePath(useRoute().path)) {
+        if (!shouldPreferDesktopPlatform(useRoute().path)) {
             await loadBrowserPlatformApi();
         }
     },
 });
-
-function isElectronRoutePath(path: string) {
-    return path === '/electron' || path.startsWith('/electron/');
-}

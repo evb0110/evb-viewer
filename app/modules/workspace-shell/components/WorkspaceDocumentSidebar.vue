@@ -25,7 +25,7 @@
         :is-truncated="search.isTruncated.value"
         :min-query-length="search.minQueryLength"
         :width="search.sidebarWidth.value"
-        :annotation-tool="annotations.annotationTool.value"
+        :annotation-tool="annotationTool"
         :annotation-keep-active="annotations.annotationKeepActive.value"
         :annotation-settings="annotations.annotationSettings.value"
         :annotation-comments="annotations.annotationComments.value"
@@ -35,7 +35,7 @@
         :selected-annotations="annotations.selectedAnnotations.value"
         :can-rotate-annotations="pdfViewer?.canRotateSelectedAnnotations"
         :bookmark-edit-mode="bookmarkState.bookmarkEditMode.value"
-        :bookmark-items="bookmarkState.bookmarkItems.value"
+        :bookmark-items="bookmarkState.bookmarksResolved.value ? bookmarkState.bookmarkItems.value : undefined"
         :bookmarks-dirty="bookmarkState.bookmarksDirty.value"
         :bookmark-navigation-intent-version="bookmarkNavigationIntentVersion"
         :is-page-operation-in-progress="pageOps.isPageOperationInProgress.value"
@@ -53,10 +53,10 @@
         @go-to-page="navigation.handleGoToPage"
         @go-to-result="goToResult"
         @update:page-label-ranges="pageLabelState.handlePageLabelRangesUpdate"
-        @update:annotation-tool="annotations.handleAnnotationToolChange"
+        @update:annotation-tool="annotationToolState.handleAnnotationToolChange"
         @update:annotation-keep-active="annotations.annotationKeepActive.value = $event"
         @annotation-setting="annotations.handleAnnotationSettingChange"
-        @annotation-edit-text-box="annotations.handleAnnotationToolChange('select'); pdfViewer?.editAnnotationTextBox?.($event)"
+        @annotation-edit-text-box="annotationToolState.handleAnnotationToolChange('select'); pdfViewer?.editAnnotationTextBox?.($event)"
         @annotation-properties="pdfViewer?.updateSelectedAnnotationProperties?.($event)"
         @update:selected-thumbnail-pages="view.handleSelectedThumbnailPagesUpdate"
         @update:selected-page-selection="view.setSelectedPageSelection"
@@ -70,7 +70,7 @@
         @page-rotate-cw="pageOps.handlePageRotate($event, 90)"
         @page-rotate-ccw="pageOps.handlePageRotate($event, 270)"
         @page-extract="pageOps.pageOpsExtract($event)"
-        @page-export="context.exportWorkflow.handleExportImages($event)"
+        @page-export="document.exportWorkflow.handleExportImages($event)"
         @page-delete="pageOps.pageOpsDelete($event, view.totalPages.value)"
         @page-reorder="pageOps.pageOpsReorder($event)"
         @page-move="pageOps.pageOpsMove($event)"
@@ -97,6 +97,7 @@ import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const {
     documentOpening,
@@ -114,20 +115,25 @@ const {
     showsPdfSidebar: boolean;
 }>();
 
-const context = useDocumentContext();
+const document = useDocumentContext();
+const context = useDocumentViewContext();
 const {
-    view,
-    search,
     file,
-    navigation,
     annotations,
-    annotationActions,
     pageOps,
-    bookmarkNavigationIntentVersion,
     metadata: {
         pageLabelState,
         bookmarkState,
     },
+} = document;
+const {
+    view,
+    search,
+    navigation,
+    annotationActions,
+    annotationTool,
+    annotationToolState,
+    bookmarkNavigationIntentVersion,
 } = context;
 const isReader = computed(() => context.scanCleanup.surfaceMode.value === 'reader');
 const pdfViewer = computed(() => view.pdfViewerRef.value);

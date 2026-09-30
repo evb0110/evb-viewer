@@ -24,7 +24,7 @@ import {
 import {
     activateWorkspaceTab as activateTab,
     createNewWorkspaceTab as createNewTab,
-    splitActiveWorkspaceDocument as splitActiveDocument,
+    openNewPane,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     expectSplitPaneCloseContinuity,
@@ -289,7 +289,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
 
         await activateTab(session, 0);
         await waitForPdfLoaded(session.page);
-        await splitActiveDocument(session, 'right');
+        await openNewPane(session.page, 'right');
         await openPdfInApp(session.page, splitPrimaryFixturePath);
         await waitForPdfLoaded(session.page);
         await waitForVisibleRenderedPdfHosts(session, 2);
@@ -328,7 +328,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             visible: true,
         });
 
-        await splitActiveDocument(session, 'right');
+        await openNewPane(session.page, 'right');
         await openPdfInApp(session.page, cleanedPath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
         await session.page.waitForFunction(() => {

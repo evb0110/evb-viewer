@@ -339,6 +339,9 @@ async function executeNativeMutationSave(
         }
         throw error;
     }
+    if (persisted?.nativeRefusalCode === 'too-large') {
+        return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken, null);
+    }
     if (!persisted) {
         if (nativePathBacked) {
             return notSavedBeforeWrite(
@@ -467,6 +470,9 @@ async function executeNativeRepairSave(
         saveTransaction.assertAnnotationSaveCurrent,
         true,
     );
+    if (staged?.nativeRefusalCode === 'too-large') {
+        return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken, null);
+    }
     if (!staged) {
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }

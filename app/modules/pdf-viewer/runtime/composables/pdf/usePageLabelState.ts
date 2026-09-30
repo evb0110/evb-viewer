@@ -15,12 +15,13 @@ import {
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { readPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 
 export const usePageLabelState = (deps: {
-    pdfDocument: Ref<IPdfDocument | null>;
-    totalPages: Ref<number>;
+    pdfDocument: Readonly<Ref<IPdfDocument | null>>;
+    totalPages: Readonly<Ref<number>>;
     markDirty: () => void;
     workingCopyPath?: Ref<TDocumentRef | null>;
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
@@ -28,6 +29,8 @@ export const usePageLabelState = (deps: {
     onPageLabelsSynchronized?: () => void;
     onPageLabelsDirty?: () => void;
     onPageLabelsSaved?: () => void;
+    /** Another document's bytes arrived, so what was read from the last ones is stale. */
+    onDocumentBytesChanged?: () => void;
 }) => {
     const {
         pdfDocument,
@@ -35,6 +38,7 @@ export const usePageLabelState = (deps: {
         onPageLabelsSynchronized,
         onPageLabelsDirty,
         onPageLabelsSaved,
+        onDocumentBytesChanged,
         workingCopyPath,
         documentRevisionToken,
         readPageLabelRanges,
@@ -57,6 +61,33 @@ export const usePageLabelState = (deps: {
     let lastResolvedDocument: IPdfDocument | null = null;
     let lastResolvedPath: TDocumentRef | null = null;
 
+    // Every view of a working copy holds its own PDF.js document, and the
+    // document in use follows the view in use. The labels belong to the bytes:
+    // the working-copy revision a document was loaded from when there is one,
+    // otherwise the PDF.js document itself.
+    function loadedRevisionOf(doc: IPdfDocument) {
+        const current = documentRevisionToken?.value ?? null;
+        return readPdfDocumentLoadedRevision(doc) ?? (current === null ? null : String(current));
+    }
+    function documentBytesOf(doc: IPdfDocument | null) {
+        const path = workingCopyPath?.value ?? null;
+        const revision = doc ? loadedRevisionOf(doc) : null;
+        return doc && path !== null && revision !== null ? `${path}\n${revision}` : doc;
+    }
+    // A save that rewrites the working copy in place keeps every view's PDF.js
+    // document; theirs are then older bytes than the labels in hand.
+    function holdsOlderBytes(doc: IPdfDocument) {
+        const current = documentRevisionToken?.value ?? null;
+        return current !== null && loadedRevisionOf(doc) !== String(current);
+    }
+    // Reported bytes, and the bytes a read succeeded for: a failed read is
+    // retried from whichever view offers the same bytes next.
+    let noticedDocumentBytes: ReturnType<typeof documentBytesOf> | undefined;
+    let resolvedDocumentBytes: ReturnType<typeof documentBytesOf> | undefined;
+    function isWorkingCopyRevisionKnown() {
+        return (workingCopyPath?.value ?? null) !== null && (documentRevisionToken?.value ?? null) !== null;
+    }
+
     function updatePageLabelModel(
         totalPagesValue: number,
         ranges: readonly IPdfPageLabelRange[],
@@ -78,10 +109,11 @@ export const usePageLabelState = (deps: {
         const syncGeneration = ++pageLabelSyncGeneration;
         const sourcePath = workingCopyPath?.value ?? null;
         const sourceRevision = documentRevisionToken?.value ?? null;
+        const sourceBytes = documentBytesOf(doc);
         const isCurrentSync = () => (
             !disposed
             && pageLabelSyncGeneration === syncGeneration
-            && pdfDocument.value === doc
+            && documentBytesOf(pdfDocument.value) === sourceBytes
             && (workingCopyPath === undefined || workingCopyPath.value === sourcePath)
             && (documentRevisionToken === undefined || documentRevisionToken.value === sourceRevision)
         );
@@ -103,6 +135,7 @@ export const usePageLabelState = (deps: {
             }
             pageLabelsDirty.value = false;
             pageLabelsResolved.value = true;
+            resolvedDocumentBytes = sourceBytes;
             onPageLabelsSynchronized?.();
             return;
         }
@@ -181,6 +214,7 @@ export const usePageLabelState = (deps: {
             pageLabelRevision += 1;
             lastResolvedDocument = doc;
             lastResolvedPath = sourcePath;
+            resolvedDocumentBytes = sourceBytes;
             resolvedThisSync = true;
         } finally {
             if (isCurrentSync() && resolvedThisSync) {
@@ -253,6 +287,21 @@ export const usePageLabelState = (deps: {
     watch(
         pdfDocument,
         (doc) => {
+            // A view switch changes the PDF.js document, not the bytes: the
+            // labels read from them, and any edit made since, stay. A view
+            // still loading its PDF.js document, or holding one of older
+            // bytes, shows the same working copy.
+            if ((!doc && isWorkingCopyRevisionKnown()) || (doc && holdsOlderBytes(doc))) {
+                return;
+            }
+            const bytes = documentBytesOf(doc);
+            if (bytes !== noticedDocumentBytes) {
+                noticedDocumentBytes = bytes;
+                onDocumentBytesChanged?.();
+            }
+            if (doc && bytes === resolvedDocumentBytes) {
+                return;
+            }
             if (doc) {
                 pageLabelsResolved.value = false;
             }
@@ -262,7 +311,9 @@ export const usePageLabelState = (deps: {
     );
 
     watch(totalPages, (nextTotalPages) => {
-        if (pdfDocument.value) {
+        // Without a PDF.js document the count only matters when there is no
+        // working copy either; a loading view's count says nothing yet.
+        if (pdfDocument.value || isWorkingCopyRevisionKnown()) {
             return;
         }
         if (nextTotalPages <= 0) {

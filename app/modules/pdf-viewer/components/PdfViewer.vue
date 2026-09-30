@@ -15,8 +15,8 @@
                 :opening-page-frame-page="hasProjectedOpeningPageFrame ? committedInitialPageNumber : null"
                 :opening-page-frame-style="hasProjectedOpeningPageFrame ? projectedOpeningPageStyle : null"
                 :should-show-skeleton="shouldShowViewportPageSkeleton"
-                :is-page-render-failed="isPageRenderFailed"
-                :page-render-error-label="t('errors.file.open')"
+                :is-page-render-failed="isViewportPageRenderFailed"
+                :page-render-error-label="t('common.pageRenderFailed')"
                 :is-spread-single="isSpreadSingle"
                 :is-buffered-page="isPageBuffered"
                 :page-raster="pageRaster"
@@ -107,7 +107,10 @@ import {
     createDocumentViewerRuntime,
     injectDocumentViewerRuntime, createDocumentOpenGenerationErrorLatch,
 } from '@app/modules/document-viewer/public';
-import { shouldShowPdfViewportPageSkeleton } from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
+import {
+    isPdfViewportPageError,
+    shouldShowPdfViewportPageSkeleton,
+} from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
@@ -242,6 +245,15 @@ function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
         viewMode: props.viewMode ?? 'single',
         visual,
     });
+}
+function isViewportPageRenderFailed(pageNumber: TPageNumber) {
+    const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+    return isPageRenderFailed(pageNumber) || (!!viewportSession && isPdfViewportPageError({
+        pageNumber,
+        totalPages: chassisAuthority.pageCount.value,
+        viewMode: props.viewMode ?? 'single',
+        visual: viewportSession.visual,
+    }));
 }
 const shouldApplyOpeningPageFrame = computed(() => {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;

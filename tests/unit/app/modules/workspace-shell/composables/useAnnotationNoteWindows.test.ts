@@ -45,6 +45,36 @@ describe('useAnnotationNoteWindows', () => {
         });
     });
 
+    it('moves an open note to the view that opens it again, committing its draft first', async () => {
+        let viewInUse = 'tab-left';
+        const {
+            deps,
+            windows,
+        } = createHarness(createComment(), {getViewInUse: () => viewInUse});
+        const noteId = 'ann:0:note-1:0';
+        windows.handleOpenAnnotationNote(createComment());
+        windows.updateAnnotationNotePosition(noteId, {
+            x: 320,
+            y: 240,
+        });
+        windows.updateAnnotationNoteText(noteId, 'Draft typed in the left view');
+        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({ownerViewId: 'tab-left'});
+
+        viewInUse = 'tab-right';
+        windows.handleOpenAnnotationNote(createComment());
+
+        await vi.waitFor(() => expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
+            expect.anything(),
+            'Draft typed in the left view',
+        ));
+        const moved = windows.findAnnotationNoteWindow(noteId);
+        expect(moved?.ownerViewId).toBe('tab-right');
+        expect(moved?.position).not.toEqual({
+            x: 320,
+            y: 240,
+        });
+    });
+
     it('captures only completed dirty note drafts with an independent generation', () => {
         const {windows} = createHarness();
 

@@ -23,6 +23,7 @@ import {
     describeDocumentTarget,
     describeOpenResult,
 } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
@@ -43,7 +44,7 @@ function didCompletePageFileOpen(outcome: TPageFileOpenOutcome) {
 }
 
 export interface IPageFileOperationsDeps {
-    tabId?: string;
+    tabId?: string | undefined;
     requestDirtyTabCloseConfirmation?: TDirtyTabCloseConfirmation;
     pdfSrc: Ref<TPdfSource | null>;
     hasDocument: Ref<boolean>;
@@ -76,7 +77,6 @@ export interface IPageFileOperationsDeps {
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     const {
         pdfSrc,
-        tabId,
         requestDirtyTabCloseConfirmation: requestDirtyTabCloseConfirmationFromDeps,
         hasDocument,
         isAnySaving,
@@ -275,6 +275,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function resolveDirtySwitchDecision() {
+        const {tabId} = deps;
         if (!hasPendingPersistenceChanges()) {
             return 'clean' as const;
         }
@@ -356,7 +357,23 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             });
         }
 
-        const result = await pick();
+        let result: TOpenFileResult | null;
+        try {
+            result = await pick();
+        } catch (error) {
+            // Main refused the chosen file before handing it over. Whatever
+            // the tab shows stays; the refusal names the file and says why.
+            const refusal = describeRefusedDocumentOpen(error, t);
+            presentFailureToast({
+                failure: refusal.failure,
+                title: t('errors.file.open'),
+                description: refusal.fileName ? `${refusal.fileName}: ${refusal.message}` : refusal.message,
+            });
+            return recordOpenOutcome({
+                status: 'failed',
+                error: refusal.message,
+            });
+        }
         if (!result) {
             return recordOpenOutcome({ status: 'cancelled' });
         }
@@ -403,18 +420,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function handleCombineImagesDetailed() {
         return runPickerWithPersistenceDetailed(pickCombineFiles, { openGeneratedInNewTab: true });
-    }
-
-    async function pickFolderToOpen() {
-        return getDocumentPickerCapability().openFolderDialog();
-    }
-
-    async function handleOpenFolderFromUi() {
-        return runPickerWithPersistence(pickFolderToOpen, { openGeneratedInNewTab: true });
-    }
-
-    async function handleOpenFolderFromUiDetailed() {
-        return runPickerWithPersistenceDetailed(pickFolderToOpen, { openGeneratedInNewTab: true });
     }
 
     async function runOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
@@ -582,8 +587,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         lastOpenOutcome,
         handleOpenFileFromUiDetailed,
         handleOpenFileFromUi,
-        handleOpenFolderFromUiDetailed,
-        handleOpenFolderFromUi,
         handleCombineImagesDetailed,
         handleCombineImages,
         handleOpenFileDirectWithPersistDetailed,

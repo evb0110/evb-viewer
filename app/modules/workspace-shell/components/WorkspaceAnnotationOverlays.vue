@@ -140,31 +140,37 @@ import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowEntry } from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 import { createAnnotationOverlayRuntime } from '@app/modules/workspace-shell/annotations/createAnnotationOverlayRuntime';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 
 const { visible } = defineProps<{visible: boolean;}>();
 const {
     annotations,
+    pageOps,
+    file,
+} = useDocumentContext();
+const {
+    tabId,
     annotationActions,
+    annotationContextMenu: {
+        annotationContextMenu,
+        annotationContextMenuStyle,
+        annotationContextMenuCanCopy,
+        annotationContextMenuCanCopySelection,
+        annotationContextMenuCanCreateFree,
+        annotationContextMenuCanInsertImage,
+        annotationContextMenuIsImage,
+        contextMenuAnnotationLabel,
+        contextMenuDeleteActionLabel,
+    },
     pageContextMenu: {
         pageContextMenu,
         pageContextMenuStyle,
     },
-    pageOps,
-    file,
     view,
-} = useDocumentContext();
+} = useDocumentViewContext();
 const {
     sortedAnnotationNoteWindows,
     annotationNotePositions,
-    annotationContextMenu,
-    annotationContextMenuStyle,
-    annotationContextMenuCanCopy,
-    annotationContextMenuCanCopySelection,
-    annotationContextMenuCanCreateFree,
-    annotationContextMenuCanInsertImage,
-    annotationContextMenuIsImage,
-    contextMenuAnnotationLabel,
-    contextMenuDeleteActionLabel,
     updateAnnotationNoteText,
     bringAnnotationNoteToFront,
 } = annotations;
@@ -185,7 +191,11 @@ const {
     traceAnchorInteraction,
     scheduleConnectorRefreshBurst,
 } = createAnnotationOverlayRuntime({
-    getNoteWindows: () => sortedAnnotationNoteWindows.value,
+    // An open note's editor shows in the view that opened it; every view
+    // shows the markers of minimized notes.
+    getNoteWindows: () => sortedAnnotationNoteWindows.value.filter(note => (
+        note.isMinimized || note.ownerViewId === null || note.ownerViewId === tabId
+    )),
     getNotePositions: () => annotationNotePositions.value,
     getWorkspaceRoot: () => annotationViewportRoot.value?.closest<HTMLElement>('.workspace-host')
         ?? annotationViewportRoot.value,

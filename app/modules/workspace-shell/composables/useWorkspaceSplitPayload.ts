@@ -316,7 +316,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         return createPdfSnapshotPayload(snapshotPath, options.hasPendingTabChanges.value);
     }
 
-    async function captureSplitPayload(): Promise<TSplitPayload> {
+    async function captureCommandViewPayload(): Promise<TSplitPayload> {
         const activeViewerAdapter = resolveWorkspaceViewerAdapter({
             djvuSourcePath: options.djvuSourcePath.value,
             isDjvuMode: options.isDjvuMode.value,
@@ -346,6 +346,18 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         }
 
         return capturePdfSnapshotPayload();
+    }
+
+    /** Captures the document at `viewPage`, the page of the view the caller addresses. */
+    async function captureSplitPayload(viewPage?: number): Promise<TSplitPayload> {
+        const payload = await captureCommandViewPayload();
+        const page = normalizeSplitPayloadPage(viewPage);
+        return page && (payload.kind !== 'empty')
+            ? {
+                ...payload,
+                currentPage: page,
+            }
+            : payload;
     }
 
     async function restoreSplitPayload(payload: TSplitPayload): Promise<TDocumentOpenOutcome> {

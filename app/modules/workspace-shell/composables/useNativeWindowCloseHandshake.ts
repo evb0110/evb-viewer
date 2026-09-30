@@ -8,7 +8,10 @@ import type {
     ISystemCapability,
     TWindowCloseDecision,
 } from '@contracts/systemPlatformFeature';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    getDocumentWorkspace,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSystemCapability } from '@app/utils/getSystemCapability';
 
@@ -27,14 +30,15 @@ export const useNativeWindowCloseHandshake = (
     const systemCapability = options.systemCapability ?? getSystemCapability();
     let closeRequestInFlight = false;
 
+    // One entry per document: tabs that show the same document share it.
     function getDirtyTabs() {
-        return Object.values(options.documentSessionsByTabId.value)
+        return [...new Set(Object.values(options.documentSessionsByTabId.value))]
             .filter(session => session.snapshot.value.dirty);
     }
 
     // Dirty tabs are save-protected, so their workspaces stay mounted.
     async function saveTab(session: IWorkspaceDocumentController) {
-        const workspace = session.mountedWorkspace.value;
+        const workspace = getDocumentWorkspace(session);
         if (!workspace) {
             return false;
         }

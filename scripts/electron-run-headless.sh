@@ -30,6 +30,12 @@ fi
 export EVB_AUTOMATION_DISABLE_SANDBOX="${EVB_AUTOMATION_DISABLE_SANDBOX:-1}"
 export EVB_AUTOMATION_HIDE_WINDOW="${EVB_AUTOMATION_HIDE_WINDOW:-0}"
 
+# The session's Xvfb is the only display a headless run may use. A shell from a
+# Wayland desktop also exports WAYLAND_DISPLAY, and Chromium's Ozone layer then
+# picks the desktop compositor over DISPLAY.
+unset WAYLAND_DISPLAY
+export XDG_SESSION_TYPE=x11
+
 session_name="default"
 stop_all=0
 command=""

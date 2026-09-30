@@ -43,7 +43,7 @@ function createDirtyTab(id: string, fileName: string, documentInstanceId: string
 
 function createHarness(initialTabs: IWorkspaceDocumentController[]) {
     const sessions = shallowRef(new Map(initialTabs.map(session => [
-        session.tabId,
+        [...session.views.value.keys()][0]!,
         session,
     ])));
     const scope = effectScope();
@@ -124,7 +124,7 @@ describe('useDirtyTabCloseDialog', () => {
             other,
         ]);
 
-        const confirmation = dialog.requestDirtyTabCloseConfirmation(target.tabId);
+        const confirmation = dialog.requestDirtyTabCloseConfirmation('target');
         target.assign({
             fileName: 'Replacement.pdf',
             originalPath: requireDocumentRef('/documents/Replacement.pdf'),

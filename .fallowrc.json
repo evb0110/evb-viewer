@@ -97,7 +97,7 @@
         "@napi-rs/canvas",
         "@playwright/test",
         "app-builder-bin",
-        // The CLI runs in scripts/release/upload-sentry-sourcemaps.mjs and is not runtime code.
+        // The CLI runs in scripts/upload-sentry-sourcemaps.mjs and is not runtime code.
         "@sentry/cli",
         "@sentry/core",
         "node-mock-http",

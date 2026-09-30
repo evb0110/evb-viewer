@@ -15,6 +15,7 @@ import type { ICropSelectionResult } from '@app/types/crop';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type {
     IPdfViewerSaveTransactionRequest,
@@ -100,6 +101,10 @@ export interface IDocumentViewerExpose {
     getPendingNavigationTargetPage?: () => number | null;
     waitForViewerLoadSettled?: () => Promise<void>;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
+    /** The point of a page at the viewport center, as a relayout keeps it. */
+    captureReadingAnchor?: () => IPdfSemanticAnchor | null;
+    /** Scrolls so a captured point sits where it sat in the viewport it came from. */
+    restoreReadingAnchor?: (anchor: IPdfSemanticAnchor) => void;
     cancelProgrammaticNavigation?: () => void;
     getUserViewportInteractionEpoch?: () => number;
     invalidatePages?: (pages: number[]) => void;
@@ -109,6 +114,8 @@ export interface IDocumentViewerExpose {
         invalidatedPages: readonly number[];
         pageNumber: number;
         rotationDelta?: 90 | 180 | 270;
+        /** How the mutation renumbers pages: a view keeps reading the page it was on. */
+        pageIdentityDelta?: IPageIdentityDelta;
     }) => boolean | Promise<boolean>;
     beginPageRotationPreview?: (input: {
         invalidatedPages: readonly number[];

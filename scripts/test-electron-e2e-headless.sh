@@ -40,6 +40,11 @@ if [ "$host_display_isolation" = "xvfb" ]; then
     echo "xvfb-run is required for headless Linux Electron E2E. Run bash scripts/setup-linux-dev-host.sh." >&2
     exit 1
   fi
+  # xvfb-run sets DISPLAY only. A shell from a Wayland desktop also exports
+  # WAYLAND_DISPLAY, and Chromium's Ozone layer then picks the desktop
+  # compositor over the private X server.
+  unset WAYLAND_DISPLAY
+  export XDG_SESSION_TYPE=x11
   # xvfb-run defaults to a 1280x1024 screen, which caps the real window a test
   # can ask for at about 1279x996 once the frame is counted. Give tests a
   # display an ordinary desktop window fits on.

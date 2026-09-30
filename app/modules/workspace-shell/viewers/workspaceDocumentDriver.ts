@@ -143,6 +143,8 @@ export interface IDocumentSessionState {
     /** Unsaved bytes adopted from a crash checkpoint, independent of Save As. */
     recoveryDirtyBaseline: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
+    /** The working copy the document was opened at: a Save As moves the working copy, not this. */
+    openedWorkingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     isActiveWorkingCopy: (path: TDocumentRef) => boolean;
@@ -157,6 +159,7 @@ export function createDocumentSessionState(
     const pdfData = shallowRef<Uint8Array | null>(null);
     const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
     const workingCopyPath = ref<TDocumentRef | null>(null);
+    const openedWorkingCopyPath = ref<TDocumentRef | null>(null);
     const documentRevisionInfo = ref<IDocumentRevisionInfo | null>(null);
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const originalPath = ref<TDocumentRef | null>(null);
@@ -182,6 +185,7 @@ export function createDocumentSessionState(
         pdfData.value = null;
         pdfRasterDisplayProfile.value = null;
         workingCopyPath.value = null;
+        openedWorkingCopyPath.value = null;
         documentRevisionInfo.value = null;
         documentRevisionToken.value = null;
         originalPath.value = null;
@@ -219,6 +223,7 @@ export function createDocumentSessionState(
         wasEncrypted,
         resetForClose,
         workingCopyPath,
+        openedWorkingCopyPath,
         documentRevisionInfo,
         documentRevisionToken,
     };

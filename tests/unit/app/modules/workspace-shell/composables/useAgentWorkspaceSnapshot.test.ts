@@ -110,7 +110,7 @@ function createDocumentSession(tabId: string, options: {
             ? createDocumentIdentity('revision-1', 1, options.path)
             : options.identity,
     });
-    session.publishToolbarSnapshot({
+    session.getView(tabId)?.publishToolbarSnapshot({
         ...createDefaultWorkspaceToolbarSnapshot(),
         hasPdf: true,
         currentPage: 1,
@@ -118,7 +118,7 @@ function createDocumentSession(tabId: string, options: {
         ...options.toolbar,
     });
     if (options.workspace) {
-        session.attachWorkspace(options.workspace);
+        session.attachWorkspace(tabId, options.workspace);
     }
     return session;
 }
@@ -406,7 +406,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
         const panes = ref<IEditorPaneState[]>([createPane('pane-start', ['tab-empty'], 'tab-empty')]);
         const tabs = ref<ITab[]>([{id: 'tab-empty'}]);
         const emptySession = createWorkspaceDocumentController({tabId: 'tab-empty'});
-        emptySession.attachWorkspace(createWorkspace({}));
+        emptySession.attachWorkspace('tab-empty', createWorkspace({}));
         const recentFiles = ref<IRecentFile[]>([{
             fileName: 'Recent.djvu',
             originalPath: requireDocumentRef('/tmp/Recent.djvu'),
@@ -473,40 +473,6 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
             windowId: 42,
             ok: true,
             snapshot: expect.objectContaining({activeTabId: 'tab-1'}),
-        }));
-
-        harness.app.unmount();
-    });
-
-    it('waits for the Electron bridge when Electron preload appears after browser runtime classification', async () => {
-        vi.useFakeTimers();
-        vi.spyOn(window.navigator, 'userAgent', 'get')
-            .mockReturnValue('Mozilla/5.0 AppleWebKit/537.36 Electron/42.3.3 Safari/537.36');
-        const harness = await mountAgentWorkspaceSnapshotHarness({
-            installElectronApi: false,
-            shouldWaitForDesktopBridge: () => false,
-        });
-
-        expect(harness.agent.onWorkspaceSnapshotRequest).not.toHaveBeenCalled();
-        expect(harness.agent.onCommandRequest).not.toHaveBeenCalled();
-
-        (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(harness.agent);
-
-        await vi.advanceTimersByTimeAsync(250);
-        await waitForAssertion(() => {
-            expect(harness.agent.onWorkspaceSnapshotRequest).toHaveBeenCalledTimes(1);
-            expect(harness.agent.onCommandRequest).toHaveBeenCalledTimes(1);
-        });
-
-        await harness.submitSnapshot({
-            requestId: requireRequestId('delayed-electron-bridge-snapshot'),
-            windowId: 42,
-        });
-
-        expect(harness.agent.submitWorkspaceSnapshot).toHaveBeenCalledWith(expect.objectContaining({
-            requestId: 'delayed-electron-bridge-snapshot',
-            windowId: 42,
-            ok: true,
         }));
 
         harness.app.unmount();
@@ -748,7 +714,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             },
         });
         recommitIdentity(harness.session, '/tmp/document.pdf', createDocumentIdentity('revision-2', 2));
-        harness.session.attachWorkspace(workspace);
+        harness.session.attachWorkspace('tab-1', workspace);
         const response = await pendingResponse;
 
         expect(response).toMatchObject({ok: false});

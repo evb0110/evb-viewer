@@ -87,9 +87,17 @@ function sessionOf(state: Ref<IActiveDocumentState>) {
             session.markPresented();
             void settled;
         }
-        session.publishToolbarSnapshot(state.value.toolbarSnapshot);
+        session.getView('tab-1')?.publishToolbarSnapshot(state.value.toolbarSnapshot);
         return session;
     });
+}
+
+function activeDocumentOf(state: Ref<IActiveDocumentState>) {
+    const activeDocumentSession = sessionOf(state);
+    return {
+        activeDocumentSession,
+        activeDocumentView: computed(() => activeDocumentSession.value.getView('tab-1')),
+    };
 }
 
 describe('useMenuSync', () => {
@@ -102,7 +110,7 @@ describe('useMenuSync', () => {
         const tabs = ref([{id: 'tab-1'}]);
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs,
         });
         await nextTick();
@@ -147,7 +155,7 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
@@ -197,7 +205,7 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
@@ -248,7 +256,7 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
@@ -301,7 +309,7 @@ describe('useMenuSync', () => {
         }));
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
@@ -343,7 +351,7 @@ describe('useMenuSync', () => {
         }));
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs: ref<ITab[]>([{id: 'tab-1'}]),
         });
         await nextTick();
@@ -379,7 +387,7 @@ describe('useMenuSync', () => {
         });
 
         useMenuSync({
-            activeDocumentSession: sessionOf(activeDocumentRecord),
+            ...activeDocumentOf(activeDocumentRecord),
             tabs: ref([{id: 'tab-1'}]),
             menuContext,
         });

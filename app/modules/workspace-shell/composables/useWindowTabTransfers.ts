@@ -16,9 +16,8 @@ import {
     getWindowTabsCapability,
 } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
-import { parseSessionId } from '@contracts/shared';
 import { withTimeout } from 'es-toolkit/promise';
-import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
+import { createDocumentSessionTransferState } from '@app/modules/workspace-shell/document-sessions/createDocumentSessionTransferState';
 import {
     describeTabDocument,
     identityHasDocument,
@@ -94,7 +93,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     async function waitForWorkspace(tabId: string) {
-        return await getDocumentSession(tabId)?.whenMounted() ?? null;
+        return await getDocumentSession(tabId)?.getView(tabId)?.whenMounted() ?? null;
     }
 
     function tabHoldsDocument(tabId: string) {
@@ -103,15 +102,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     function getTransferSessionState(tabId: string): IWindowTabTransferSessionState | null {
-        const state = createWorkspaceSplitCacheSessionState(getDocumentSession(tabId));
-        if (!state) {
-            return null;
-        }
-        const sessionId = parseSessionId(state.sessionId);
-        return sessionId === null ? null : {
-            ...state,
-            sessionId,
-        };
+        return createDocumentSessionTransferState(getDocumentSession(tabId));
     }
 
     function isCommandTargetCurrent(
@@ -316,7 +307,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<IPreparedTransferItem | null> {
         const session = getDocumentSession(tabId);
-        const commandTarget = session?.createCommandTarget() ?? null;
+        const commandTarget = session?.getView(tabId) ? session.createCommandTarget(tabId) : null;
         if (!isCommandTargetCurrent(session, commandTarget)) {
             return null;
         }
@@ -488,7 +479,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         await options.handoffActiveTabBeforeClose(paneId, tabId);
 
         const session = getDocumentSession(tabId);
-        if (!session || !tabHoldsDocument(tabId)) {
+        if (!session || !tabHoldsDocument(tabId) || session.views.value.size > 1) {
             return true;
         }
 

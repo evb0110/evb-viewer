@@ -24,7 +24,8 @@ interface IUseWorkspaceFileLifecycleControllerOptions {
     createViewerLifecycleHooks?: (
         context: IWorkspaceViewerLifecycleContext,
     ) => IWorkspaceViewerLifecycleHooks[];
-    openSurface?: IDocumentOpenSurfaceSession | undefined;
+    /** The surface of the view that runs an open; read when the open runs. */
+    getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
@@ -110,6 +111,7 @@ export const useWorkspaceFileLifecycleController = (
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
+        openedWorkingCopyPath,
         documentRevisionInfo,
         documentRevisionToken,
         originalPath,
@@ -155,7 +157,7 @@ export const useWorkspaceFileLifecycleController = (
         undo,
         redo,
     } = usePdfFile({
-        openSurface: options.openSurface,
+        getOpenSurface: options.getOpenSurface,
         failureSurface: options.failureSurface,
     });
 
@@ -180,7 +182,7 @@ export const useWorkspaceFileLifecycleController = (
         exitDjvuMode,
         openConvertDialog,
         dismissBanner: djvuDismissBanner,
-    } = useDjvu({openSurface: options.openSurface});
+    } = useDjvu({getOpenSurface: options.getOpenSurface});
 
     let djvuProjectionAbortController = new AbortController();
 
@@ -364,6 +366,7 @@ export const useWorkspaceFileLifecycleController = (
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
+        openedWorkingCopyPath,
         documentRevisionInfo,
         documentRevisionToken,
         originalPath,

@@ -442,33 +442,6 @@ describe('AnnotationStore public API', () => {
         expect(store.get(entity.identity.id)).toMatchObject({deleted: true});
     });
 
-    it('keeps selection in the store, clones it, and intersects it with live ids', () => {
-        const store = new AnnotationStore();
-        const first = store.createNote(note('first'));
-        const second = store.createNote(note('second'));
-        const selected = store.selectedIds as Set<typeof first.identity.id>;
-
-        store.select([
-            first.identity.id,
-            second.identity.id,
-            asAnnotationId('missing'),
-        ]);
-        expect(store.selectedIds).toEqual(new Set([
-            first.identity.id,
-            second.identity.id,
-        ]));
-        selected.add(asAnnotationId('outside'));
-        expect(store.selectedIds).toEqual(new Set([
-            first.identity.id,
-            second.identity.id,
-        ]));
-
-        store.delete(first.identity.id);
-        expect(store.selectedIds).toEqual(new Set([second.identity.id]));
-        store.clearSelection();
-        expect(store.selectedIds).toEqual(new Set());
-    });
-
     it('rejects creators with a non-zero initial revision', () => {
         const store = new AnnotationStore();
         expect(() => store.createTextBox({

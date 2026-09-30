@@ -200,7 +200,8 @@ interface IProps {
     selectedAnnotations?: readonly AnnotationEntity[] | undefined;
     canRotateAnnotations?: ((delta: -90 | 90) => boolean) | undefined;
     bookmarkEditMode: boolean;
-    bookmarkItems: IPdfBookmarkEntry[];
+    /** The document's bookmarks once it has read them; until then the outline reads its own. */
+    bookmarkItems?: IPdfBookmarkEntry[] | undefined;
     bookmarksDirty: boolean;
     bookmarkNavigationIntentVersion: number;
     isPageOperationInProgress?: boolean | undefined;
@@ -227,7 +228,7 @@ const {
     annotationCommentsStatus,
     annotationInventory = null,
     annotationEnrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
-    bookmarkItems,
+    bookmarkItems = undefined,
     bookmarkNavigationIntentVersion,
     bookmarksDirty,
     bookmarkEditMode,

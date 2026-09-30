@@ -73,7 +73,7 @@ interface ICreateDocumentOpenFlowDeps {
     incrementSessionVersion: () => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     loadEpoch: TEpochGuard;
-    openSurface?: IDocumentOpenSurfaceSession | undefined;
+    getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     openEpoch: TEpochGuard;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
@@ -372,7 +372,7 @@ export function createDocumentOpenFlow(
             : undefined;
         const openingGeometry = resolvePdfOpeningGeometry({
             isCurrent: () => isCurrentOpenRequest(openRequestId),
-            openSurface: deps.openSurface,
+            openSurface: deps.getOpenSurface?.() ?? undefined,
             ...(readOpeningGeometryForOpen === undefined
                 ? {}
                 : {readOpeningGeometry: readOpeningGeometryForOpen}),
@@ -977,6 +977,9 @@ export function createDocumentOpenFlow(
             recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,
             previousPath: state.workingCopyPath.value,
         });
+        if (didCommit) {
+            state.openedWorkingCopyPath.value = path;
+        }
         logPdfRenderTrace('pdf-open-state-commit-end', {
             path,
             ...traceContext,

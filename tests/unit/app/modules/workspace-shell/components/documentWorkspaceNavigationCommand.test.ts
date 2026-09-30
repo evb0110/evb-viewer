@@ -27,6 +27,11 @@ import {
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
+import {
+    documentViewDetachKey,
+    type TDocumentViewDetach,
+} from '@app/modules/workspace-shell/documentViewContext';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
@@ -34,6 +39,9 @@ import { cast } from '@tests/helpers/cast';
 const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
     openSurface: null as IDocumentOpenSurfaceSession | null,
+    restoreReadingAnchor: null as ((anchor: unknown) => void) | null,
+    // The viewer's count of the reader's scrolls and drags.
+    interactionEpoch: {value: 0},
     sidebars: [] as Array<Record<string, unknown>>,
     viewers: [] as Array<Record<string, unknown>>,
 }));
@@ -61,6 +69,8 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
         expose({
             scrollToPage: vi.fn(),
             getViewerContainer: () => null,
+            restoreReadingAnchor: (anchor: unknown) => surfaceRenders.restoreReadingAnchor?.(anchor),
+            getUserViewportInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
         });
         return () => {
             surfaceRenders.viewers.push({...attrs});
@@ -141,6 +151,8 @@ afterEach(() => {
     surfaceRenders.sidebars.length = 0;
     surfaceRenders.viewers.length = 0;
     surfaceRenders.openSurface = null;
+    surfaceRenders.restoreReadingAnchor = null;
+    surfaceRenders.interactionEpoch.value = 0;
     nuxtState.clear();
 });
 
@@ -160,14 +172,21 @@ async function mountDocumentWorkspace(options: {
     initialSurfaceMode?: 'reader' | 'scan-cleanup';
     pendingDocumentPath?: TDocumentRef;
     openSurfaceDocument?: TDocumentRef;
+    /** Another tab views the document without a mounted workspace, as a hidden tab does. */
+    hiddenSecondView?: boolean;
+    detachDocumentView?: TDocumentViewDetach;
 } = {}) {
     const { default: DocumentWorkspace } = await import(
         '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
     );
     const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
+    const documentView = documentSession.getView('tab-1')!;
+    if (options.hiddenSecondView) {
+        documentSession.addView('tab-2');
+    }
     if (options.initialSurfaceMode) {
-        documentSession.applyViewState({
-            ...documentSession.viewState.value,
+        documentView.applyViewState({
+            ...documentView.viewState.value,
             surfaceMode: options.initialSurfaceMode,
         });
     }
@@ -190,20 +209,30 @@ async function mountDocumentWorkspace(options: {
             return () => h('div', slots.default?.({}) ?? []);
         },
     });
+    const { default: DocumentSessionHost } = await import(
+        '@app/modules/workspace-shell/components/DocumentSessionHost.vue'
+    );
     const app = createApp(defineComponent({setup() {
-        return () => h(cast<never>(DocumentWorkspace), {
-            tabId: 'tab-1',
-            isActive: true,
-            isRenderActive: true,
-            isTabTransitionBusy: false,
-            isFullscreen: false,
-            fullscreenSupported: false,
-            isWorkspaceLayoutResizing: false,
-            splitCacheSession: null,
-            startSection: 'recent',
-            documentSession,
-        });
+        provideDocumentContextRegistry();
+        return () => [
+            h(DocumentSessionHost, {documentController: documentSession}),
+            h(cast<never>(DocumentWorkspace), {
+                tabId: 'tab-1',
+                isActive: true,
+                isRenderActive: true,
+                isTabTransitionBusy: false,
+                isFullscreen: false,
+                fullscreenSupported: false,
+                isWorkspaceLayoutResizing: false,
+                splitCacheSession: null,
+                startSection: 'recent',
+                documentSession,
+            }),
+        ];
     }}));
+    if (options.detachDocumentView) {
+        app.provide(documentViewDetachKey, options.detachDocumentView);
+    }
     cast<{_context: {components: unknown}}>(app)._context.components = new Proxy({}, {
         get: () => designSystemStub,
         has: () => true,
@@ -229,7 +258,7 @@ async function mountDocumentWorkspace(options: {
     // has been torn down.
     await workspaceViewerChunkLoaders.chassis();
     await nextTick();
-    const expose = documentSession.mountedWorkspace.value;
+    const expose = documentView.mountedWorkspace.value;
     if (!expose) {
         throw new Error('DocumentWorkspace never attached to its tab controller.');
     }
@@ -241,7 +270,10 @@ async function mountDocumentWorkspace(options: {
         });
         await nextTick();
     }
-    return {expose};
+    return {
+        expose,
+        documentSession,
+    };
 }
 
 describe('DocumentWorkspace navigation command', () => {
@@ -310,4 +342,125 @@ describe('DocumentWorkspace navigation command', () => {
             source: 'annotation',
         });
     }, 120_000);
+
+    it('opens another file in a document of its own while a hidden tab still views this one', async () => {
+        const detachDocumentView = vi.fn<TDocumentViewDetach>(async () => {});
+        const workspace = await mountDocumentWorkspace({
+            openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
+            hiddenSecondView: true,
+            detachDocumentView,
+        });
+
+        await workspace.expose.handleOpenFileDirectWithPersist(requireDocumentRef('/tmp/other.pdf'));
+
+        // The view leaves the shared document; the document itself opens nothing.
+        expect(detachDocumentView).toHaveBeenCalledWith('tab-1', expect.any(Function));
+        expect(workspace.documentSession.snapshot.value.activeTransaction).toBeNull();
+        expect(workspace.documentSession.snapshot.value.identity.originalPath).toBeNull();
+    }, 120_000);
+
+    describe('placing a split view at its source\'s reading point', () => {
+        const anchor = {
+            page: 3,
+            pageXFraction: 0.5,
+            pageYFraction: 0.4,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center' as const,
+        };
+
+        async function mountOpeningView() {
+            const restored: unknown[] = [];
+            surfaceRenders.restoreReadingAnchor = anchorToRestore => restored.push(anchorToRestore);
+            const workspace = await mountDocumentWorkspace({
+                pendingDocumentPath: requireDocumentRef('/tmp/shared.pdf'),
+                openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
+            });
+            const placing = workspace.expose.placeReadingAnchorAfterOpen!(anchor);
+            return {
+                ...workspace,
+                placing,
+                restored,
+                // The view's document finishes opening.
+                settle: () => workspace.documentSession.markPresented(),
+            };
+        }
+
+        it('places the anchor once the document has opened', async () => {
+            const view = await mountOpeningView();
+            await nextTick();
+            expect(view.restored).toEqual([]);
+
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([anchor]);
+        }, 120_000);
+
+        it('places the anchor after the opening restores the view\'s own page', async () => {
+            const view = await mountOpeningView();
+
+            // What the page-session restore issues once the view has a page count.
+            surfaceRenders.openSurface!.navigate({
+                target: {
+                    kind: 'page',
+                    page: 1,
+                },
+                alignment: 'page-top',
+                readiness: 'page-canvas',
+                source: 'restore',
+                supersession: 'latest-wins',
+            });
+            await nextTick();
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([anchor]);
+        }, 120_000);
+
+        it('leaves the view where the reader sent it by going to its own first page while it opened', async () => {
+            const view = await mountOpeningView();
+
+            // The toolbar's Go to page on the page the view opens at, to see its top.
+            view.expose.handleGoToPage(1);
+            await nextTick();
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([]);
+        }, 120_000);
+
+        it('places the anchor in a viewer the reader had used before the placement began', async () => {
+            surfaceRenders.interactionEpoch.value = 3;
+            const view = await mountOpeningView();
+
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([anchor]);
+        }, 120_000);
+
+        it('leaves the view where the reader scrolled while it opened', async () => {
+            surfaceRenders.interactionEpoch.value = 3;
+            const view = await mountOpeningView();
+
+            surfaceRenders.interactionEpoch.value = 4;
+            await nextTick();
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([]);
+        }, 120_000);
+
+        it('leaves the view where the reader navigated while it opened', async () => {
+            const view = await mountOpeningView();
+
+            view.expose.handleGoToPage(5);
+            await nextTick();
+            view.settle();
+            await view.placing;
+
+            expect(view.restored).toEqual([]);
+        }, 120_000);
+    });
 });

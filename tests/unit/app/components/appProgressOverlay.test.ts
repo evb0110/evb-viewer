@@ -148,4 +148,59 @@ describe('DjvuConversionOverlay', () => {
         expect(document.activeElement).toBe(fallback);
         fallback.remove();
     });
+
+    it('returns the focus to a marked restore target before the first control on the page', async () => {
+        // The toolbar comes first in document order; the marked control (the
+        // DjVu banner's Convert) comes later.
+        const toolbarButton = document.createElement('button');
+        toolbarButton.type = 'button';
+        const marked = document.createElement('button');
+        marked.type = 'button';
+        marked.dataset.focusRestore = 'djvu-convert';
+        document.body.prepend(toolbarButton);
+        try {
+            const mounted = mountOverlay();
+            document.body.append(marked);
+            const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
+            workspaceAction.focus();
+            mounted.open.value = true;
+            await nextTick();
+            await nextTick();
+
+            // The control that started the work is gone when it ends.
+            workspaceAction.remove();
+            mounted.open.value = false;
+            await nextTick();
+            await nextTick();
+
+            expect(document.activeElement).toBe(marked);
+        } finally {
+            toolbarButton.remove();
+            marked.remove();
+        }
+    });
+
+    it('leaves the focus alone when it mounts and unmounts closed, as a workspace in the background does', async () => {
+        // The app's first control (the toolbar) comes before the editor in use.
+        const toolbarButton = document.createElement('button');
+        toolbarButton.type = 'button';
+        const editor = document.createElement('textarea');
+        document.body.append(toolbarButton, editor);
+        try {
+            editor.focus();
+
+            const mounted = mountOverlay();
+            await nextTick();
+            await nextTick();
+            expect(document.activeElement).toBe(editor);
+
+            mounted.unmount();
+            await nextTick();
+            await nextTick();
+            expect(document.activeElement).toBe(editor);
+        } finally {
+            toolbarButton.remove();
+            editor.remove();
+        }
+    });
 });

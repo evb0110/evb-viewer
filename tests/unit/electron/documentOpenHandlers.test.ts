@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import type * as DocumentDialogCommon from '@electron/features/documents/main/documentDialogCommon';
 
 const mocks = vi.hoisted(() => ({
     isSupportedOpenPath: vi.fn((path: string) => path.endsWith('.pdf')),
@@ -42,6 +43,13 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: vi.fn(),
     logRejectedOpenPath: vi.fn(),
     requireOpenPath: (path: string, owner?: unknown) => mocks.requireOpenPath(path, owner),
+}));
+vi.mock('@electron/features/documents/main/documentDialogCommon', async importOriginal => ({
+    ...await importOriginal<typeof DocumentDialogCommon>(),
+    showOpenDocumentDialogForContext: vi.fn(async () => ({
+        canceled: false,
+        filePaths: ['/Users/reader/Documents/damaged.pdf'],
+    })),
 }));
 vi.mock('@electron/recentFiles', () => ({getRecentFiles: vi.fn(async () => [])}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
@@ -235,5 +243,29 @@ describe('direct batch open cancellation', () => {
                 message: 'Encrypted PDF input exceeds the admission ceiling',
             });
         }
+    });
+
+    it('sends a picked file the main process refused as its code and name, without tool output', async () => {
+        const {
+            DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA,
+            DocumentOpenRefusalError,
+        } = await import('@contracts/documentOpenErrors');
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        mocks.openInputPaths.mockRejectedValueOnce(new DocumentOpenRefusalError(
+            'invalid-pdf',
+            'PDF rewrite failed: qpdf(rewrite) failed with exit code 2. WARNING: '
+                + '/private/tmp/evb-viewer-u501/pdf-work-1/document.pdf: file is damaged',
+            {fileName: 'damaged.pdf'},
+        ));
+
+        const error = await handlers.handleOpenPdfDialog(handlerContext(senderContext(7)))
+            .then(() => null, (caught: unknown) => caught);
+
+        expect(findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)).toEqual({
+            code: 'invalid-pdf',
+            message: 'invalid-pdf',
+            fileName: 'damaged.pdf',
+        });
+        expect(error instanceof Error ? error.message : String(error)).not.toMatch(/qpdf|pdf-work|document\.pdf/u);
     });
 });

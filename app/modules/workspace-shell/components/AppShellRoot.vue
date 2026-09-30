@@ -182,6 +182,7 @@ import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composabl
 import { useAppShellMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import { documentViewDetachKey } from '@app/modules/workspace-shell/documentViewContext';
 import {
     describeTabDocument,
     snapshotOccupiesTab,
@@ -196,7 +197,6 @@ import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
 import { isAutomationSession } from '@app/utils/isAutomationSession';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
 import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
@@ -334,7 +334,6 @@ const isEditorPanesResizing = ref(false);
 const isWorkspaceLayoutResizing = computed(() => isAssistantPanelResizing.value || isEditorPanesResizing.value);
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
-const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceMemoryBudget = useWorkspaceMemoryPressureMonitor();
 const tabActivationOrder = ref<string[]>([]);
 watch(activeTabId, (tabId) => {
@@ -360,12 +359,14 @@ const tabLifecycleById = computed(() => Object.fromEntries(
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
-        documentTabIds: new Set(Object.values(documentSessionsByTabId.value).flatMap(
-            session => snapshotOccupiesTab(session.snapshot.value) ? [session.tabId] : [],
-        )),
-        dirtyTabIds: new Set(Object.values(documentSessionsByTabId.value)
-            .filter(session => session.snapshot.value.dirty)
-            .map(session => session.tabId)),
+        documentTabIds: new Set(Object.entries(documentSessionsByTabId.value).flatMap(([
+            tabId,
+            session,
+        ]) => snapshotOccupiesTab(session.snapshot.value) ? [tabId] : [])),
+        dirtyTabIds: new Set(Object.entries(documentSessionsByTabId.value).flatMap(([
+            tabId,
+            session,
+        ]) => session.snapshot.value.dirty ? [tabId] : [])),
         tier: workspaceMemoryBudget.value.deviceTier,
         targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
     }).map(state => [
@@ -383,14 +384,28 @@ const {
     downloadUpdate,
     ensureInitialized: ensureUpdatesInitialized,
     installUpdateNow,
+    showUpdateDialog,
     skipUpdateVersion,
+    status: updatesStatus,
 } = useAppUpdates();
 const documentSessions = useWorkspaceDocumentSessions({
     activeTabId,
     tabs,
 });
+// Opening another file in a view of a shared document gives that tab a
+// document of its own; the open runs in the tab's new workspace.
+provide(documentViewDetachKey, async (tabId, open) => {
+    if (!documentSessions.detachView(tabId)) {
+        return;
+    }
+    const workspace = await documentSessions.getView(tabId)?.whenMounted() ?? null;
+    if (workspace) {
+        await open(workspace);
+    }
+});
 const {
     activeDocumentSession,
+    activeDocumentView,
     activeWorkspace,
     documentSessionsByTabId,
     getSession: getDocumentSession,
@@ -423,6 +438,7 @@ const activeTabDocument = computed(() => {
 });
 const shellState = useWorkspaceShellState({
     activeDocumentSession,
+    activeDocumentView,
     tabs,
 });
 const {
@@ -441,7 +457,6 @@ const {
     activePaneId,
     activeTabId,
     documentSessionsByTabId,
-    workspaceSplitCache,
     workspaceRestoreTracker,
     getPaneById,
     getTabById,
@@ -544,7 +559,6 @@ onMounted(() => {
             setTabMemoryPolicy: (policy) => {
                 updateSetting('tabMemoryPolicy', policy);
             },
-            splitEditor,
             splitEditorEmpty,
         });
     }
@@ -578,6 +592,7 @@ const {
     showShellToolbar,
 } = useShellWorkspaceToolbar({
     activeDocumentSession,
+    activeDocumentView,
     hasWorkspaceToolbarContent,
 });
 
@@ -585,7 +600,9 @@ function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
     handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceCommand);
 }
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
+    updatesStatus,
     updatesDialog,
+    showUpdateDialog,
     updatesDialogVersion,
     closeUpdatesDialog,
     deferUpdate,
@@ -682,7 +699,7 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
         return null;
     }
 
-    const tabId = parseTabId(session.tabId);
+    const tabId = parseTabId(activeTabId.value);
     if (tabId === null) {
         return null;
     }
@@ -692,7 +709,7 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     const documentRef = tabDocument.originalPath;
     const documentBackend = resolveDocumentRefBackend(documentRef);
     const documentIdentity = identity.revisionInfo;
-    const commandTarget = session.createCommandTarget();
+    const commandTarget = session.createCommandTarget(tabId);
     const title = tabDocument.fileName ?? documentRef ?? null;
     return {
         kind: 'document',
@@ -781,7 +798,6 @@ const {
 });
 const {
     tabContextAvailabilityByPane,
-    splitEditor,
     splitEditorEmpty,
     handleTabContextCommand,
     handleTabMoveDirection,
@@ -799,6 +815,7 @@ const {
     createTab,
     activatePane,
     activateTab,
+    linkDocumentView: documentSessions.linkView,
     isSingletonPlaceholderCloseBlocked,
     enqueueTabTransition,
     setWorkspaceLayoutResizing: value => { isEditorPanesResizing.value = value; },
@@ -809,6 +826,7 @@ const {
 
 useAppShellMenuSync({
     activeDocumentSession,
+    activeDocumentView,
     activePaneId,
     assistantPanelEnabled,
     shellState,
@@ -913,7 +931,7 @@ useTabsShellBindings({
     loadRecentFiles,
     isStartupOpenClaimPending,
     checkForUpdates,
-    splitEditor,
+    openNewPane: splitEditorEmpty,
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });

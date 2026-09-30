@@ -14,6 +14,7 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 import {
     identityHasDocument,
     type IWorkspaceDocumentController,
+    type IWorkspaceDocumentView,
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
@@ -23,6 +24,7 @@ type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
 interface IUseWorkspaceDocumentLifecycleOptions {
     documentSession: IWorkspaceDocumentController;
+    documentView: IWorkspaceDocumentView;
     openSurface: IDocumentOpenSurfaceSession;
     isShown: () => boolean;
     fileName: TReadableRef<string | null>;
@@ -53,13 +55,14 @@ interface IUseWorkspaceDocumentLifecycleOptions {
 }
 
 /**
- * Connects one DocumentWorkspace to its tab's document controller. Every open
+ * Connects one DocumentWorkspace to its document controller and its tab's view. Every open
  * runs as a controller transaction that ends when the viewer presents the
  * document or reports why it could not; the workspace writes identity, dirty
  * state and view state through controller methods.
  */
 export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLifecycleOptions) => {
     const session = options.documentSession;
+    const view = options.documentView;
     const snapshot = computed(() => session.snapshot.value);
     const activeOpen = computed(() => {
         const transaction = snapshot.value.activeTransaction;
@@ -83,7 +86,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         };
     }, document => session.commitDocument(document));
     watch(options.isDirty, dirty => session.setDirty(dirty));
-    watch(options.toolbarSnapshot, toolbar => session.publishToolbarSnapshot(toolbar), {immediate: true});
+    watch(options.toolbarSnapshot, toolbar => view.publishToolbarSnapshot(toolbar), {immediate: true});
     watch(options.openBatchProgress, (progress) => {
         session.setOpeningLabel(progress && progress.total > 0
             ? options.formatBatchLabel({
@@ -123,7 +126,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             return;
         }
         const initialPage = request.kind === 'restore'
-            ? Math.max(1, Math.trunc(session.viewState.value.currentPage ?? 1))
+            ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1))
             : 1;
         options.openSurface.begin({
             documentId: String(request.target?.originalPath ?? transactionId),
@@ -214,16 +217,39 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             },
         }, () => options.openPath(path));
     }
+    // A view of a document that is already open (a split's second view, or a
+    // view that remounted in another pane) has no open transaction of its own.
+    // Its surface starts at the page its view state names, as an open would.
+    function presentOpenDocumentInThisView() {
+        const current = snapshot.value;
+        if (
+            !options.isShown()
+            || current.phase !== 'presented'
+            || !hasDocument.value
+            || options.openSurface.snapshot.value.phase !== 'idle'
+        ) {
+            return;
+        }
+        options.openSurface.begin({
+            documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
+            documentRevision: `open-intent:view:${view.tabId}`,
+            provisional: true,
+        }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
+    }
+    function presentWhenShown() {
+        presentOpenDocumentInThisView();
+        openOwnedDocumentWhenShown();
+    }
     watch(
         [
             options.isShown,
             snapshot,
         ],
-        openOwnedDocumentWhenShown,
+        presentWhenShown,
     );
     // The open runs through the workspace, which is complete only once it has
     // mounted; a tab shown at mount opens from here, not during setup.
-    onMounted(openOwnedDocumentWhenShown);
+    onMounted(presentWhenShown);
 
     // Closing ends the document's visual generation; Start re-arms from the
     // empty surface instead of inheriting the closed document's frame.
@@ -247,7 +273,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     }
 
     function captureViewState() {
-        session.applyViewState(options.readViewState());
+        view.applyViewState(options.readViewState());
     }
 
     return {

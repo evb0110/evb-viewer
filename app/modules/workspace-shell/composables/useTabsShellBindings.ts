@@ -97,7 +97,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         clearRecentFiles,
         loadRecentFiles,
         checkForUpdates,
-        splitEditor,
+        openNewPane,
         handleWindowTabsAction,
         toggleAssistant,
     } = options;
@@ -121,7 +121,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
 
         // A tab without a mounted workspace keeps its last published view.
-        return documentSessions.getSession(tabId)?.toolbarSnapshot.value ?? null;
+        return documentSessions.getView(tabId)?.toolbarSnapshot.value ?? null;
     }
 
     function readWorkspaceAutomationState(
@@ -215,8 +215,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             getActiveToolbarSnapshot: () => readWorkspaceSnapshot(activeTabId.value, getActiveWorkspaceHandle()),
             isStartupOpenClaimPending: () => isStartupOpenClaimPending.value,
             readActiveWorkspaceStateValues,
-            splitEditor: async direction => {
-                await splitEditor(direction);
+            openNewPane: async (direction) => {
+                await openNewPane(direction);
             },
             callActiveWorkspaceCommand,
             callActiveWorkspaceSyncCommand,
@@ -542,7 +542,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 clearRecentFiles,
                 loadRecentFiles,
                 checkForUpdates,
-                splitEditor,
+                openNewPane,
                 handleWindowTabsAction,
                 toggleAssistant,
             });

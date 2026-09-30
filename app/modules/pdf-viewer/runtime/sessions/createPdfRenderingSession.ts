@@ -238,7 +238,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     function shouldRasterizeViewportJob(job: IPdfViewportRasterJob) {
         return job.rasterState === 'absent'
             || job.rasterState === 'stale-scale'
-            || job.rasterState === 'failed' && job.renderOptions.forceRerender === true
             || job.renderOptions.contentIntent === 'canvas-only-refine';
     }
     function isViewportRasterDemanded(pageNumber: TPageNumber, lane?: TPdfRasterLane) {
@@ -460,8 +459,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     : {}),
             } : renderOptions;
             const committedRasterState = getPageRasterState(pageNumber);
-            // A forced rerender invalidates otherwise scale-current pixels after content changes.
+            // A forced rerender replaces current pixels after content changes; it and a
+            // deliberate navigation target also retry a page whose earlier raster failed.
             const rasterState = committedRasterState === 'current' && renderOptions.forceRerender === true
+                || committedRasterState === 'failed' && (renderOptions.forceRerender === true || lane === 'navigation-target')
                 ? 'stale-scale'
                 : committedRasterState;
             const rasterIdentity = [
@@ -598,10 +599,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
         }
         for (const job of jobs) {
-            if (
-                job.rasterState === 'stale-scale'
-                || (job.rasterState === 'failed' && job.renderOptions.forceRerender === true)
-            ) {
+            if (job.rasterState === 'stale-scale') {
                 scheduler.invalidate({
                     pages: [job.demand.pageNumber],
                     reason: 'explicit-viewport-raster-repair',
@@ -610,7 +608,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
         }
         const schedulableJobs = jobs
-            .filter(job => job.rasterState !== 'failed' || job.renderOptions.forceRerender === true);
+            .filter(job => job.rasterState !== 'failed');
         const rasterJobs = schedulableJobs.filter(shouldRasterizeViewportJob);
         const waits = schedulableJobs.filter(job => (
             shouldRasterizeViewportJob(job) || (job.rasterState === 'in-flight'

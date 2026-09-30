@@ -1,21 +1,17 @@
-import type { Ref } from 'vue';
 import { until } from '@vueuse/core';
 import {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
-import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
+import { useDocumentWorkspaceRestoreState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 
 interface IWorkspacePresentationOptions {
-    splitCacheSession: Readonly<Ref<IWorkspaceSplitCacheSessionState | null>>;
-    isTabTransitionBusy: Readonly<Ref<boolean>>;
     initialPage: number | undefined;
     preserveInitialPage: boolean;
 }
@@ -25,32 +21,28 @@ interface IWorkspacePresentationOptions {
  * which surface is visible, which controls are live, and when the open has
  * settled for the tab controller and automation.
  */
-export const useWorkspacePresentation = (context: TDocumentContext, options: IWorkspacePresentationOptions) => {
+export const useWorkspacePresentation = (
+    document: TDocumentContext,
+    viewContext: TDocumentViewContext,
+    options: IWorkspacePresentationOptions,
+) => {
+    const {
+        file,
+        save,
+        history,
+        isOpeningDocument,
+    } = document;
     const {
         tabId,
         openSurface,
-        file,
         view,
         search,
-        save,
-        history,
-        splitPayload,
-        isOpeningDocument,
-    } = context;
+    } = viewContext;
     const { t } = useTypedI18n();
     const isOcrRunning = ref(false);
-    const isRestoringSplitPayload = ref(false);
-    const {
-        hasQueuedSplitRestore,
-        isExternallyRestoring,
-    } = useDocumentWorkspaceSplitRestore({
+    const {isExternallyRestoring} = useDocumentWorkspaceRestoreState({
         tabId,
-        pendingDocumentOpen: isOpeningDocument,
-        isTabTransitionBusy: computed(() => options.isTabTransitionBusy.value),
-        workspaceSplitCache: useWorkspaceSplitCache(),
         workspaceRestoreTracker: useWorkspaceRestoreTracker(),
-        splitCacheSession: computed(() => options.splitCacheSession.value),
-        hasPdf: file.hasPdf,
         currentPage: view.currentPage,
         totalPages: view.totalPages,
         showSidebar: view.showSidebar,
@@ -64,18 +56,15 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
         documentViewerRef: view.documentViewerRef,
         initFromStorage: file.initFromStorage,
         cleanupSidebarResizeListeners: search.cleanupSidebarResizeListeners,
-        captureSplitPayload: splitPayload.captureSplitPayload,
-        restoreSplitPayload: splitPayload.restoreSplitPayload,
-        isRestoringSplitPayload,
         currentPageTransitionHistory: ref([]),
     });
 
-    const capabilities = context.viewerCapabilities;
-    const driverView = computed(() => context.driver.activeDocumentDriver.value?.view);
+    const capabilities = document.viewerCapabilities;
+    const driverView = computed(() => document.driver.activeDocumentDriver.value?.view);
     const showsPdfSidebar = computed(() => driverView.value?.showPdfSidebar === true);
     const showsDjvuSource = computed(() => driverView.value?.showDjvuSource === true);
     const isDjvuOpening = computed(() => Boolean(file.djvuOpeningPath.value) && !showsDjvuSource.value);
-    const isRestoring = computed(() => isRestoringSplitPayload.value || isExternallyRestoring.value);
+    const isRestoring = isExternallyRestoring;
     const isOpeningForToolbar = computed(() => (
         isOpeningDocument.value || isDjvuOpening.value || isRestoring.value
     ));
@@ -87,7 +76,6 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
         || isOpeningDocument.value
         || showsDjvuSource.value
         || isDjvuOpening.value
-        || hasQueuedSplitRestore.value
         || isRestoring.value
     ));
     // Whether a sidebar may exist at all: the user's persisted preference and
@@ -101,13 +89,14 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
     ));
 
     useDocumentWorkspacePageSessionRestore({
-        activeViewerAdapter: context.driver.activeDocumentDriver,
+        activeViewerAdapter: document.driver.activeDocumentDriver,
         currentPage: view.currentPage,
         documentViewerRef: view.documentViewerRef,
         initialPage: options.initialPage,
         preserveInitialPage: options.preserveInitialPage,
         isLoading: view.isLoading,
-        onRestore: context.navigation.handleGoToPage,
+        // The view reopening its own page is a restore, not the reader's navigation.
+        onRestore: page => viewContext.navigation.handleGoToPage(page, {navigationSource: 'restore'}),
         totalPages: view.totalPages,
     });
     const {
@@ -156,12 +145,12 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
         && !initialVisualPending.value
     ));
     const statusZoomLabel = computed(() => (
-        initialVisualPending.value ? t('status.zoomUnknown') : context.statusBar.statusZoomLabel.value
+        initialVisualPending.value ? t('status.zoomUnknown') : viewContext.statusBar.statusZoomLabel.value
     ));
     const documentMetadataReady = computed(() => (
         toolbarHasPdf.value && view.totalPages.value > 0 && !isOpeningDocumentForDisplay.value
     ));
-    const {pageLabelState} = context.metadata;
+    const {pageLabelState} = document.metadata;
     const toolbarPageLabels = computed<TDocumentPageLabelLookup>(() => {
         if (!documentMetadataReady.value) {
             return null;
@@ -183,7 +172,7 @@ export const useWorkspacePresentation = (context: TDocumentContext, options: IWo
     const showDjvuConversionUi = computed(() => (
         capabilities.value?.conversionBanner === true
         || capabilities.value?.conversionDialog === true
-        || context.pendingDjvuDocumentOpen.value
+        || document.pendingDjvuDocumentOpen.value
         || Boolean(file.djvuOpeningPath.value)
         || file.conversionState.value.isConverting
     ));

@@ -534,7 +534,6 @@ describe('Project 8 recovered close decisions', () => {
                 80,
                 95,
             ]) {
-                const previousWorkingCopyDigest = await getFileSha256(workingCopyPath);
                 await clickVisibleToolbarButton(session.page, 'Crop Pages');
                 await session.page.waitForSelector('.crop-overlay.is-active');
                 const pointHandle = await session.page.waitForFunction((inset) => {
@@ -575,6 +574,10 @@ describe('Project 8 recovered close decisions', () => {
                 await session.page.mouse.move(point.x + 220, point.y + 250, {steps: 10});
                 await session.page.mouse.up();
                 await session.page.waitForSelector('[role="dialog"] input[role="spinbutton"]');
+                // A freshly opened document may still read from its original
+                // while the working copy is materialized. The crop dialog opens
+                // only after that copy exists, so its bytes are hashed here.
+                const previousWorkingCopyDigest = await getFileSha256(workingCopyPath);
                 await clickDirtyTabDecision(session, 'Apply Crop');
                 await expect.poll(() => getFileSha256(workingCopyPath), {timeout: 30_000}).not.toBe(previousWorkingCopyDigest);
                 await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});

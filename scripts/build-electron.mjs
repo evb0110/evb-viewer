@@ -18,7 +18,7 @@ import {computeNativeBuildIds} from './native-build-id.mjs';
 const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href);
 
 // Maps are emitted for local debugging or for a release build that uploads
-// them to Sentry (scripts/release/upload-sentry-sourcemaps.mjs deletes them).
+// them to Sentry (scripts/upload-sentry-sourcemaps.mjs deletes them).
 const emitSourceMaps = process.env.EVB_ELECTRON_SOURCEMAP === '1' || Boolean(process.env.SENTRY_AUTH_TOKEN);
 const buildGitSha = resolveBuildGitSha();
 const buildGitShaDefine = {

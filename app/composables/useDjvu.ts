@@ -200,7 +200,7 @@ function createTrustedRasterDjvuPdfDisplayProfile(
         : null;
 }
 
-export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | undefined} = {}) => {
+export const useDjvu = (config: {getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined} = {}) => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const {presentFailureToast} = useFailureToast();
@@ -484,7 +484,8 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             };
 
             const sourceInfo = result.pageSourceInfo;
-            const surfaceSnapshot = config.openSurface?.snapshot.value;
+            const openSurface = config.getOpenSurface?.();
+            const surfaceSnapshot = openSurface?.snapshot.value;
             if (
                 sourceInfo?.sourceSize !== undefined
                 && sourceInfo.sourceModifiedAt !== undefined
@@ -495,7 +496,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                     widthPoints,
                     heightPoints,
                 } = resolveDjvuPageSizeInPoints(sourceInfo.pageSize);
-                config.openSurface?.commitOpeningPageGeometry(surfaceSnapshot.generation, {
+                openSurface?.commitOpeningPageGeometry(surfaceSnapshot.generation, {
                     documentId: String(djvuPath),
                     pageNumber: sourceInfo.pageNumber,
                     pageCount: sourceInfo.pageCount,

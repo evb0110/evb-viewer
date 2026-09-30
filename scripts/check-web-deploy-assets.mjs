@@ -71,7 +71,7 @@ export async function collectWebDeployOutputViolations(rootPath) {
     return violations.sort();
 }
 
-function isVercelBuildOutputEnv(env = process.env) {
+export function isVercelBuildOutputEnv(env = process.env) {
     return env.VERCEL === '1' || env.NOW_BUILDER === '1';
 }
 

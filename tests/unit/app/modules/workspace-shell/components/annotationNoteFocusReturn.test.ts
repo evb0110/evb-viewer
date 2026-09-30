@@ -22,6 +22,10 @@ import {
     provideDocumentContext,
     type TDocumentContext,
 } from '@app/modules/workspace-shell/documentContext';
+import {
+    provideDocumentViewContext,
+    type TDocumentViewContext,
+} from '@app/modules/workspace-shell/documentViewContext';
 import { cast } from '@tests/helpers/cast';
 import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 
@@ -63,25 +67,6 @@ function mountNotes() {
     const annotations = {
         sortedAnnotationNoteWindows: computed(() => notes),
         annotationNotePositions: ref({}),
-        annotationContextMenu: ref({
-            visible: false,
-            x: 0,
-            y: 0,
-            comment: null,
-            hasSelection: false,
-            selectionText: '',
-            pageNumber: null,
-            pageX: null,
-            pageY: null,
-        }),
-        annotationContextMenuStyle: ref({}),
-        annotationContextMenuCanCopy: ref(false),
-        annotationContextMenuCanCopySelection: ref(false),
-        annotationContextMenuCanCreateFree: ref(false),
-        annotationContextMenuCanInsertImage: ref(false),
-        annotationContextMenuIsImage: ref(false),
-        contextMenuAnnotationLabel: ref(''),
-        contextMenuDeleteActionLabel: ref(''),
         minimizeAnnotationNote: (id: string) => {
             const note = notes.find(item => item.annotationId === id);
             if (note) note.isMinimized = true;
@@ -93,7 +78,33 @@ function mountNotes() {
     };
     const context = {
         annotations,
+        pageOps: {isPageOperationInProgress: ref(false)},
+        file: {isDjvuMode: ref(false)},
+    };
+    const viewContext = {
         annotationActions: {},
+        // Each view has its own annotation context menu.
+        annotationContextMenu: {
+            annotationContextMenu: ref({
+                visible: false,
+                x: 0,
+                y: 0,
+                comment: null,
+                hasSelection: false,
+                selectionText: '',
+                pageNumber: null,
+                pageX: null,
+                pageY: null,
+            }),
+            annotationContextMenuStyle: ref({}),
+            annotationContextMenuCanCopy: ref(false),
+            annotationContextMenuCanCopySelection: ref(false),
+            annotationContextMenuCanCreateFree: ref(false),
+            annotationContextMenuCanInsertImage: ref(false),
+            annotationContextMenuIsImage: ref(false),
+            contextMenuAnnotationLabel: ref(''),
+            contextMenuDeleteActionLabel: ref(''),
+        },
         pageContextMenu: {
             pageContextMenu: ref({
                 visible: false,
@@ -105,8 +116,6 @@ function mountNotes() {
             }),
             pageContextMenuStyle: ref({}),
         },
-        pageOps: {isPageOperationInProgress: ref(false)},
-        file: {isDjvuMode: ref(false)},
         view: {
             pdfViewerRef: ref(null),
             effectiveZoom: ref(1),
@@ -114,6 +123,7 @@ function mountNotes() {
     };
     const app = createApp(defineComponent({setup: () => {
         provideDocumentContext(cast<TDocumentContext>(context));
+        provideDocumentViewContext(cast<TDocumentViewContext>(viewContext));
         return () => h(WorkspaceAnnotationOverlays, {visible: state.visible});
     }}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));

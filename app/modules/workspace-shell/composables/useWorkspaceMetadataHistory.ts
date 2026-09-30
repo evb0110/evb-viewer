@@ -47,7 +47,7 @@ export const useWorkspaceMetadataHistory = (deps: {
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
     pageLabelModel?: Ref<IDocumentPageLabelModel> | undefined;
     pageLabelsDirty: Ref<boolean>;
-    totalPages: Ref<number>;
+    totalPages: Readonly<Ref<number>>;
     commandSink?: IWorkspaceCommandSink | undefined;
 }) => {
     const history = shallowRef<IWorkspaceMetadataSnapshot[]>([]);

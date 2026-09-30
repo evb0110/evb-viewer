@@ -102,7 +102,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     it('changes only the affected tab signature when a document record changes', () => {
         const options = createSignatureOptions();
         const before = buildWorkspaceCheckpointChangeSignature(options);
-        options.documentSessionsByTabId.value['tab-b'].publishToolbarSnapshot(toolbar({
+        options.documentSessionsByTabId.value['tab-b'].getView('tab-b')?.publishToolbarSnapshot(toolbar({
             hasPdf: true,
             currentPage: 7,
             totalPages: 30,
@@ -116,13 +116,13 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     it('tracks toolbar view state the checkpoint persists', () => {
         const options = createSignatureOptions();
         const session = options.documentSessionsByTabId.value['tab-a'];
-        session.publishToolbarSnapshot(toolbar({
+        session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
             hasPdf: true,
             currentPage: 7,
             totalPages: 30,
         }));
         const before = buildWorkspaceCheckpointChangeSignature(options);
-        session.publishToolbarSnapshot(toolbar({
+        session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
             hasPdf: true,
             currentPage: 8,
             totalPages: 30,
@@ -143,11 +143,11 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
 
         session.setDirty(false);
         const workspace = {} as IWorkspaceExpose;
-        session.attachWorkspace(workspace);
+        session.attachWorkspace('tab-a', workspace);
         const afterMount = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterMount.tabSignatures.get('tab-a')).not.toBe(base.tabSignatures.get('tab-a'));
 
-        session.detachWorkspace(workspace);
+        session.detachWorkspace('tab-a', workspace);
         const detachedOptions = {
             ...options,
             getPaneByTabId: (): IEditorPaneState | null => null,
@@ -200,7 +200,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
             sortedAnnotationNoteWindows: [],
             workingCopyPath: null,
         });
-        options.documentSessionsByTabId.value['tab-a'].attachWorkspace(workspace);
+        options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
         const before = buildWorkspaceCheckpointChangeSignature(options);
 
         originalPath = requireDocumentRef('/restored.pdf');
@@ -240,7 +240,7 @@ describe('buildWorkspaceCheckpoint', () => {
         workspace.getAutomationStateSnapshot = () => {
             throw new Error('snapshot unavailable');
         };
-        options.documentSessionsByTabId.value['tab-a'].attachWorkspace(workspace);
+        options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
 
         let error: unknown;
         try {

@@ -83,6 +83,29 @@ async function waitForOpenFileReady(page: Page) {
     }, undefined, {timeout: 30_000});
 }
 
+// Behavior contract C2: ordinary use of a well-formed document logs no console
+// error or warning and throws no page error. Only these named dev-build
+// messages are expected; every other problem fails the test.
+const EXPECTED_DEV_CONSOLE_PROBLEMS = [{
+    pattern: /^warning: \[[^\]]+\] \[perf\] [\w:-]+ was slow \{/u,
+    reason: 'app/utils/devPerf.ts frame-budget timing: dev builds only, fires when the host is busy',
+}];
+
+function collectConsoleProblems(page: Page) {
+    const problems: string[] = [];
+    page.on('console', (message) => {
+        const problem = `${message.type()}: ${message.text()}`;
+        if (
+            (message.type() === 'error' || message.type() === 'warning')
+            && !EXPECTED_DEV_CONSOLE_PROBLEMS.some(expected => expected.pattern.test(problem))
+        ) {
+            problems.push(problem);
+        }
+    });
+    page.on('pageerror', error => problems.push(`pageerror: ${error.message}`));
+    return problems;
+}
+
 // One-shot waitForEvent listeners otherwise toggle Playwright's chooser
 // interception off and on between opens, and a quick second open can race it.
 function keepFileChooserInterceptionEnabled(page: Page) {
@@ -140,7 +163,159 @@ afterAll(async () => {
     await stopServer();
 });
 
+async function clickCenter(page: Page, selector: string, button: 'left' | 'right' = 'left') {
+    const box = await page.locator(selector).first().boundingBox();
+    if (!box) {
+        throw new Error(`${selector} has no visible box`);
+    }
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {button});
+}
+
+function paneSelector(paneId: string) {
+    return `.editor-pane[data-editor-pane-id="${paneId}"]`;
+}
+
+/** The rendered width of page 1 in one pane: its zoom as a person sees it. */
+function readPanePageWidth(page: Page, paneId: string) {
+    return page.locator(`${paneSelector(paneId)} .page_container[data-page="1"]`).first()
+        .evaluate(element => Math.round(element.getBoundingClientRect().width));
+}
+
+async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zoom Out', steps: number) {
+    for (let step = 0; step < steps; step += 1) {
+        const before = await readPanePageWidth(page, paneId);
+        await page.locator(`#editor-global-toolbar-host button[aria-label^="${label}"]:not([disabled])`).first().click();
+        await expect.poll(() => readPanePageWidth(page, paneId), {timeout: 15_000}).not.toBe(before);
+    }
+}
+
 describe('browser document lifecycle UI', () => {
+    it('starts and opens a PDF without desktop diagnostics or recovery warnings under an Electron-shaped user agent', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            // Embedded Electron-based browsers report this user agent without
+            // installing the EVB preload bridge.
+            const page = await browser.newPage({
+                userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) T3Code(Nightly)/0.0.44 Chrome/146.0.0.0 Electron/44.4.2 Safari/537.36',
+                viewport: {
+                    width: 1_280,
+                    height: 900,
+                },
+            });
+            const consoleProblems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            expect(await page.evaluate(() => 'electronAPI' in window)).toBe(false);
+            expect(await page.getByText('Error report ready').count()).toBe(0);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('Active browser document did not settle');
+                }
+            });
+            await expect.poll(() => page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent()).toContain('generated-text.pdf');
+
+            // The reported tab opened in the background. Headless Chromium
+            // keeps every page visible, so emulate the tab being hidden and
+            // shown again; showing it heartbeats the recovery lease.
+            for (const visibilityState of [
+                'hidden',
+                'visible',
+            ]) {
+                await page.evaluate(nextState => new Promise<void>((resolveVisibility) => {
+                    Object.defineProperty(document, 'visibilityState', {
+                        configurable: true,
+                        get: () => nextState,
+                    });
+                    document.dispatchEvent(new Event('visibilitychange'));
+                    setTimeout(resolveVisibility, 0);
+                }), visibilityState);
+            }
+
+            expect(await page.getByText('Error report ready').count()).toBe(0);
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
+    it('opens the Start file chooser in the click while the workspace chunk is still loading', async () => {
+        const browser = await chromium.launch({headless: true});
+        const workspaceModuleRequested = Promise.withResolvers<undefined>();
+        const releaseWorkspaceModule = Promise.withResolvers<undefined>();
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            // Start paints from the tab while the workspace chunk loads. Holding
+            // the workspace module keeps that state for as long as the test needs.
+            await page.route((url) => url.pathname.endsWith('/workspace-shell/components/DocumentWorkspace.vue')
+                && !url.searchParams.has('vue'), async (route) => {
+                workspaceModuleRequested.resolve(undefined);
+                await releaseWorkspaceModule.promise;
+                await route.continue();
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await workspaceModuleRequested.promise;
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            // A browser shows a file chooser only within the click's 5 s user
+            // activation.
+            const chooserPromise = page.waitForEvent('filechooser', {timeout: 5_000});
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const chooser = await chooserPromise;
+            releaseWorkspaceModule.resolve(undefined);
+            await chooser.setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await expect.poll(() => page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent()).toContain('generated-text.pdf');
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            releaseWorkspaceModule.resolve(undefined);
+            await browser.close();
+        }
+    }, 120_000);
+
     it('keeps the rendered document and tab identity after a corrupt replacement is rejected', async () => {
         const browser = await chromium.launch({headless: true});
         try {
@@ -387,7 +562,7 @@ describe('browser document lifecycle UI', () => {
         } finally {
             await browser.close();
         }
-    }, 180_000);
+    }, 120_000);
 
     it('proves a dirty viewer transfer after source loss before target authority readback', async () => {
         const browser = await chromium.launch({headless: true});
@@ -597,4 +772,91 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 240_000);
+
+    // Sweep #845 item 8: Save As keeps each linked view's zoom.
+    it('keeps each linked view zoom through a browser Save As', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_600,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+
+            // Split Right from the tab menu shows the document in a second view.
+            await clickCenter(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
+            await page.getByRole('menuitem', {
+                name: 'Split Right',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.editor-pane').count(), {timeout: 20_000}).toBe(2);
+            const [
+                leftPane,
+                rightPane,
+            ] = await page.locator('.editor-pane').evaluateAll(panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+            await page.locator(`${paneSelector(rightPane!)} .page_container--rendered canvas`).first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+
+            // Each view takes its own custom zoom.
+            await clickCenter(page, `${paneSelector(leftPane!)} .tab.is-active[data-tab-id]`);
+            await zoomActivePane(page, leftPane!, 'Zoom In', 2);
+            await clickCenter(page, `${paneSelector(rightPane!)} .tab.is-active[data-tab-id]`);
+            await zoomActivePane(page, rightPane!, 'Zoom Out', 2);
+            const before = {
+                left: await readPanePageWidth(page, leftPane!),
+                right: await readPanePageWidth(page, rightPane!),
+            };
+            expect(before.left).not.toBe(before.right);
+
+            // Save As from the right view's Save options menu.
+            const readWorkingCopyPath = () => page.evaluate(() => (
+                (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
+                    .readActiveWorkspaceStateValues?.<{workingCopyPath?: string | null}>(['workingCopyPath']).workingCopyPath ?? null
+            ));
+            const workingCopyBefore = await readWorkingCopyPath();
+            expect(workingCopyBefore).not.toBeNull();
+            const downloadPromise = page.waitForEvent('download');
+            await page.locator('button[aria-label="Save options"]:not([disabled])').first().click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            await downloadPromise;
+            // The Save As has taken effect once the document moved to a new working copy.
+            await expect.poll(async () => {
+                const workingCopyAfter = await readWorkingCopyPath();
+                return workingCopyAfter !== null && workingCopyAfter !== workingCopyBefore;
+            }, {timeout: 30_000}).toBe(true);
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('The saved document did not settle');
+            });
+            await page.locator(`${paneSelector(leftPane!)} .page_container--rendered canvas`).first().waitFor({state: 'visible'});
+            await page.locator(`${paneSelector(rightPane!)} .page_container--rendered canvas`).first().waitFor({state: 'visible'});
+            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+
+            expect({
+                left: await readPanePageWidth(page, leftPane!),
+                right: await readPanePageWidth(page, rightPane!),
+            }).toEqual(before);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
 });

@@ -15,6 +15,7 @@ import type {
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
 
 /** Commands and display state the workspace owns beyond the document context. */
@@ -76,13 +77,12 @@ function cloneAnnotationInventory(
 
 /** Builds the workspace command surface that tabs, menus and automation call. */
 export function createWorkspaceExpose(
-    context: TDocumentContext,
+    document: TDocumentContext,
+    viewContext: TDocumentViewContext,
     owners: IWorkspaceExposeOwners,
 ): IWorkspaceExpose {
     const {
         file,
-        view,
-        search,
         save,
         history,
         isOpeningDocument,
@@ -90,12 +90,17 @@ export function createWorkspaceExpose(
         metadata: {
             pageLabelState, bookmarkState,
         },
-        navigation,
         pageOps,
         fileOps,
         print,
         exportWorkflow,
-    } = context;
+    } = document;
+    const {
+        view,
+        search,
+        navigation,
+        openSurface,
+    } = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
     const pdfViewer = () => view.pdfViewerRef.value;
@@ -160,7 +165,7 @@ export function createWorkspaceExpose(
             isSavingAs: save.isSavingAs.value,
             isAnySaving: save.isAnySaving.value,
             isHistoryBusy: history.isHistoryBusy.value,
-            isExportingDocx: context.docxExport.isExporting.value,
+            isExportingDocx: document.docxExport.isExporting.value,
             isFitWidthActive: navigation.isFitWidthActive.value,
             isFitHeightActive: navigation.isFitHeightActive.value,
             showSidebar: view.showSidebar.value,
@@ -171,8 +176,8 @@ export function createWorkspaceExpose(
             isDjvuMode: file.isDjvuMode.value,
             viewerCapabilities: viewerCapabilities(),
             isCapturingRegion: pdfViewer()?.isCapturingRegion ?? false,
-            isCropSelecting: context.crop.isCropSelecting.value,
-            isPlacingPageNote: annotations.annotationTool.value === 'note',
+            isCropSelecting: viewContext.crop.isCropSelecting.value,
+            isPlacingPageNote: viewContext.annotationTool.value === 'note',
             zoom,
             effectiveZoom,
             zoomMode: view.zoomMode.value,
@@ -266,7 +271,6 @@ export function createWorkspaceExpose(
         handleUndo: () => { void history.handleUndo(); },
         handleRedo: () => { void history.handleRedo(); },
         handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
-        handleOpenFolderFromUi: fileOps.handleOpenFolderFromUi,
         handleCombineImages: fileOps.handleCombineImages,
         handleOpenFileDirectWithPersist: fileOps.handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist: fileOps.handleOpenFileDirectBatchWithPersist,
@@ -278,8 +282,8 @@ export function createWorkspaceExpose(
         handleGoToPage: owners.handleGoToPage,
         handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
         handleEnableDragMode: () => { navigation.enableDragMode(); },
-        handleDisableDragMode: () => { annotations.handleAnnotationToolChange('none'); },
-        handleQuickNote: () => { void context.annotationActions.handleQuickNoteAction(); },
+        handleDisableDragMode: () => { viewContext.annotationToolState.handleAnnotationToolChange('none'); },
+        handleQuickNote: () => { void viewContext.annotationActions.handleQuickNoteAction(); },
         handleInsertImageFromFile: owners.handleInsertImageFromFile,
         handlePasteImageFromClipboard: owners.handlePasteImageFromClipboard,
         handlePageDelete: (pages) => {
@@ -291,14 +295,14 @@ export function createWorkspaceExpose(
         handlePageMove: (move) => {
             void runPageOperation(() => pageOps.pageOpsMove(move));
         },
-        captureSplitPayload: owners.captureSplitPayload,
+        captureSplitPayload: page => owners.captureSplitPayload(page ?? view.currentPage.value),
         restoreSplitPayload: owners.restoreSplitPayload,
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: owners.runAgentAction,
         readAgentResource: owners.readAgentResource,
-        handleOcrComplete: payload => context.handleOcrComplete(
-            payload as Parameters<typeof context.handleOcrComplete>[0],
+        handleOcrComplete: payload => document.handleOcrComplete(
+            payload as Parameters<typeof document.handleOcrComplete>[0],
         ),
         captureCanonicalAnnotationRecovery: () => {
             const viewer = pdfViewer();
@@ -344,7 +348,7 @@ export function createWorkspaceExpose(
         handleFitHeight: () => { navigation.handleFitMode('height'); },
         handleActualSize: () => { setCustomZoomFromDisplay(1); },
         setCustomZoomFromDisplay,
-        handleCaptureRegion: whenCapable('regionCapture', context.handleCaptureRegion),
+        handleCaptureRegion: whenCapable('regionCapture', viewContext.handleCaptureRegion),
         handleCrop: whenCapable('crop', owners.handleCrop),
         handleToggleContinuousScroll: whenCapable('continuousScroll', () => {
             view.continuousScroll.value = !view.continuousScroll.value;
@@ -415,6 +419,44 @@ export function createWorkspaceExpose(
         createRecoverySnapshotBytes: save.createRecoverySnapshotBytes,
         scrollToPage: (page: number) => {
             view.documentViewerRef.value?.scrollToPage(page);
+        },
+        captureReadingAnchor: () => view.documentViewerRef.value?.captureReadingAnchor?.() ?? null,
+        placeReadingAnchorAfterOpen: async (anchor) => {
+            // The reader outranks the anchor: a navigation of theirs, or a
+            // scroll after the placement began, before the open settles leaves
+            // the view where they took it. The opening's own navigations are
+            // restores. The viewer counts the reader's scrolls; the count it
+            // had when the placement began (or when it appears) is the baseline.
+            const readInteractionEpoch = () => view.documentViewerRef.value?.getUserViewportInteractionEpoch?.() ?? null;
+            let interactionBaseline = readInteractionEpoch();
+            let superseded = false;
+            const readerMoved = (interactionEpoch: number | null) => {
+                if (interactionEpoch === null) {
+                    return false;
+                }
+                interactionBaseline ??= interactionEpoch;
+                return interactionEpoch > interactionBaseline;
+            };
+            const stop = watch(() => [
+                openSurface.navigationTicket.value?.request.source ?? 'restore',
+                readInteractionEpoch(),
+            ] as const, ([
+                navigationSource,
+                interactionEpoch,
+            ]) => {
+                superseded ||= navigationSource !== 'restore' || readerMoved(interactionEpoch);
+            }, {
+                immediate: true,
+                flush: 'sync',
+            });
+            try {
+                await owners.waitForDocumentOpenSettled();
+            } finally {
+                stop();
+            }
+            if (!superseded && !readerMoved(readInteractionEpoch())) {
+                view.documentViewerRef.value?.restoreReadingAnchor?.(anchor);
+            }
         },
         getAllShapes: () => pdfViewer()?.getAllShapes?.() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewer()?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
