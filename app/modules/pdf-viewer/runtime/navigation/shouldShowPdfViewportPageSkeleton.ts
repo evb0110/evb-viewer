@@ -5,6 +5,39 @@ import type { TPdfViewMode } from '@contracts/shared';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TDocumentViewportVisualOwner } from '@app/modules/document-viewer/public';
 
+interface IPdfViewportVisualPage {
+    pageNumber: TPageNumber;
+    totalPages: number;
+    viewMode: TPdfViewMode;
+    visual: TDocumentViewportVisualOwner;
+}
+
+/** True when the viewport's page visual is the one that shows this page's row. */
+function viewportVisualOwnsPage(options: IPdfViewportVisualPage) {
+    const visual = options.visual;
+    if (visual.kind !== 'page') {
+        return false;
+    }
+    const visualPageNumber = parsePageNumber(visual.pageNumber, options.totalPages);
+    const visualRow = visualPageNumber !== null
+        ? getPageRowBoundsForViewMode({
+            pageNumber: visualPageNumber,
+            totalPages: options.totalPages,
+            viewMode: options.viewMode,
+        })
+        : null;
+    return visualRow === null
+        ? visual.pageNumber === options.pageNumber
+        : options.pageNumber >= visualRow.start && options.pageNumber <= visualRow.end;
+}
+
+/** True when the viewport's page visual owns this page and reports its render failed. */
+export function isPdfViewportPageError(options: IPdfViewportVisualPage) {
+    return options.visual.kind === 'page'
+        && options.visual.presentation === 'error'
+        && viewportVisualOwnsPage(options);
+}
+
 export function shouldShowPdfViewportPageSkeleton(options: {
     fallbackVisible: boolean;
     isEmptyToDocumentTransition: boolean;
@@ -22,21 +55,7 @@ export function shouldShowPdfViewportPageSkeleton(options: {
     }
 
     const visual = options.visual;
-    const visualPageNumber = visual.kind === 'page'
-        ? parsePageNumber(visual.pageNumber, options.totalPages)
-        : null;
-    const visualRow = visualPageNumber !== null
-        ? getPageRowBoundsForViewMode({
-            pageNumber: visualPageNumber,
-            totalPages: options.totalPages,
-            viewMode: options.viewMode,
-        })
-        : null;
-    const visualOwnsPage = visual.kind === 'page' && (
-        visualRow === null
-            ? visual.pageNumber === options.pageNumber
-            : options.pageNumber >= visualRow.start && options.pageNumber <= visualRow.end
-    );
+    const visualOwnsPage = viewportVisualOwnsPage(options);
     if (visual.kind === 'page' && !visualOwnsPage) {
         // A viewport generation owns one target row. Neighbouring virtualized
         // pages may stay mounted for layout continuity, but they must not keep

@@ -3483,7 +3483,10 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
 
             // L2: by the settled deadline page 2 is painted, or the page itself
             // shows visible loading or error feedback.
-            const shown = await session.page.waitForFunction(() => {
+            const shown = await session.page.waitForFunction((): {
+                feedback: string;
+                text?: string
+            } | false => {
                 const container = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="2"]',
                 );
@@ -3503,7 +3506,10 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
                     };
                 }
                 return isVisible(container?.querySelector('.document-page-skeleton')) ? {feedback: 'loading'} : false;
-            }, {timeout: 10_000}).then(handle => handle.jsonValue(), () => null);
+            }, {timeout: 10_000}).then(async (handle): Promise<{
+                feedback: string;
+                text?: string
+            } | null> => (await handle.jsonValue()) || null, () => null);
             const outcome = {
                 shown,
                 gate: await readPdfPageRenderGate(session),
