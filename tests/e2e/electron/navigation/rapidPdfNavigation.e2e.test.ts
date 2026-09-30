@@ -3462,4 +3462,58 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         expect(outcome.viewportLifecycle, JSON.stringify(outcome)).not.toBe('failed');
         expect(outcome.visualPresentation, JSON.stringify(outcome)).not.toBe('error');
     }, 150_000);
+
+    it('shows a page whose raster fails again during navigation, or explains it', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createLargeScannedFixturePdf(`failed-buffer-raster-again-${Date.now()}.pdf`, 4, 0);
+        await enableBufferedPdfTrace(session);
+        await closePdfPageRenderGate(session, 2);
+        try {
+            await openPdfInApp(session.page, pdfPath, 45_000);
+            await waitForScannedFixturePageIdentity(session.page, 1, 20_000);
+            // Page 2's buffer raster runs into the unchanged 15 s canvas-render watchdog.
+            await waitForHeldPageRenderAbandoned(session);
+
+            // Page 2 keeps failing: the navigation's own raster stalls too.
+            await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
+            await session.page.waitForFunction(() => (
+                (window as IE2EWindow & {__getPdfRenderTrace?: () => IPdfRenderTraceEntry[]}).__getPdfRenderTrace?.()
+                    .some(entry => entry.event === 'navigation-await-visual-exit' && entry.payload.outcome === 'render-settled-not-ready')
+            ), {timeout: 40_000});
+
+            // L2: by the settled deadline page 2 is painted, or the page itself
+            // shows visible loading or error feedback.
+            const shown = await session.page.waitForFunction(() => {
+                const container = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="2"]',
+                );
+                const isVisible = (element: Element | null | undefined) => {
+                    const rect = element?.getBoundingClientRect();
+                    return Boolean(rect && rect.width > 0 && rect.height > 0);
+                };
+                const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                if (canvas && canvas.width > 0 && canvas.height > 0) {
+                    return {feedback: 'rendered'};
+                }
+                const alert = container?.querySelector<HTMLElement>('[role="alert"]');
+                if (isVisible(alert) && alert?.textContent?.trim()) {
+                    return {
+                        feedback: 'error',
+                        text: alert.textContent.trim(),
+                    };
+                }
+                return isVisible(container?.querySelector('.document-page-skeleton')) ? {feedback: 'loading'} : false;
+            }, {timeout: 10_000}).then(handle => handle.jsonValue(), () => null);
+            const outcome = {
+                shown,
+                gate: await readPdfPageRenderGate(session),
+                ...await readViewerPageOutcome(session, 2),
+            };
+            expect(shown, JSON.stringify(outcome)).not.toBeNull();
+            // The file opened; only this page could not be drawn.
+            expect(shown?.text, JSON.stringify(outcome)).not.toBe('Failed to open file');
+        } finally {
+            await openPdfPageRenderGate(session);
+        }
+    }, 150_000);
 });
