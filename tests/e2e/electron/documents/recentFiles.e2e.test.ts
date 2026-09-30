@@ -921,6 +921,8 @@ describe('Electron E2E - Recent Files', () => {
             kind: frame.kind,
             phase: frame.openSurfacePhase,
             shellRect: frame.shellRect,
+            skeletonCount: frame.skeletonCount,
+            skeletonSharesShell: frame.skeletonSharesShell,
         })));
 
         expect(trace.errors ?? [], details).toEqual([]);
@@ -942,7 +944,12 @@ describe('Electron E2E - Recent Files', () => {
         const opening = frames.slice(firstShellIndex);
         const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
         expect(firstCanvasIndex, details).toBeGreaterThan(0);
-        expect(opening.slice(0, firstCanvasIndex).every(frame => frame.kind === 'page-shell'), details).toBe(true);
+        // A shell frame is the page frame holding exactly its one skeleton.
+        expect(opening.slice(0, firstCanvasIndex).every(frame => (
+            frame.kind === 'page-shell'
+            && frame.skeletonCount === 1
+            && frame.skeletonSharesShell
+        )), details).toBe(true);
         expect(opening.slice(firstCanvasIndex).every(frame => frame.kind === 'committed-canvas'), details).toBe(true);
         const canvasRect = opening.at(-1)!.shellRect!;
         for (const shell of opening.slice(0, firstCanvasIndex)) {

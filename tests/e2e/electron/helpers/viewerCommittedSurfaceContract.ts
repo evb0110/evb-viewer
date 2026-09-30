@@ -218,13 +218,23 @@ export function findCommittedSurfaceContractViolations(
         return ['fewer than two animation frames were sampled'];
     }
 
+    // An open never goes back a step: once it has shown its page shape, the
+    // bare viewport of that same open is a regression, not the opening.
+    const openingsWithShell = new Set<string>();
+    const openingKey = (frame: ICommittedSurfaceFrame) => (
+        `${frame.openSurfaceDiagnostic?.openSurfaceDocumentId ?? ''}#${frame.openSurfaceDiagnostic?.openSurfaceGeneration ?? ''}`
+    );
     for (const frame of frames) {
         const isExplicitDeferredOpening = options.allowDeferredOpening === true
             && frame.kind === 'blank'
             && frame.openSurfacePhase === 'pending'
             && frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
+        if (frame.kind === 'page-shell') {
+            openingsWithShell.add(openingKey(frame));
+        }
+        const isOpeningBlank = isOpeningBeforePageGeometry(frame) && !openingsWithShell.has(openingKey(frame));
         if (
-            (frame.kind === 'blank' && !isOpeningBeforePageGeometry(frame) || frame.kind === 'loader')
+            (frame.kind === 'blank' && !isOpeningBlank || frame.kind === 'loader')
             && !isExplicitDeferredOpening
         ) {
             violations.push(`frame ${String(frame.frame)} exposed ${frame.kind}`);
@@ -302,17 +312,10 @@ export function findCommittedSurfaceContractViolations(
         violations.push('the committed canvas wrapper did not own the visible page frame style');
     }
 
-    // The opening shell may present with fallback dimensions before the
-    // document's real geometry is known; geometry stability is only
-    // meaningful once the surface first reports committed geometry. Only the
-    // leading provisional frames are exempt: a geometry flap after the first
-    // valid report must remain a violation.
-    const allShellFrames = frames.slice(0, firstCanvasIndex)
+    // The opening shell appears only at the page's final geometry, so every
+    // shell frame must already match the canvas that replaces it.
+    const shellFrames = frames.slice(0, firstCanvasIndex)
         .filter(frame => frame.kind === 'page-shell');
-    const firstGeometryIndex = allShellFrames.findIndex(frame => (
-        frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'false'
-    ));
-    const shellFrames = firstGeometryIndex < 0 ? [] : allShellFrames.slice(firstGeometryIndex);
     const firstShell = shellFrames[0];
     if (firstShell) {
         for (const shell of shellFrames.slice(1)) {
