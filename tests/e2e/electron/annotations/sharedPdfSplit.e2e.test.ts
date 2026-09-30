@@ -406,8 +406,11 @@ async function renameBookmark(page: Page, paneId: string, from: string, to: stri
     await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, input);
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
-    await page.keyboard.press('KeyA');
-    await page.keyboard.up(modifier);
+    try {
+        await page.keyboard.press('KeyA');
+    } finally {
+        await page.keyboard.up(modifier);
+    }
     await page.keyboard.type(to);
     await page.keyboard.press('Enter');
     await waitForBookmarkTitles(page, paneId, `the ${paneId} panel shows the renamed bookmark`, {includes: to});
