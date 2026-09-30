@@ -60,8 +60,14 @@ vi.mock('node:fs/promises', async importOriginal => {
                     const result = await originalRead(...readArgs);
                     readCallCount += 1;
                     if (readCallCount === 2) {
-                        await original.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
-                        await original.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+                        // Windows refuses to rename over a file that is open, so
+                        // the source changes in place there instead.
+                        if (process.platform === 'win32') {
+                            await original.writeFile(mocks.mutateDuringWitnessPath, Buffer.from('base'));
+                        } else {
+                            await original.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+                            await original.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+                        }
                     }
                     return result;
                 }) as typeof handle.read;
