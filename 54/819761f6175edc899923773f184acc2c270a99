@@ -1,0 +1,22 @@
+scripts/electron-run/rendererReadiness.ts
+  s_38cc39ffd3bbe7::t_ed48b0fb6ff28b 712-721
+scripts/electron-run/resizeElectronWindow.ts
+  s_38cc39ffd3bbe7::t_2c2a4b895e7693 64-66,69
+  s_38cc39ffd3bbe7::t_27eaef73c4cf6a 50-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "54819761f6175edc899923773f184acc2c270a99",
+  "prompts": {},
+  "sessions": {
+    "s_38cc39ffd3bbe7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c42e4999-d0ad-4956-84d3-bc76db32b398",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
