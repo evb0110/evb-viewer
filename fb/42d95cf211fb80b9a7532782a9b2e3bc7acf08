@@ -1,0 +1,20 @@
+tests/e2e/electron/navigation/rapidPdfNavigation.e2e.test.ts
+  s_f2c5baf8848512::t_c4b2c0c99bcca6 735-736
+  s_f2c5baf8848512::t_2739a167a4526c 192-193,695-734,2357,2410,2744,2801,2806-2807,2841
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fb42d95cf211fb80b9a7532782a9b2e3bc7acf08",
+  "prompts": {},
+  "sessions": {
+    "s_f2c5baf8848512": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "79740986-61ba-4d40-a9be-425265ef4125",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
