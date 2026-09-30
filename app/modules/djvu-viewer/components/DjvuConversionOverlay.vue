@@ -4,7 +4,7 @@
         :title="overlayTitle"
         :value="percent"
         :sub-detail="stageClock"
-        modal
+        :modal="modal"
         :cancel-label="t('common.cancel')"
         @cancel="emit('cancel')"
     />
@@ -16,12 +16,16 @@ import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
 
 const { t } = useTypedI18n();
 
+// Modal only in the pane in use; a visible inactive pane shows its progress
+// without taking focus or keys from the rest of the window.
 const {
     isConverting,
+    modal,
     percent,
     phase,
 } = defineProps<{
     isConverting: boolean;
+    modal: boolean;
     phase: 'converting' | 'bookmarks' | 'optimizing' | null;
     percent: number;
 }>();

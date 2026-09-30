@@ -64,6 +64,7 @@ import {
     waitForViewerInteractive,
     triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import { openNewPane } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     describeToolbarPageIndicator,
     readToolbarPageIndicator,
@@ -6512,6 +6513,159 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             focused: search.focused,
             lostKeystrokes: typed.length - search.value.length,
         }).toEqual({
+            focused: true,
+            lostKeystrokes: 0,
+        });
+        expect(search.value).toBe(typed);
+    }, 150_000);
+
+    // Behavior contract T1: a conversion in the pane beside keeps its progress
+    // to its own pane and takes no clicks or keys from the pane in use.
+    it('keeps typing in the other pane while a DjVu conversion runs in a visible inactive pane', async () => {
+        const deadlineAt = performance.now() + 150_000;
+        const remainingMs = () => Math.max(1, deadlineAt - performance.now());
+        let session = sessionFixture.getSession();
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-inactive-pane-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(destinationPath), {recursive: true});
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-inactive-pane-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+        });
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const djvuPaneId = await session.page.$eval(
+            '.editor-pane.is-active',
+            pane => (pane as HTMLElement).dataset.editorPaneId ?? '',
+        );
+        const initiator = await session.page.$('.djvu-banner button');
+        expect(initiator).not.toBeNull();
+        await initiator!.click();
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickEnabledDialogButton(session.page, 'Convert');
+        const progressSelector = `.editor-pane[data-editor-pane-id="${djvuPaneId}"] .app-progress-overlay`;
+        await session.page.waitForSelector(progressSelector, {
+            timeout: remainingMs(),
+            visible: true,
+        });
+
+        // The PDF opens in a new pane beside the converting one; both stay visible.
+        await openNewPane(session.page, 'right');
+        await openPdfInApp(
+            session.page,
+            resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
+            30_000,
+        );
+        const pdfPaneSelector = '.editor-pane.is-active';
+        expect(await session.page.$eval(pdfPaneSelector, pane => (pane as HTMLElement).dataset.editorPaneId)).not.toBe(djvuPaneId);
+        const viewerPoint = await session.page.$eval(`${pdfPaneSelector} .workspace-host[data-workspace-active="true"] .workspace-viewer-host`, (element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        await session.page.mouse.click(viewerPoint.x, viewerPoint.y);
+        const readFocus = () => session.page.evaluate((selector: string) => ({
+            inProgressOverlay: document.querySelector(selector)?.contains(document.activeElement) ?? false,
+            progressShown: (document.querySelector(selector)?.getClientRects().length ?? 0) > 0,
+        }), progressSelector);
+        const afterClick = await readFocus();
+        const searchSelector = `${pdfPaneSelector} .workspace-host[data-workspace-active="true"] input[aria-label="Search document"]`;
+        await session.page.keyboard.down('Control');
+        await session.page.keyboard.press('f');
+        await session.page.keyboard.up('Control');
+        await waitForFunctionInPage(session.page, (selector: string) => (
+            (document.querySelector(selector)?.getClientRects().length ?? 0) > 0
+        ), {timeout: 5_000}, searchSelector);
+        await session.page.click(searchSelector);
+        const searchClickFocused = await session.page.evaluate((selector: string) => (
+            document.activeElement === document.querySelector(selector)
+        ), searchSelector);
+        // Escape here belongs to the pane in use, not the conversion beside it.
+        const convertingAtEscape = (await readFocus()).progressShown;
+        await session.page.keyboard.press('Escape');
+
+        // Keep typing through the end of the conversion beside.
+        let typed = '';
+        let typing = true;
+        const typist = (async () => {
+            while (typing) {
+                const character = 'abcdefghij'[typed.length % 10]!;
+                await session.page.keyboard.type(character);
+                typed += character;
+            }
+        })();
+        let typedWhileConverting = false;
+        const readConversion = () => session.page.evaluate((args: {
+            paneId: string;
+            converted: boolean;
+        }) => {
+            if (args.converted) {
+                return 'converted';
+            }
+            return document.querySelector(`.editor-pane[data-editor-pane-id="${CSS.escape(args.paneId)}"] .djvu-banner`)?.getClientRects().length
+                ? 'cancelled'
+                : 'running';
+        }, {
+            paneId: djvuPaneId,
+            converted: existsSync(destinationPath),
+        });
+        let conversion = 'running';
+        try {
+            await expect.poll(async () => {
+                conversion = await readConversion();
+                return conversion;
+            }, {timeout: remainingMs()}).not.toBe('running');
+            typedWhileConverting = typed.length > 0;
+            if (conversion === 'converted') {
+                await waitForFunctionInPage(session.page, (selector: string) => (
+                    document.querySelector(selector) === null
+                ), {timeout: remainingMs()}, progressSelector);
+                const typedAtCompletion = typed.length;
+                await expect.poll(() => typed.length, {timeout: remainingMs()}).toBeGreaterThan(typedAtCompletion + 100);
+            }
+        } finally {
+            typing = false;
+            await typist;
+        }
+        const search = await session.page.evaluate((selector: string) => {
+            const input = document.querySelector<HTMLInputElement>(selector);
+            return {
+                focused: document.activeElement === input,
+                value: input?.value ?? '',
+            };
+        }, searchSelector);
+        expect({
+            afterClick,
+            conversion,
+            convertingAtEscape,
+            searchClickFocused,
+            typedWhileConverting,
+            focused: search.focused,
+            lostKeystrokes: typed.length - search.value.length,
+        }).toEqual({
+            afterClick: {
+                inProgressOverlay: false,
+                progressShown: true,
+            },
+            conversion: 'converted',
+            convertingAtEscape: true,
+            searchClickFocused: true,
+            typedWhileConverting: true,
             focused: true,
             lostKeystrokes: 0,
         });
