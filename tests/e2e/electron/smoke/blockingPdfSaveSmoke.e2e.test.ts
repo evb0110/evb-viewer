@@ -535,18 +535,26 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await page.evaluate(() => {
             const shown: string[] = [];
             Reflect.set(window, '__refusedOpenNotifications', shown);
-            new MutationObserver(() => {
+            const observer = new MutationObserver(() => {
                 for (const notification of document.querySelectorAll('[role="status"], [role="alert"]')) {
                     const text = notification.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
                     if (text && !shown.includes(text)) {
                         shown.push(text);
                     }
                 }
-            }).observe(document.body, {
+            });
+            Reflect.set(window, '__refusedOpenNotificationObserver', observer);
+            observer.observe(document.body, {
                 childList: true,
                 subtree: true,
                 characterData: true,
             });
+        });
+        onTestFinished(async () => {
+            // The session may already have closed the window, and the observer with it.
+            if (!page.isClosed()) {
+                await page.evaluate(() => (Reflect.get(window, '__refusedOpenNotificationObserver') as MutationObserver | undefined)?.disconnect());
+            }
         });
 
         await clickVisibleCenter(page, 'button[aria-label]', 'More tools');
