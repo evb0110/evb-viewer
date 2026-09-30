@@ -828,10 +828,18 @@ describe('browser document lifecycle UI', () => {
             expect(before.left).not.toBe(before.right);
 
             // Save As from the right view's Save options menu.
+            const readWorkingCopyPath = () => page.evaluate(() => (
+                (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi)
+                    .readActiveWorkspaceStateValues?.<{workingCopyPath?: string | null}>(['workingCopyPath']).workingCopyPath ?? null
+            ));
+            const workingCopyBefore = await readWorkingCopyPath();
+            expect(workingCopyBefore).not.toBeNull();
             const downloadPromise = page.waitForEvent('download');
             await page.locator('button[aria-label="Save options"]:not([disabled])').first().click();
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
             await downloadPromise;
+            // The Save As has taken effect once the document moved to a new working copy.
+            await expect.poll(readWorkingCopyPath, {timeout: 30_000}).not.toBe(workingCopyBefore);
             await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('The saved document did not settle');
