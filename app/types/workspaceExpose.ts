@@ -232,7 +232,6 @@ export interface IWorkspaceExpose {
     handleRedo: () => void;
     handleSelectAll: () => void;
     handleOpenFileFromUi: () => Promise<boolean>;
-    handleOpenFolderFromUi: () => Promise<boolean>;
     handleCombineImages: () => Promise<boolean>;
     handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;

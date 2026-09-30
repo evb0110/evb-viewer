@@ -235,6 +235,61 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('opens the Start file chooser in the click while the workspace chunk is still loading', async () => {
+        const browser = await chromium.launch({headless: true});
+        const workspaceModuleRequested = Promise.withResolvers<undefined>();
+        const releaseWorkspaceModule = Promise.withResolvers<undefined>();
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            // Start paints from the tab while the workspace chunk loads. Holding
+            // the workspace module keeps that state for as long as the test needs.
+            await page.route((url) => url.pathname.endsWith('/workspace-shell/components/DocumentWorkspace.vue')
+                && !url.searchParams.has('vue'), async (route) => {
+                workspaceModuleRequested.resolve(undefined);
+                await releaseWorkspaceModule.promise;
+                await route.continue();
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await workspaceModuleRequested.promise;
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            // A browser shows a file chooser only within the click's 5 s user
+            // activation.
+            const chooserPromise = page.waitForEvent('filechooser', {timeout: 5_000});
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const chooser = await chooserPromise;
+            releaseWorkspaceModule.resolve(undefined);
+            await chooser.setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await expect.poll(() => page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).textContent()).toContain('generated-text.pdf');
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            releaseWorkspaceModule.resolve(undefined);
+            await browser.close();
+        }
+    }, 120_000);
+
     it('keeps the rendered document and tab identity after a corrupt replacement is rejected', async () => {
         const browser = await chromium.launch({headless: true});
         try {

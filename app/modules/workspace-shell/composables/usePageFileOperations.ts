@@ -405,18 +405,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return runPickerWithPersistenceDetailed(pickCombineFiles, { openGeneratedInNewTab: true });
     }
 
-    async function pickFolderToOpen() {
-        return getDocumentPickerCapability().openFolderDialog();
-    }
-
-    async function handleOpenFolderFromUi() {
-        return runPickerWithPersistence(pickFolderToOpen, { openGeneratedInNewTab: true });
-    }
-
-    async function handleOpenFolderFromUiDetailed() {
-        return runPickerWithPersistenceDetailed(pickFolderToOpen, { openGeneratedInNewTab: true });
-    }
-
     async function runOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
@@ -582,8 +570,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         lastOpenOutcome,
         handleOpenFileFromUiDetailed,
         handleOpenFileFromUi,
-        handleOpenFolderFromUiDetailed,
-        handleOpenFolderFromUi,
         handleCombineImagesDetailed,
         handleCombineImages,
         handleOpenFileDirectWithPersistDetailed,

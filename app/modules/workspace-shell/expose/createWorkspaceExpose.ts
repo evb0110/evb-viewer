@@ -266,7 +266,6 @@ export function createWorkspaceExpose(
         handleUndo: () => { void history.handleUndo(); },
         handleRedo: () => { void history.handleRedo(); },
         handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
-        handleOpenFolderFromUi: fileOps.handleOpenFolderFromUi,
         handleCombineImages: fileOps.handleCombineImages,
         handleOpenFileDirectWithPersist: fileOps.handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist: fileOps.handleOpenFileDirectBatchWithPersist,
