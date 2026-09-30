@@ -1683,6 +1683,7 @@ export default {
             'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
             'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',
             'notCompleted': 'Non è stato possibile scrivere il documento.',
+            'tooLargeForEdit': 'Questo PDF è troppo grande perché EVB Viewer possa aggiungervi questa modifica. Le tue modifiche restano aperte qui, ma «Salva con nome» e «Ripara PDF e salva» hanno lo stesso limite, quindi nessun salvataggio può scriverle in questo file.',
             'unencryptedTitle': 'Salvare senza protezione con password?',
             'unencryptedDescription': 'Questo PDF è stato aperto con una password. Salvarlo creerà una copia senza protezione con password.',
             'unencryptedDontShowAgain': 'Non mostrare più questo avviso',

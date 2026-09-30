@@ -1683,6 +1683,7 @@ export default {
             'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
             'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',
             'notCompleted': 'No se pudo escribir el documento.',
+            'tooLargeForEdit': 'Este PDF es demasiado grande para que EVB Viewer le añada esta edición. Tus cambios siguen abiertos aquí, pero «Guardar como» y «Reparar PDF y guardar» tienen el mismo límite, así que ninguna forma de guardar puede escribirlos en este archivo.',
             'unencryptedTitle': '¿Guardar sin protección con contraseña?',
             'unencryptedDescription': 'Este PDF se abrió con una contraseña. Al guardarlo se creará una copia sin protección con contraseña.',
             'unencryptedDontShowAgain': 'No volver a mostrar este aviso',

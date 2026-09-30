@@ -152,6 +152,8 @@ export interface IPdfPersistResult {
     abortReason?: 'cancelled' | 'stale' | undefined;
     /** Typed persistence cause retained for the workspace failure record. */
     failure?: IPdfPersistFailure;
+    /** The native writer refused the edits before writing anything. */
+    nativeRefusalCode?: 'too-large';
 }
 
 export function mapPdfSearchResultToUiMatch(result: IPdfSearchResult): IPdfUiSearchMatch {

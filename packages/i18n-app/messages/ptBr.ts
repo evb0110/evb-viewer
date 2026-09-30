@@ -1694,6 +1694,7 @@ export default {
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',
             'notCompleted': 'Não foi possível gravar o documento.',
+            'tooLargeForEdit': 'Este PDF é grande demais para o EVB Viewer adicionar esta edição. Suas alterações continuam abertas aqui, mas "Salvar como" e "Reparar PDF e salvar" têm o mesmo limite, então nenhuma forma de salvar consegue gravá-las neste arquivo.',
             'unencryptedTitle': 'Salvar sem proteção por senha?',
             'unencryptedDescription': 'Este PDF foi aberto com uma senha. Ao salvá-lo, será criada uma cópia sem proteção por senha.',
             'unencryptedDontShowAgain': 'Não mostrar este aviso novamente',

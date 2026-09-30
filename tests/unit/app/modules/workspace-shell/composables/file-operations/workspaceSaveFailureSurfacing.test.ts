@@ -764,6 +764,46 @@ describe('workspace save failure surfacing', () => {
         expectWorkspaceSaveNotMarked(deps);
     });
 
+    it.each([
+        'handleSave',
+        'handleRepairSave',
+    ] as const)('says a file too large for the native writer cannot take the edit (%s)', async (command) => {
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: false,
+            outPath: null,
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+            nativeRefusalCode: 'too-large' as const,
+        }));
+        const repairWorkingCopy = vi.fn(async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/source.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            totalPages: ref(2),
+            hasShapeChanges: vi.fn(() => true),
+            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+            trySavePdfNativeMutations,
+            repairWorkingCopy,
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service[command]()).resolves.toBe(false);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+        expect(repairWorkingCopy).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: expect.stringContaining('errors.save.tooLargeForEdit'),
+        }));
+        expect(service.hasSaveFailure.value).toBe(true);
+        expect(deps.documentRevisionToken.value).toBe('rev-1');
+        expectWorkspaceSaveNotMarked(deps);
+    });
+
     it('keeps the thrown-save toast unchanged', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { deps } = createDeps({

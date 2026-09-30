@@ -1694,6 +1694,7 @@ export default {
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
+            'tooLargeForEdit': 'Ce PDF est trop volumineux pour qu’EVB Viewer y ajoute cette modification. Vos modifications restent ouvertes ici, mais « Enregistrer sous » et « Réparer le PDF et enregistrer » atteignent la même limite : aucun enregistrement ne peut les écrire dans ce fichier.',
             'unencryptedTitle': 'Enregistrer sans protection par mot de passe ?',
             'unencryptedDescription': 'Ce PDF a été ouvert avec un mot de passe. Son enregistrement créera une copie sans protection par mot de passe.',
             'unencryptedDontShowAgain': 'Ne plus afficher cet avertissement',

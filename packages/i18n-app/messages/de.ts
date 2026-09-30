@@ -1683,6 +1683,7 @@ export default {
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
             'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
+            'tooLargeForEdit': 'Diese PDF ist zu groß, als dass EVB Viewer diese Änderung hinzufügen könnte. Ihre Änderungen sind hier weiterhin geöffnet, aber „Speichern unter“ und „PDF reparieren und speichern“ stoßen an dieselbe Grenze, daher kann kein Speicherweg sie in diese Datei schreiben.',
             'unencryptedTitle': 'Ohne Passwortschutz speichern?',
             'unencryptedDescription': 'Dieses PDF wurde mit einem Passwort geöffnet. Beim Speichern wird eine Kopie ohne Passwortschutz erstellt.',
             'unencryptedDontShowAgain': 'Diese Warnung nicht mehr anzeigen',

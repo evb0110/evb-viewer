@@ -1683,6 +1683,7 @@ export default {
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
             'notCompleted': 'Het document kon niet worden weggeschreven.',
+            'tooLargeForEdit': 'Deze pdf is te groot om er deze bewerking aan toe te voegen. Uw wijzigingen blijven hier geopend, maar \'Opslaan als\' en \'PDF repareren en opslaan\' lopen tegen dezelfde limiet aan, dus geen enkele manier van opslaan kan ze naar dit bestand schrijven.',
             'unencryptedTitle': 'Opslaan zonder wachtwoordbeveiliging?',
             'unencryptedDescription': 'Deze pdf is met een wachtwoord geopend. Bij het opslaan wordt een kopie zonder wachtwoordbeveiliging gemaakt.',
             'unencryptedDontShowAgain': 'Deze waarschuwing niet meer tonen',
