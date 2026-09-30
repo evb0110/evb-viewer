@@ -153,19 +153,30 @@ function containOverlayFocus(event: FocusEvent) {
     }
 }
 
+function isFocusableFallback(element: HTMLElement) {
+    const style = window.getComputedStyle(element);
+    return !element.hasAttribute('disabled')
+        && element.getAttribute('aria-hidden') !== 'true'
+        && element.closest('[aria-hidden="true"], [hidden], [inert]') === null
+        && !element.inert
+        && style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && element.getClientRects().length > 0;
+}
+
+// A control marked as the place to return to wins over the first control in
+// document order (the toolbar), whichever comes first on the page.
 function findFocusFallback() {
-    return Array.from(document.querySelectorAll<HTMLElement>(
-        '[data-focus-restore], button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    )).find(element => {
-        const style = window.getComputedStyle(element);
-        return !element.hasAttribute('disabled')
-            && element.getAttribute('aria-hidden') !== 'true'
-            && element.closest('[aria-hidden="true"], [hidden], [inert]') === null
-            && !element.inert
-            && style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && element.getClientRects().length > 0;
-    }) ?? null;
+    for (const selector of [
+        '[data-focus-restore]',
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ]) {
+        const target = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(isFocusableFallback);
+        if (target) {
+            return target;
+        }
+    }
+    return null;
 }
 
 function restoreFocus() {
