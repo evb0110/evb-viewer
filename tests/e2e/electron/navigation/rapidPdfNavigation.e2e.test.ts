@@ -3357,8 +3357,10 @@ async function readPdfPageRenderGate(session: IElectronE2ESession) {
 
 // Waits until the viewer has given up on every held render of the page: at
 // least one was cancelled by the watchdog and no reattempt starts afterwards.
+// Reattempts that never stop fail the test instead of holding it open.
 async function waitForHeldPageRenderAbandoned(session: IElectronE2ESession) {
-    while (true) {
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
         await session.page.waitForFunction(() => {
             const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
             return Boolean(gate && gate.cancelled > 0 && gate.pending === 0);
@@ -3370,6 +3372,7 @@ async function waitForHeldPageRenderAbandoned(session: IElectronE2ESession) {
             return after;
         }
     }
+    throw new Error(`Held page renders kept restarting: ${JSON.stringify(await readPdfPageRenderGate(session))}`);
 }
 
 async function openPdfPageRenderGate(session: IElectronE2ESession) {
