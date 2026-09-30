@@ -522,7 +522,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     };
     // The document runs its commands in this view while its tab is the one
     // in use, and resets this view's panels when its source changes.
-    onScopeDispose(document.attachView(viewContext));
+    onScopeDispose(document.views.attachView(viewContext));
     provideDocumentContext(document);
     provideDocumentViewContext(viewContext);
     // The viewer this workspace mounts edits the document's one annotation store.

@@ -1,7 +1,4 @@
-import type {
-    InjectionKey,
-    Ref,
-} from 'vue';
+import type { InjectionKey } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -20,8 +17,6 @@ import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
-import type { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
-import type { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
@@ -30,7 +25,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
-import type { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
@@ -51,7 +45,6 @@ import {
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import {
     createDocumentOpenSurfaceSession,
-    type IDocumentOpenSurfaceSession,
     type IDocumentSourceCapabilities,
     type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/public';
@@ -61,41 +54,13 @@ import {
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import {
+    createDocumentViews,
+    type TViewShellState,
+} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 
 interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
-
-type TViewShellState = ReturnType<typeof useWorkspaceViewerShellState>;
-
-/** What a mounted view lends its document's commands while its tab is in use. */
-export interface IDocumentViewPort {
-    tabId: string;
-    isActive: Readonly<Ref<boolean>>;
-    openSurface: IDocumentOpenSurfaceSession;
-    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
-    emitOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => void;
-    /** Gives this view a document of its own and runs the open in its new workspace. */
-    detachAndOpen: (open: (workspace: IWorkspaceExpose) => Promise<boolean>) => Promise<void>;
-    view: Pick<TViewShellState,
-        | 'pdfViewerRef'
-        | 'documentViewerRef'
-        | 'pdfDocument'
-        | 'totalPages'
-        | 'currentPage'
-        | 'dragMode'
-        | 'showSidebar'
-        | 'sidebarTab'
-        | 'selectedThumbnailPages'
-        | 'setSelectedThumbnailPages'
-        | 'selectedPageSelection'
-        | 'setSelectedPageSelection'
-        | 'requestThumbnailInvalidation'
-        | 'closeAllDropdowns'
-        | 'openDropdown'>;
-    search: Pick<ReturnType<typeof useWorkspaceSearchSidebar>, 'resetSearchCache' | 'closeSearch'>;
-    navigation: Pick<ReturnType<typeof useWorkspaceViewState>, 'canUndo' | 'canRedo'>;
-    pageContextMenu: ReturnType<typeof usePageContextMenu>;
-}
 
 /**
  * One document's context: the controller, the working copy and its
@@ -116,29 +81,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const isOpeningDocument = computed(() => openingTransaction.value !== null);
     const pendingDocumentPath = computed(() => openingTransaction.value?.target?.originalPath ?? null);
     const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
-    const viewPorts = shallowRef(new Map<string, IDocumentViewPort>());
-    const commandTabId = ref<string | null>(null);
-    const commandView = computed(() => (
-        (commandTabId.value === null ? undefined : viewPorts.value.get(commandTabId.value))
-        ?? viewPorts.value.values().next().value
-        ?? null
-    ));
-    // Views that are not mounted leave nothing to command; reads fall back and
-    // writes are dropped rather than landing in a detached viewPort.
-    function commandViewRef<T>(read: (port: IDocumentViewPort) => Ref<T>, fallback: T) {
-        return computed<T>({
-            get: () => {
-                const port = commandView.value;
-                return port ? read(port).value : fallback;
-            },
-            set: (value) => {
-                const port = commandView.value;
-                if (port) {
-                    read(port).value = value;
-                }
-            },
-        });
-    }
+    const views = createDocumentViews();
+    const {
+        viewPorts, commandView, commandViewRef, loadedView,
+    } = views;
     const idleOpenSurface = createDocumentOpenSurfaceSession();
     const commandOpenSurface = {
         get snapshot() {
@@ -193,25 +139,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     function emitOpenInNewTab(result: TDocumentRef | TOpenFileResult) {
         commandView.value?.emitOpenInNewTab(result);
     }
-    /** Lends the document a mounted view; the returned function takes it back. */
-    function attachView(port: IDocumentViewPort) {
-        viewPorts.value = new Map(viewPorts.value).set(port.tabId, port);
-        const stopActiveWatch = watch(port.isActive, (active) => {
-            if (active) {
-                commandTabId.value = port.tabId;
-            }
-        }, {immediate: true});
-        return () => {
-            stopActiveWatch();
-            if (viewPorts.value.get(port.tabId) !== port) {
-                return;
-            }
-            const next = new Map(viewPorts.value);
-            next.delete(port.tabId);
-            viewPorts.value = next;
-        };
-    }
-
     // Every workspace failure that reaches the user goes through this one
     // surface, so save, annotation, and open failures share one toast path.
     const failure = useWorkspaceFailureSurface();
@@ -265,13 +192,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         }
     }
 
-    // Metadata is read from a view that has the document loaded, the one in
-    // use first: a view still loading its PDF.js document shows the same one.
-    const loadedView = computed(() => (
-        commandView.value?.view.pdfDocument.value
-            ? commandView.value
-            : [...viewPorts.value.values()].find(port => port.view.pdfDocument.value) ?? commandView.value
-    ));
     const metadata = useMetadataSession({
         pdfDocument: computed(() => loadedView.value?.view.pdfDocument.value ?? null),
         totalPages: computed(() => loadedView.value?.view.totalPages.value ?? 0),
@@ -778,7 +698,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         print,
         splitPayload,
         handleOcrComplete,
-        attachView,
+        views,
     };
 };
 export type TDocumentContext = ReturnType<typeof createDocumentContext>;
