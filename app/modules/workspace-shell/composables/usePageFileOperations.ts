@@ -23,6 +23,7 @@ import {
     describeDocumentTarget,
     describeOpenResult,
 } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
@@ -356,7 +357,23 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             });
         }
 
-        const result = await pick();
+        let result: TOpenFileResult | null;
+        try {
+            result = await pick();
+        } catch (error) {
+            // Main refused the chosen file before handing it over. Whatever
+            // the tab shows stays; the refusal names the file and says why.
+            const refusal = describeRefusedDocumentOpen(error, t);
+            presentFailureToast({
+                failure: refusal.failure,
+                title: t('errors.file.open'),
+                description: refusal.fileName ? `${refusal.fileName}: ${refusal.message}` : refusal.message,
+            });
+            return recordOpenOutcome({
+                status: 'failed',
+                error: refusal.message,
+            });
+        }
         if (!result) {
             return recordOpenOutcome({ status: 'cancelled' });
         }

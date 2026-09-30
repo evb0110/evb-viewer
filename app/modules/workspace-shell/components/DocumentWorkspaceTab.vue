@@ -72,6 +72,7 @@ import {
 } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
+import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {
     identityHasDocument,
     type IWorkspaceDocumentController,
@@ -190,7 +191,15 @@ async function openRecentFile(file: IRecentFile) {
 // workspace chunk loads. Start has no document, so there is nothing to
 // persist before picking.
 async function openPicked(pick: () => Promise<TOpenFileResult | null>) {
-    const result = await pick();
+    let result: TOpenFileResult | null;
+    try {
+        result = await pick();
+    } catch (error) {
+        // Main refused the chosen file before handing it over: this open
+        // failed, the workspace did not crash.
+        documentSession.markFailed(describeRefusedDocumentOpen(error, t));
+        return false;
+    }
     return result
         ? openInWorkspace(describeOpenResult(result), workspace => workspace.handleOpenFileWithResult(result))
         : false;

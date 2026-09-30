@@ -5,7 +5,10 @@ import {
 } from 'vitest';
 import type {TTranslateFn} from '@i18n-app';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import {classifyDocumentOpenError} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import {
+    classifyDocumentOpenError,
+    describeRefusedDocumentOpen,
+} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 
 describe('classifyDocumentOpenError', () => {
     it('localizes a serialized encrypted PDF size-limit failure', () => {
@@ -39,5 +42,38 @@ describe('classifyDocumentOpenError', () => {
         const t = ((translationKey: string) => translationKey) as TTranslateFn;
 
         expect(classifyDocumentOpenError(error, null, t)).toBe(key);
+    });
+});
+
+describe('describeRefusedDocumentOpen', () => {
+    const t = ((key: string) => key) as TTranslateFn;
+
+    it('names the chosen file a picker open was refused for and localizes why', () => {
+        const refusal = {
+            code: 'invalid-pdf',
+            message: 'invalid-pdf',
+            fileName: 'damaged.pdf',
+        };
+        const error = new Error(
+            `Error invoking remote method 'dialog:openPdf': Error: ${encodeSerializableErrorEnvelope(refusal)}`,
+        );
+
+        expect(describeRefusedDocumentOpen(error, t)).toEqual({
+            message: 'errors.file.invalid',
+            fileName: 'damaged.pdf',
+            failure: expect.objectContaining({code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'}),
+        });
+    });
+
+    it('leaves the name out when the refusal does not carry one', () => {
+        const error = new Error(`Error invoking remote method 'dialog:openPdf': Error: ${encodeSerializableErrorEnvelope({
+            code: 'source-changed',
+            message: 'source-changed',
+        })}`);
+
+        expect(describeRefusedDocumentOpen(error, t)).toMatchObject({
+            message: 'errors.file.changedWhileOpening',
+            fileName: null,
+        });
     });
 });

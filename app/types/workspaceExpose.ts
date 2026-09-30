@@ -160,6 +160,8 @@ export interface ICloseFileFromUiOptions {
 export interface IWorkspaceOpenFailure {
     message: string;
     failure: FailureReceipt | null;
+    /** The file the open was for, when the failure itself names it. */
+    fileName?: string | null;
 }
 
 export interface IWorkspaceAgentCommandContext {

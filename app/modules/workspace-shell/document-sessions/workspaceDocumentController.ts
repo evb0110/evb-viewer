@@ -421,9 +421,9 @@ export function createWorkspaceDocumentController(options: {
             failure: failure
                 ? {
                     ...failure,
-                    fileName: transaction
+                    fileName: failure.fileName ?? (transaction
                         ? transaction.target?.fileName ?? null
-                        : snapshot.value.identity.fileName,
+                        : snapshot.value.identity.fileName),
                 }
                 : null,
         }, true);
