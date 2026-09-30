@@ -1,0 +1,19 @@
+tests/e2e/electron/annotations/screenshotIncludesAnnotations.e2e.test.ts
+  s_78f75a9502af47::t_30e07f966387f5 114-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "419e1bd07669168b9273a802115ca3d98316673f",
+  "prompts": {},
+  "sessions": {
+    "s_78f75a9502af47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e4e3a473-3073-4049-a64e-d5f0e3ce9ca7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
