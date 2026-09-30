@@ -3,13 +3,14 @@
         <WorkspaceToolbarHost
             :is-active="isActive && surfaceMode === 'reader'"
             :can-teleport="canTeleportToolbar"
+            :keep-mounted="isOcrRunning"
         >
             <WorkspacePdfToolbarView
                 ref="ocrPopupRef"
                 :snapshot="workspaceToolbarSnapshot"
                 :has-pdf="toolbarHasPdf"
                 :can-toggle-sidebar="canToggleSidebar"
-                :can-use-ocr="canUseOcr"
+                :can-use-ocr="isDesktopRuntime"
                 can-use-djvu
                 :is-desktop-runtime="isDesktopRuntime"
                 :surface="toolbarSurface"
@@ -248,7 +249,6 @@ const {
     statusHostId: 'editor-global-status-host',
 });
 const { isDesktopRuntime } = useRuntimeEnvironment();
-const canUseOcr = computed(() => isDesktopRuntime.value);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 // This mount is one view of the document its DocumentSessionHost holds.
 const context = createDocumentViewContext({
@@ -474,8 +474,7 @@ const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     canOptimizePdf: presentation.canOptimizePdf,
     canExportDocx,
     viewerCapabilities,
-    // Each view captures the document at its own page.
-    captureSplitPayload: () => splitPayload.captureSplitPayload(view.currentPage.value),
+    captureSplitPayload: splitPayload.captureSplitPayload,
     restoreSplitPayload: splitPayload.restoreSplitPayload,
     waitForDocumentOpenSettled,
     runAgentAction,

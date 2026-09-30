@@ -295,7 +295,7 @@ export function createWorkspaceExpose(
         handlePageMove: (move) => {
             void runPageOperation(() => pageOps.pageOpsMove(move));
         },
-        captureSplitPayload: owners.captureSplitPayload,
+        captureSplitPayload: page => owners.captureSplitPayload(page ?? view.currentPage.value),
         restoreSplitPayload: owners.restoreSplitPayload,
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,

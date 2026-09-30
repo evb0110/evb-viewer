@@ -282,7 +282,8 @@ export interface IWorkspaceExpose {
     pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
-    captureSplitPayload: () => Promise<TSplitPayload>;
+    /** Captures the document at `page`, by default the page this view reads. */
+    captureSplitPayload: (page?: number) => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
