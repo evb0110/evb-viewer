@@ -141,8 +141,8 @@ function surfaceState(pageNumber: number) {
 function surfaceStyle(pageNumber: number) {
     const state = surfaceState(pageNumber);
     return state ? {
-        maxWidth: `${String(state.widthPx / outputScale.value)}px`,
-        maxHeight: `${String(state.heightPx / outputScale.value)}px`,
+        maxWidth: `min(100%, ${String(state.widthPx / outputScale.value)}px)`,
+        maxHeight: `min(100%, ${String(state.heightPx / outputScale.value)}px)`,
     } : undefined;
 }
 

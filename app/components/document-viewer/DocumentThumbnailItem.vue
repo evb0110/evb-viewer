@@ -100,38 +100,42 @@ const {
     min-height: 0;
     flex: 0 0 auto;
     place-items: center;
-    overflow: hidden;
-    padding: var(--app-thumbnail-frame-inset);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-space-3xs);
-    background: var(--ui-bg-accented);
-    box-shadow: var(--app-document-page-shadow);
-
-    /* box-shadow stays untransitioned: animating it repaints every frame. */
-    transition: border-color 0.15s ease;
 }
 
-.document-thumbnail-item.is-current .document-thumbnail-item__frame {
-    border-color: var(--ui-text);
-    box-shadow:
-        0 0 0 1px var(--ui-text),
-        var(--app-document-page-shadow);
-}
-
-.document-thumbnail-item.is-selected .document-thumbnail-item__frame {
-    border-color: var(--ui-primary);
-    box-shadow:
-        0 0 0 1px var(--ui-primary),
-        var(--app-document-page-shadow);
-}
-
-.document-thumbnail-item__frame :deep(img),
-.document-thumbnail-item__frame :deep(canvas),
 .document-thumbnail-item__frame :deep(.document-thumbnail-list__canvas-host) {
-    display: block;
+    display: grid;
+    grid-template: minmax(0, 1fr) / minmax(0, 1fr);
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    place-items: center;
+}
+
+/* The page itself carries the edge, so any page shape keeps a tight outline
+   inside the fixed portrait slot. box-shadow stays untransitioned: animating
+   it repaints every frame. */
+.document-thumbnail-item__frame :deep(img),
+.document-thumbnail-item__frame :deep(canvas) {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 100%;
+    border-radius: var(--app-document-page-radius);
+    box-shadow: var(--app-document-page-shadow);
+}
+
+.document-thumbnail-item.is-current .document-thumbnail-item__frame :deep(img),
+.document-thumbnail-item.is-current .document-thumbnail-item__frame :deep(canvas) {
+    box-shadow:
+        0 0 0 2px var(--ui-text),
+        var(--app-document-page-shadow);
+}
+
+.document-thumbnail-item.is-selected .document-thumbnail-item__frame :deep(img),
+.document-thumbnail-item.is-selected .document-thumbnail-item__frame :deep(canvas) {
+    box-shadow:
+        0 0 0 2px var(--ui-primary),
+        var(--app-document-page-shadow);
 }
 
 .document-thumbnail-item__label {
