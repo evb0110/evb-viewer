@@ -1,0 +1,27 @@
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_6cd2f2c68d9682::t_b62b08710b5aba 29
+  s_6cd2f2c68d9682::t_916f39ab0fa012 6499
+  s_6cd2f2c68d9682::t_355f70d151a9b2 6469
+  s_6cd2f2c68d9682::t_b92c63d8c2ddd8 6504-6505,6507-6508,6510-6514,6516,6518
+  s_6cd2f2c68d9682::t_f5d99427911698 6423-6468,6470-6488,6493-6498,6500-6503,6506,6509,6515,6517,6519-6520
+  s_6cd2f2c68d9682::t_26acc267c3a4d8 6489-6492
+  s_6cd2f2c68d9682::t_1951e71824e3bb 6402-6407,6416
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_6cd2f2c68d9682::t_425169ccb488d7 148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f9344c97afa5543b61c94151d0078ca1f29901d7",
+  "prompts": {},
+  "sessions": {
+    "s_6cd2f2c68d9682": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3d470a13-0821-4d15-b272-626188db7be5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
