@@ -3848,6 +3848,17 @@ describe('Electron E2E - Viewer Smoke', () => {
                         canvasRect.right - frameRect.right + parseFloat(style.borderRightWidth) + parseFloat(style.paddingRight),
                         canvasRect.bottom - frameRect.bottom + parseFloat(style.borderBottomWidth) + parseFloat(style.paddingBottom),
                     ) : null,
+                    // The page box carries the visible edge, so it must hug the
+                    // rendered page and fill the slot along one axis.
+                    pageEdgeGap: canvas && canvasRect ? Math.max(
+                        Math.abs(canvasRect.width - canvasRect.height * canvas.width / canvas.height),
+                        Math.min(
+                            frameRect.width - parseFloat(style.borderLeftWidth) - parseFloat(style.paddingLeft)
+                            - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight) - canvasRect.width,
+                            frameRect.height - parseFloat(style.borderTopWidth) - parseFloat(style.paddingTop)
+                            - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom) - canvasRect.height,
+                        ),
+                    ) : null,
                 };
             });
             return {
@@ -3860,6 +3871,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         for (const row of thumbnailGeometry.rows) {
             expect(row.contentOverflow, `page ${row.page} has a rendered thumbnail`).not.toBeNull();
             expect(row.contentOverflow, `page ${row.page} fits its thumbnail frame`).toBeLessThanOrEqual(1);
+            expect(row.pageEdgeGap, `page ${row.page} edge hugs its thumbnail`).toBeLessThanOrEqual(1);
         }
 
         await session.page.click('.editor-pane.is-active [data-thumbnail-page="2"]');
