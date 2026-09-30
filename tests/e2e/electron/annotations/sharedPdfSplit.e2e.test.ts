@@ -34,6 +34,7 @@ import {
     splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
+    callWorkspaceCommand,
     getLatestAutomationEventId,
     waitForAutomationEvent,
     type IWorkspaceExposeProbeWindow,
@@ -1174,5 +1175,41 @@ describe('shared PDF split', () => {
             view.pageCount === 5 && view.centerPage === 3 && view.centerText?.includes('Fixture 4/6') === true
         ));
         expect(rightView.centerPage).toBe(3);
+    }, TIMEOUT_MS);
+
+    // Sweep #845: opening the same file again from a view (Recent Files, a drop)
+    // goes through openFileDirect and must not reload the shared, edited document.
+    it('keeps the unsaved edits in the other view when one view opens the same file again', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-reopen-${stamp}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-reopen-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await splitActiveTabFromTabMenu(page, 'right');
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        await waitForPaneView(page, rightPane!, 'Split Right shows the document', view => !view.showsStart && view.centerPage !== null);
+
+        const edit = `REOPEN-${stamp}`;
+        await createCanonicalTextBoxWithPointer(page, edit, {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        await waitForPaneView(page, leftPane!, 'the edit renders in the left view and the tab is dirty', view => (
+            containsAll(view.renderedTexts, [edit]) && view.tabDirty
+        ));
+
+        // The right view, in use, opens the same path again.
+        await callWorkspaceCommand(page, 'handleOpenFileDirectWithPersist', [pdfPath]);
+
+        await waitForPaneView(page, leftPane!, 'the left view keeps the edit and stays dirty', view => (
+            containsAll(view.renderedTexts, [edit]) && view.tabDirty
+        ));
     }, TIMEOUT_MS);
 });

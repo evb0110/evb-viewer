@@ -488,7 +488,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         openFile: result => (sharesViews.value
             ? openInOwnDocument(workspace => (result ? workspace.handleOpenFileWithResult(result) : workspace.handleOpenFileFromUi()))
             : file.openFileWithViewerLifecycle(result)),
-        openFileDirect: path => (sharesViews.value && path !== controller.snapshot.value.identity.originalPath
+        openFileDirect: path => (sharesViews.value && (path !== controller.snapshot.value.identity.originalPath || hasPendingUnsavedChanges.value)
             ? openInOwnDocument(workspace => workspace.handleOpenFileDirectWithPersist(path))
             : file.openFileDirectWithViewerLifecycle(path)),
         openFileDirectBatch: paths => (sharesViews.value
