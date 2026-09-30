@@ -26,6 +26,13 @@ import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {
+    createPdfDocumentAnnotations,
+    pdfDocumentAnnotationsKey,
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 
 const { createPdfAnnotationSession } = await import(
     '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
@@ -68,7 +75,14 @@ function createDocumentProxy(fingerprint: string) {
     });
 }
 
-function mountAnnotationSession() {
+interface IMountAnnotationSessionOptions {
+    /** The workspace document's owner every view of it shares. */
+    documentAnnotations?: TPdfDocumentAnnotations;
+    /** The working-copy revision of the bytes this view's PDF.js document holds. */
+    loadedRevision?: {value: TDocumentRevisionToken | null};
+}
+
+function mountAnnotationSession(mountOptions: IMountAnnotationSessionOptions = {}) {
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
@@ -86,7 +100,7 @@ function mountAnnotationSession() {
                 captureFence: vi.fn(() => ({
                     loadToken: 0,
                     documentVersion: 0,
-                    documentRevision: null,
+                    documentRevision: mountOptions.loadedRevision?.value ?? null,
                     openSurfaceGeneration: 0,
                 })),
                 isCurrent: vi.fn(() => true),
@@ -144,6 +158,9 @@ function mountAnnotationSession() {
         return () => h('div');
     } });
     const app = createApp(AnnotationSessionHost);
+    if (mountOptions.documentAnnotations) {
+        app.provide(pdfDocumentAnnotationsKey, mountOptions.documentAnnotations);
+    }
     app.mount(host);
     mountedSessions.push(() => {
         app.unmount();
@@ -219,5 +236,77 @@ describe('annotation history across a document proxy swap', () => {
 
         expect(harness.canUndo()).toBe(true);
         expect(harness.canonicalAnnotationIds()).toHaveLength(1);
+    });
+});
+
+describe('annotation history shared by two views of one document', () => {
+    function createSharedDocument() {
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-1'));
+        const documentAnnotations = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+            source: computed(() => null),
+            documentRevisionToken,
+        });
+        const mountView = () => {
+            const loadedRevision = {value: documentRevisionToken.value};
+            const view = mountAnnotationSession({
+                documentAnnotations,
+                loadedRevision,
+            });
+            return {
+                ...view,
+                /** Publishes a new PDF.js document holding the given revision. */
+                async reload(revision: TDocumentRevisionToken, fingerprint: string) {
+                    loadedRevision.value = revision;
+                    view.pdfDocument.value = null;
+                    await nextTick();
+                    view.pdfDocument.value = createDocumentProxy(fingerprint);
+                    await nextTick();
+                },
+            };
+        };
+        return {
+            documentRevisionToken,
+            mountView,
+        };
+    }
+
+    it('keeps edits made after a reload when the other view finishes loading the older revision late', async () => {
+        const shared = createSharedDocument();
+        const left = shared.mountView();
+        const right = shared.mountView();
+        left.pdfDocument.value = createDocumentProxy('left-first');
+        right.pdfDocument.value = createDocumentProxy('right-first');
+        await nextTick();
+        left.createNote('before-reload');
+
+        // A file-history undo rewrites the working copy; the left view loads it first.
+        const nextRevision = requireDocumentRevisionToken('revision-2');
+        shared.documentRevisionToken.value = nextRevision;
+        await left.reload(nextRevision, 'left-second');
+        expect(left.canonicalAnnotationIds()).toEqual([]);
+        left.createNote('after-reload');
+
+        // The right view's load of the replaced bytes lands afterwards.
+        await right.reload(requireDocumentRevisionToken('revision-1'), 'right-stale');
+        expect(right.canonicalAnnotationIds()).toEqual([asAnnotationId('after-reload')]);
+        expect(right.canUndo()).toBe(true);
+
+        // Its load of the current bytes keeps the store the left view started.
+        await right.reload(nextRevision, 'right-second');
+        expect(left.canonicalAnnotationIds()).toEqual([asAnnotationId('after-reload')]);
+        expect(left.canUndo()).toBe(true);
+        expect(left.application()).toBe(right.application());
+    });
+
+    it('shows an edit made in one view in the other, with its undo', async () => {
+        const shared = createSharedDocument();
+        const left = shared.mountView();
+        const right = shared.mountView();
+
+        left.createNote('left-note');
+
+        expect(right.canonicalAnnotationIds()).toEqual([asAnnotationId('left-note')]);
+        expect(right.canUndo()).toBe(true);
     });
 });

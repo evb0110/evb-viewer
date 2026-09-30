@@ -182,6 +182,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotations.commentSync.scheduleAnnotationCommentsSync();
         },
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
+        commitDraftIfOpen: (annotationId) => {
+            if (annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))) {
+                annotationEditorSurface.commitPendingTextBoxDraftsForSave();
+            }
+        },
+        getTextBoxDraftRect: annotationId => annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)),
     };
     onScopeDispose(documentAnnotations.attachView(documentAnnotationsView));
     function emitForcedAnnotationMutation(mutationOptions: { scheduleCommentSync?: boolean } = {}) {
@@ -300,10 +306,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (retiredPdfAnnotationIds.value.size > 0) {
             retiredPdfAnnotationIds.value = new Set();
         }
-        if (!replacesLoadedDocument || options.isAnySaving.value) {
-            return;
+        if (replacesLoadedDocument) {
+            documentAnnotations.replaceLoadedDocument(
+                documentSession.captureFence().documentRevision,
+                options.isAnySaving.value,
+            );
         }
-        documentAnnotations.replaceLoadedDocument(documentAnnotationsView);
     });
     onScopeDispose(() => stopAnnotationApplicationProjection());
 
@@ -374,7 +382,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         authorName: options.authorName,
         onCreationCompleted: options.emitAnnotationToolAutoReset,
         onTextBoxDraftChanged: (annotationId, text) => {
-            documentAnnotations.setTextBoxDraft(annotationId, text);
+            documentAnnotations.setTextBoxDraft(documentAnnotationsView, annotationId, text);
             projectCanonicalAnnotations();
         },
         getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
@@ -1181,7 +1189,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     if (entity?.kind !== 'text-box') {
                         return null;
                     }
-                    const geometry = annotationEditorSurface.getTextBoxDraftRect(entity.identity.id);
+                    // The draft's rectangle comes from the viewer whose editor holds it.
+                    const geometry = documentAnnotations.getTextBoxDraftRect(entity.identity.id);
                     return {
                         annotationId: entity.identity.id,
                         kind: 'text-box' as const,

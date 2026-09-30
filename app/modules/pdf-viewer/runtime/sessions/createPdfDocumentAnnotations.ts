@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type {
     IAnnotationEditorState,
+    IAnnotationMarkerRect,
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
@@ -44,6 +45,10 @@ export interface IPdfDocumentAnnotationsView {
     onHistoryReplay: () => void;
     /** Commits text-box drafts open in this view's editor. */
     commitPendingDraftsForSave: () => void;
+    /** Commits this view's open draft of one annotation, when it has one. */
+    commitDraftIfOpen: (annotationId: string) => void;
+    /** Where this view's editor shows an open draft, or null when it holds none. */
+    getTextBoxDraftRect: (annotationId: string) => IAnnotationMarkerRect | null;
 }
 
 export interface ICreatePdfDocumentAnnotationsOptions {
@@ -88,12 +93,15 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     const textBoxDrafts = new Map<string, string>();
     const textBoxDraftGenerations = new Map<string, number>();
 
+    // The working-copy revision the store was last started or kept for.
+    let storeRevision: TDocumentRevisionToken | null = null;
     const documentIdentity = computed(() => (
         options.workingCopyPath.value
             ? `path:${options.workingCopyPath.value}`
             : annotationDocumentKey(options.source.value)
     ));
     function reset(documentKey: string) {
+        storeRevision = null;
         canonicalMarkupSubtypeHints.clear();
         textBoxDrafts.clear();
         textBoxDraftGenerations.clear();
@@ -103,32 +111,36 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
 
     // Canonical records describe the bytes a viewer's PDF.js document holds.
     // Save and file-history undo rewrite the working copy in place and reload
-    // the same path, so a viewer reports each document that replaces the one
-    // it had loaded, and that starts a fresh store and history. Another viewer
-    // reloading the same revision keeps the store the first one started.
-    let lastReplacement: {
-        view: IPdfDocumentAnnotationsView;
-        revision: TDocumentRevisionToken | null;
-    } | null = null;
-    function replaceLoadedDocument(view: IPdfDocumentAnnotationsView) {
-        const revision = options.documentRevisionToken.value;
-        if (
-            lastReplacement
-            && lastReplacement.view !== view
-            && revision !== null
-            && lastReplacement.revision === revision
-        ) {
-            return;
+    // the same path, so each viewer reports the revision of the document that
+    // replaced the one it had loaded. The store follows the document's current
+    // revision: the first report of it starts a fresh store and history (a
+    // save's own reload keeps the store it just wrote), later reports of the
+    // same revision keep it, and a report of an older revision, from a viewer
+    // that finished loading after the document moved on, changes nothing.
+    function replaceLoadedDocument(loadedRevision: string | null, duringSave: boolean) {
+        const currentRevision = options.documentRevisionToken.value;
+        if (currentRevision !== null) {
+            if (loadedRevision !== currentRevision || storeRevision === currentRevision) {
+                return;
+            }
         }
-        lastReplacement = {
-            view,
-            revision,
-        };
-        history.clear();
-        reset(documentIdentity.value);
+        if (!duringSave) {
+            history.clear();
+            reset(documentIdentity.value);
+        }
+        storeRevision = currentRevision;
     }
 
-    function setTextBoxDraft(annotationId: string, text: string | null) {
+    // One editor per annotation: editing it in one viewer first commits the
+    // draft another viewer still has open, as clicking elsewhere does in one.
+    function setTextBoxDraft(view: IPdfDocumentAnnotationsView, annotationId: string, text: string | null) {
+        if (text !== null) {
+            views.forEach((other) => {
+                if (other !== view) {
+                    other.commitDraftIfOpen(annotationId);
+                }
+            });
+        }
         if (text === null) {
             textBoxDrafts.delete(annotationId);
             textBoxDraftGenerations.delete(annotationId);
@@ -171,6 +183,16 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         setTextBoxDraft,
         restoreTextBoxDrafts,
         replaceLoadedDocument,
+        /** The rectangle of a draft in the viewer whose editor holds it open. */
+        getTextBoxDraftRect(annotationId: string) {
+            for (const view of views) {
+                const rect = view.getTextBoxDraftRect(annotationId);
+                if (rect) {
+                    return rect;
+                }
+            }
+            return null;
+        },
         /** Commits every viewer's open text-box drafts, so a save sees them all. */
         commitPendingDraftsForSave() {
             views.forEach(view => view.commitPendingDraftsForSave());
