@@ -235,15 +235,22 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 let didPrepare: boolean | undefined;
                 for (const port of views.viewPorts.value.values()) {
                     const viewer = port.view.pdfViewerRef.value;
-                    const prepared = await viewer?.preparePageMutationRevisionSwap?.({
-                        documentRevision: result.documentRevision.token,
-                        invalidatedPages,
-                        pageNumber: port.view.currentPage.value,
-                        ...(rotationDelta === undefined ? {} : {rotationDelta}),
-                        ...(delta ? {pageIdentityDelta: delta} : {}),
-                    });
-                    if (viewer === pdfViewerRef.value) {
-                        didPrepare = prepared;
+                    try {
+                        const prepared = await viewer?.preparePageMutationRevisionSwap?.({
+                            documentRevision: result.documentRevision.token,
+                            invalidatedPages,
+                            pageNumber: port.view.currentPage.value,
+                            ...(rotationDelta === undefined ? {} : {rotationDelta}),
+                            ...(delta ? {pageIdentityDelta: delta} : {}),
+                        });
+                        if (viewer === pdfViewerRef.value) {
+                            didPrepare = prepared;
+                        }
+                    } catch (error) {
+                        // Another view that fails to prepare reloads as before.
+                        if (viewer === pdfViewerRef.value) {
+                            throw error;
+                        }
                     }
                 }
                 if (!didPrepare && rotationDelta !== undefined) {
