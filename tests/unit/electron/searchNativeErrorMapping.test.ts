@@ -1,5 +1,7 @@
 import {
     mkdtemp,
+    readdir,
+    readlink,
     rm,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -24,6 +26,7 @@ const fake = vi.hoisted(() => ({
     indexArgs: [] as string[],
     indexLines: [] as string[],
     indexCoverage: null as Record<string, unknown> | null,
+    indexFailure: null as Error | null,
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
@@ -52,6 +55,9 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
             stderr,
             exitCode: 0,
         };
+    }
+    if (fake.indexFailure) {
+        throw fake.indexFailure;
     }
     fake.indexArgs = args;
     let input = '';
@@ -112,6 +118,7 @@ afterEach(() => {
     fake.indexArgs = [];
     fake.indexLines = [];
     fake.indexCoverage = null;
+    fake.indexFailure = null;
 });
 
 describe('native search error mapping', () => {
@@ -232,6 +239,32 @@ describe('search index text budget', () => {
                 '--max-total-text-bytes',
                 String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
             ]);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    // A command can fail before it reads its input (build check, admission,
+    // spawn); the extracted text file must not stay open behind it.
+    it.runIf(process.platform === 'linux')('leaves no open input file when the indexer fails before reading it', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-input-'));
+        fake.indexFailure = new Error('evb-pdf-search failed to start');
+        try {
+            await expect(buildSearchIndex({
+                indexPath: join(directory, 'index'),
+                documentRevision: 'revision',
+                async* readPages() {
+                    yield {
+                        pageNumber: 1,
+                        text: 'page',
+                    };
+                },
+            })).rejects.toThrow('evb-pdf-search failed to start');
+            const openFiles = await Promise.all((await readdir('/proc/self/fd')).map(fd => readlink(`/proc/self/fd/${fd}`).catch(() => '')));
+            expect(openFiles.filter(target => target.startsWith(directory))).toEqual([]);
         } finally {
             await rm(directory, {
                 recursive: true,
