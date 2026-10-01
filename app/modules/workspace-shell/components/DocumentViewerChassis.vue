@@ -678,6 +678,12 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     gap: 0;
     background: var(--app-document-viewer-bg);
 
+    /* A scroll container from the start, as every renderer's viewport is, so
+       its stable gutter is reserved before a renderer binds. An open that
+       knows its page's shape sizes the opening skeleton from this width in the
+       claim, before a new tab's renderer exists. */
+    overflow: auto;
+
     /* The viewport authority is the only owner of document position. Chromium's
        scroll anchoring must not move the track while an async feature pack
        replaces provisional geometry with its live page layout. */

@@ -19,6 +19,7 @@ import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDi
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { createRequestId } from '@contracts/shared';
+import { parseEpochMs } from '@contracts/timestamps';
 import type {
     createEpochGuard,
     IDocumentSessionState,
@@ -38,12 +39,10 @@ import {
     getDocumentPdfCapability,
     getDocumentPickerCapability,
 } from '@app/utils/platformDocuments';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
-import {validatePdfRevision} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {
-    commitPdfOpeningGeometryWhenRead,
-    resolvePdfOpeningGeometry,
-} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+    validatePdfRevision,
+    type IPdfValidationSourceRevision,
+} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {
     isDjvuOpenResult,
     isPdfOpenResult,
@@ -65,11 +64,6 @@ type TEpochGuard = ReturnType<typeof createEpochGuard>;
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
-interface ISourceOpeningGeometryRead {
-    readonly path: TDocumentRef;
-    readonly committed: Promise<boolean>;
-}
-
 interface ICreateDocumentOpenFlowDeps {
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
     clearPdfConformanceProfile: () => void;
@@ -81,7 +75,6 @@ interface ICreateDocumentOpenFlowDeps {
     incrementSessionVersion: () => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     loadEpoch: TEpochGuard;
-    getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     openEpoch: TEpochGuard;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
@@ -340,7 +333,6 @@ export function createDocumentOpenFlow(
         result: Extract<TOpenFileResult, { kind: 'pdf' }>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
-        sourceGeometry: ISourceOpeningGeometryRead | null = null,
     ) {
         if (result.recoveryDirtyBaseline === true) {
             // A failed first read must leave the checkpoint-owned bytes for a
@@ -356,58 +348,25 @@ export function createDocumentOpenFlow(
         const rasterDisplayProfile = options.rasterDisplayProfile
             ?? registeredRasterDisplayProfile;
         const documentFiles = getDocumentFilesCapability();
-        const readOpeningGeometry = documentFiles.getPdfOpeningGeometry;
-        const sourceGeometryCommitted = sourceGeometry?.path === result.originalPath
-            ? sourceGeometry.committed
-            : null;
-        const readOpeningGeometryForOpen = readOpeningGeometry
-            ? async () => {
-                if (await sourceGeometryCommitted) {
-                    return null;
-                }
-                try {
-                    const workingGeometry = await readOpeningGeometry(result.workingPath);
-                    if (workingGeometry !== null || result.originalPath === result.workingPath) {
-                        return workingGeometry;
-                    }
-                } catch {
-                    // A newly-created working copy can be visible to the open
-                    // result one IPC turn before its path capability is ready.
-                    // Retry through the original source grant below.
-                }
-                if (result.originalPath === result.workingPath) {
-                    return null;
-                }
-                try {
-                    return await readOpeningGeometry(result.originalPath);
-                } catch {
-                    return null;
-                }
-            }
-            : undefined;
-        const openingGeometry = resolvePdfOpeningGeometry({
-            isCurrent: () => isCurrentOpenRequest(openRequestId),
-            openSurface: deps.getOpenSurface?.() ?? undefined,
-            ...(readOpeningGeometryForOpen === undefined
-                ? {}
-                : {readOpeningGeometry: readOpeningGeometryForOpen}),
-            readSourceRevision: () => documentFiles.statFile(result.originalPath)
-                .then(file => ({
-                    fileSize: file.size,
-                    ...(file.modifiedAt === undefined ? {} : {modifiedAt: file.modifiedAt}),
-                }))
-                .catch(() => documentFiles.statFile(result.workingPath).then(file => ({
-                    fileSize: file.size,
-                    ...(file.modifiedAt === undefined ? {} : {modifiedAt: file.modifiedAt}),
-                }))),
-            result,
-        });
+        // The source's revision lets a cached validation of the same bytes stand.
+        const validationRevision = documentFiles.statFile(result.originalPath)
+            .catch(() => documentFiles.statFile(result.workingPath))
+            .then((source): IPdfValidationSourceRevision | null => {
+                const modifiedAt = parseEpochMs(source.modifiedAt);
+                return modifiedAt === null
+                    ? null
+                    : {
+                        documentId: result.originalPath,
+                        size: source.size,
+                        modifiedAt,
+                    };
+            }, () => null);
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
-                validationRevision: openingGeometry.validationRevision,
+                validationRevision,
                 resetSourceBeforeCommit: true,
             });
         } catch (error) {
@@ -467,28 +426,9 @@ export function createDocumentOpenFlow(
         });
     }
 
-    // The page's shape is read from the source while the open makes its working
-    // copy, so the opening skeleton does not wait for the copy.
-    function readSourceOpeningGeometry(openRequestId: number, path: TDocumentRef): ISourceOpeningGeometryRead | null {
-        const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
-        if (!readOpeningGeometry || !/\.pdf$/iu.test(path)) {
-            return null;
-        }
-        return {
-            path,
-            committed: commitPdfOpeningGeometryWhenRead({
-                documentId: path,
-                isCurrent: () => isCurrentOpenRequest(openRequestId),
-                openSurface: deps.getOpenSurface?.() ?? undefined,
-                read: () => readOpeningGeometry(path),
-            }),
-        };
-    }
-
     async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
         resetOpenState();
-        const sourceGeometry = readSourceOpeningGeometry(openRequestId, path);
         logPdfRenderTrace('pdf-open-direct-start', {
             openRequestId,
             path,
@@ -561,7 +501,7 @@ export function createDocumentOpenFlow(
                     workingPath: result.workingPath,
                 },
             );
-            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct', options, sourceGeometry);
+            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct', options);
             if (outcome.status === 'stale') {
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,
@@ -899,7 +839,7 @@ export function createDocumentOpenFlow(
         recoveryDirtyBaseline?: boolean;
         openRequestId?: number;
         resetSourceBeforeCommit?: boolean;
-        validationRevision?: ReturnType<typeof resolvePdfOpeningGeometry>['validationRevision'];
+        validationRevision?: Promise<IPdfValidationSourceRevision | null>;
     }) {
         const requestId = deps.loadEpoch.begin();
         const traceContext = {

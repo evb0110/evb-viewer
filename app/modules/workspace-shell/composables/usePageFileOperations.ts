@@ -19,6 +19,7 @@ import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import {
     describeDocumentTarget,
     describeOpenResult,
@@ -457,11 +458,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return recordOpenOutcome(outcome);
     }
 
-    async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
-        return didCompletePageFileOpen(await handleOpenFileDirectWithPersistDetailed(path));
+    async function handleOpenFileDirectWithPersist(path: TDocumentRef, pageShape?: IPdfPageShapeRead | null) {
+        return didCompletePageFileOpen(await handleOpenFileDirectWithPersistDetailed(path, pageShape));
     }
 
-    function handleOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
+    function handleOpenFileDirectWithPersistDetailed(path: TDocumentRef, pageShape?: IPdfPageShapeRead | null) {
         const pending = pendingDirectOpenRequests.get(path);
         if (pending) {
             return pending;
@@ -470,6 +471,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         const request = trackOpen({
             kind: 'open',
             target: describeDocumentTarget(path),
+            ...(pageShape === undefined ? {} : {pageShape}),
         }, () => runOpenFileDirectWithPersistDetailed(path));
         pendingDirectOpenRequests.set(path, request);
         void request.then(

@@ -52,11 +52,22 @@ export function describeDocumentTarget(target: TDocumentTargetSource): IWorkspac
     return {};
 }
 
-/** The open transaction for an already resolved file: a recovery reopens what the tab owned. */
+/**
+ * The open transaction for an already resolved file: a recovery reopens what
+ * the tab owned. Its page shape is the source's, unless the working copy's
+ * pages need not match the source's: a recovered, decrypted or generated copy
+ * is read itself, and a file still waiting for its password has none yet.
+ */
 export function describeOpenResult(result: TOpenFileResult): IWorkspaceOpenRequest {
+    const pageShapeSource = result.kind !== 'pdf'
+        ? null
+        : result.recoveryDirtyBaseline === true || result.wasEncrypted === true || result.isGenerated === true
+            ? result.workingPath
+            : undefined;
     return {
         kind: result.kind === 'pdf' && result.recoveryDirtyBaseline === true ? 'restore' : 'open',
         target: describeDocumentTarget(result),
         acceptDocumentWithoutVisual: acceptsDocumentWithoutVisual(result),
+        ...(pageShapeSource === undefined ? {} : {pageShapeSource}),
     };
 }

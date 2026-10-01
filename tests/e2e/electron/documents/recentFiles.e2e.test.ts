@@ -57,6 +57,8 @@ const RECENT_FIRST_PAGE_SHELL_BUDGET_MS = 100;
 const RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES = 2;
 const RECENT_FIRST_CANVAS_BUDGET_MS = 2_500;
 const RECENT_READY_AFTER_CANVAS_BUDGET_MS = 1_000;
+// A mouse click holds the button down for about a tenth of a second.
+const RECENT_PRESS_MS = 80;
 const TOOLBAR_OPEN_TRANSITION_POLL_MS = 25;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_OPEN_SHIFT_PX = 2;
@@ -349,7 +351,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
     // IPC/stat preflight has variable duration, so opening-surface budgets
     // start with the first positive open-surface snapshot—not the raw click or
     // the tab/session bookkeeping that may precede that snapshot.
-    return evaluateInPage(session.page, (
+    const transition = evaluateInPage(session.page, (
         targetSourcePath: string,
         shellBudgetMs: number,
     ) => new Promise<IRecentOpenTransitionResult>((resolve) => {
@@ -473,13 +475,28 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                 sawVisibleDisabledTargetRow ||= getTargetRecentRows()
                     .some(row => row.dataset.recentOpenActionable !== 'true');
                 const recentRow = getRecentRow();
-                if (recentRow) {
-                    targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
-                    targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
-                    clickAtMs = performance.now();
-                    (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
-                        .__committedSurfaceInteractionCheckpoint = 'recent-click';
-                    recentRow.querySelector<HTMLButtonElement>('button.recent-open')?.click();
+                const openButton = recentRow?.querySelector<HTMLButtonElement>('button.recent-open') ?? null;
+                const pressWindow = window as Window & {__recentPressPoint?: {
+                    x: number;
+                    y: number
+                } | null};
+                if (recentRow && openButton && pressWindow.__recentPressPoint === undefined) {
+                    // The row is pressed with the mouse; its click is the open.
+                    openButton.addEventListener('click', () => {
+                        targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
+                        targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
+                        clickAtMs = performance.now();
+                        (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
+                            .__committedSurfaceInteractionCheckpoint = 'recent-click';
+                    }, {
+                        capture: true,
+                        once: true,
+                    });
+                    const rect = openButton.getBoundingClientRect();
+                    pressWindow.__recentPressPoint = {
+                        x: rect.left + (rect.width / 2),
+                        y: rect.top + (rect.height / 2),
+                    };
                 }
                 window.requestAnimationFrame(sample);
                 return;
@@ -500,10 +517,25 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             window.requestAnimationFrame(sample);
         };
 
+        delete (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint;
         currentTabCloseButton?.click();
         emptyTabCreatedAtMs = performance.now();
         window.requestAnimationFrame(sample);
     }), sourcePath, RECENT_OPEN_TIMEOUT_MS);
+    await waitForFunctionInPage(session.page, () => (
+        (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint !== undefined
+    ), {timeout: RECENT_ROW_TIMEOUT_MS});
+    const pressPoint = await evaluateInPage(session.page, () => (
+        (window as Window & {__recentPressPoint?: {
+            x: number;
+            y: number
+        }}).__recentPressPoint!
+    ));
+    await session.page.mouse.move(pressPoint.x, pressPoint.y);
+    await session.page.mouse.down();
+    await delay(RECENT_PRESS_MS);
+    await session.page.mouse.up();
+    return transition;
 }
 
 async function assertRecentListStaysStableBeforeOpen(session: IElectronE2ESession, sourcePath: string) {
@@ -619,8 +651,8 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens Recent to one page-shaped skeleton, shown from the source before the working copy is made', async () => {
-        let session = sessionFixture.getSession();
+    it('opens a Recent file read before to its page-shaped skeleton in the first frame, before the working copy is made', async () => {
+        const session = sessionFixture.getSession();
 
         const fixturePath = await createScannedTextFixturePdf(
             `recent-file-${Date.now()}.pdf`,
@@ -629,9 +661,7 @@ describe('Electron E2E - Recent Files', () => {
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
-        session = await sessionFixture.restart({clean: false});
 
-        await waitForStartupOverlayRemoved(session);
         await installCommittedSurfaceSampler(session.page);
         await startToolbarTransitionSampling(session);
         const sourceDeferred = await evaluateInPage(session.page, (path: TDocumentRef) => (
@@ -644,9 +674,8 @@ describe('Electron E2E - Recent Files', () => {
         );
         expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
         // The open is held before the working copy exists, as a slow disk holds
-        // it. The page's shape is read from the source file when the open
-        // starts, so the page-shaped skeleton is on screen while the open is
-        // still held, not the bare viewer until the working copy is made.
+        // it. The page's shape does not wait for the working copy, so the
+        // page-shaped skeleton is on screen while the open is still held.
         await waitForOpeningSkeletonWhileOpenHeld(session);
         const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
@@ -665,12 +694,15 @@ describe('Electron E2E - Recent Files', () => {
         expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
+        // The app has read this file before, so its page shape is known when
+        // the open claims the tab: the first frame after the click shows the
+        // page skeleton, never the bare viewer (#931).
         expect(immediateOpen.firstOpenSurfaceFrame, JSON.stringify(immediateOpen)).toMatchObject({
             activeTabTitle: basename(fixturePath),
-            openingGeometryKnown: false,
+            openingGeometryKnown: true,
             recentRowVisible: false,
-            shellVisible: false,
-            skeletonVisible: false,
+            shellVisible: true,
+            skeletonVisible: true,
         });
         expect([
             'pending',
@@ -957,6 +989,10 @@ describe('Electron E2E - Recent Files', () => {
                 ? frame.openSurfacePhase !== null && !isOpeningBeforePageGeometry(frame)
                 : frame.kind !== 'committed-canvas'
         )), details).toEqual([]);
+        // The page's shape is read from the drop on, while the new tab mounts,
+        // so at most one frame after the tab claims the open is bare (#931).
+        expect(frames.slice(0, firstShellIndex).filter(isOpeningBeforePageGeometry).length, details)
+            .toBeLessThanOrEqual(1);
         const opening = frames.slice(firstShellIndex);
         const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
         expect(firstCanvasIndex, details).toBeGreaterThan(0);
