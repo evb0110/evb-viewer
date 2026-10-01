@@ -1493,7 +1493,7 @@ describe('document open surface session', () => {
         expect(nextGeneration).toBe(generation + 1);
     });
 
-    it('prevents one renderer from clearing or overwriting another renderer frame', () => {
+    it('prevents one owner from overwriting another owner frame', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'open-intent:1');
         expect(session.commitOpeningPageFrame(generation, openingFrame(generation, {
@@ -1514,8 +1514,6 @@ describe('document open surface session', () => {
                 height: '1px',
             },
         }))).toBe(false);
-        expect(session.clearOpeningPageFrame(generation, 'pdfjs')).toBe(false);
-        expect(session.clearOpeningPageFrame(generation, 'page-source:1')).toBe(false);
         expect(session.snapshot.value.openingPageFrame?.ownerId).toBe('page-source:1');
     });
 

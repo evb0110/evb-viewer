@@ -854,24 +854,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }));
             return true;
         },
-        clearOpeningPageFrame(generation, ownerId) {
-            const current = snapshot.value;
-            if (
-                current.generation !== generation
-                || current.openingPageFrame === null
-                || current.openingPageFrame.ownerId !== ownerId
-                // Ready/fail/reset own teardown. Removing the frame during an
-                // empty transition would expose a blank/empty surface.
-                || isTransitionPhase(current.phase)
-            ) {
-                return false;
-            }
-            commitVisual(visual => ({
-                ...visual,
-                openingPageFrame: null,
-            }));
-            return true;
-        },
         commitGeometry(generation, geometry) {
             if (
                 snapshot.value.generation !== generation
