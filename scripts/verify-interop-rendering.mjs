@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import {execFile} from 'node:child_process';
+import {mapAsync} from 'es-toolkit/array';
 import {
     mkdir,
     mkdtemp,
     readFile,
     rm,
 } from 'node:fs/promises';
+import {availableParallelism} from 'node:os';
 import {promisify} from 'node:util';
 import {
     basename,
@@ -306,7 +308,8 @@ export async function verifyInteropRendering({
             fail('corpus reported no scenarios');
         }
     }
-    const files = await Promise.all(paths.map(async (inputPath, index) => {
+    // Each input spawns about a dozen tools, so inputs run one per core.
+    const files = await mapAsync(paths, async (inputPath, index) => {
         const resolvedPath = resolve(inputPath);
         const entry = expectedEntries.get(resolvedPath);
         // Inputs run concurrently; same-named files from different directories must not share PNG paths.
@@ -317,7 +320,7 @@ export async function verifyInteropRendering({
             fileDirectory,
             entry?.qpdfWarningBaseline ?? null,
         );
-    }));
+    }, {concurrency: availableParallelism()});
     const result = {
         artifactDirectory: outputDirectory,
         files,
