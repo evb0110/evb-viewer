@@ -15,7 +15,16 @@ import type {
 import type {
     TPdfProjectionReason, IDocumentOpenSurfaceSession,  
 } from '@app/modules/document-viewer/public';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import {
+    didOpenDocument,
+    type TDocumentOpenOutcome,
+} from '@app/types/documentOpenOutcome';
+import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
+import {
+    describeDocumentTarget,
+    describeOpenResult,
+} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
@@ -27,6 +36,8 @@ interface IUseWorkspaceFileLifecycleControllerOptions {
     /** The surface of the view that runs an open; read when the open runs. */
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     failureSurface?: TWorkspaceFailureSurface | undefined;
+    /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
 }
 
 function createWorkspaceFileSwitch(deps: {
@@ -104,7 +115,7 @@ function createWorkspaceFileSwitch(deps: {
 }
 
 export const useWorkspaceFileLifecycleController = (
-    options: IUseWorkspaceFileLifecycleControllerOptions = {},
+    options: IUseWorkspaceFileLifecycleControllerOptions,
 ) => {
     const {
         pdfSrc,
@@ -318,18 +329,46 @@ export const useWorkspaceFileLifecycleController = (
         closeFile,
     });
 
+    // An open the workspace starts on its own (a converted DjVu, a split
+    // restore) ends with the document's open transaction, once the viewer
+    // presents the document, so what waits for it sees a live document.
+    async function openInDocumentTransaction(
+        request: IWorkspaceOpenRequest,
+        open: () => Promise<TDocumentOpenOutcome>,
+    ): Promise<TDocumentOpenOutcome> {
+        const opened: {outcome: TDocumentOpenOutcome} = {outcome: {status: 'cancelled'}};
+        const presented = await options.runDocumentOpen(request, async () => {
+            opened.outcome = await open();
+            return didOpenDocument(opened.outcome);
+        });
+        return presented || !didOpenDocument(opened.outcome) ? opened.outcome : {status: 'cancelled'};
+    }
+
+    function openFileInDocumentTransaction(result: TOpenFileResult) {
+        return openInDocumentTransaction(describeOpenResult(result), () => openFileWithViewerLifecycle(result));
+    }
+
+    // The conversion keeps its modal progress until the converted PDF is
+    // shown; the focus it then gives back lands on that PDF's live controls.
+    function openConvertedDjvuPdf(path: TDocumentRef, openOptions?: IPdfRasterDisplayProfileOpenOptions) {
+        return openInDocumentTransaction({
+            kind: 'open',
+            target: describeDocumentTarget(path),
+        }, () => openFileDirectWithViewerLifecycle(path, openOptions));
+    }
+
     function handleDjvuConvert(
         subsample: number,
         preserveBookmarks: boolean,
         pdfStrategy: TDjvuPdfExportStrategy,
     ) {
-        return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openFileDirectWithViewerLifecycle);
+        return djvuConvertToPdf(subsample, preserveBookmarks, pdfStrategy, openConvertedDjvuPdf);
     }
 
     function ensureDjvuPdfProjection(reason: TPdfProjectionReason) {
         return ensureDjvuPdfProjectionForAction(
             reason,
-            openFileDirectWithViewerLifecycle,
+            openConvertedDjvuPdf,
             getDjvuProjectionSignal(),
         );
     }
@@ -435,6 +474,7 @@ export const useWorkspaceFileLifecycleController = (
         clearRecentFiles,
 
         openFileWithViewerLifecycle,
+        openFileInDocumentTransaction,
         openFileDirectWithViewerLifecycle,
         openFileDirectBatchWithViewerLifecycle,
         closeFileWithViewerLifecycle,

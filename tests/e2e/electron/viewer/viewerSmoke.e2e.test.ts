@@ -6780,9 +6780,17 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             }, {timeout: remainingMs()}).not.toBe('running');
             typedWhileConverting = typed.length > 0;
             if (conversion === 'converted') {
-                await waitForFunctionInPage(session.page, (selector: string) => (
-                    document.querySelector(selector) === null
-                ), {timeout: remainingMs()}, progressSelector);
+                // The converted PDF takes the converting pane's tab; its progress
+                // stays there until that pane shows the PDF.
+                await waitForFunctionInPage(session.page, (args: {
+                    paneId: string;
+                    label: string;
+                }) => (
+                    document.querySelector(`.editor-pane[data-editor-pane-id="${CSS.escape(args.paneId)}"] .tab-label`)?.textContent?.trim() === args.label
+                ), {timeout: remainingMs()}, {
+                    paneId: djvuPaneId,
+                    label: basename(destinationPath),
+                });
                 const typedAtCompletion = typed.length;
                 await expect.poll(() => typed.length, {timeout: remainingMs()}).toBeGreaterThan(typedAtCompletion + 100);
             }
@@ -6818,13 +6826,27 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             lostKeystrokes: 0,
         });
         expect(search.value).toBe(typed);
+        await waitForFunctionInPage(session.page, (args: {
+            paneId: string;
+            progressSelector: string;
+        }) => (
+            document.querySelector(args.progressSelector) === null
+            && document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${CSS.escape(args.paneId)}"] [data-open-surface-phase]`)?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: remainingMs()}, {
+            paneId: djvuPaneId,
+            progressSelector,
+        });
     }, 150_000);
 
-    it('restores a valid focus target after native DjVu conversion completes', async () => {
+    // Converts the DjVu from its banner and returns once the converted PDF
+    // shows its first page; focus must then sit on a live control there.
+    async function convertDjvuAndExpectLiveFocus(sourcePath: string, slug: string, options: {minimumPageCount: number}) {
         const deadlineAt = performance.now() + 120_000;
         const remainingMs = () => Math.max(1, deadlineAt - performance.now());
-        let session = sessionFixture.getSession();
-        const completionFixture = await copyDjvuFixtureForMutation(djvuFixture, 'completion');
+        const completionFixture = await copyDjvuFixtureForMutation({
+            ...djvuFixture,
+            path: sourcePath,
+        }, slug);
         if (!completionFixture.path) {
             throw new Error(completionFixture.reason);
         }
@@ -6833,13 +6855,13 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             process.cwd(),
             '.devkit',
             'tmp',
-            `djvu-conversion-completion-${Date.now()}.pdf`,
+            `djvu-conversion-${slug}-${Date.now()}.pdf`,
         );
         mkdirSync(dirname(destinationPath), {recursive: true});
         onTestFinished(() => rm(destinationPath, {force: true}));
-        session = await sessionFixture.restart({
+        const session = await sessionFixture.restart({
             clean: true,
-            sessionName: () => `e2e-djvu-conversion-completion-${Date.now()}`,
+            sessionName: () => `e2e-djvu-conversion-${slug}-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
         });
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
@@ -6849,7 +6871,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
         ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
         const shownPageCount = Number((await readToolbarPageIndicator(session.page)).totalPagesText?.replace(/\D+/gu, ''));
-        expect(shownPageCount).toBeGreaterThan(1);
+        expect(shownPageCount).toBeGreaterThanOrEqual(options.minimumPageCount);
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
         await initiator!.click();
@@ -6892,11 +6914,37 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(convertedBytes.subarray(0, 5).toString()).toBe('%PDF-');
         // The converted PDF keeps every page the viewer showed for the DjVu.
         expect((await PDFDocument.load(convertedBytes, {updateMetadata: false})).getPageCount()).toBe(shownPageCount);
-        expect(await session.page.evaluate(() => (
-            document.activeElement instanceof HTMLElement
-            && document.activeElement !== document.body
-            && document.activeElement.isConnected
-        ))).toBe(true);
+        await waitForAnimationFrames(session.page, 2);
+        expect(await session.page.evaluate(() => {
+            const target = document.activeElement;
+            if (!(target instanceof HTMLElement) || target === document.body) {
+                return {focus: target?.tagName ?? null};
+            }
+            return {
+                focus: 'control',
+                connected: target.isConnected,
+                enabled: !target.matches(':disabled'),
+                reachable: target.closest('[inert], [aria-hidden="true"]') === null,
+                visible: target.getClientRects().length > 0,
+            };
+        })).toEqual({
+            focus: 'control',
+            connected: true,
+            enabled: true,
+            reachable: true,
+            visible: true,
+        });
+    }
+
+    it('restores a valid focus target after native DjVu conversion completes', async () => {
+        await convertDjvuAndExpectLiveFocus(djvuFixture.path!, 'completion', {minimumPageCount: 2});
+    }, 120_000);
+
+    // The overlay may return focus only once the converted PDF is shown: a
+    // control picked while the PDF still loads, such as Next Page with no
+    // page count yet, is disabled when its single page arrives (#924).
+    it('returns focus to a live control after converting a single-page DjVu', async () => {
+        await convertDjvuAndExpectLiveFocus(resolve('tests/fixtures/djvu/sources/layered.djvu'), 'single-page', {minimumPageCount: 1});
     }, 120_000);
 
     it('restores focus and presents the native error surface after DjVu conversion fails', async () => {
