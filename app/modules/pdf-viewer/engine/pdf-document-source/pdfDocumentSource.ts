@@ -97,7 +97,6 @@ export interface IPdfRenderTask {
     readonly imageCoordinates?: unknown;
     readonly onError?: unknown;
     readonly separateAnnots?: unknown;
-    readonly _internalRenderTask?: unknown;
     readonly promise: Promise<unknown>;
     cancel(extraDelay?: number): void;
     // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type

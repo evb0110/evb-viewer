@@ -5,7 +5,7 @@ import type {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
+import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
 import type {
     IWorkspaceSurfaceBudgetController,
     IDocumentPageRenderRequest,
@@ -182,30 +182,13 @@ export async function renderPdfDocumentThumbnail(options: {
                         : null);
                 },
                 start(prepared, page) {
-                    const renderOptions = {
+                    const hiddenAnnotationIds = toPdfjsHiddenAnnotationIds(options.hiddenAnnotationIds);
+                    return page.render({
                         annotationMode: AnnotationMode?.ENABLE_STORAGE ?? AnnotationMode?.ENABLE_FORMS ?? 1,
                         canvas: prepared.canvas,
                         canvasContext: prepared.context,
                         viewport: prepared.viewport,
-                    };
-                    if (options.hiddenAnnotationIds.size === 0) {
-                        return page.render(renderOptions);
-                    }
-                    const filter = createRenderTaskHiddenAnnotationOperationsFilter(options.hiddenAnnotationIds);
-                    const task = page.render({
-                        ...renderOptions,
-                        operationsFilter: filter.filter,
-                    });
-                    if (filter.bindTask(task)) {
-                        return task;
-                    }
-                    // Without the operator list nothing can be left out
-                    // selectively, so drop every annotation rather than show a
-                    // deleted one.
-                    task.cancel();
-                    return page.render({
-                        ...renderOptions,
-                        annotationMode: AnnotationMode?.DISABLE ?? 0,
+                        ...(hiddenAnnotationIds ? {hiddenAnnotationIds} : {}),
                     });
                 },
                 commit(prepared) {

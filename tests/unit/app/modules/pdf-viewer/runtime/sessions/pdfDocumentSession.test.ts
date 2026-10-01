@@ -1890,7 +1890,6 @@ describe('PdfDocumentSession range loading', () => {
             events.push('render-cancel');
         });
         const renderTask: IPdfRenderTask = {
-            _internalRenderTask: null,
             cancel,
             imageCoordinates: null,
             onContinue: vi.fn(),
@@ -2000,7 +1999,6 @@ describe('PdfDocumentSession range loading', () => {
                 id: 'viewport',
                 prepare: async () => ({}),
                 start: () => ({
-                    _internalRenderTask: null,
                     cancel: vi.fn(),
                     imageCoordinates: null,
                     onContinue: vi.fn(),

@@ -5,7 +5,7 @@ import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine
 import type { MaybeRefOrGetter } from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
+import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
@@ -219,35 +219,27 @@ export const usePdfCanvasRenderer = (deps: {
             options?.contentIntent === 'canvas-only-buffer'
             || options?.contentIntent === 'canvas-only-refine'
         ) {
-            const hiddenAnnotationFilter = options.hiddenAnnotationIds && options.hiddenAnnotationIds.size > 0
-                ? createRenderTaskHiddenAnnotationOperationsFilter(options.hiddenAnnotationIds)
-                : null;
             return {
                 annotationCanvasMap: null,
                 // Buffer and refinement canvases have no annotation layer to
                 // receive PDF.js appearance canvases. Keep annotations in the
                 // committed raster so foreign appearances remain visible.
                 annotationMode: AnnotationMode.ENABLE_FORMS,
-                hiddenAnnotationFilter,
+                hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(options.hiddenAnnotationIds),
             };
         }
         if (toValue(deps.annotationProjectionReady ?? true) === false) {
             return {
                 annotationCanvasMap: null,
                 annotationMode: AnnotationMode?.DISABLE ?? 0,
-                hiddenAnnotationFilter: null,
+                hiddenAnnotationIds: undefined,
             };
         }
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
-        const annotationMode = AnnotationMode.ENABLE_FORMS;
-        const hiddenAnnotationFilter = options?.hiddenAnnotationIds && options.hiddenAnnotationIds.size > 0
-            ? createRenderTaskHiddenAnnotationOperationsFilter(options.hiddenAnnotationIds)
-            : null;
-
         return {
             annotationCanvasMap,
-            annotationMode,
-            hiddenAnnotationFilter,
+            annotationMode: AnnotationMode.ENABLE_FORMS,
+            hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(options?.hiddenAnnotationIds),
         };
     }
 
@@ -349,33 +341,12 @@ export const usePdfCanvasRenderer = (deps: {
             ...(annotationOptions.annotationCanvasMap
                 ? {annotationCanvasMap: annotationOptions.annotationCanvasMap}
                 : {}),
+            ...(annotationOptions.hiddenAnnotationIds
+                ? {hiddenAnnotationIds: annotationOptions.hiddenAnnotationIds}
+                : {}),
         };
 
-        const startRender = () => {
-            if (!annotationOptions.hiddenAnnotationFilter) {
-                return pdfPage.render(renderContext);
-            }
-
-            const guardedTask = pdfPage.render({
-                ...renderContext,
-                operationsFilter: annotationOptions.hiddenAnnotationFilter.filter,
-            });
-            if (annotationOptions.hiddenAnnotationFilter.bindTask(guardedTask)) {
-                return guardedTask;
-            }
-
-            // Without the private task operator list, selective suppression cannot
-            // be trusted. Cancel the guarded render and fail closed by disabling
-            // every annotation appearance for this canvas.
-            // This discarded task still rejects when cancelled. Observe that
-            // settlement while the caller awaits the replacement render.
-            void guardedTask.promise.catch(() => undefined);
-            guardedTask.cancel();
-            return pdfPage.render({
-                ...renderContext,
-                annotationMode: AnnotationMode?.DISABLE ?? 0,
-            });
-        };
+        const startRender = () => pdfPage.render(renderContext);
 
         return {
             canvas,
