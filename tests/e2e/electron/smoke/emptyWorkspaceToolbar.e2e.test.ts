@@ -1,5 +1,5 @@
 import {
-    describe, expect, it,
+    describe, expect, it, onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
@@ -8,6 +8,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {Page} from 'puppeteer-core';
 import {mkdtempSync} from 'node:fs';
+import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
@@ -55,6 +56,10 @@ describe('empty workspace toolbar contract', () => {
         ]);
         const empty = await readToolbar(session.page);
         const evidence = mkdtempSync(join(tmpdir(), 'evb-e2e-empty-toolbar-'));
+        onTestFinished(() => rm(evidence, {
+            recursive: true,
+            force: true,
+        }));
         await session.page.screenshot({path: join(evidence, 'empty-workspace.png')});
 
         const pdfPath = await createMultiPageTextFixturePdf(`empty-toolbar-${Date.now()}.pdf`, 2);

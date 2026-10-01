@@ -9,7 +9,7 @@ import {
     join, resolve,
 } from 'node:path';
 import {
-    describe, expect, it,
+    describe, expect, it, onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -26,7 +26,12 @@ describe('DjVu converted bookmark destinations', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-bookmark-destinations-${Date.now()}`});
 
     it('preserves component-ID bookmark targets in the saved PDF and navigates after reopening', async () => {
-        const outputPath = join(mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-bookmarks-')), 'converted.pdf');
+        const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-bookmarks-'));
+        onTestFinished(() => rm(outputDirectory, {
+            recursive: true,
+            force: true,
+        }));
+        const outputPath = join(outputDirectory, 'converted.pdf');
         const session = await sessions.restart({
             clean: true,
             sessionName: () => `e2e-djvu-bookmark-destinations-${Date.now()}`,
@@ -128,6 +133,5 @@ describe('DjVu converted bookmark destinations', () => {
             await expect.poll(async () => (await readToolbarPageIndicator(session.page)).renderedPage, {timeout: 15_000}).toBe(pageNumber);
             expect((await readToolbarPageIndicator(session.page)).renderedPage).toBe(pageNumber);
         }
-        await rm(outputPath, {force: true});
     }, 420_000);
 });
