@@ -751,7 +751,7 @@ describe('shared PDF split', () => {
         const [sourcePane] = await paneIds(page);
         await numberPagesWithPrefix(page, sourcePane!, 'Q-');
 
-        // The new view is in use before its own PDF.js document has loaded.
+        // The new view is in use before it has presented the document.
         await splitActiveTabFromTabMenu(page, 'right');
         const [
             , rightPane,

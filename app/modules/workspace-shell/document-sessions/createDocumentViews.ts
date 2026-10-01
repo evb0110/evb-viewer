@@ -91,8 +91,8 @@ export const createDocumentViews = () => {
             viewPorts.value = next;
         };
     }
-    // Metadata is read from a view that has the document loaded, the one in
-    // use first: a view still loading its PDF.js document shows the same one.
+    // Metadata is read from a view that shows the document, the one in use
+    // first: a view still presenting it shows the same document.
     const loadedView = computed(() => (
         commandView.value?.view.pdfDocument.value
             ? commandView.value
