@@ -61,10 +61,9 @@ export const usePageLabelState = (deps: {
     let lastResolvedDocument: IPdfDocument | null = null;
     let lastResolvedPath: TDocumentRef | null = null;
 
-    // Every view of a working copy holds its own PDF.js document, and the
-    // document in use follows the view in use. The labels belong to the bytes:
-    // the working-copy revision a document was loaded from when there is one,
-    // otherwise the PDF.js document itself.
+    // The labels belong to the bytes: the working-copy revision the PDF.js
+    // document was loaded from when there is one, otherwise the document
+    // itself.
     function loadedRevisionOf(doc: IPdfDocument) {
         const current = documentRevisionToken?.value ?? null;
         return readPdfDocumentLoadedRevision(doc) ?? (current === null ? null : String(current));
@@ -74,8 +73,8 @@ export const usePageLabelState = (deps: {
         const revision = doc ? loadedRevisionOf(doc) : null;
         return doc && path !== null && revision !== null ? `${path}\n${revision}` : doc;
     }
-    // A save that rewrites the working copy in place keeps every view's PDF.js
-    // document; theirs are then older bytes than the labels in hand.
+    // A save that rewrites the working copy in place keeps the PDF.js
+    // document; it then holds older bytes than the labels in hand.
     function holdsOlderBytes(doc: IPdfDocument) {
         const current = documentRevisionToken?.value ?? null;
         return current !== null && loadedRevisionOf(doc) !== String(current);
@@ -287,10 +286,10 @@ export const usePageLabelState = (deps: {
     watch(
         pdfDocument,
         (doc) => {
-            // A view switch changes the PDF.js document, not the bytes: the
-            // labels read from them, and any edit made since, stay. A view
-            // still loading its PDF.js document, or holding one of older
-            // bytes, shows the same working copy.
+            // A view switch does not change the bytes: the labels read from
+            // them, and any edit made since, stay. A view still presenting
+            // the document, or a document of older bytes, shows the same
+            // working copy.
             if ((!doc && isWorkingCopyRevisionKnown()) || (doc && holdsOlderBytes(doc))) {
                 return;
             }

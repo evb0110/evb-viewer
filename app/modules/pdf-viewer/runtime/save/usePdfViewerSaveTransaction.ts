@@ -34,7 +34,7 @@ import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 
@@ -58,7 +58,7 @@ interface IUsePdfViewerSaveTransactionOptions {
     annotationUiManager?: ShallowRef<AnnotationEditorUIManager | null>;
     annotationApplication?: ShallowRef<AnnotationApplication>;
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
-    documentSession?: Pick<TPdfDocumentSession, 'captureFence' | 'isCurrent'>;
+    documentSession?: Pick<TPdfDocumentView, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
     commitPendingEditorDraftsForSave?: () => void;
     getPdfDocument?: () => IPdfDocument | null;

@@ -1,12 +1,12 @@
 import type {Ref} from 'vue';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {runGuardedTask} from '@app/utils/asyncGuard';
 import {tryOnScopeDispose} from '@vueuse/core';
 
 export function createPdfAnnotationOwnershipRefreshWatch(options: {
-    documentSession: TPdfDocumentSession;
+    documentSession: TPdfDocumentView;
     viewport: TPdfViewportSession;
     rendering: TPdfRenderingSession;
     storeOwnedPdfAnnotationIds: Ref<ReadonlySet<string>>;

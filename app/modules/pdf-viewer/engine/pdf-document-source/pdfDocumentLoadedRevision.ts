@@ -1,8 +1,8 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 
-// Every view of a working copy loads its own PDF.js document, and a save
-// that rewrites the file in place mints a new revision without replacing
-// them. The revision each document was loaded from tells its bytes apart.
+// A save that rewrites the working copy in place mints a new revision but
+// keeps the PDF.js document every view shows, which still holds the older
+// bytes. The revision the document was loaded from tells them apart.
 const loadedRevisions = new WeakMap<IPdfDocument, string>();
 
 export function recordPdfDocumentLoadedRevision(document: IPdfDocument, revision: string | null) {

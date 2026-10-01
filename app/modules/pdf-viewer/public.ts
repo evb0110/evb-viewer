@@ -26,6 +26,10 @@ export {
     pdfDocumentAnnotationsKey,
     type TPdfDocumentAnnotations,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+export {
+    createPdfDocumentSessionSlot,
+    pdfDocumentSessionSlotKey,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 export type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';

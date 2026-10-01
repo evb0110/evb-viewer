@@ -10,7 +10,7 @@ import type {
 } from 'vue';
 import type {
     IPdfDocumentFence,
-    TPdfDocumentSession,
+    TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
@@ -46,7 +46,7 @@ export interface IPdfRendererSearchNavigationOptions {
 
 export interface IUsePdfPageRendererOptions {
     container: Ref<HTMLElement | null>;
-    document: TPdfDocumentSession;
+    document: TPdfDocumentView;
     viewport: TPdfViewportSession;
     viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     isActive?: MaybeRefOrGetter<boolean>;

@@ -599,7 +599,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
     pageMatches: TReadableRef<unknown>;
     pdfRasterDisplayProfile: TReadableRef<TPdfRasterDisplayProfile | null>;
-    pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
@@ -670,7 +669,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 sourceKind: 'pdf',
                 rendererKind: 'pdfjs',
                 src: options.pdfSrc.value,
-                reloadSrc: options.pdfReloadSrc.value,
                 rasterDisplayProfile: options.pdfRasterDisplayProfile.value,
                 sourcePdfData: options.sourcePdfData.value,
                 isAnySaving: options.isAnySaving.value,
