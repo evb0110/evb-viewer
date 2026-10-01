@@ -1,0 +1,21 @@
+tests/unit/electron/pdfEmbeddedShapeIndex.test.ts
+  s_bf66933ca7b2e8::t_cd7a3b0f395af5 276-305
+packages/contracts/pdfEmbeddedShapeIndexSchemas.ts
+  s_bf66933ca7b2e8::t_6c81cf74fd6ec5 226
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "03f633973034ffc9ee674624d9f150f4f9f60753",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
