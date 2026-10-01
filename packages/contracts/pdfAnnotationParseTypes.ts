@@ -16,7 +16,6 @@ import type {
     TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseSchemas';
 
-export const PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES = 512 * 1024;
 export const PDF_ANNOTATION_PARSE_MAX_LINE_BYTES = 4 * 1024 * 1024;
 export const PDF_ANNOTATION_PARSE_MAX_ENTRIES = 100_000;
 

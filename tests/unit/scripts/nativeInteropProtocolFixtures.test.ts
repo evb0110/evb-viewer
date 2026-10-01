@@ -6,23 +6,20 @@ import {
     it,
 } from 'vitest';
 import {normalizePdfNativeMutationSet} from '@pdf-core';
-import {PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
-import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
-import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
+import {
+    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
+    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+} from '@contracts/pdfAnnotationParseTypes';
+import {
+    PDF_ANNOTATION_PARSE_ENTRY_SCHEMA,
+    PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA,
+} from '@contracts/pdfAnnotationParseSchemas';
 import * as v from 'valibot';
 
+// The fixture is the sidecar's header line merged with its first chunk.
 const annotationParseFixtureSchema = v.pipe(
     v.strictObject({
-        format: v.literal('evb-pdf-annotation-parse'),
-        schemaVersion: v.literal(1),
-        pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-        chunkBytes: v.pipe(
-            v.number(),
-            v.safeInteger(),
-            v.minValue(64),
-            v.maxValue(PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
-                `annotation parse fixture chunkBytes must be at most ${PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES}`),
-        ),
+        ...PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries,
         chunkIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
         entries: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
     }, 'contains unsupported field'),
@@ -89,7 +86,6 @@ describe('native interop golden protocol fixtures', () => {
 
         expect(fixture.format).toBe('evb-pdf-annotation-parse');
         expect(fixture.schemaVersion).toBe(1);
-        expect(fixture.chunkBytes).toBeLessThanOrEqual(PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES);
         expect(fixture.entries.map(entry => entry.kind)).toEqual([
             'text-box',
             'note',
@@ -159,7 +155,8 @@ describe('native interop golden protocol fixtures', () => {
         expect(() => v.parse(annotationParseFixtureSchema, withUnknownField, {abortEarly: true})).toThrow(/unsupported field/iu);
 
         const oversizedChunk = JSON.parse(source) as Record<string, unknown>;
-        oversizedChunk.chunkBytes = PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES + 1;
-        expect(() => v.parse(annotationParseFixtureSchema, oversizedChunk, {abortEarly: true})).toThrow(/chunkBytes/iu);
+        oversizedChunk.chunkBytes = PDF_ANNOTATION_PARSE_MAX_LINE_BYTES + 1;
+        const oversized = v.safeParse(annotationParseFixtureSchema, oversizedChunk, {abortEarly: true});
+        expect(oversized.success ? 'accepted' : v.summarize(oversized.issues)).toMatch(/chunkBytes/u);
     });
 });
