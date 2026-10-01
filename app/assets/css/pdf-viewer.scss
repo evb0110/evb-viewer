@@ -632,28 +632,6 @@
     /* stylelint-enable declaration-no-important */
 }
 
-html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode .annotation-editor-layer:has(.freeTextEditor.selectedEditor),
-html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode .annotationEditorLayer:has(.freeTextEditor.selectedEditor),
-html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .annotation-editor-layer:has(.freeTextEditor.selectedEditor),
-html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .annotationEditorLayer:has(.freeTextEditor.selectedEditor) {
-    /* stylelint-disable declaration-no-important -- css-important-allow: selected FreeText resizing must override the text-selection layer lock only while an editor is selected. */
-    pointer-events: auto !important;
-    /* stylelint-enable declaration-no-important */
-}
-
-html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .text-layer,
-html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .textLayer,
-html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .text-layer,
-html.pdf-resizing-nwse .pdfViewer.is-text-selection-mode .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .textLayer,
-html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .text-layer,
-html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .page_container:has(.annotation-editor-layer .freeTextEditor.selectedEditor) .textLayer,
-html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .text-layer,
-html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .page_container:has(.annotationEditorLayer .freeTextEditor.selectedEditor) .textLayer {
-    /* stylelint-disable declaration-no-important -- css-important-allow: the selected editor must win hit testing over the text-selection overlay during resize. */
-    pointer-events: none !important;
-    /* stylelint-enable declaration-no-important */
-}
-
 .pdfViewer.is-selection-markup-tool .text-layer,
 .pdfViewer.is-selection-markup-tool .textLayer,
 .pdfViewer.is-text-selection-mode .text-layer,

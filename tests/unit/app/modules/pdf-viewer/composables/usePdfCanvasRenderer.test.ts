@@ -126,7 +126,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
             annotationMode: AnnotationMode.ENABLE_FORMS,
-            operationsFilter: expect.any(Function),
+            hiddenAnnotationIds: new Set(['hidden']),
             canvas,
         }));
         // Vitest records PDF.js render options as an untyped mock argument.
@@ -360,188 +360,33 @@ describe('usePdfCanvasRenderer', () => {
         expect(annotationCanvas.remove).toHaveBeenCalled();
     });
 
-    it('filters hidden annotation appearance ops out of the page canvas render', async () => {
+    // PDF.js matches hiddenAnnotationIds against the ids getAnnotations()
+    // reports, so every form the store holds reaches it in that one form.
+    it('asks PDF.js to leave the hidden annotations out, in its own id form', async () => {
         installCanvasDocument();
-        const standaloneOperatorList = {
-            fnArray: [
-                80,
-                999,
-                81,
-                80,
-                999,
-                81,
-            ],
-            argsArray: [
-                ['keep-me'],
-                [],
-                [],
-                ['12R'],
-                [],
-                [],
-            ],
-        };
-        const renderOperatorList = {
-            fnArray: [
-                80,
-                999,
-                81,
-                80,
-                999,
-                81,
-            ],
-            argsArray: [
-                ['12R'],
-                [],
-                [],
-                ['keep-me'],
-                [],
-                [],
-            ],
-        };
-        let filteredIndices: boolean[] | undefined;
-        const render = vi.fn((context: { operationsFilter?: (index: number) => boolean; }) => {
-            const task = {
-                cancel: vi.fn(),
-                promise: Promise.resolve().then(() => {
-                    filteredIndices = renderOperatorList.fnArray.map((_, index) => context.operationsFilter?.(index) ?? true);
-                }),
-                _internalRenderTask: {operatorList: renderOperatorList},
-            };
-            return task;
-        });
-        const pdfPage = createPdfPage({
-            pageNumber: 3,
-            getOperatorList: vi.fn(async () => standaloneOperatorList),
-            render,
-        });
-
-        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-        await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R0']) });
-
-        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
-        expect(render).toHaveBeenCalledOnce();
-        expect(filteredIndices).toEqual([
-            false,
-            false,
-            false,
-            true,
-            true,
-            true,
-        ]);
-    });
-
-    it('recomputes the hidden annotation operations filter for changed page state', async () => {
-        installCanvasDocument();
-        const renderedOperatorLists = [
-            {
-                fnArray: [
-                    80,
-                    999,
-                    81,
-                    80,
-                    999,
-                    81,
-                ],
-                argsArray: [
-                    ['keep-me'],
-                    [],
-                    [],
-                    ['12R'],
-                    [],
-                    [],
-                ],
-            },
-            {
-                fnArray: [
-                    80,
-                    999,
-                    81,
-                ],
-                argsArray: [
-                    ['12R'],
-                    [],
-                    [],
-                ],
-            },
-        ];
-        const filteredIndices: boolean[][] = [];
-        const render = vi.fn((context: { operationsFilter?: (index: number) => boolean; }) => {
-            const operatorList = renderedOperatorLists.shift();
-            if (!operatorList) {
-                throw new Error('Expected a render operator list');
-            }
-            return {
-                cancel: vi.fn(),
-                promise: Promise.resolve().then(() => {
-                    filteredIndices.push(operatorList.fnArray.map((_, index) => context.operationsFilter?.(index) ?? true));
-                }),
-                _internalRenderTask: {operatorList},
-            };
-        });
-        const pdfPage = createPdfPage({
-            pageNumber: 2,
-            getOperatorList: vi.fn(async () => ({
-                fnArray: [],
-                argsArray: [],
-            })),
-            render,
-        });
-        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-
-        await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R0']) });
-        await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R']) });
-
-        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
-        expect(render).toHaveBeenCalledTimes(2);
-        expect(filteredIndices).toEqual([
-            [
-                true,
-                true,
-                true,
-                false,
-                false,
-                false,
-            ],
-            [
-                false,
-                false,
-                false,
-            ],
-        ]);
-    });
-
-    it('cancels the guarded render and disables annotation appearances when task binding is unavailable', async () => {
-        installCanvasDocument();
-        let rejectGuarded!: (reason: Error) => void;
-        const guardedTask = {
-            cancel: vi.fn(() => rejectGuarded(new Error('Rendering cancelled'))),
-            promise: new Promise<void>((_resolve, reject) => { rejectGuarded = reject; }),
-        };
-        const fallbackTask = {
+        const pdfPage = createPdfPage({render: vi.fn(() => ({
             cancel: vi.fn(),
             promise: Promise.resolve(),
-        };
-        let renderCount = 0;
-        const render = vi.fn((_context: {
-            annotationMode: number;
-            operationsFilter?: (index: number) => boolean
-        }) => {
-            renderCount += 1;
-            return renderCount === 1 ? guardedTask : fallbackTask;
-        });
-        const pdfPage = createPdfPage({render});
+        }))});
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
 
-        await renderer.renderCanvas(pdfPage as never, 1, { hiddenAnnotationIds: new Set(['12R']) });
+        await renderer.renderCanvas(pdfPage as never, 1, {hiddenAnnotationIds: new Set([
+            '12R0',
+            '7 0 R',
+            '',
+        ])});
+        await renderer.renderCanvas(pdfPage as never, 1, {hiddenAnnotationIds: new Set()});
 
-        expect(render).toHaveBeenCalledTimes(2);
-        expect(guardedTask.cancel).toHaveBeenCalledOnce();
-        expect(render.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+        expect(pdfPage.render).toHaveBeenCalledTimes(2);
+        const renderContexts = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls);
+        expect(renderContexts[0]?.[0]).toEqual(expect.objectContaining({
             annotationMode: AnnotationMode.ENABLE_FORMS,
-            operationsFilter: expect.any(Function),
+            hiddenAnnotationIds: new Set([
+                '12R',
+                '7R',
+            ]),
         }));
-        expect(render.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ annotationMode: AnnotationMode.DISABLE }));
-        expect(render.mock.calls[1]?.[0]).not.toHaveProperty('operationsFilter');
+        expect(renderContexts[1]?.[0]).not.toHaveProperty('hiddenAnnotationIds');
     });
 
     it('does not allocate a canvas when preparation is aborted', async () => {

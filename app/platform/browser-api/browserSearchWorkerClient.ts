@@ -1,16 +1,14 @@
 import type {
     IBrowserSearchWorkerRequest,
     IBrowserSearchWorkerRequestMap,
-    IBrowserSearchWorkerProgress,
     IBrowserSearchWorkerResultMap,
-    TBrowserSearchWorkerRequestType,IBrowserSearchWorkerPageRecord,
+    TBrowserSearchWorkerRequestType,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import {
     BROWSER_SEARCH_WORKER_ERROR_RESPONSE_SCHEMA,
-    BROWSER_SEARCH_WORKER_PAGE_RESPONSE_SCHEMA,
-    BROWSER_SEARCH_WORKER_PROGRESS_RESPONSE_SCHEMA,
     BROWSER_SEARCH_WORKER_RESPONSE_STATUS_SCHEMA,
     BROWSER_SEARCH_WORKER_RESULT_SCHEMAS,
+    BROWSER_SEARCH_WORKER_STARTED_RESPONSE_SCHEMA,
     BROWSER_SEARCH_WORKER_SUCCESS_RESPONSE_SCHEMA,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -30,17 +28,16 @@ interface IPendingWorkerRequest {
     resolveData: (data: unknown) => boolean;
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
-    onProgress?: TBrowserSearchWorkerProgressHandler;
-    onPage?: (page: IBrowserSearchWorkerPageRecord) => void;
+    matchTimeoutMs?: number;
 }
 
-type TBrowserSearchWorkerProgressHandler = (progress: IBrowserSearchWorkerProgress) => void;
-
-interface IBrowserSearchWorkerRequestOptions {
-    onProgress?: TBrowserSearchWorkerProgressHandler;
-    timeoutMs?: number;
-    resetWorkerOnTimeout?: boolean;
-}
+/**
+ * `matchTimeoutMs` bounds the match from the moment the worker reports it
+ * started, so a cold worker's start-up is not counted, and terminates the
+ * worker when the bound passes: a running regular expression cannot be
+ * interrupted.
+ */
+interface IBrowserSearchWorkerRequestOptions {matchTimeoutMs?: number;}
 
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS = 60_000;
@@ -112,30 +109,12 @@ function getSearchWorkerResponseId(response: unknown) {
         : null;
 }
 
-function parseSearchWorkerProgress(
-    response: unknown,
-    expectedType: TBrowserSearchWorkerRequestType,
-): Parameters<TBrowserSearchWorkerProgressHandler>[0] | null {
-    const result = v.safeParse(BROWSER_SEARCH_WORKER_PROGRESS_RESPONSE_SCHEMA, response, {abortEarly: true});
-    return result.success && result.output.type === expectedType
-        ? result.output.progress
-        : null;
-}
-
-function parseSearchWorkerPage(
-    response: unknown,
-    expectedType: TBrowserSearchWorkerRequestType,
-): IBrowserSearchWorkerPageRecord | null {
-    const result = v.safeParse(BROWSER_SEARCH_WORKER_PAGE_RESPONSE_SCHEMA, response, {abortEarly: true});
-    return result.success && result.output.type === expectedType ? result.output.page : null;
-}
-
 function decodeSearchWorkerResult<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     data: unknown,
 ): IBrowserSearchWorkerResultMap[K] | null {
     const result = v.safeParse(BROWSER_SEARCH_WORKER_RESULT_SCHEMAS[type], data, {abortEarly: true});
-    return result.success ? result.output as IBrowserSearchWorkerResultMap[K] : null;
+    return result.success ? result.output : null;
 }
 
 function settleSearchWorkerResponse(
@@ -153,15 +132,15 @@ function settleSearchWorkerResponse(
         return;
     }
 
-    const progress = parseSearchWorkerProgress(response, pending.requestType);
-    if (progress) {
-        pending.onProgress?.(progress);
-        return;
-    }
-
-    const page = parseSearchWorkerPage(response, pending.requestType);
-    if (page) {
-        pending.onPage?.(page);
+    if (v.is(BROWSER_SEARCH_WORKER_STARTED_RESPONSE_SCHEMA, response)) {
+        const matchTimeoutMs = pending.matchTimeoutMs;
+        if (matchTimeoutMs !== undefined) {
+            browserSearchWorkerClient.restartRequestTimeout(
+                responseId,
+                () => createMatchTimeoutError(matchTimeoutMs),
+                matchTimeoutMs,
+            );
+        }
         return;
     }
 
@@ -200,6 +179,14 @@ function settleSearchWorkerResponse(
     scheduleIdleWorkerTermination();
 }
 
+function createMatchTimeoutError(timeoutMs: number) {
+    const timeoutError = reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
+        `Browser search worker match timed out after ${timeoutMs}ms`,
+    ));
+    browserSearchWorkerClient.resetWorker(timeoutError);
+    return timeoutError;
+}
+
 export function canUseBrowserSearchWorker() {
     return canUseBrowserWorker();
 }
@@ -225,7 +212,7 @@ const browserSearchWorkerClient = new BrowserWorkerClient<IPendingWorkerRequest>
     handleMessage: settleSearchWorkerResponse,
 });
 
-function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
+export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     payload: IBrowserSearchWorkerRequestMap[K],
     options: IBrowserSearchWorkerRequestOptions = {},
@@ -245,6 +232,7 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
         new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
             browserSearchWorkerClient.registerPendingRequest(request.id, {
                 requestType: type,
+                ...(options.matchTimeoutMs === undefined ? {} : {matchTimeoutMs: options.matchTimeoutMs}),
                 resolveData: (value) => {
                     const decoded = decodeSearchWorkerResult(type, value);
                     if (!decoded) {
@@ -254,17 +242,9 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
                     return true;
                 },
                 reject: error => reject(reportWorkerFailure(error)),
-                ...(options.onProgress ? {onProgress: options.onProgress} : {}),
-            }, () => {
-                const timeoutMs = options.timeoutMs ?? BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS;
-                const timeoutError = reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
-                    `Browser search worker request timed out after ${timeoutMs}ms`,
-                ));
-                if (options.resetWorkerOnTimeout) {
-                    browserSearchWorkerClient.resetWorker(timeoutError);
-                }
-                return timeoutError;
-            }, options.timeoutMs);
+            }, () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
+                `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
+            )));
 
             try {
                 worker.postMessage(request);
@@ -282,238 +262,16 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
     };
 }
 
-export interface IBrowserSearchWorkerPageStream {
-    requestId: number;
-    pages: AsyncIterable<IBrowserSearchWorkerPageRecord>;
-    promise: Promise<IBrowserSearchWorkerResultMap['streamDocumentText']>;
-}
-
-function createPageStreamQueue(
-    onPageConsumed: () => void,
-    onStreamClosed: () => void,
-) {
-    const pendingPages: IBrowserSearchWorkerPageRecord[] = [];
-    const pendingReads: Array<{
-        resolve: (result: IteratorResult<IBrowserSearchWorkerPageRecord>) => void;
-        reject: (error: Error) => void;
-    }> = [];
-    let completed = false;
-    let failure: Error | null = null;
-
-    const fail = (error: Error) => {
-        if (completed || failure) {
-            return;
-        }
-        failure = error;
-        pendingPages.length = 0;
-        pendingReads.splice(0).forEach(read => read.reject(error));
-    };
-
-    const finish = () => {
-        if (completed) {
-            return;
-        }
-        completed = true;
-        if (pendingPages.length === 0 && !failure) {
-            pendingReads.splice(0).forEach(read => read.resolve({
-                done: true,
-                value: undefined,
-            }));
-        }
-    };
-
-    const acknowledgeConsumedPage = () => {
-        try {
-            onPageConsumed();
-        } catch (error) {
-            fail(error instanceof Error ? error : new Error(String(error)));
-            onStreamClosed();
-        }
-    };
-
-    const push = (page: IBrowserSearchWorkerPageRecord) => {
-        if (completed || failure) {
-            return;
-        }
-        const read = pendingReads.shift();
-        if (read) {
-            acknowledgeConsumedPage();
-            read.resolve({
-                done: false,
-                value: page,
-            });
-            return;
-        }
-        if (pendingPages.length > 0) {
-            fail(new Error('Browser search worker exceeded the page stream buffer'));
-            return;
-        }
-        pendingPages.push(page);
-    };
-
-    const next = (): Promise<IteratorResult<IBrowserSearchWorkerPageRecord>> => {
-        const page = pendingPages.shift();
-        if (page) {
-            acknowledgeConsumedPage();
-            return Promise.resolve({
-                done: false,
-                value: page,
-            });
-        }
-        if (failure) {
-            return Promise.reject(failure);
-        }
-        if (completed) {
-            return Promise.resolve({
-                done: true,
-                value: undefined,
-            });
-        }
-        if (pendingReads.length > 0) {
-            return Promise.reject(new Error('Browser search worker page reads must be consumed serially'));
-        }
-        return new Promise((resolve, reject) => pendingReads.push({
-            resolve,
-            reject,
-        }));
-    };
-
-    const iterator: AsyncIterableIterator<IBrowserSearchWorkerPageRecord> = {
-        next,
-        return: () => {
-            if (!completed && !failure) {
-                onStreamClosed();
-            }
-            finish();
-            return Promise.resolve({
-                done: true,
-                value: undefined,
-            });
-        },
-        [Symbol.asyncIterator]() {
-            return this;
-        },
-    };
-
-    return {
-        iterator,
-        push,
-        fail,
-        finish,
-    };
-}
-
-export function createBrowserSearchWorkerPageStreamRequest(
-    payload: IBrowserSearchWorkerRequestMap['streamDocumentText'],
-): IBrowserSearchWorkerPageStream {
-    const request: IBrowserSearchWorkerRequest<'streamDocumentText'> = {
-        id: browserSearchWorkerClient.createRequestId(),
-        type: 'streamDocumentText',
-        payload,
-    };
-    const worker = browserSearchWorkerClient.getWorker();
-    const pageQueue = createPageStreamQueue(
-        () => {
-            const acknowledgeRequest: IBrowserSearchWorkerRequest<'acknowledgePage'> = {
-                id: browserSearchWorkerClient.createRequestId(),
-                type: 'acknowledgePage',
-                payload: {requestId: request.id},
-            };
-            try {
-                worker.postMessage(acknowledgeRequest);
-            } catch (error) {
-                throw reportWorkerFailure(error instanceof Error ? error : new Error(String(error)));
-            }
-        },
-        () => cancelBrowserSearchWorkerRequest(request.id),
-    );
-    const promise = new Promise<IBrowserSearchWorkerResultMap['streamDocumentText']>((resolve, reject) => {
-        browserSearchWorkerClient.registerPendingRequest(request.id, {
-            requestType: request.type,
-            resolveData: (value) => {
-                const decoded = decodeSearchWorkerResult(request.type, value);
-                if (!decoded) {
-                    return false;
-                }
-                pageQueue.finish();
-                resolve(decoded);
-                return true;
-            },
-            reject: (error) => {
-                pageQueue.fail(error);
-                reject(reportWorkerFailure(error));
-            },
-            onPage: pageQueue.push,
-        }, () => reportWorkerFailure(new BrowserSearchWorkerRequestError(
-            `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
-        )));
-
-        try {
-            worker.postMessage(request);
-        } catch (error) {
-            browserSearchWorkerClient.cancelPendingRequest(
-                request.id,
-                reportWorkerFailure(new BrowserSearchWorkerRequestError(getErrorMessage(error))),
-            );
-        }
-    });
-
-    return {
-        requestId: request.id,
-        pages: pageQueue.iterator,
-        promise,
-    };
-}
-
-export function runBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
-    type: K,
-    payload: IBrowserSearchWorkerRequestMap[K],
-    options: IBrowserSearchWorkerRequestOptions = {},
-): Promise<IBrowserSearchWorkerResultMap[K]> {
-    return postBrowserSearchWorkerRequest(type, payload, options).promise;
-}
-
-export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
-    type: K,
-    payload: IBrowserSearchWorkerRequestMap[K],
-    options: IBrowserSearchWorkerRequestOptions = {},
-) {
-    return postBrowserSearchWorkerRequest(type, payload, options);
-}
-
+/**
+ * The worker answers a match synchronously, so a cancel cannot interrupt it
+ * there: the request is settled here, and `resetWorker` terminates a worker
+ * that is still running a long regular expression.
+ */
 export function cancelBrowserSearchWorkerRequest(
     requestId: number,
     options: {resetWorker?: boolean} = {},
 ) {
-    if (!browserSearchWorkerClient.hasPendingRequest(requestId)) {
-        return;
-    }
-
     const cancelError = new Error('ERR_BROWSER_SEARCH_CANCELED');
-    if (!browserSearchWorkerClient.hasWorker()) {
-        browserSearchWorkerClient.cancelPendingRequest(requestId, cancelError);
-        return;
-    }
-
-    try {
-        const cancelRequest: IBrowserSearchWorkerRequest<'cancel'> = {
-            id: browserSearchWorkerClient.createRequestId(),
-            type: 'cancel',
-            payload: { requestId },
-        };
-        browserSearchWorkerClient.getWorker().postMessage(cancelRequest);
-    } catch (error) {
-        browserSearchWorkerClient.cancelPendingRequest(
-            requestId,
-            cancelError,
-            {
-                resetWorker: true,
-                resetError: new BrowserSearchWorkerRequestError(getErrorMessage(error)),
-            },
-        );
-        return;
-    }
-
     browserSearchWorkerClient.cancelPendingRequest(
         requestId,
         cancelError,

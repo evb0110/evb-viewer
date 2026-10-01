@@ -105,8 +105,8 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             cleanupTextLayer(pageNumber);
         };
 
+        const controller = new AbortController();
         try {
-            const controller = new AbortController();
             activeTextLayerAbortControllers.set(pageNumber, {
                 version,
                 requestId,
@@ -170,6 +170,13 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     && (textLayerError as { name?: unknown }).name === 'AbortError'
                 )
             ) {
+                // A newer render of this page cancelled this one and already
+                // owns the shared text layer; cleaning it here would erase
+                // that render's work.
+                const owner = activeTextLayerAbortControllers.get(pageNumber);
+                if (owner && owner.controller !== controller) {
+                    return false;
+                }
                 clearPdfSelectionForLayerTeardown({
                     target: textLayerDiv,
                     root: container,

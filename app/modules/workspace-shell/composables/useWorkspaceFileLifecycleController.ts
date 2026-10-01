@@ -167,10 +167,7 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile({
-        getOpenSurface: options.getOpenSurface,
-        failureSurface: options.failureSurface,
-    });
+    } = usePdfFile({failureSurface: options.failureSurface});
 
     const {
         isDjvuMode,

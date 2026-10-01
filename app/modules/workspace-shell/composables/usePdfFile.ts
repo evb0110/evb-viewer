@@ -12,13 +12,9 @@ import {
     createDocumentSessionState,
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
-export interface IUsePdfFileOptions {
-    getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
-    failureSurface?: TWorkspaceFailureSurface | undefined;
-}
+export interface IUsePdfFileOptions {failureSurface?: TWorkspaceFailureSurface | undefined;}
 
 export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
     const { t } = useTypedI18n();
@@ -106,7 +102,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         ensureHistoryBaselineForMutation,
         incrementSessionVersion,
         loadEpoch,
-        getOpenSurface: options.getOpenSurface,
         ...(options.failureSurface?.reportOpenFailure
             ? {reportOpenFailure: options.failureSurface.reportOpenFailure}
             : {}),

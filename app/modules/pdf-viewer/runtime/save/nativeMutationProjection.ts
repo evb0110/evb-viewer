@@ -12,10 +12,7 @@ import {
     assertAnnotationBackendSemanticConformance,
     projectAnnotationBackendMutations,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
-import {
-    getPdfAnnotationIdFromStableKey,
-    parsePdfAnnotationStableKeyRef,
-} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     ISerializationPlan,
@@ -26,15 +23,12 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import {
-    mergeLivePdfJsAnnotationChanges,
-    type IPdfLiveAnnotationChangeSummary,
-} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {
     INativeAppendSaveRoute,
     TNativePdfMutationSaveMode,
 } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {
+    IPdfFrontierAnnotationChanges,
     IPdfSaveByteRouteDecision,
     IPdfSaveCanonicalInputs,
     IPdfViewerAnnotationSavePlan,
@@ -85,7 +79,6 @@ export interface IPdfSaveRouteCapabilities {
     readonly nativeCapabilities: IPdfViewerSaveTransactionNativeCapabilities | undefined;
     readonly dirtyState: IPdfViewerSaveTransactionDirtyState | undefined;
     readonly documentStructure: IPdfViewerSaveTransactionDocumentStructure | undefined;
-    readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     readonly hasLoadedSource: boolean;
     readonly forceWriterSave: boolean;
     readonly rewriteShapeState: boolean;
@@ -211,9 +204,9 @@ function isNewCanonicalStickyNoteEntity(entity: AnnotationEntity) {
         && !entity.identity.pdfRef;
 }
 
-function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnotationChangeSummary {
+function summarizeFrontierChanges(plan: ISerializationPlan): IPdfFrontierAnnotationChanges {
     const ids = new Set<string>();
-    const replayableEditorNoteIds = new Set<string>();
+    const noteIds = new Set<string>();
     const changedEntities = plan.expected.filter(isActuallyChangedEntity);
     changedEntities.forEach((entity) => {
         [
@@ -222,39 +215,14 @@ function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnota
         ].forEach((candidate) => {
             addReplayableAnnotationId(ids, candidate);
             if (entity.kind === 'note' || entity.kind === 'text-box') {
-                addReplayableAnnotationId(replayableEditorNoteIds, candidate);
+                addReplayableAnnotationId(noteIds, candidate);
             }
         });
     });
     return {
         ids,
-        replayableEditorNoteIds,
-        nativeFreeTextEditors: new Map(),
+        noteIds,
         hasChanges: changedEntities.length > 0,
-        hasUnknownChanges: false,
-        fingerprint: `frontier:${plan.frontier.epoch}:${plan.frontier.entityBaselineHash}:${Array.from(ids).sort().join(',')}`,
-    };
-}
-
-/**
- * The captured frontier and the live PDF.js editor session are two observations of
- * the same save work; routing consumes their union plus whatever the caller has
- * already declared dirty but PDF.js can no longer enumerate.
- */
-function resolveLiveAnnotationChanges(
-    plan: ISerializationPlan,
-    pdfjs: IPdfLiveAnnotationChangeSummary,
-    declaredLiveChanges: boolean,
-): IPdfLiveAnnotationChangeSummary {
-    const merged = mergeLivePdfJsAnnotationChanges(summarizeCanonicalLiveChanges(plan), pdfjs);
-    if (!declaredLiveChanges || merged.hasChanges) {
-        return merged;
-    }
-    return {
-        ...merged,
-        hasChanges: true,
-        hasUnknownChanges: true,
-        fingerprint: `${merged.fingerprint}|declared-live-pdfjs-changes`,
     };
 }
 
@@ -277,13 +245,6 @@ function addEmbeddedAnnotationIdFromStableKey(ids: Set<string>, stableKey: strin
     if (normalized) {
         ids.add(normalized);
     }
-}
-
-function addEditorRuntimeAnnotationIdFromStableKey(ids: Set<string>, stableKey: string) {
-    const trimmed = stableKey.trim();
-    const match = trimmed.match(/^(?:uid|editor):\d+:(.+)$/u)
-        ?? trimmed.match(/^src:editor:\d+:(.+)$/u);
-    addReplayableAnnotationId(ids, match?.[1]);
 }
 
 function addReplayableNativeEntityIds(
@@ -322,7 +283,7 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     comments: IAnnotationCommentSummary[];
     changedComments: IAnnotationCommentSummary[];
     replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
-    liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
+    frontierChanges: IPdfFrontierAnnotationChanges;
     nativeTextBoxes?: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
     shapes?: readonly IShapeAnnotation[] | null;
     deletedShapeAnnotationIds?: readonly string[];
@@ -343,7 +304,6 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     });
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
-        addEditorRuntimeAnnotationIdFromStableKey(ids, stableKey);
         const matchingComments = input.comments.filter(candidate => candidate.stableKey === stableKey);
         const [
             matchingComment,
@@ -361,7 +321,6 @@ function collectReplayableEmbeddedAnnotationIds(input: {
             comment.id,
         ].forEach(id => addReplayableAnnotationId(ids, id));
         addEmbeddedAnnotationIdFromStableKey(ids, comment.stableKey);
-        addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
     });
     input.comments
         .filter(comment => isReplayableEditorOnlyFreeTextNote(comment) || isReplayableCanonicalTextBox(comment))
@@ -371,14 +330,13 @@ function collectReplayableEmbeddedAnnotationIds(input: {
                 comment.uid,
                 comment.id,
             ].forEach(id => addReplayableAnnotationId(ids, id));
-            addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
         });
     input.changedComments
         .filter(comment => comment.source === 'shape')
         .forEach((comment) => {
             // Canonical shapes are projected by the native shape mutation
             // payload. Their canonical aliases must not make that payload look
-            // like unrelated PDF.js work.
+            // like work no native operation replays.
             addCommentIdentityAliases(ids, comment);
         });
     input.changedComments
@@ -397,11 +355,8 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         .forEach((comment) => {
             addCommentIdentityAliases(ids, comment);
         });
-    input.liveAnnotationChanges.nativeFreeTextEditors.forEach((_editor, id) => {
-        addReplayableAnnotationId(ids, id);
-    });
     if (ids.size > 0) {
-        input.liveAnnotationChanges.replayableEditorNoteIds.forEach((id) => {
+        input.frontierChanges.noteIds.forEach((id) => {
             addReplayableAnnotationId(ids, id);
         });
     }
@@ -439,11 +394,7 @@ function deriveCanonicalSaveInputs(
             pendingTexts.set(summary.stableKey, summary.text);
         }
     });
-    const liveAnnotationChanges = resolveLiveAnnotationChanges(
-        plan,
-        capabilities.liveAnnotationChanges,
-        false,
-    );
+    const frontierChanges = summarizeFrontierChanges(plan);
     const replayableCanonicalStickyNoteStableKeys = new Set(
         changedEntities
             .filter(isNewCanonicalStickyNoteEntity)
@@ -453,14 +404,14 @@ function deriveCanonicalSaveInputs(
         comments,
         pendingTexts,
         pendingDeletes,
-        liveAnnotationChanges,
+        frontierChanges,
         replayableEmbeddedAnnotationIds: collectReplayableEmbeddedAnnotationIds({
             pendingTexts,
             pendingDeletes,
             comments,
             changedComments,
             replayableCanonicalStickyNoteStableKeys,
-            liveAnnotationChanges,
+            frontierChanges,
             ...(capabilities.nativeTextBoxes === undefined
                 ? {}
                 : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
@@ -475,7 +426,7 @@ function deriveCanonicalSaveInputs(
 }
 
 function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnnotationSavePlan {
-    const live = canonical.liveAnnotationChanges;
+    const changes = canonical.frontierChanges;
     const hasPendingReplayableEmbeddedChanges = canonical.pendingTexts.size > 0
         || canonical.pendingDeletes.length > 0
         || canonical.replayableEmbeddedAnnotationIds.size > 0;
@@ -487,54 +438,45 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
         && !canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
     );
 
-    if (live.hasUnknownChanges) {
-        return {
-            route: 'writer-save',
-            expectedCost: 'full-document',
-            reason: 'unknown-live-pdfjs-annotation-storage',
-            unreplayableLiveAnnotationIds: [],
-        };
-    }
-
     if (hasPendingReplayableEmbeddedChanges && !hasEditorOnlyAnnotationsPendingMaterialization) {
         // Replayable sticky notes stay on the loaded-source writer route. The
         // native writer owns the append and no renderer rewrite is permitted.
-        if (!live.hasChanges) {
+        if (!changes.hasChanges) {
             return {
                 route: 'loaded-source',
                 expectedCost: 'full-document',
                 reason: 'pending-embedded-annotation-operations',
-                unreplayableLiveAnnotationIds: [],
+                unreplayableAnnotationIds: [],
             };
         }
 
-        const unreplayableLiveAnnotationIds = Array.from(live.ids)
+        const unreplayableAnnotationIds = Array.from(changes.ids)
             .filter(id => !canonical.replayableEmbeddedAnnotationIds.has(id));
-        if (unreplayableLiveAnnotationIds.length === 0 && live.ids.size > 0) {
+        if (unreplayableAnnotationIds.length === 0 && changes.ids.size > 0) {
             return {
                 route: 'loaded-source',
                 expectedCost: 'full-document',
-                reason: 'live-pdfjs-ids-covered-by-embedded-operations',
-                unreplayableLiveAnnotationIds,
+                reason: 'changed-annotation-ids-covered-by-embedded-operations',
+                unreplayableAnnotationIds,
             };
         }
 
-        if (unreplayableLiveAnnotationIds.length > 0) {
+        if (unreplayableAnnotationIds.length > 0) {
             return {
                 route: 'writer-save',
                 expectedCost: 'full-document',
-                reason: 'unreplayable-live-pdfjs-annotation-ids',
-                unreplayableLiveAnnotationIds,
+                reason: 'unreplayable-changed-annotation-ids',
+                unreplayableAnnotationIds,
             };
         }
     }
 
-    if (live.hasChanges) {
+    if (changes.hasChanges) {
         return {
             route: 'writer-save',
             expectedCost: 'full-document',
-            reason: 'live-pdfjs-annotation-storage',
-            unreplayableLiveAnnotationIds: Array.from(live.ids),
+            reason: 'changed-annotations-not-replayable',
+            unreplayableAnnotationIds: Array.from(changes.ids),
         };
     }
 
@@ -543,15 +485,15 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
             route: 'writer-save',
             expectedCost: 'full-document',
             reason: 'editor-only-annotations-pending-materialization',
-            unreplayableLiveAnnotationIds: [],
+            unreplayableAnnotationIds: [],
         };
     }
 
     return {
         route: 'source-clean',
         expectedCost: 'small',
-        reason: 'no-live-pdfjs-annotation-work',
-        unreplayableLiveAnnotationIds: [],
+        reason: 'no-annotation-work',
+        unreplayableAnnotationIds: [],
     };
 }
 
@@ -652,7 +594,6 @@ function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationComment
         comment.uid,
     ].forEach(id => addReplayableAnnotationId(ids, id));
     addEmbeddedAnnotationIdFromStableKey(ids, comment.stableKey);
-    addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
 }
 
 function areAnnotationIdentityAliasesEqual(
@@ -670,56 +611,6 @@ function isTextMarkupComment(comment: IAnnotationCommentSummary) {
         || comment.subtype === 'StrikeOut'
         || comment.subtype === 'Strikethrough'
         || comment.subtype === 'Squiggly';
-}
-
-function markupHintMatchesComment(
-    hint: Pick<IMarkupSubtypeHint, 'appAnnotationId' | 'id' | 'annotationId' | 'subtype'>,
-    comment: IAnnotationCommentSummary,
-) {
-    if (
-        !isTextMarkupComment(comment)
-        || (
-            hint.subtype !== comment.subtype
-            && !(hint.subtype === 'StrikeOut' && comment.subtype === 'Strikethrough')
-        )
-    ) {
-        return false;
-    }
-    const hintIdentities = [
-        hint.appAnnotationId,
-        hint.id,
-        hint.annotationId,
-    ];
-    const commentIdentities = [
-        comment.appAnnotationId,
-        comment.annotationId,
-        comment.annotationName,
-        comment.id,
-        comment.uid,
-    ];
-    return hintIdentities.some(hintIdentity => (
-        commentIdentities.some(commentIdentity => (
-            areAnnotationIdentityAliasesEqual(hintIdentity, commentIdentity)
-        ))
-    ));
-}
-
-function markupOverrideMatchesComment(
-    annotationId: string,
-    comment: IAnnotationCommentSummary,
-) {
-    if (!isTextMarkupComment(comment)) {
-        return false;
-    }
-    return [
-        comment.appAnnotationId,
-        comment.annotationId,
-        comment.annotationName,
-        comment.id,
-        comment.uid,
-    ].some(commentIdentity => (
-        areAnnotationIdentityAliasesEqual(annotationId, commentIdentity)
-    ));
 }
 
 function isCanonicalTextBoxComment(comment: IAnnotationCommentSummary) {
@@ -753,113 +644,6 @@ function nativeTextBoxCoversComment(
     ));
 }
 
-function collectProjectedNativeAnnotationIds(input: {
-    changedComments: IAnnotationCommentSummary[];
-    deletedComments: readonly IAnnotationCommentSummary[];
-    persistedComments: IAnnotationCommentSummary[];
-    replayableEditorNoteIds: ReadonlySet<string>;
-    noteTextUpdates: Array<{
-        objectNumber: number;
-        generationNumber: number;
-    }>;
-    noteGeometryUpdates: Array<{
-        objectNumber: number;
-        generationNumber: number;
-    }>;
-    freeTextNotes: Array<{ stableKey: string }>;
-    nativeFreeTextEditors: ReadonlyMap<string, { stableKey: string }>;
-    textBoxes: ReadonlyArray<{
-        stableKey: string;
-        annotationId?: string | null
-    }>;
-    shapes: readonly IShapeAnnotation[] | null;
-    deletedShapeAnnotationIds: readonly string[];
-    deletedShapeStableKeys: readonly string[];
-    markup: {
-        overrides: Array<readonly [string, TMarkupSubtype]>;
-        hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
-    } | null;
-    placedImageGeometryUpdates: ReadonlyArray<
-        Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>
-    >;
-}) {
-    const ids = new Set<string>();
-    const updatedRefs = new Set(input.noteTextUpdates.map(update =>
-        `${update.objectNumber}R${update.generationNumber}`));
-    const geometryUpdatedRefs = new Set(input.noteGeometryUpdates.map(update =>
-        `${update.objectNumber}R${update.generationNumber}`));
-    const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
-
-    addReplayableNativeEntityIds(ids, input);
-
-    input.changedComments.forEach((comment) => {
-        const targetRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
-            ?? parsePdfAnnotationRef(comment.annotationId);
-        const hasProjectedTextUpdate = targetRef !== null
-            && updatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
-        const hasProjectedGeometryUpdate = targetRef !== null
-            && geometryUpdatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
-        const hasProjectedFreeTextNote = input.freeTextNotes.some(note => [
-            comment.appAnnotationId,
-            comment.annotationId,
-            comment.id,
-            comment.uid,
-            comment.stableKey,
-        ].some(identity => (
-            identity === note.stableKey
-            || areAnnotationIdentityAliasesEqual(identity, note.stableKey)
-        )));
-        if (
-            hasProjectedTextUpdate
-            || hasProjectedGeometryUpdate
-            || freeTextStableKeys.has(comment.stableKey)
-            || hasProjectedFreeTextNote
-        ) {
-            addCommentIdentityAliases(ids, comment);
-        }
-    });
-    input.deletedComments.forEach(comment => addCommentIdentityAliases(ids, comment));
-    input.nativeFreeTextEditors.forEach((editor, id) => {
-        addReplayableAnnotationId(ids, id);
-        addEditorRuntimeAnnotationIdFromStableKey(ids, editor.stableKey);
-    });
-    const persistedCommentAliases = new Set<string>();
-    input.persistedComments.forEach(comment => addCommentIdentityAliases(persistedCommentAliases, comment));
-    input.replayableEditorNoteIds.forEach((id) => {
-        const normalized = normalizePdfJsAnnotationId(id);
-        if (normalized && persistedCommentAliases.has(normalized)) {
-            addReplayableAnnotationId(ids, normalized);
-        }
-    });
-
-    const markup = input.markup;
-    if (markup) {
-        // A native markup item is an acknowledgement only when it maps to a
-        // changed canonical markup comment. This keeps stale or unrelated
-        // live aliases fail-closed, even when the payload carries a valid
-        // hint for another annotation.
-        input.changedComments.forEach((comment) => {
-            const hasProjectedMarkup = markup.hints.some((hint) => {
-                if (!markupHintMatchesComment(hint, comment)) {
-                    return false;
-                }
-                return true;
-            }) || markup.overrides.some(([annotationId]) => {
-                if (!markupOverrideMatchesComment(annotationId, comment)) {
-                    return false;
-                }
-                return true;
-            });
-            if (hasProjectedMarkup) {
-                // The emitted hint may carry a stale secondary alias. Only the
-                // canonical comment aliases have proved the identity mapping.
-                addCommentIdentityAliases(ids, comment);
-            }
-        });
-    }
-    return ids;
-}
-
 function buildClassifiedNativeMutationProjection(
     plan: ISerializationPlan,
     canonical: IPdfSaveCanonicalInputs,
@@ -870,11 +654,6 @@ function buildClassifiedNativeMutationProjection(
     const replayAllowed = annotationRoute.route === 'loaded-source';
     const changedComments = plan.entities
         .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
-        .map(entitySummary);
-    const persistedComments = plan.entities
-        .filter(entity => (entity.kind === 'note' || entity.kind === 'text-box')
-            && !entity.deleted
-            && !isActuallyChangedEntity(entity))
         .map(entitySummary);
     const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
         ? buildNativeNoteTextUpdatesForSave({
@@ -926,17 +705,9 @@ function buildClassifiedNativeMutationProjection(
             recoveryData,
         };
     });
-    const freeTextEditors = replayAllowed
-        ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
-        : [];
-    const textBoxes = capabilities.nativeTextBoxes === undefined
-        ? []
-        : [
-            // Native text-box mutations are already a bounded projection. They
-            // remain valid when unrelated live PDF.js work selects materialization.
-            ...(capabilities.nativeTextBoxes ?? []),
-            ...freeTextEditors,
-        ];
+    // Native text-box mutations are already a bounded projection. They remain
+    // valid when other changed annotations select the writer route.
+    const textBoxes = capabilities.nativeTextBoxes ?? [];
     if (
         capabilities.nativeTextBoxes !== undefined
         && changedComments.some(isCanonicalTextBoxComment)
@@ -970,33 +741,9 @@ function buildClassifiedNativeMutationProjection(
         markupSubtypeHints: capabilities.markupSubtypeHints,
     });
     const hasMarkupMutations = Boolean(markup);
-    const projectedNativeAnnotationIds = collectProjectedNativeAnnotationIds({
-        changedComments,
-        // A delete covers its canonical aliases only when every requested
-        // deletion produced one exact native mutation. Partial or collapsed
-        // projections stay fail-closed at the baseline guard below.
-        deletedComments: hasExactNativeDeleteCoverage
-            ? canonical.pendingDeletes
-            : [],
-        persistedComments,
-        replayableEditorNoteIds: canonical.liveAnnotationChanges.replayableEditorNoteIds,
-        noteTextUpdates,
-        noteGeometryUpdates,
-        freeTextNotes,
-        textBoxes,
-        shapes: capabilities.shapes,
-        deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
-        deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
-        nativeFreeTextEditors: replayAllowed
-            ? canonical.liveAnnotationChanges.nativeFreeTextEditors
-            : new Map(),
-        markup,
-        placedImageGeometryUpdates,
-    });
-    void projectedNativeAnnotationIds;
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
-        + (capabilities.nativeTextBoxes === undefined ? freeTextEditors.length : textBoxes.length)
+        + textBoxes.length
         + annotationDeletes.length
         + noteGeometryUpdates.length;
     if (capabilities.forceWriterSave && nativeNoteMutationCount === 0 && !hasMarkupMutations
@@ -1065,9 +812,7 @@ function buildClassifiedNativeMutationProjection(
             ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
             ...(noteGeometryUpdates.length > 0 ? {geometryUpdates: noteGeometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-            ...(capabilities.nativeTextBoxes === undefined
-                ? freeTextEditors.length > 0 ? {freeTextEditors} : {}
-                : textBoxes.length > 0 ? {textBoxes} : {}),
+            ...(textBoxes.length > 0 ? {textBoxes} : {}),
             ...(annotationDeletes.length > 0 ? {deletes: annotationDeletes} : {}),
             ...(pageLabels ? {pageLabels} : {}),
             ...(bookmarks ? {bookmarks} : {}),
@@ -1080,7 +825,6 @@ function buildClassifiedNativeMutationProjection(
         noteTextUpdates,
         noteGeometryUpdates,
         freeTextNotes,
-        freeTextEditors,
         textBoxes,
         annotationDeletes,
         hasMetadataMutations,
@@ -1092,11 +836,9 @@ function buildClassifiedNativeMutationProjection(
                 ? 'persist-native-annotation-changes'
                 : textBoxes.length > 0
                     ? 'persist-native-text-box-changes'
-                    : freeTextEditors.length > 0
-                        ? 'persist-native-free-text-editor-changes'
-                        : freeTextNotes.length > 0
-                            ? 'persist-native-note-changes'
-                            : 'persist-native-note-text-updates',
+                    : freeTextNotes.length > 0
+                        ? 'persist-native-note-changes'
+                        : 'persist-native-note-text-updates',
     };
 }
 
@@ -1116,10 +858,10 @@ export function buildNativePdfMutationProjection(
         ? {
             route: 'writer-save',
             expectedCost: 'full-document',
-            reason: canonical.liveAnnotationChanges.hasChanges
-                ? 'live-pdfjs-annotation-baseline-diverged'
-                : 'saved-pdfjs-annotation-baseline-diverged',
-            unreplayableLiveAnnotationIds: Array.from(canonical.liveAnnotationChanges.ids),
+            reason: canonical.frontierChanges.hasChanges
+                ? 'writer-save-forced-with-annotation-changes'
+                : 'writer-save-forced',
+            unreplayableAnnotationIds: Array.from(canonical.frontierChanges.ids),
         }
         : replayPlan;
     const admitted = admitNativeAppendRoute(plan, capabilities);

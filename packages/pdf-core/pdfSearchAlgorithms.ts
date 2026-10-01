@@ -19,8 +19,19 @@ import {
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
 
+const SEARCH_LINE_HYPHENATION = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
+
 function joinSearchLineHyphenation(text: string) {
-    return text.replace(/\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu, '');
+    return text.replace(SEARCH_LINE_HYPHENATION, '');
+}
+
+/**
+ * The text `assembleSearchablePageText` produces for a page read as one item,
+ * without the per-character offset maps a caller that indexes only the text
+ * would otherwise build and discard.
+ */
+export function normalizeSearchablePageText(text: string) {
+    return collapseRepeatedPdfSearchPageText(joinSearchLineHyphenation(text));
 }
 
 export function assembleSearchablePageText(
@@ -63,45 +74,47 @@ export function assembleSearchablePageText(
     const retainedOwners: number[] = [];
     const retainedSourceStarts: number[] = [];
     const retainedSourceEnds: number[] = [];
+    // One push per character: spreading a page-long slice into push() passes
+    // every element as an argument and overflows the stack on long pages.
+    const retain = (start: number, end: number) => {
+        for (let offset = start; offset < end; offset += 1) {
+            retainedOwners.push(owners[offset]!);
+            retainedSourceStarts.push(rawSourceStarts[offset]!);
+            retainedSourceEnds.push(rawSourceEnds[offset]!);
+        }
+    };
     let normalizedOffset = 0;
-    const hyphenationPattern = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
-    for (const match of rawText.matchAll(hyphenationPattern)) {
-        retainedOwners.push(...owners.slice(normalizedOffset, match.index));
-        retainedSourceStarts.push(...rawSourceStarts.slice(normalizedOffset, match.index));
-        retainedSourceEnds.push(...rawSourceEnds.slice(normalizedOffset, match.index));
+    for (const match of rawText.matchAll(SEARCH_LINE_HYPHENATION)) {
+        retain(normalizedOffset, match.index);
         normalizedOffset = match.index + match[0].length;
     }
-    retainedOwners.push(...owners.slice(normalizedOffset));
-    retainedSourceStarts.push(...rawSourceStarts.slice(normalizedOffset));
-    retainedSourceEnds.push(...rawSourceEnds.slice(normalizedOffset));
+    retain(normalizedOffset, rawText.length);
 
-    const text = collapseRepeatedPdfSearchPageText(joinedText);
-    const finalOwners = retainedOwners.slice(0, text.length);
+    // A text layer drawn again in place repeats its first item's origin; an
+    // identical line further down the page does not, and stays searchable.
+    const firstOrigin = items[retainedOwners[0] ?? -1]?.origin;
+    const text = collapseRepeatedPdfSearchPageText(joinedText, (copyStart) => {
+        const copyOrigin = items[retainedOwners[copyStart]!]?.origin;
+        return !firstOrigin || !copyOrigin || (copyOrigin.x === firstOrigin.x && copyOrigin.y === firstOrigin.y);
+    });
     const sourceOffsets = retainedSourceStarts.slice(0, text.length).map((startOffset, index) => ({
         startOffset,
         endOffset: retainedSourceEnds[index] ?? startOffset,
     }));
     const itemStarts = new Int32Array(items.length).fill(-1);
     const itemEnds = new Int32Array(items.length).fill(-1);
-    for (let offset = 0; offset < finalOwners.length; offset += 1) {
-        const owner = finalOwners[offset];
-        if (owner === undefined || owner < 0 || owner >= items.length) {
-            continue;
-        }
+    for (let offset = 0; offset < text.length; offset += 1) {
+        const owner = retainedOwners[offset]!;
         if (itemStarts[owner] === -1) {
             itemStarts[owner] = offset;
         }
         itemEnds[owner] = offset + 1;
     }
-    const itemOffsets = items.map((_item, itemIndex) => {
-        const startOffset = itemStarts[itemIndex] ?? -1;
-        const endOffset = itemEnds[itemIndex] ?? -1;
-        return {
-            itemIndex,
-            startOffset: startOffset < 0 ? 0 : startOffset,
-            endOffset: endOffset < 0 ? 0 : endOffset,
-        };
-    });
+    const itemOffsets = items.map((_item, itemIndex) => ({
+        itemIndex,
+        startOffset: Math.max(0, itemStarts[itemIndex]!),
+        endOffset: Math.max(0, itemEnds[itemIndex]!),
+    }));
 
     return {
         text,
@@ -114,7 +127,10 @@ const MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH = 48;
 const MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH = 160;
 const MAX_REPEATED_PAGE_TEXT_COPIES = 16;
 
-export function collapseRepeatedPdfSearchPageText(text: string) {
+export function collapseRepeatedPdfSearchPageText(
+    text: string,
+    isCopyInPlace: (copyStart: number) => boolean = () => true,
+) {
     const maxRepeatCount = Math.min(
         MAX_REPEATED_PAGE_TEXT_COPIES,
         Math.floor(text.length / MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH),
@@ -134,15 +150,11 @@ export function collapseRepeatedPdfSearchPageText(text: string) {
         }
 
         const firstSegment = text.slice(0, segmentLength);
-        let isRepeated = true;
-        for (let index = 1; index < repeatCount; index += 1) {
-            if (text.slice(index * segmentLength, (index + 1) * segmentLength) !== firstSegment) {
-                isRepeated = false;
-                break;
-            }
+        let copyStart = segmentLength;
+        while (copyStart < text.length && text.startsWith(firstSegment, copyStart) && isCopyInPlace(copyStart)) {
+            copyStart += segmentLength;
         }
-
-        if (isRepeated) {
+        if (copyStart === text.length) {
             return firstSegment;
         }
     }
@@ -154,6 +166,7 @@ export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
     return assembleSearchablePageText(words.map((word, index) => ({
         text: buildOcrTextLayerItemText(word),
         separatorAfter: isLastOcrWordInLine(words, index) ? 'line' : 'none',
+        origin: word,
     }))).text;
 }
 
@@ -171,6 +184,67 @@ export class SearchRegexLimitError extends Error {
 }
 
 const SEARCH_WORD_CHARACTER_CLASS = '\\p{L}\\p{N}\\p{M}_\'’';
+// The regex dialect every shell searches with is the desktop matcher's
+// (Rust `regex`) default: Unicode \d, \w, \s and \b, and . for any
+// character but a line feed. JavaScript gives \d, \w and \b ASCII meanings
+// and keeps . from \r, \u2028 and \u2029, so a query is translated first.
+const UNICODE_REGEX_WORD = String.raw`\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}`;
+const UNICODE_REGEX_ESCAPES: Readonly<Record<string, string>> = {
+    d: String.raw`\p{Nd}`,
+    D: String.raw`\P{Nd}`,
+    s: String.raw`\p{White_Space}`,
+    S: String.raw`\P{White_Space}`,
+    w: `[${UNICODE_REGEX_WORD}]`,
+    W: `[^${UNICODE_REGEX_WORD}]`,
+    b: `(?:(?<=[${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}]))`,
+    B: `(?:(?<=[${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}]))`,
+};
+
+function toUnicodeSearchRegex(pattern: string) {
+    let output = '';
+    // u-mode cannot nest \W in a class, so a class holding it becomes a group
+    // of disjoint branches: [X\W] is X or a non-word character outside X, and
+    // [^X\W] a word character outside X.
+    let classOpen = -1;
+    let classHasNonWord = false;
+    for (let index = 0; index < pattern.length; index += 1) {
+        const char = pattern[index]!;
+        if (char === '\\' && index + 1 < pattern.length) {
+            index += 1;
+            const escape = pattern[index]!;
+            const unicode = UNICODE_REGEX_ESCAPES[escape];
+            if (unicode === undefined || classOpen < 0) {
+                output += unicode ?? char + escape;
+            } else if (escape === 'b' || escape === 'B') {
+                throw new Error(`Invalid search regex: \\${escape} is not supported inside a character class`);
+            } else {
+                classHasNonWord ||= escape === 'W';
+                output += escape === 'w' ? UNICODE_REGEX_WORD : escape === 'W' ? '' : unicode;
+            }
+            continue;
+        }
+        if (classOpen < 0 && char === '[') {
+            classOpen = output.length;
+        } else if (classOpen >= 0 && char === ']') {
+            const negated = output[classOpen + 1] === '^';
+            const members = `[${output.slice(classOpen + (negated ? 2 : 1))}]`;
+            const open = classOpen;
+            classOpen = -1;
+            if (classHasNonWord) {
+                classHasNonWord = false;
+                output = output.slice(0, open) + (negated
+                    ? `(?:(?!${members})[${UNICODE_REGEX_WORD}])`
+                    : `(?:${members}|(?!${members})[^${UNICODE_REGEX_WORD}])`);
+                continue;
+            }
+        } else if (classOpen < 0 && char === '.') {
+            output += '[^\\n]';
+            continue;
+        }
+        output += char;
+    }
+    return output;
+}
 const SEARCH_CJK_SCRIPT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 function applyWholeWordBoundary(pattern: string) {
@@ -184,7 +258,7 @@ export function buildPdfSearchRegex(
     if (options.useRegex) {
         assertSafePdfSearchRegex(query, options);
     }
-    const basePattern = options.useRegex ? query : escapeSearchRegex(query);
+    const basePattern = options.useRegex ? toUnicodeSearchRegex(query) : escapeSearchRegex(query);
     const useBoundary = options.wholeWord
         && (options.useRegex || !SEARCH_CJK_SCRIPT_PATTERN.test(query));
     const pattern = useBoundary
@@ -398,11 +472,9 @@ export function assertSafePdfSearchRegex(
     query: string,
     options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>,
 ) {
-    const pattern = options.wholeWord
-        ? applyWholeWordBoundary(query)
-        : query;
     try {
-        new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
+        const unicodeQuery = toUnicodeSearchRegex(query);
+        new RegExp(options.wholeWord ? applyWholeWordBoundary(unicodeQuery) : unicodeQuery, options.matchCase ? 'gu' : 'giu');
     } catch (error) {
         throw new Error(`Invalid search regex: ${error instanceof Error ? getErrorMessage(error) : 'pattern could not be compiled'}`);
     }

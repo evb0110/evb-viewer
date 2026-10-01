@@ -15,6 +15,7 @@ import {
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     isErrnoException,
     isRecord,
@@ -29,6 +30,7 @@ const MANAGED_SCRATCH_PREFIXES = [
     'qpdfOutput-',
     'pdf-page-ops-',
     'native-command-',
+    'djvu-export-',
     'djvu-image-export-',
     'djvu-tiff-export-',
     'scan-cleanup-preview-',
@@ -132,13 +134,7 @@ export async function removeManagedScratchTempDir(
     rootPath: string,
 ) {
     const resolvedDirectory = resolve(directoryPath);
-    const resolvedRoot = resolve(rootPath);
-    const normalizedDirectory = process.platform === 'win32'
-        ? resolvedDirectory.toLowerCase()
-        : resolvedDirectory;
-    const normalizedRoot = process.platform === 'win32'
-        ? resolvedRoot.toLowerCase()
-        : resolvedRoot;
+    const comparable = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
     let directoryStat;
     try {
         directoryStat = await lstat(resolvedDirectory);
@@ -150,7 +146,7 @@ export async function removeManagedScratchTempDir(
     }
     if (!directoryStat.isDirectory()
         || directoryStat.isSymbolicLink()
-        || dirname(normalizedDirectory) !== normalizedRoot
+        || dirname(comparable(resolvedDirectory)) !== comparable(resolve(rootPath))
         || !basename(resolvedDirectory).startsWith(prefix)) {
         return false;
     }
@@ -165,19 +161,33 @@ export async function removeManagedScratchTempDir(
     return true;
 }
 
+/**
+ * Runs `run` in a fresh managed scratch directory and removes it afterwards,
+ * unless `run` failed while a native child it started may still be alive: the
+ * child may still read or write there, so the directory stays for the stale
+ * sweep. A failed removal also leaves it to the sweep instead of replacing the
+ * outcome of `run`.
+ */
 export async function usingManagedScratchScope<T>(
     prefix: TManagedScratchPrefix,
     rootPath: string,
     run: (scratchPath: string) => Promise<T>,
 ): Promise<T> {
     const scratchPath = await createManagedScratchTempDir(prefix, rootPath);
+    let unprovenTermination: string | undefined;
     try {
         return await run(scratchPath);
+    } catch (error) {
+        unprovenTermination = getUnprovenNativeTerminationDetail(error);
+        throw error;
     } finally {
-        await rm(scratchPath, {
+        const keepReason = unprovenTermination ?? await rm(scratchPath, {
             force: true,
             recursive: true,
-        });
+        }).then(() => undefined, (error: unknown) => `removal failed: ${getErrorMessage(error)}`);
+        if (keepReason !== undefined) {
+            logger.warn(`Keeping managed scratch "${scratchPath}" for the stale sweep: ${keepReason}`);
+        }
     }
 }
 

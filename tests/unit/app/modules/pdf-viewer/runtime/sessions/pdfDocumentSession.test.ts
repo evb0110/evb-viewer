@@ -113,7 +113,7 @@ describe('PdfDocumentSession range loading', () => {
                         height: 200,
                     })),
                 })),
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -148,7 +148,7 @@ describe('PdfDocumentSession range loading', () => {
                         height: 200,
                     })),
                 })),
-                destroy: documentDestroy,
+                loadingTask: {destroy: documentDestroy},
             }),
             destroy: vi.fn(),
         });
@@ -338,7 +338,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: pageCount,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -398,7 +398,7 @@ describe('PdfDocumentSession range loading', () => {
                         height: 200,
                     })),
                 })),
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -447,7 +447,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: pageCount,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -502,7 +502,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: sparsePageCount,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -548,7 +548,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 2,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -575,7 +575,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => Promise.resolve());
         const chunkLength = 1024 * 1024;
@@ -684,7 +684,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 3,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -733,7 +733,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 5,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -804,7 +804,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 2,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -884,7 +884,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => {
             deferred.reject(new Error('range load aborted'));
@@ -946,7 +946,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => {
             deferred.reject(new Error('range load aborted'));
@@ -1000,7 +1000,7 @@ describe('PdfDocumentSession range loading', () => {
                     height: 200,
                 })),
             })),
-            destroy,
+            loadingTask: {destroy: destroy},
         });
 
         await expect(loadPromise).resolves.not.toBeNull();
@@ -1010,7 +1010,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => {
             deferred.reject(new Error('range load aborted'));
@@ -1089,7 +1089,7 @@ describe('PdfDocumentSession range loading', () => {
                         height: 200,
                     })),
                 })),
-                destroy: vi.fn(() => Promise.resolve()),
+                loadingTask: {destroy: vi.fn(() => Promise.resolve())},
             });
             const documentA = createDocument('a');
             const documentB = createDocument('b');
@@ -1179,7 +1179,7 @@ describe('PdfDocumentSession range loading', () => {
             expect(rangeA?.onDataRange).not.toHaveBeenCalled();
             expect(rangeB?.onDataRange).toHaveBeenCalledOnce();
             expect(rangeB?.abort).not.toHaveBeenCalled();
-            expect(documentB.destroy).not.toHaveBeenCalled();
+            expect(documentB.loadingTask.destroy).not.toHaveBeenCalled();
             expect(documentState.pdfDocument.value).toBe(documentB);
             expect(documentState.acceptedSource.value).toBe(sourceB);
             expect(documentState.loadError.value).toBeNull();
@@ -1195,7 +1195,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => Promise.resolve());
 
@@ -1265,7 +1265,7 @@ describe('PdfDocumentSession range loading', () => {
                     height: 200,
                 })),
             })),
-            destroy,
+            loadingTask: {destroy: destroy},
         });
 
         await expect(loadPromise).resolves.not.toBeNull();
@@ -1275,7 +1275,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => Promise.resolve());
 
@@ -1336,7 +1336,7 @@ describe('PdfDocumentSession range loading', () => {
                     height: 200,
                 })),
             })),
-            destroy,
+            loadingTask: {destroy: destroy},
         });
 
         await expect(loadPromise).resolves.not.toBeNull();
@@ -1383,7 +1383,7 @@ describe('PdfDocumentSession range loading', () => {
         const deferred = Promise.withResolvers<{
             numPages: number;
             getPage: ReturnType<typeof vi.fn>;
-            destroy: ReturnType<typeof vi.fn>;
+            loadingTask: {destroy: ReturnType<typeof vi.fn>};
         }>();
         const destroy = vi.fn(() => {
             deferred.reject(new Error('pathological range load aborted'));
@@ -1443,7 +1443,7 @@ describe('PdfDocumentSession range loading', () => {
                         height: 200,
                     })),
                 })),
-                destroy: documentDestroy,
+                loadingTask: {destroy: documentDestroy},
             }),
             destroy: taskDestroy,
         });
@@ -1491,7 +1491,7 @@ describe('PdfDocumentSession range loading', () => {
                 getPage: vi.fn(async () => {
                     throw new Error('page 1 unavailable');
                 }),
-                destroy: documentDestroy,
+                loadingTask: {destroy: documentDestroy},
             }),
             destroy: taskDestroy,
         });
@@ -1525,7 +1525,7 @@ describe('PdfDocumentSession range loading', () => {
                 width: 100,
                 height: 200,
             }))})),
-            destroy: vi.fn(() => Promise.resolve()),
+            loadingTask: {destroy: vi.fn(() => Promise.resolve())},
         };
         const currentDocument = {
             numPages: 1,
@@ -1533,7 +1533,7 @@ describe('PdfDocumentSession range loading', () => {
                 width: 300,
                 height: 400,
             }))})),
-            destroy: vi.fn(() => Promise.resolve()),
+            loadingTask: {destroy: vi.fn(() => Promise.resolve())},
         };
         const staleLoad = Promise.withResolvers<typeof staleDocument>();
         pdfjsState.getDocument
@@ -1564,7 +1564,7 @@ describe('PdfDocumentSession range loading', () => {
 
         expect(documentState.pdfDocument.value).toBe(currentDocument);
         expect(documentState.acceptedSource.value).toBe(sourceB);
-        expect(staleDocument.destroy).toHaveBeenCalledOnce();
+        expect(staleDocument.loadingTask.destroy).toHaveBeenCalledOnce();
     });
 
     it('clears the accepted source on explicit cleanup', async () => {
@@ -1598,7 +1598,7 @@ describe('PdfDocumentSession range loading', () => {
                 })),
             })),
             cleanup: documentCleanup,
-            destroy: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
         };
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve(document),
@@ -1636,7 +1636,7 @@ describe('PdfDocumentSession range loading', () => {
                     })),
                 })),
                 cleanup: documentCleanup,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -1691,7 +1691,7 @@ describe('PdfDocumentSession range loading', () => {
                 })),
             })),
             cleanup: firstCleanup,
-            destroy: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
         };
         const secondDocument = {
             numPages: 1,
@@ -1703,7 +1703,7 @@ describe('PdfDocumentSession range loading', () => {
                 })),
             })),
             cleanup: secondCleanup,
-            destroy: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
         };
         pdfjsState.getDocument
             .mockReturnValueOnce({
@@ -1802,7 +1802,7 @@ describe('PdfDocumentSession range loading', () => {
                     height: 200,
                 })),
             })),
-            destroy,
+            loadingTask: {destroy: destroy},
         });
 
         pdfjsState.getDocument
@@ -1866,7 +1866,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 1,
                 getPage: vi.fn(async () => page),
-                destroy: documentDestroy,
+                loadingTask: {destroy: documentDestroy},
             }),
             destroy: vi.fn(() => Promise.resolve()),
         });
@@ -1890,7 +1890,6 @@ describe('PdfDocumentSession range loading', () => {
             events.push('render-cancel');
         });
         const renderTask: IPdfRenderTask = {
-            _internalRenderTask: null,
             cancel,
             imageCoordinates: null,
             onContinue: vi.fn(),
@@ -1971,7 +1970,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: sparsePageCount,
                 getPage,
-                destroy: documentDestroy,
+                loadingTask: {destroy: documentDestroy},
             }),
             destroy: vi.fn(() => Promise.resolve()),
         });
@@ -2000,7 +1999,6 @@ describe('PdfDocumentSession range loading', () => {
                 id: 'viewport',
                 prepare: async () => ({}),
                 start: () => ({
-                    _internalRenderTask: null,
                     cancel: vi.fn(),
                     imageCoordinates: null,
                     onContinue: vi.fn(),
@@ -2048,7 +2046,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 1,
                 getPage: vi.fn(async () => page),
-                destroy: documentDestroy,
+                loadingTask: {destroy: documentDestroy},
             }),
             destroy: vi.fn(() => Promise.resolve()),
         });
@@ -2154,7 +2152,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: sparsePageCount,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -2215,7 +2213,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 2,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });
@@ -2276,7 +2274,7 @@ describe('PdfDocumentSession range loading', () => {
         const pdfDocument = {
             numPages: sparsePageCount,
             getPage,
-            destroy: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
         };
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve(pdfDocument),
@@ -2318,7 +2316,7 @@ describe('PdfDocumentSession range loading', () => {
             promise: Promise.resolve({
                 numPages: 1,
                 getPage,
-                destroy: vi.fn(),
+                loadingTask: {destroy: vi.fn()},
             }),
             destroy: vi.fn(),
         });

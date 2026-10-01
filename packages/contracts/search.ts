@@ -341,6 +341,14 @@ function validateSearchQueryLength(query: string, useRegex: boolean) {
 export interface ISearchablePageTextItem {
     text: string;
     separatorAfter?: TSearchablePageTextSeparator;
+    /**
+     * Where the item starts on the page, in any one coordinate space per page.
+     * Repeated page text collapses only when its copies start at one origin.
+     */
+    origin?: {
+        x: number;
+        y: number;
+    };
 }
 
 export interface ISearchablePageTextItemOffset {

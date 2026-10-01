@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 /**
  * Build IDs of the native tools, keyed by binary name, embedded by
@@ -42,6 +43,15 @@ const expectedBuildIds = typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined'
     : __EVB_NATIVE_BUILD_IDS__;
 const verifiedBuilds = new Map<string, Promise<void>>();
 
+/**
+ * An EVB native binary built from other native sources than this development
+ * app. It is never a reason to fall back to another engine: the fix is to
+ * rebuild the binary, and a fallback would hide that.
+ */
+export class NativeToolBuildMismatchError extends Error {
+    override name = 'NativeToolBuildMismatchError';
+}
+
 export async function runNativeToolCommand(
     command: string,
     args: string[],
@@ -69,12 +79,18 @@ export function assertNativeToolBuild(command: string) {
         })).then((result) => {
             const actualBuildId = result.stdout.trim();
             if (actualBuildId !== expectedBuildId) {
-                throw new Error(
+                throw new NativeToolBuildMismatchError(
                     `${baseName} at ${command} was built from other native sources `
                     + `(binary build ${actualBuildId || '<empty>'}, app build ${expectedBuildId}). `
                     + `Rebuild it with pnpm run build:${baseName.slice('evb-'.length)}.`,
                 );
             }
+        }, (error: unknown) => {
+            // The check's child opens none of the caller's files, so one that
+            // outlived its kill must not keep the caller from reclaiming them.
+            throw getUnprovenNativeTerminationDetail(error) === undefined || !(error instanceof Error)
+                ? error
+                : new Error(error.message, {cause: error});
         });
         verified.catch(() => verifiedBuilds.delete(command));
         verifiedBuilds.set(command, verified);

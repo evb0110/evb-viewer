@@ -2,6 +2,10 @@ import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {createServer} from 'node:http';
 import {resolve} from 'node:path';
+import {
+    PDFDocument,
+    StandardFonts,
+} from 'pdf-lib';
 import {chromium} from 'playwright';
 import type {Page} from 'playwright';
 import {
@@ -855,6 +859,143 @@ describe('browser document lifecycle UI', () => {
                 left: await readPanePageWidth(page, leftPane!),
                 right: await readPanePageWidth(page, rightPane!),
             }).toEqual(before);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
+    it('finds a regex match while the search worker is still starting', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            // A first search on a hosted page fetches the worker over the
+            // network. Holding that fetch past the 250 ms matching budget
+            // checks that the budget counts matching and not worker start-up.
+            await page.route(url => url.pathname.includes('browserSearch.worker'), async (route) => {
+                await new Promise(resolveDelay => setTimeout(resolveDelay, 1_500));
+                await route.continue();
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+
+            const regexToggle = page.locator('.document-search-bar button[aria-label="Use regular expression"]:visible');
+            if (await regexToggle.count() === 0) {
+                if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                    await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+                }
+                await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            }
+            await regexToggle.first().click();
+            const searchInput = page.locator('.document-search-bar input:visible').first();
+            await searchInput.fill('Fir\\w+');
+            await searchInput.press('Enter');
+
+            await expect.poll(
+                () => page.locator('.document-search-results:visible').first().textContent(),
+                {timeout: 30_000},
+            ).toMatch(/1 result|Search unavailable/u);
+            expect(await page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
+                .toEqual(['First']);
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
+    // #937: identical lines down a page are separate search text, so each
+    // copy is a result with its own box on the page.
+    it('finds every copy of a line repeated down the page', async () => {
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        for (let line = 0; line < 5; line += 1) {
+            pdfPage.drawText('The quick brown fox jumps over the lazy dog near the old stone bridge.', {
+                font,
+                size: 12,
+                x: 72,
+                y: 700 - line * 40,
+            });
+        }
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles({
+                name: 'repeated-lines.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+
+            const searchInput = page.locator('.document-search-bar input:visible').first();
+            if (await searchInput.count() === 0) {
+                if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                    await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+                }
+                await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            }
+            await searchInput.fill('fox');
+            await searchInput.press('Enter');
+            await page.locator('.document-search-result:visible').first().click({timeout: 30_000});
+
+            await expect.poll(() => page.evaluate(() => ({
+                summary: document.querySelector('.document-search-results-header-summary')?.textContent?.trim() ?? '',
+                boxRows: new Set(Array.from(document.querySelectorAll('.page_container .pdf-word-box'))
+                    .map(box => box.getBoundingClientRect())
+                    .filter(rect => rect.width > 0)
+                    .map(rect => Math.round(rect.top))).size,
+            })), {timeout: 30_000}).toEqual({
+                summary: expect.stringMatching(/^5 results\b/u),
+                boxRows: 5,
+            });
+            expect(consoleProblems).toEqual([]);
         } finally {
             await browser.close();
         }

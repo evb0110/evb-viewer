@@ -1,5 +1,4 @@
 import type { Page } from 'puppeteer-core';
-import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
 import { delay } from 'es-toolkit/promise';
 import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -1096,60 +1095,4 @@ export async function createStickyNoteWithPointer(
             .some(candidate => candidate.value === expectedText)
     ), {timeout: 10_000}, text);
     await page.keyboard.press('Tab');
-}
-
-interface IAnnotationSyncActivityWindow extends Window {__evbAnnotationSyncActivity?: IAnnotationSyncAutomationActivity;}
-
-const ANNOTATION_SYNC_IDLE_TIMEOUT_MS = 15_000;
-
-function readAnnotationSyncActivity(page: Page) {
-    return page.evaluate((): IAnnotationSyncAutomationActivity | null => {
-        const activity = (window as IAnnotationSyncActivityWindow).__evbAnnotationSyncActivity;
-        return activity ? { ...activity } : null;
-    });
-}
-
-/**
- * Reads the annotation sync ledger's request counter. Captured before a
- * mutation, it is the baseline `waitForAnnotationSyncIdle` uses to tell the
- * sync that mutation triggers from one that had already finished.
- */
-export async function readAnnotationSyncRequestSeq(page: Page) {
-    return (await readAnnotationSyncActivity(page))?.requestSeq ?? 0;
-}
-
-/**
- * Waits until a comment sync requested after `afterRequestSeq` has run to
- * completion — editor scan, awaited PDF snapshot, and applied state — and
- * nothing further is queued or debounced.
- *
- * A sidebar count settles from the canonical projection, which moves before the
- * sync that could still overwrite it, so it cannot stand in for this. The
- * ledger only exists under the renderer automation grant, so a run without it
- * times out here rather than asserting against an unfinished sync.
- */
-export async function waitForAnnotationSyncIdle(
-    page: Page,
-    afterRequestSeq: number,
-    timeoutMs = ANNOTATION_SYNC_IDLE_TIMEOUT_MS,
-) {
-    try {
-        await page.waitForFunction((baselineSeq: number) => {
-            const activity = (window as IAnnotationSyncActivityWindow).__evbAnnotationSyncActivity;
-            if (!activity) {
-                return false;
-            }
-            return activity.requestSeq > baselineSeq
-                && activity.servicedSeq >= activity.requestSeq
-                && activity.runningPasses === 0
-                && activity.pendingDebounces === 0;
-        }, {timeout: timeoutMs}, afterRequestSeq);
-    } catch (error) {
-        const activity = await readAnnotationSyncActivity(page);
-        throw new Error(
-            `Timed out waiting for an annotation sync after request ${afterRequestSeq} to settle: ${JSON.stringify(activity)}`,
-            {cause: error},
-        );
-    }
-    return readAnnotationSyncActivity(page);
 }

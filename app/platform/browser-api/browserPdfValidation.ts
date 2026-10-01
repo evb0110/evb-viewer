@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -13,9 +14,9 @@ import {
 } from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfjsDocumentInit,
-    createPdfjsDocumentInitFromBrowserDocument,
     getPdfjsLib,
 } from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
@@ -84,32 +85,12 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
     return buildMarkerOnlyConformanceProfile(bytes);
 }
 
-type TPdfjsLoadingTask = ReturnType<Awaited<ReturnType<typeof getPdfjsLib>>['getDocument']>;
-
-async function loadAndDestroyPdfDocument(loadingTask: TPdfjsLoadingTask) {
-    try {
-        const pdfDocument = await loadingTask.promise;
-        const pdfjsDocument = pdfDocument as typeof pdfDocument & {
-            cleanup?: () => Promise<void>;
-            destroy?: () => Promise<void>;
-        };
-        const cleanup = pdfjsDocument.cleanup;
-        if (cleanup) {
-            await cleanup.call(pdfDocument);
-        } else if (pdfjsDocument.destroy) {
-            await pdfjsDocument.destroy.call(pdfDocument);
-        } else {
-            throw new Error('pdfDocument has no supported cleanup method');
-        }
-        await loadingTask.destroy?.();
-    } catch (error) {
-        try {
-            await loadingTask.destroy?.();
-        } catch {
-            // Ignore cleanup failure so the original validation error surfaces.
-        }
-        throw error;
-    }
+// Validation asks whether the document loads. Once it has, a failure to
+// tear it down is logged and does not turn the answer into "invalid".
+function destroyValidatedDocument(loadingTask: {destroy(): Promise<void>}) {
+    return loadingTask.destroy().catch((error: unknown) => {
+        BrowserLogger.warn('pdf-validation', 'PDF.js teardown failed after a successful load', error);
+    });
 }
 
 export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfValidationResult> {
@@ -128,7 +109,14 @@ export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfVali
         const loadingTask = pdfjsLib.getDocument(
             createPdfjsDocumentInit(pdfjsLib, data),
         );
-        await loadAndDestroyPdfDocument(loadingTask);
+        try {
+            await loadingTask.promise;
+        } catch (error) {
+            // Report the load failure, not a failure to tear it down.
+            await loadingTask.destroy().catch(() => undefined);
+            throw error;
+        }
+        await destroyValidatedDocument(loadingTask);
         return {
             isValid: true,
             tool: 'browser',
@@ -158,38 +146,10 @@ export async function validateBrowserPdfPath(path: string): Promise<IPdfValidati
 
     try {
         await yieldToBrowser();
-        const pdfjsLib = await getPdfjsLib();
-        const rangeRead: { error: Error | null } = { error: null };
-        let resolveRangeReadFailure: ((error: Error) => void) | undefined;
-        const rangeReadFailure = new Promise<Error>((resolve) => {
-            resolveRangeReadFailure = resolve;
-        });
-        const loadingTask = pdfjsLib.getDocument(
-            await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
-                rangeRead.error = error;
-                resolveRangeReadFailure?.(error);
-            }}),
-        );
-        // A failed later range can leave PDF.js waiting for data. Race its
-        // loading task so the public validator reports the range failure and
-        // tears down the task instead of waiting forever.
-        const documentLoad = loadAndDestroyPdfDocument(loadingTask);
-        documentLoad.catch(() => undefined);
-        const rangeFailure = await Promise.race([
-            documentLoad.then(() => null),
-            rangeReadFailure,
-        ]);
-        if (rangeFailure) {
-            try {
-                await loadingTask.destroy();
-            } catch {
-                // Preserve the original range-read failure.
-            }
-            throw rangeFailure;
-        }
-        if (rangeRead.error) {
-            throw rangeRead.error;
-        }
+        // The shared loader also fails on a later range read and destroys the
+        // loading task itself when loading fails.
+        const pdfDocument = await loadBrowserPdfjsDocument(path);
+        await destroyValidatedDocument(pdfDocument.loadingTask);
         return {
             isValid: true,
             tool: 'browser',

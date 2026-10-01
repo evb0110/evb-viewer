@@ -358,7 +358,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             message,
             run: async () => {
                 await disposePdfPageRasterScheduler(document);
-                await document.destroy();
+                await document.loadingTask.destroy();
             },
         });
     }

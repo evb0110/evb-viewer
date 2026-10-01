@@ -39,7 +39,6 @@ const RECOVERY_PROJECTION = cast<never>({
     mutations: {updates: []},
     noteTextUpdates: [],
     freeTextNotes: [],
-    freeTextEditors: [],
     annotationDeletes: [],
     hasMetadataMutations: false,
     hasShapeMutations: false,

@@ -20,9 +20,35 @@ const probe = vi.hoisted(() => {
     const state = {
         invocations: [] as string[][],
         textByPage: new Map<number, string>(),
+        visibilityByPage: new Map<number, Record<string, unknown>>(),
+        visibilityFailure: null as string | null,
         fail: false,
     };
-    const runPdftotext = (_command: string, args: string[]) => {
+    const runPdftotext = async (_command: string, args: string[]) => {
+        if (args[0] === 'ocr-text-visibility') {
+            if (state.visibilityFailure !== null) {
+                throw new Error(state.visibilityFailure);
+            }
+            const {readFile} = await import('node:fs/promises');
+            const pagesFile = await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8');
+            return {
+                stdout: JSON.stringify({
+                    format: 'evb-pdf-ocr-text-visibility',
+                    schemaVersion: 1,
+                    pages: pagesFile.trim().split('\n').map(Number).map(pageNumber => ({
+                        pageNumber,
+                        evbOcrLayer: false,
+                        paintedText: false,
+                        hiddenText: false,
+                        uncertain: null,
+                        unsupported: null,
+                        ...state.visibilityByPage.get(pageNumber),
+                    })),
+                }),
+                stderr: '',
+                exitCode: 0,
+            };
+        }
         state.invocations.push(args);
         if (state.fail) {
             return Promise.reject(new Error('pdftotext exploded'));
@@ -88,6 +114,8 @@ function runSelection(
         pages: pageRequests(pageNumbers),
         supersessionPolicy,
         pdftotextBinary: '/fake/pdftotext',
+        pdfPageOpsBinary: '/fake/evb-pdf-page-ops',
+        tempDir: tempDir!,
         log: (level, message) => {
             logs.push([
                 level,
@@ -101,6 +129,8 @@ function runSelection(
 afterEach(async () => {
     probe.state.invocations = [];
     probe.state.textByPage = new Map();
+    probe.state.visibilityByPage = new Map();
+    probe.state.visibilityFailure = null;
     probe.state.fail = false;
     if (tempDir) {
         await rm(tempDir, {
@@ -279,6 +309,9 @@ describe('OCR supersession page selection', () => {
             pageNumber: 2,
             message: expect.stringContaining('native-text'),
         }]);
+        // A page kept for its own text is information about the run, never a
+        // warning the renderer presents as a failed page.
+        expect(selection.warnings.filter(warning => warning.includes('Skipped page'))).toEqual([]);
     });
 
     it('reports a failed text probe instead of silently treating pages as text bearing', async () => {
@@ -327,22 +360,106 @@ describe('OCR supersession page selection', () => {
     });
 
     it('reports degraded text visibility analysis instead of swallowing it', async () => {
-        tempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-supersession-'));
-        const sourcePdfPath = join(tempDir, 'broken.pdf');
-        await writeFile(sourcePdfPath, 'not a pdf at all');
+        const sourcePdfPath = await createSourcePdf(1);
         probe.state.textByPage = new Map([[
             1,
             'existing text',
         ]]);
+        probe.state.visibilityByPage = new Map([[
+            1,
+            {hiddenText: true},
+        ]]);
+        probe.state.visibilityFailure = 'evb-pdf-page-ops exploded';
         const logs: Array<[string, string]> = [];
 
         const selection = await runSelection(sourcePdfPath, [1], logs);
 
+        // Unread text is the document's own, never a layer OCR may replace.
         expect(selection.pages).toEqual([]);
         expect(logs.some(([
             level,
             message,
-        ]) => level === 'warn' && message.includes('qpdf is unavailable'))).toBe(true);
-        expect(selection.warnings.some(warning => warning.includes('qpdf is unavailable'))).toBe(true);
+        ]) => level === 'warn' && message.includes('evb-pdf-page-ops exploded'))).toBe(true);
+        expect(selection.warnings.some(warning => warning.includes('could not be inspected'))).toBe(true);
+    });
+
+    it('keeps a page whose visible text follows a hidden layer and repairs a hidden-only page', async () => {
+        const sourcePdfPath = await createSourcePdf(2);
+        probe.state.textByPage = new Map([
+            [
+                1,
+                'stale hidden note Harbor lantern signal',
+            ],
+            [
+                2,
+                'Qu1et rneadow',
+            ],
+        ]);
+        probe.state.visibilityByPage = new Map([
+            [
+                1,
+                {
+                    paintedText: true,
+                    hiddenText: true,
+                },
+            ],
+            [
+                2,
+                {hiddenText: true},
+            ],
+        ]);
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+        ], []);
+
+        expect(selection.pages.map(page => page.pageNumber)).toEqual([2]);
+        expect(selection.diagnostics).toEqual([expect.objectContaining({
+            pageNumber: 1,
+            severity: 'info',
+        })]);
+        // A preserved page is information about the run, never a warning on it.
+        expect(selection.warnings).toEqual([]);
+    });
+
+    it('skips a page the writer cannot replace instead of failing the run after recognition', async () => {
+        const sourcePdfPath = await createSourcePdf(2);
+        probe.state.textByPage = new Map([[
+            1,
+            'hidden words',
+        ]]);
+        probe.state.visibilityByPage = new Map([
+            [
+                1,
+                {
+                    hiddenText: true,
+                    unsupported: 'hidden text shares a content stream with an inline image',
+                },
+            ],
+            [
+                2,
+                {unsupported: 'text clipping rendering modes cannot be replaced safely'},
+            ],
+        ]);
+
+        const selection = await runSelection(sourcePdfPath, [
+            1,
+            2,
+        ], []);
+
+        expect(selection.pages).toEqual([]);
+        expect(selection.diagnostics).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                severity: 'warning',
+                message: expect.stringContaining('inline image'),
+            }),
+            expect.objectContaining({
+                pageNumber: 2,
+                severity: 'warning',
+                message: expect.stringContaining('clipping'),
+            }),
+        ]);
     });
 });

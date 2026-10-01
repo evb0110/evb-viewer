@@ -7,6 +7,7 @@ settings:
 overrides:
   '@bomb.sh/tab>cac': 6.7.14
   '@hono/node-server': 2.1.1
+  serialize-javascript: 7.1.2
   '@xmldom/xmldom': ^0.8.15
   ajv>fast-uri: 3.1.8
   qs: ^6.16.0
@@ -150,8 +151,8 @@ importers:
         specifier: ^1.17.1
         version: 1.17.1
       pdfjs-dist:
-        specifier: file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz
-        version: file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz
+        specifier: file:vendor/pdfjs-dist/pdfjs-dist-6.3.313-f9ed28c5.tgz
+        version: file:vendor/pdfjs-dist/pdfjs-dist-6.3.313-f9ed28c5.tgz
       utif:
         specifier: ^3.1.0
         version: 3.1.0
@@ -7948,9 +7949,9 @@ packages:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==}
     engines: {node: '>=20.16.0 || >=22.3.0'}
 
-  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz:
-    resolution: {integrity: sha512-NxSli/xrj6virv44NdAZWUwLKa/SUN0wYbBXhiIg2Bj4Nk6kmmkjTcPGc1mZUJFIDZdgs7/2layXYMKTmP7+zw==, tarball: file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz}
-    version: 6.3.312
+  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.313-f9ed28c5.tgz:
+    resolution: {integrity: sha512-Uw9BlfCL/EXutyS4RhqZCaQsNdm5HUq+hQVTvKyqLmPgyb/ZjI0vkBdKeLNBqHatD5Q40zpAiR/drvkzGdhQhQ==, tarball: file:vendor/pdfjs-dist/pdfjs-dist-6.3.313-f9ed28c5.tgz}
+    version: 6.3.313
     engines: {node: '>=22.13.0 || >=24'}
 
   pe-library@0.4.1:
@@ -8804,8 +8805,8 @@ packages:
     resolution: {integrity: sha512-8I8TjW5KMOKsZQTvoxjuSIa7foAwPWGOts+6o7sgjz41/qMD9VQHEDxi6PBvK2l0MXUmqZyNpUK+T2tQaaElvw==}
     engines: {node: '>=10'}
 
-  serialize-javascript@7.1.1:
-    resolution: {integrity: sha512-k3CMsaIvvdSwm8oLB4MXSl0wH2/cwlH7xGcnRd2DaeRmBkbzYmyT8j0tsX60DwD1eRwHTpNpH8ljKu9oUT1MeQ==}
+  serialize-javascript@7.1.2:
+    resolution: {integrity: sha512-GL2BWwVa6JydKO6l/ljVgjAZF4QJ3S7dWDWi53s5GZT8PJzD2fNxi67HANQGKAqPrwEpL5ba7gUBGi0Ls/sEoQ==}
     engines: {node: '>=20.0.0'}
 
   seroval@1.6.7:
@@ -13783,7 +13784,7 @@ snapshots:
 
   '@rollup/plugin-terser@1.0.0(rollup@4.63.4)':
     dependencies:
-      serialize-javascript: 7.1.1
+      serialize-javascript: 7.1.2
       smob: 1.6.2
       terser: 5.51.2
     optionalDependencies:
@@ -19343,7 +19344,7 @@ snapshots:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 
-  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz:
+  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.313-f9ed28c5.tgz:
     optionalDependencies:
       '@napi-rs/canvas': 1.0.9
 
@@ -20262,7 +20263,7 @@ snapshots:
       type-fest: 0.13.1
     optional: true
 
-  serialize-javascript@7.1.1: {}
+  serialize-javascript@7.1.2: {}
 
   seroval@1.6.7: {}
 

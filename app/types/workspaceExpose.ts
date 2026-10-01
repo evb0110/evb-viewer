@@ -6,6 +6,7 @@ import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
@@ -238,7 +239,7 @@ export interface IWorkspaceExpose {
     handleSelectAll: () => void;
     handleOpenFileFromUi: () => Promise<boolean>;
     handleCombineImages: () => Promise<boolean>;
-    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
+    handleOpenFileDirectWithPersist: (path: TDocumentRef, pageShape?: IPdfPageShapeRead | null) => Promise<boolean>;
     handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
     handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
     handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<boolean>;

@@ -1,5 +1,4 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {AnnotationEditorUIManager} from 'pdfjs-dist';
 import type {
     ComputedRef,
     ShallowRef,
@@ -11,7 +10,6 @@ import type {
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import { buildNativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import type {
@@ -40,14 +38,6 @@ import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/ru
 
 const SLOW_SAVE_PREPARATION_STEP_MS = 250;
 const AVAILABLE_SERIALIZATION_BACKENDS = ['native-append'] as const;
-const emptyLiveAnnotationChanges: IPdfLiveAnnotationChangeSummary = {
-    ids: new Set(),
-    replayableEditorNoteIds: new Set(),
-    nativeFreeTextEditors: new Map(),
-    hasChanges: false,
-    hasUnknownChanges: false,
-    fingerprint: 'empty',
-};
 
 interface IUsePdfViewerSaveTransactionOptions {
     /**
@@ -55,7 +45,6 @@ interface IUsePdfViewerSaveTransactionOptions {
      * below remain only as narrow test/workspace-save seams.
      */
     pdfDocument?: ShallowRef<IPdfDocument | null>;
-    annotationUiManager?: ShallowRef<AnnotationEditorUIManager | null>;
     annotationApplication?: ShallowRef<AnnotationApplication>;
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
     documentSession?: Pick<TPdfDocumentView, 'captureFence' | 'isCurrent'>;
@@ -77,42 +66,13 @@ interface IUsePdfViewerSaveTransactionOptions {
     };
 }
 
-async function waitForCommittedEditorModelsToSettle() {
-    await nextTick();
-}
-
-async function waitForCommittedEditorsToRender() {
-    await nextTick();
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-        return;
-    }
-    await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => resolve());
-        });
-    });
-    await nextTick();
-}
-
-async function commitPdfEditorsForSave(
-    annotationUiManager: AnnotationEditorUIManager | null,
-    commitPendingEditorDraftsForSave?: () => void,
-    waitForRender = false,
-) {
+// Commits EVB editor drafts and lets their store updates settle before the
+// save captures its frontier.
+async function commitPdfEditorsForSave(commitPendingEditorDraftsForSave?: () => void) {
     commitPendingEditorDraftsForSave?.();
-    annotationUiManager?.commitOrRemove();
-    if (waitForRender) {
-        await waitForCommittedEditorsToRender();
-        return;
-    }
-    await waitForCommittedEditorModelsToSettle();
+    await nextTick();
 }
 
-/**
- * Raw PDF.js materialization remains public for the viewer expose contract,
- * but its commit/settle/current-document fence is owned by the save
- * transaction rather than a second save adapter.
- */
 /**
  * Surfaces which field of which annotation failed the semantic reopen. The
  * verifier already reduced text to a length and a digest, so this record is
@@ -133,10 +93,10 @@ function logSaveRouteDecision(
         expectedCost: annotationPlan.expectedCost,
         reason: annotationPlan.reason,
         nativeRejection: decision.route === 'native-append' ? null : decision.nativeRejection,
-        liveAnnotationIds: Array.from(canonical.liveAnnotationChanges.ids),
-        replayableLiveEditorNoteIds: Array.from(canonical.liveAnnotationChanges.replayableEditorNoteIds),
+        changedAnnotationIds: Array.from(canonical.frontierChanges.ids),
+        changedNoteIds: Array.from(canonical.frontierChanges.noteIds),
         replayableAnnotationIds: Array.from(canonical.replayableEmbeddedAnnotationIds),
-        unreplayableLiveAnnotationIds: annotationPlan.unreplayableLiveAnnotationIds,
+        unreplayableAnnotationIds: annotationPlan.unreplayableAnnotationIds,
         pendingTexts: canonical.pendingTexts.size,
         pendingDeletes: canonical.pendingDeletes.length,
         forceWriterSave: request.forceWriterSave === true,
@@ -266,10 +226,7 @@ export const usePdfViewerSaveTransaction = (
         assertSaveTargetCurrent();
         await measurePreparationStep(
             'commit-editor-models',
-            () => commitPdfEditorsForSave(
-                options.annotationUiManager?.value ?? null,
-                options.commitPendingEditorDraftsForSave,
-            ),
+            () => commitPdfEditorsForSave(options.commitPendingEditorDraftsForSave),
         );
         assertSaveTargetCurrent();
         const canonicalSave = prepareAnnotationSave(capturedTarget);
@@ -363,7 +320,6 @@ export const usePdfViewerSaveTransaction = (
             nativeCapabilities: request.nativeCapabilities,
             dirtyState: request.dirtyState,
             documentStructure: request.documentStructure,
-            liveAnnotationChanges: emptyLiveAnnotationChanges,
             hasLoadedSource: Boolean(request.source),
             forceWriterSave: request.forceWriterSave === true,
             rewriteShapeState: request.rewriteShapeState !== false,
@@ -412,7 +368,6 @@ export const usePdfViewerSaveTransaction = (
             && (
                 nativeMutationProjection.noteTextUpdates.length > 0
                 || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
-                || nativeMutationProjection.freeTextEditors.length > 0
                 || nativeMutationProjection.annotationDeletes.length > 0
             )
         ) {
@@ -436,10 +391,7 @@ export const usePdfViewerSaveTransaction = (
     }
 
     return {
-        commitPdfEditorsForSave: () => commitPdfEditorsForSave(
-            options.annotationUiManager?.value ?? null,
-            options.commitPendingEditorDraftsForSave,
-        ),
+        commitPdfEditorsForSave: () => commitPdfEditorsForSave(options.commitPendingEditorDraftsForSave),
         runSaveTransaction,
     };
 };

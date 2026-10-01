@@ -2,21 +2,13 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
-import type {
-    IPdfSearchUtf16Range,
-    IResolvedSearchMatchOptions,
-} from '@contracts/search';
 import {SEARCH_RESULT_LIMIT} from '@contracts/search';
-import {BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT} from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import * as v from 'valibot';
 
 export const BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST = SEARCH_RESULT_LIMIT + 1;
 
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
-const pathSchema = v.pipe(v.string(), v.check(value => value.trim().length > 0));
-const pageNumberSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
-const pageCountSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
-const finiteNumberSchema = v.pipe(v.number(), v.finite());
+const durationMsSchema = v.pipe(v.number(), v.finite(), v.minValue(0));
 
 const matchOptionsSchema = v.object({
     matchCase: v.boolean(),
@@ -32,157 +24,31 @@ const searchRangeSchema = v.pipe(
     v.check(value => value.endOffset > value.startOffset),
 );
 
-const pageRecordSchema = v.pipe(
-    v.object({
-        pageNumber: pageNumberSchema,
-        pageCount: pageCountSchema,
-        text: v.string(),
-    }),
-    v.check(value => value.pageCount >= value.pageNumber),
-);
+const resultSchemas = {matchPageText: v.object({
+    matches: v.pipe(v.array(searchRangeSchema), v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
+    truncated: v.boolean(),
+    matchingMs: durationMsSchema,
+})};
 
-const resultSchemas = {
-    extractDocumentText: v.pipe(
-        v.object({
-            pageCount: v.pipe(pageCountSchema, v.maxValue(BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT)),
-            pageTexts: v.pipe(
-                v.array(v.string()),
-                v.maxLength(BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT),
-            ),
-        }),
-        v.check(value => value.pageTexts.length <= value.pageCount),
+const requestPayloadSchemas = {matchPageText: v.object({
+    text: v.string(),
+    query: v.string(),
+    options: matchOptionsSchema,
+    maxMatches: v.pipe(
+        v.number(),
+        v.safeInteger(),
+        v.minValue(1),
+        v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
     ),
-    streamDocumentText: v.object({pageCount: pageCountSchema}),
-    matchPageText: v.object({
-        matches: v.pipe(v.array(searchRangeSchema), v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
-        truncated: v.boolean(),
-    }),
-    cancel: v.object({canceled: v.boolean()}),
-    acknowledgePage: v.object({acknowledged: v.literal(true)}),
-};
+    // The matching time left to the search. The worker starts it when it
+    // starts matching, so its own start-up never spends it.
+    budgetMs: v.optional(durationMsSchema),
+})};
 
-const requestPayloadSchemas = {
-    extractDocumentText: v.object({pdfPath: pathSchema}),
-    streamDocumentText: v.object({pdfPath: pathSchema}),
-    matchPageText: v.object({
-        text: v.string(),
-        query: v.string(),
-        options: matchOptionsSchema,
-        maxMatches: v.pipe(
-            v.number(),
-            v.safeInteger(),
-            v.minValue(1),
-            v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
-        ),
-        deadlineAtMs: v.optional(finiteNumberSchema),
-    }),
-    cancel: v.object({requestId: requestIdSchema}),
-    acknowledgePage: v.object({requestId: requestIdSchema}),
-};
-
-const requestSchema = v.union([
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('extractDocumentText'),
-        payload: requestPayloadSchemas.extractDocumentText,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('streamDocumentText'),
-        payload: requestPayloadSchemas.streamDocumentText,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('matchPageText'),
-        payload: requestPayloadSchemas.matchPageText,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('cancel'),
-        payload: requestPayloadSchemas.cancel,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('acknowledgePage'),
-        payload: requestPayloadSchemas.acknowledgePage,
-    }),
-]);
-
-const workerResponseSchema = v.union([
-    v.object({
-        id: requestIdSchema,
-        type: v.picklist([
-            'extractDocumentText',
-            'streamDocumentText',
-            'matchPageText',
-            'cancel',
-            'acknowledgePage',
-        ]),
-        ok: v.literal(true),
-        progress: v.object({
-            processed: finiteNumberSchema,
-            total: finiteNumberSchema,
-        }),
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('extractDocumentText'),
-        ok: v.literal(true),
-        data: resultSchemas.extractDocumentText,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('streamDocumentText'),
-        ok: v.literal(true),
-        data: resultSchemas.streamDocumentText,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('matchPageText'),
-        ok: v.literal(true),
-        data: resultSchemas.matchPageText,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('cancel'),
-        ok: v.literal(true),
-        data: resultSchemas.cancel,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('acknowledgePage'),
-        ok: v.literal(true),
-        data: resultSchemas.acknowledgePage,
-    }),
-    v.object({
-        id: requestIdSchema,
-        type: v.literal('streamDocumentText'),
-        ok: v.literal(true),
-        page: pageRecordSchema,
-    }),
-    v.object({
-        id: requestIdSchema,
-        ok: v.literal(false),
-        error: v.string(),
-        errorCode: v.optional(v.literal('SEARCH_REGEX_LIMIT')),
-    }),
-]);
-
-const progressResponseSchema = v.object({
-    id: v.number(),
-    type: v.string(),
-    ok: v.literal(true),
-    progress: v.object({
-        processed: finiteNumberSchema,
-        total: finiteNumberSchema,
-    }),
-});
-
-const pageResponseSchema = v.object({
-    id: v.number(),
-    type: v.string(),
-    ok: v.literal(true),
-    page: pageRecordSchema,
+const requestSchema = v.object({
+    id: requestIdSchema,
+    type: v.literal('matchPageText'),
+    payload: requestPayloadSchemas.matchPageText,
 });
 
 const successResponseSchema = v.object({
@@ -197,6 +63,11 @@ const errorResponseSchema = v.object({
     ok: v.literal(false),
     error: v.optional(v.unknown()),
     errorCode: v.optional(v.unknown()),
+});
+
+const startedResponseSchema = v.object({
+    id: v.number(),
+    started: v.literal(true),
 });
 
 const responseStatusSchema = v.object({ok: v.boolean()});
@@ -217,13 +88,24 @@ type IBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType = TBr
     {type: K}
 >;
 
-type TBrowserSearchWorkerResponse = v.InferOutput<typeof workerResponseSchema>;
-
-type IBrowserSearchWorkerProgress = v.InferOutput<typeof progressResponseSchema>['progress'];
-type IBrowserSearchWorkerPageRecord = v.InferOutput<typeof pageRecordSchema>;
-type IBrowserSearchWorkerPageResponse = v.InferOutput<typeof pageResponseSchema>;
-type TBrowserSearchWorkerSuccessResponse = v.InferOutput<typeof successResponseSchema>;
-type IBrowserSearchWorkerErrorResponse = v.InferOutput<typeof errorResponseSchema>;
+/** What the worker posts back for one request: `started`, then the outcome. */
+type TBrowserSearchWorkerResponse =
+    | {
+        id: number;
+        started: true;
+    }
+    | {
+        id: number;
+        type: 'matchPageText';
+        ok: true;
+        data: IBrowserSearchWorkerResultMap['matchPageText'];
+    }
+    | {
+        id: number;
+        ok: false;
+        error: string;
+        errorCode?: 'SEARCH_REGEX_LIMIT';
+    };
 
 export function getBrowserSearchWorkerRequestId(value: unknown) {
     return isRecord(value) && isSafeWorkerRequestId(value.id)
@@ -238,26 +120,16 @@ export function parseBrowserSearchWorkerRequest(value: unknown): TBrowserSearchW
 
 export {
     errorResponseSchema as BROWSER_SEARCH_WORKER_ERROR_RESPONSE_SCHEMA,
-    pageResponseSchema as BROWSER_SEARCH_WORKER_PAGE_RESPONSE_SCHEMA,
-    progressResponseSchema as BROWSER_SEARCH_WORKER_PROGRESS_RESPONSE_SCHEMA,
     responseStatusSchema as BROWSER_SEARCH_WORKER_RESPONSE_STATUS_SCHEMA,
     resultSchemas as BROWSER_SEARCH_WORKER_RESULT_SCHEMAS,
+    startedResponseSchema as BROWSER_SEARCH_WORKER_STARTED_RESPONSE_SCHEMA,
     successResponseSchema as BROWSER_SEARCH_WORKER_SUCCESS_RESPONSE_SCHEMA,
-    workerResponseSchema as BROWSER_SEARCH_WORKER_RESPONSE_SCHEMA,
 };
 
 export type {
     IBrowserSearchWorkerRequestMap,
     IBrowserSearchWorkerResultMap,
     IBrowserSearchWorkerRequest,
-    IBrowserSearchWorkerProgress,
-    TBrowserSearchWorkerRequest,
     TBrowserSearchWorkerRequestType,
     TBrowserSearchWorkerResponse,
-    IBrowserSearchWorkerPageRecord,
-    IBrowserSearchWorkerPageResponse,
-    TBrowserSearchWorkerSuccessResponse,
-    IBrowserSearchWorkerErrorResponse,
-    IPdfSearchUtf16Range,
-    IResolvedSearchMatchOptions,
 };

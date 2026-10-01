@@ -23,17 +23,17 @@ import {
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
-const archiveName = 'pdfjs-dist-6.3.312-c3253faa.tgz';
+const archiveName = 'pdfjs-dist-6.3.313-f9ed28c5.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '6.3.312',
+    version: '6.3.313',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
-    branch: 'ticket/168-fork-rebase',
-    commit: 'c3253faa113dd231ea95630afd40dbb31efead08',
-    tree: '61abab5aba6ccc2bfe574869e71dc5960b716d51',
+    branch: 'evb-927-annotation-suppression',
+    commit: 'f9ed28c517dc5fbbe178d64a44df27981c1b3a98',
+    tree: 'eee30b627caeea3b31cd33bc01ec6b492f20fc15',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
     upstreamTag: 'v6.3.289',

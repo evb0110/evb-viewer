@@ -5,7 +5,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
 import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import {
     AnnotationHistoryCompensationError,
@@ -16,27 +15,14 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationEditorState } from '@app/types/annotations';
 
-function createAnnotationState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
-    return {
-        isEditing: false,
-        isEmpty: true,
-        hasSomethingToUndo: false,
-        hasSomethingToRedo: false,
-        hasSelectedEditor: false,
-        ...overrides,
-    };
-}
-
 describe('usePdfAppAnnotationHistory', () => {
     afterEach(() => {
         vi.restoreAllMocks();
     });
 
-    it('keeps app history availability out of the internal PDF.js state', () => {
-        const pdfjsAnnotationState = ref(createAnnotationState());
+    it('reports app history availability through the emitted state', () => {
         const emittedStates: IAnnotationEditorState[] = [];
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState,
             emitAnnotationState: state => emittedStates.push(state),
             markModified: vi.fn(),
         });
@@ -46,7 +32,6 @@ describe('usePdfAppAnnotationHistory', () => {
             undo: vi.fn(),
         });
 
-        expect(pdfjsAnnotationState.value.hasSomethingToUndo).toBe(false);
         expect(emittedStates.at(-1)).toMatchObject({
             hasSomethingToUndo: true,
             hasAppAnnotationUndoHistory: true,
@@ -57,7 +42,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const ledger = useWorkspaceCommandLedger();
         let present = true;
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -89,7 +73,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const ledger = useWorkspaceCommandLedger();
         let present = true;
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -121,7 +104,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const workspaceUndo = vi.fn(async () => true);
         const workspaceRedo = vi.fn(async () => true);
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -140,14 +122,12 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(workspaceRedo).toHaveBeenCalledOnce();
     });
 
-    it('reports app-owned executor command availability without rewriting native state', () => {
-        const pdfjsAnnotationState = ref(createAnnotationState());
+    it('reports app-owned executor command availability', () => {
         const emittedStates: IAnnotationEditorState[] = [];
         const markModified = vi.fn();
         const undo = vi.fn();
         const cmd = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState,
             emitAnnotationState: state => emittedStates.push(state),
             markModified,
         });
@@ -156,13 +136,10 @@ describe('usePdfAppAnnotationHistory', () => {
             cmd,
             undo,
         });
-        pdfjsAnnotationState.value = createAnnotationState({ hasSomethingToUndo: true });
 
         expect(history.undo()).toBe(true);
 
         expect(undo).toHaveBeenCalledOnce();
-        expect(pdfjsAnnotationState.value.hasSomethingToUndo).toBe(true);
-        expect(pdfjsAnnotationState.value.hasSomethingToRedo).toBe(false);
         expect(emittedStates.at(-1)).toMatchObject({
             hasSomethingToUndo: false,
             hasSomethingToRedo: true,
@@ -186,7 +163,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const undo = vi.fn();
         const cmd = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -216,7 +192,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const cmd = vi.fn(() => state.push('applied'));
         const emitAnnotationState = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState,
             markModified,
         });
@@ -258,7 +233,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const trimFailure = new Error('history size read failed');
         let failSizeRead = false;
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -300,7 +274,6 @@ describe('usePdfAppAnnotationHistory', () => {
     it('keeps a failed redo available until its command succeeds', () => {
         let rejectRedo = true;
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -325,7 +298,6 @@ describe('usePdfAppAnnotationHistory', () => {
     it('groups canonical and executor commands into one user-visible history step', () => {
         const calls: string[] = [];
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -365,7 +337,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const afterFailure = new Error('second redo failed after mutation');
         let failureTiming: 'before' | 'after' | null = 'before';
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -425,7 +396,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const afterFailure = new Error('first undo failed after mutation');
         let failureTiming: 'before' | 'after' | null = 'before';
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -498,7 +468,6 @@ describe('usePdfAppAnnotationHistory', () => {
             if (failCompensation) throw activeRollbackFailure;
         });
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -544,7 +513,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const replayFailure = new Error('opaque executor state is uncertain');
         const pendingUndo = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -582,7 +550,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const replayFailure = new Error('workspace undo failed after mutation');
         const rollbackFailure = new Error('workspace rollback failed');
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -626,7 +593,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const ledger = useWorkspaceCommandLedger();
         const forgottenId = asAnnotationId('forgotten-annotation');
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -662,7 +628,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const keptRedo = vi.fn();
         const undoFile = vi.fn(() => true);
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -708,7 +673,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const forgottenUndo = vi.fn();
         const undoFile = vi.fn(() => true);
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -748,7 +712,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const forgottenRedo = vi.fn();
         const undoFile = vi.fn(() => true);
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -786,7 +749,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const ledger = useWorkspaceCommandLedger();
         const undoFile = vi.fn(() => true);
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -824,7 +786,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const survivingId = asAnnotationId('surviving-shape');
         const pairedUndo = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -852,7 +813,6 @@ describe('usePdfAppAnnotationHistory', () => {
     it('drops a hard-forgotten local command before its transaction is published', () => {
         const forgottenId = asAnnotationId('forgotten-transaction-annotation');
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -875,7 +835,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const ledger = useWorkspaceCommandLedger();
         const forgottenId = asAnnotationId('forgotten-workspace-transaction-annotation');
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
@@ -917,7 +876,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const cmd = vi.fn(() => state.push('applied'));
         const emitAnnotationState = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState,
             markModified,
         });
@@ -950,7 +908,6 @@ describe('usePdfAppAnnotationHistory', () => {
 
     it('bounds retained annotation commands to its 16 MiB share of the global undo budget', () => {
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: vi.fn(),
         });
@@ -984,7 +941,6 @@ describe('usePdfAppAnnotationHistory', () => {
         const cmd = vi.fn();
         const markModified = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified,
         });
@@ -1023,7 +979,6 @@ describe('usePdfAppAnnotationHistory', () => {
         }> = [];
         const calls: string[] = [];
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: () => calls.push('modified'),
         });
@@ -1058,7 +1013,6 @@ describe('usePdfAppAnnotationHistory', () => {
         }> = [];
         const calls: string[] = [];
         const history = usePdfAppAnnotationHistory({
-            pdfjsAnnotationState: ref(createAnnotationState()),
             emitAnnotationState: () => {},
             markModified: () => calls.push('modified'),
         });

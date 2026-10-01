@@ -18,7 +18,6 @@ import {
     createCanvas,
 } from '@napi-rs/canvas';
 import {isRecord} from '@contracts/runtimeGuards';
-import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 
 function isPdfjsCanvas(value: unknown): value is HTMLCanvasElement {
     return isRecord(value)
@@ -127,7 +126,7 @@ describe('pdf.js JBIG2 consumer compatibility', () => {
             wasmUrl: string;
         };
         const task = pdfjs.getDocument(documentParameters);
-        const document = adaptPdfjsDocument(await task.promise, () => task.destroy());
+        const document = await task.promise;
         try {
             const page = await document.getPage(1);
             const viewport = page.getViewport({scale: 1});
@@ -160,7 +159,7 @@ describe('pdf.js JBIG2 consumer compatibility', () => {
             expect(renderedInk / sourceInk).toBeCloseTo(1, 3);
             expect(mismatches / source.pixels.length).toBeLessThan(0.001);
         } finally {
-            await document.destroy();
+            await task.destroy();
         }
     }, 30_000);
 });

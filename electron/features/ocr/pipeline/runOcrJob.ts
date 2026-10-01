@@ -815,7 +815,9 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 pages: requestBatch,
                 supersessionPolicy,
                 ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
+                ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
                 qpdfBinary: paths.qpdfBinary,
+                tempDir: paths.tempDir,
                 log,
                 signal: jobSignal,
             });

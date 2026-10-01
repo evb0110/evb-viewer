@@ -7,9 +7,6 @@ import {
     openPdfInApp, waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {Page} from 'puppeteer-core';
-import {mkdtempSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
 
 const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-empty-workspace-toolbar-${Date.now()}`});
 
@@ -54,14 +51,11 @@ describe('empty workspace toolbar contract', () => {
             700,
         ]);
         const empty = await readToolbar(session.page);
-        const evidence = mkdtempSync(join(tmpdir(), 'evb-e2e-empty-toolbar-'));
-        await session.page.screenshot({path: join(evidence, 'empty-workspace.png')});
 
         const pdfPath = await createMultiPageTextFixturePdf(`empty-toolbar-${Date.now()}.pdf`, 2);
         await openPdfInApp(session.page, pdfPath);
         await waitForPdfLoaded(session.page);
         const documentToolbar = await readToolbar(session.page);
-        await session.page.screenshot({path: join(evidence, 'first-document.png')});
 
         expect(empty.height, 'empty workspace must render the document toolbar row').toBeGreaterThan(0);
         const expectedLabels = [

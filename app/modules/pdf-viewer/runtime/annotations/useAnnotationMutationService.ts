@@ -190,9 +190,10 @@ export const useAnnotationMutationService = (
             && input.comment.hasNote === true
             && isPdfBackedFreeTextComment(input.comment);
         if (persistThroughNativeGeometry) {
-            // Native geometry moves do not touch PDF.js annotationStorage.
-            // Publish the dirty edge explicitly so Save observes the canonical
-            // mutation while its projection is still settling.
+            // Native geometry moves do not hand markModified to
+            // handleMarkerMove below. Publish the dirty edge explicitly so Save
+            // observes the canonical mutation while its projection is still
+            // settling.
             options.markModified();
         }
         options.handleMarkerMove(input.comment, input.rect, {...(!persistThroughNativeGeometry ? {markModified: options.markModified} : {})});

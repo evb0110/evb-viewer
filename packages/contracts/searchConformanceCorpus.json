@@ -5,7 +5,8 @@
     "matchOffsets": "startOffset and endOffset are UTF-16 code unit offsets into page text, matching JavaScript string index semantics across renderer, Electron, and native boundaries.",
     "matching": "Default matching is Unicode-aware, case-insensitive literal matching. wholeWord adds letter/number/underscore boundaries. Regex cases use the guarded PDF search regex validator.",
     "excerpt": "Excerpts use a UTF-16 code unit context window. Only the before and after text collapse JavaScript whitespace runs to one space, then trim the outer edge nearest the excerpt boundary.",
-    "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist."
+    "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist.",
+    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b a boundary and \\B a non-boundary of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator."
   },
   "cases": [
     {
@@ -488,6 +489,283 @@
             "before": "ha ",
             "match": "alpha",
             "after": " AL"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-unicode-decimal-digits",
+      "description": "A regex \\d matches every Unicode decimal digit, as the desktop matcher does.",
+      "text": "Цена ١٢ или 34.",
+      "query": "\\d+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 5,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "ена ",
+            "match": "١٢",
+            "after": " или"
+          }
+        },
+        {
+          "startOffset": 12,
+          "endOffset": 14,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "или ",
+            "match": "34",
+            "after": "."
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-unicode-word-characters",
+      "description": "A regex \\w matches letters of every script, not only ASCII.",
+      "text": "русский текст",
+      "query": "\\w+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "русский",
+            "after": " тек"
+          }
+        },
+        {
+          "startOffset": 8,
+          "endOffset": 13,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "кий ",
+            "match": "текст",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-unicode-word-boundary",
+      "description": "A regex \\b is a boundary between Unicode word and non-word characters.",
+      "text": "мой текстовый текст",
+      "query": "\\bтекст\\b",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 14,
+          "endOffset": 19,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "вый ",
+            "match": "текст",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-dot-excludes-only-line-feed",
+      "description": "A regex dot matches every character except a line feed.",
+      "text": "x\ry x\ny",
+      "query": "x.y",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "x\ry",
+            "after": " x y"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-unicode-white-space",
+      "description": "A regex \\s matches the Unicode White_Space property: no-break space but not the byte order mark.",
+      "text": "a b a﻿b",
+      "query": "a\\sb",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "a b",
+            "after": " a b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-word-class-inside-brackets",
+      "description": "\\w keeps its Unicode meaning inside a character class.",
+      "text": "ab-cd, ёж!",
+      "query": "[\\w-]+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "ab-cd",
+            "after": ", ёж"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "cd, ",
+            "match": "ёж",
+            "after": "!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-non-word-class-inside-brackets",
+      "description": "A regex class may hold \\W: [\\W\\d] matches a non-word character or a digit.",
+      "text": "ab-cd, ёж! 12",
+      "query": "[\\W\\d]+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "ab",
+            "match": "-",
+            "after": "cd,"
+          }
+        },
+        {
+          "startOffset": 5,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "b-cd",
+            "match": ", ",
+            "after": "ёж!"
+          }
+        },
+        {
+          "startOffset": 9,
+          "endOffset": 13,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": ", ёж",
+            "match": "! 12",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-negated-non-word-class-inside-brackets",
+      "description": "A negated class holding \\W matches a Unicode word character outside the class: [^\\W\\d] is a letter, not a digit.",
+      "text": "ab-cd, ёж! 12",
+      "query": "[^\\W\\d]+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "ab",
+            "after": "-cd,"
+          }
+        },
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "ab-",
+            "match": "cd",
+            "after": ", ёж"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "cd, ",
+            "match": "ёж",
+            "after": "! 12"
           }
         }
       ]

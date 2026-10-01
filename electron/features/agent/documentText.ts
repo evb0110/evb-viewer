@@ -3,13 +3,13 @@ import type { ISearchMatchOptions } from '@pdf-core';
 import { validateSearchQuery } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
 import { normalizeOptionalSearchPageCount } from '@contracts/search';
+import type { ISearchIndexCoverage } from '@contracts/searchIndexWire';
 import {
     ensureSearchIndex,
     pdfSearchDocument,
     readPdfPageTexts,
     resolveSearchablePdfPath,
     searchIndexedDocument,
-    type ISearchIndexCoverage,
     type IPageText,
 } from '@electron/features/search/public';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';

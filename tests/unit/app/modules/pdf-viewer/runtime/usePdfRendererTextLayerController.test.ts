@@ -11,10 +11,56 @@ import {
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
 import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
+import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
     IActivePdfTextLayerTask,
     TPdfTextLayerCleanup,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+
+const pdfjsStructure = vi.hoisted(() => ({holds: [] as Array<{
+    resolve: () => void;
+    promise: Promise<void>;
+}>}));
+
+// PDF.js layers need a real worker and font metrics; these stand-ins mount
+// each text item as a span and hold the optional structure tree until the
+// test releases it.
+vi.mock('@app/services/pdfjs/pdfViewerFacade', () => ({
+    createPdfjsTextLayer: (options: {
+        textContentSource: {items: Array<{str: string}>};
+        container: HTMLElement;
+    }) => {
+        const textDivs: HTMLElement[] = [];
+        return {
+            textDivs,
+            textContentItemsStr: options.textContentSource.items.map(item => item.str),
+            async render() {
+                for (const item of options.textContentSource.items) {
+                    const span = document.createElement('span');
+                    span.textContent = item.str;
+                    textDivs.push(span);
+                    options.container.append(span);
+                }
+            },
+            update() {},
+            cancel() {},
+        };
+    },
+    createPdfjsStructTreeLayer: async () => {
+        let resolve!: () => void;
+        const promise = new Promise<void>((done) => {
+            resolve = done;
+        });
+        pdfjsStructure.holds.push({
+            resolve,
+            promise,
+        });
+        return {
+            render: () => promise.then(() => null),
+            updateTextLayer() {},
+        };
+    },
+}));
 
 function createHarness() {
     const container = document.createElement('div');
@@ -192,6 +238,98 @@ describe('usePdfRendererTextLayerController', () => {
             expect(harness.setupTextLayerInteraction).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
+        }
+    });
+
+    it('keeps the text of a newer render when it cancels one that waits on structure', async () => {
+        pdfjsStructure.holds.length = 0;
+        const container = document.createElement('div');
+        container.className = 'page_container';
+        container.dataset.page = '1';
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.className = 'text-layer';
+        container.append(textLayerDiv);
+        document.body.append(container);
+        const activeTextLayerAbortControllers = new Map<TPageNumber, IActivePdfTextLayerTask>();
+        const textLayerRenderer = usePdfTextLayerRenderer({
+            searchPageMatches: new Map(),
+            currentSearchMatch: null,
+            workingCopyPath: null,
+            documentRevisionToken: null,
+            effectiveScale: 1,
+            viewportWritePort: cast<Parameters<typeof usePdfTextLayerRenderer>[0]['viewportWritePort']>({}),
+        });
+        const cancelActiveTextLayerRender = (pageNumber: TPageNumber) => {
+            const active = activeTextLayerAbortControllers.get(pageNumber);
+            activeTextLayerAbortControllers.delete(pageNumber);
+            active?.controller.abort();
+        };
+        const renderTextLayerForPage = usePdfRendererTextLayerController({
+            textLayerRenderer,
+            activeTextLayerAbortControllers,
+            textLayerCleanupFns: new Map<TPageNumber, TPdfTextLayerCleanup>(),
+            getRenderVersion: () => 1,
+            cleanupTextLayer: vi.fn(),
+            cleanupPageIfCurrentRender: vi.fn(),
+            cancelActiveTextLayerRender,
+            cancelActiveTextLayerRenderIfCurrent: vi.fn(),
+            clearSelectionBeforePageLayerTeardown: () => true,
+            logNonCriticalStageError: vi.fn(),
+        });
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
+            getTextContent: async () => ({
+                items: [{str: 'Page 1 keeps its line'}],
+                styles: {},
+            }),
+            getStructTree: async () => null,
+        });
+        const render = (requestId: number, scale: number) => renderTextLayerForPage(
+            requirePageNumber(1),
+            1,
+            requestId,
+            {
+                container,
+                pdfPage,
+                renderResult: cast<Parameters<typeof renderTextLayerForPage>[3]['renderResult']>({
+                    canvas: document.createElement('canvas'),
+                    viewport: {
+                        width: 100 * scale,
+                        height: 100 * scale,
+                        rawDims: {},
+                    },
+                    scaleX: scale,
+                    scaleY: scale,
+                    rawDims: {
+                        pageWidth: 100,
+                        pageHeight: 100,
+                    },
+                    userUnit: 1,
+                    totalScaleFactor: scale,
+                }),
+                textLayerDiv,
+                preserveCanvasOnStale: true,
+            },
+            scale,
+            () => true,
+        );
+        try {
+            const first = render(1, 1);
+            await vi.waitFor(() => expect(pdfjsStructure.holds).toHaveLength(1));
+
+            // A zoom draws the page again while the first text layer still
+            // waits on its structure tree.
+            const second = render(2, 2);
+            await vi.waitFor(() => expect(pdfjsStructure.holds).toHaveLength(2));
+            pdfjsStructure.holds[1]!.resolve();
+
+            await expect(first).resolves.toBe(false);
+            await expect(second).resolves.toBe(true);
+            expect(textLayerDiv.textContent).toBe('Page 1 keeps its line');
+            expect(textLayerDiv.dataset.pdfTextLayerReady).toBe('true');
+        } finally {
+            pdfjsStructure.holds.forEach(hold => hold.resolve());
+            container.remove();
         }
     });
 });

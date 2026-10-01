@@ -47,6 +47,7 @@
                 @update:start-section="emit('update:start-section', $event)"
                 @open-file="openPicked(() => platformDocuments.getDocumentPickerCapability().openDocumentDialog())"
                 @open-folder="openPicked(() => platformDocuments.getDocumentPickerCapability().openFolderDialog())"
+                @press-recent="pressRecentFile"
                 @open-recent="openRecentFile"
                 @remove-recent="removeRecentFile"
                 @reveal-recent="revealRecentFile"
@@ -83,6 +84,10 @@ import { useRecentFiles } from '@app/composables/useRecentFiles';
 import * as platformDocuments from '@app/utils/platformDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
+import {
+    readPdfPageShape,
+    type IPdfPageShapeRead,
+} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 
 const DocumentWorkspace = defineAsyncComponent(() => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'));
 
@@ -171,7 +176,20 @@ function withWorkspace(run: (workspace: IWorkspaceExpose) => Promise<boolean>) {
         : (documentView.value?.whenMounted() ?? Promise.resolve(null)).then(mounted => (mounted ? run(mounted) : false));
 }
 
-async function openRecentFile(file: IRecentFile) {
+// The page's shape is asked for when a Recent row is pressed; main answers a
+// file it has read before before the button is released, so the open claims
+// the tab with its page skeleton. Only the click of that press uses it.
+let pressedRecentShape: IPdfPageShapeRead | null = null;
+
+function pressRecentFile(file: IRecentFile) {
+    pressedRecentShape = readPdfPageShape(file.originalPath);
+}
+
+async function openRecentFile(file: IRecentFile, pressed: boolean) {
+    const pageShape = pressed && pressedRecentShape?.path === file.originalPath
+        ? pressedRecentShape
+        : readPdfPageShape(file.originalPath);
+    pressedRecentShape = null;
     if (isBrowserDocumentRef(file.originalPath)) {
         try {
             await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
@@ -183,7 +201,8 @@ async function openRecentFile(file: IRecentFile) {
     return openInWorkspace({
         kind: 'open',
         target: describeDocumentTarget(file.originalPath),
-    }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath));
+        pageShape,
+    }, workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath, pageShape));
 }
 
 // The picker is requested in the click's own call: a browser shows a file

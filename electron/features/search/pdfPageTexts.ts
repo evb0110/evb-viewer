@@ -2,36 +2,29 @@ import { dirname } from 'path';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { assembleSearchablePageText } from '@pdf-core/pdfSearchCore';
+import { normalizeSearchablePageText } from '@pdf-core/pdfSearchCore';
 import { fileURLToPath } from 'url';
-import { isRecord } from '@contracts/runtimeGuards';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
 } from '@electron/utils/workerTask';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
+import { streamItems } from '@electron/features/search/streamItems';
 import type { IPageText } from '@electron/features/search/pageText';
 import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
+import * as v from 'valibot';
 
 const PDF_TEXT_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-text'].fileName;
 const POPPLER_TEXT_PAGE_WINDOW_SIZE = 256;
 
-function decodePageMessage(message: unknown): IPageText | null {
-    if (!isRecord(message) || message.type !== 'page' || !isRecord(message.page)) {
-        return null;
-    }
-    const {
-        pageNumber,
-        text,
-    } = message.page;
-    return typeof pageNumber === 'number' && typeof text === 'string'
-        ? {
-            pageNumber,
-            text,
-        }
-        : null;
-}
+const PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA = v.object({
+    type: v.literal('page'),
+    page: v.object({
+        pageNumber: v.number(),
+        text: v.string(),
+    }),
+});
 
 // pdftotext wraps independently positioned right-to-left spans in bidi
 // embedding and isolate controls. They are layout hints, never searchable text,
@@ -43,12 +36,12 @@ const BIDI_FORMATTING_CONTROLS = /[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 const MISSING_POPPLER_DATA = /Missing language pack/u;
 
 function normalizePopplerPageText(text: string) {
-    return assembleSearchablePageText([{text: text.replace(BIDI_FORMATTING_CONTROLS, '').trim()}]).text;
+    return normalizeSearchablePageText(text.replace(BIDI_FORMATTING_CONTROLS, '').trim());
 }
 
 type TStreamPdfPageTextsOptions = IPdfPageRange & {signal?: AbortSignal | undefined};
 
-async function readPdfPageCount(pdfPath: string, signal?: AbortSignal) {
+export async function readPdfPageCount(pdfPath: string, signal?: AbortSignal) {
     const paths = getPdfNativeToolPaths();
     const env = buildPopplerEnv(paths);
     const result = await runNativeToolCommand(paths.pdfinfo, [pdfPath], {
@@ -108,14 +101,13 @@ async function readPopplerPageTexts(pdfPath: string, range: IPdfPageRange, signa
 }
 
 /**
- * Reads the requested pages with PDF.js in a worker thread. Its bundled CMaps
- * and standard fonts read non-embedded fonts the same on every platform, but
- * it converts every embedded font, so it is many times slower than pdftotext
- * on OCR layers that embed a font per page.
+ * Streams the requested pages with PDF.js in a worker thread. Its bundled
+ * CMaps and standard fonts read non-embedded fonts the same on every platform,
+ * but it converts every embedded font, so it is many times slower than
+ * pdftotext on OCR layers that embed a font per page.
  */
-async function readPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
-    const pages: IPageText[] = [];
-    await runResultWorkerTask({
+function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
+    return streamItems<IPageText>((emit, workerSignal) => runResultWorkerTask({
         workerPath: resolveUnpackedWorkerPath(dirname(fileURLToPath(import.meta.url)), PDF_TEXT_WORKER_FILENAME),
         workerData: {
             pdfPath,
@@ -125,21 +117,22 @@ async function readPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?
         invalidPayloadMessage: 'PDF text worker returned an invalid payload',
         createWorkerExitError: code => new Error(`PDF text worker exited with code ${code}`),
         onProgressMessage(message) {
-            const page = decodePageMessage(message);
-            if (page === null) {
-                return false;
+            const parsed = v.safeParse(PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA, message);
+            if (parsed.success) {
+                emit(parsed.output.page);
             }
-            pages.push(page);
-            return true;
+            return parsed.success;
         },
-        ...(signal === undefined ? {} : {signal}),
-    });
-    return pages;
+        signal: workerSignal,
+    }), signal);
 }
 
 /**
  * Streams the PDF text layer page by page, in reading order. pdftotext reads
- * it; a document whose fonts need CJK data Poppler lacks is read with PDF.js.
+ * it in windows whose pages wait until it finishes, since only then does it
+ * say whether Poppler lacked CJK data for any of them; such a window is
+ * streamed with PDF.js instead. Poppler stops adding small glyphs to a page
+ * after 50,000, so a window holds a few megabytes of real text.
  */
 export function streamPdfPageTexts(
     pdfPath: string,
@@ -162,12 +155,12 @@ export function streamPdfPageTexts(
                 firstPage,
                 lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
             };
-            let pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
-            pages ??= await readPdfjsPageTexts(pdfPath, batchRange, signal);
-            for (const page of pages) {
-                signal?.throwIfAborted();
-                yield page;
+            const pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
+            if (pages === null) {
+                yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
+                continue;
             }
+            yield* pages;
             if (pages.length < batchRange.lastPage - firstPage + 1) {
                 return;
             }

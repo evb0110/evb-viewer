@@ -2,7 +2,6 @@ import type {
     IPdfDocument,
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import { range } from 'es-toolkit/math';
 import pdfjsLib, {
     createPdfjsDocumentOptions,
@@ -159,7 +158,7 @@ export async function renderPdfPagesForBrowserPrint(
     let pdfDocument: IPdfDocument;
     try {
         throwIfBrowserPrintAborted(options.signal);
-        pdfDocument = adaptPdfjsDocument(await loadingTask.promise);
+        pdfDocument = await loadingTask.promise;
         throwIfBrowserPrintAborted(options.signal);
     } catch (error) {
         await loadingTask.destroy();
@@ -176,7 +175,8 @@ export async function renderPdfPagesForBrowserPrint(
             options,
         );
     } finally {
-        await pdfDocument.destroy();
+        // The loading task owns the document and its worker, so destroying
+        // it is the whole disposal.
         await loadingTask.destroy();
     }
 }

@@ -52,8 +52,8 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
             annotationSavePlan: {
                 route: 'source-clean' as const,
                 expectedCost: 'small' as const,
-                reason: 'no-live-pdfjs-annotation-work' as const,
-                unreplayableLiveAnnotationIds: [],
+                reason: 'no-annotation-work' as const,
+                unreplayableAnnotationIds: [],
             },
         })),
         highlightSelection: vi.fn(async () => false),

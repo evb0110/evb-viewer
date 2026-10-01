@@ -19,10 +19,7 @@ import {
     type IDocumentViewerRuntime,
     type IDocumentOpenSurfaceRenderOwner,
 } from '@app/modules/document-viewer/public';
-import {
-    renderPdfDocumentPageSource,
-    renderPdfDocumentThumbnail,
-} from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
+import { renderPdfDocumentThumbnail } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentThumbnail';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { usePdfPageRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -1162,9 +1159,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     throw new DOMException('The PDF document was replaced', 'AbortError');
                 }
             };
-            const sourceIdentifier = documentRef
-                ?? (typeof source === 'string' ? source : null)
-                ?? (typeof source === 'object' && source !== null && 'path' in source ? source.path : 'memory');
             const pageSource = createPdfPageSource({
                 documentRef: documentRef
                     ?? (typeof source === 'string' ? parseDocumentRef(source) : null)
@@ -1184,12 +1178,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                         rotation: ((Math.round((metric.rotation ?? 0) / 90) * 90 % 360 + 360) % 360) as 0 | 90 | 180 | 270,
                     };
                 },
-                renderPage: request => renderPdfDocumentPageSource({
-                    document,
-                    request,
-                    surfaceBudget: authority.surfaceBudget,
-                    scopeId: `pdf-page-source:${sourceIdentifier}`,
-                }),
                 renderThumbnail: async (request) => {
                     refuseReplaced();
                     await waitForLoadedDocument(request.signal);

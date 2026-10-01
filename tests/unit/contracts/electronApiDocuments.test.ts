@@ -8,6 +8,7 @@ import {
     PDF_OPTIMIZE_PROGRESS_SCHEMA,
     WORKING_COPY_BACKING_STATUS_SCHEMA,
 } from '@contracts/electronApiDocuments';
+import {PDF_IMAGE_COMBINE_PROGRESS_SCHEMA} from '@contracts/pdfImageCombineProgress';
 import * as v from 'valibot';
 
 describe('progress event payload schemas', () => {
@@ -99,6 +100,48 @@ describe('progress event payload schemas', () => {
         undefined,
     ])('rejects malformed open-batch progress %#', (payload) => {
         expect(v.safeParse(OPEN_BATCH_PROGRESS_SCHEMA, payload, {abortEarly: true}).success).toBe(false);
+    });
+
+    // One `evb-pdf-image-combine --json-progress` line.
+    const combineLine = {
+        type: 'progress',
+        processed: 1,
+        total: 4,
+        percent: 25,
+        elapsedMs: 30,
+    };
+
+    it('reads the image combiner estimate, and a missing one as unknown', () => {
+        expect(v.parse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
+            ...combineLine,
+            estimatedRemainingMs: 90,
+        })).toMatchObject({estimatedRemainingMs: 90});
+        expect(v.parse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, combineLine)).toMatchObject({estimatedRemainingMs: null});
+    });
+
+    it.each([
+        [{processed: Infinity}],
+        [{total: -1}],
+        [{percent: 101}],
+        [{percent: -1}],
+        [{elapsedMs: Infinity}],
+        [{estimatedRemainingMs: Infinity}],
+    ])('rejects an image combiner progress line with %j', (bad) => {
+        expect(v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
+            ...combineLine,
+            ...bad,
+        }).success).toBe(false);
+    });
+
+    it.each([
+        '90',
+        true,
+        {ms: 90},
+    ])('rejects an image combiner estimate of %j', (estimatedRemainingMs) => {
+        expect(v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
+            ...combineLine,
+            estimatedRemainingMs,
+        }, {abortEarly: true}).success).toBe(false);
     });
 });
 

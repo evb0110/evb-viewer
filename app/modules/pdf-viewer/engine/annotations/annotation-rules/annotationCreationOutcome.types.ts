@@ -9,7 +9,7 @@ import type {
  * Typed result of an annotation creation attempt.
  *
  * Creation runs in two stages: a canonical intent is submitted to the
- * annotation store, then a PDF.js editor is projected for it. The two stages
+ * annotation store, then an editor is projected for it. The two stages
  * fail independently, so callers need to tell "nothing exists" from "the
  * annotation exists but its editor has not appeared yet". Reporting a bare
  * `true` for both is what issue #91 fixes.

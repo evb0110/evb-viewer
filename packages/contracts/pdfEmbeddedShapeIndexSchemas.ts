@@ -218,6 +218,14 @@ const releasePdfEmbeddedShapeIndexArgs = v.strictTuple([sessionIdSchema]);
 const pdfEmbeddedShapeIndexSessionResult = PDF_EMBEDDED_SHAPE_INDEX_SESSION_SCHEMA;
 const pdfEmbeddedShapeIndexChunkResult = PDF_EMBEDDED_SHAPE_INDEX_CHUNK_SCHEMA;
 
+/** The first line of `evb-pdf-page-ops embedded-shape-index` JSONL output. */
+export const PDF_EMBEDDED_SHAPE_INDEX_SIDECAR_HEADER_SCHEMA = v.object({
+    format: v.literal('evb-pdf-embedded-shape-index'),
+    schemaVersion: v.literal(1),
+    pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES)),
+});
+
 export {
     beginPdfEmbeddedShapeIndexArgs,
     pdfEmbeddedShapeIndexChunkResult,

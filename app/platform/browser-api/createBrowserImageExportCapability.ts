@@ -17,7 +17,6 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import {getPdfjsLib} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
@@ -546,13 +545,10 @@ async function storeTiffAtHandle(
 }
 
 async function loadPdfDocument(path: string) {
-    const pdfjsLib = await getPdfjsLib();
-    const pdfDocument = await loadBrowserPdfjsDocument(pdfjsLib, path);
+    const pdfDocument = await loadBrowserPdfjsDocument(path);
     return {
         pdfDocument,
-        destroy: async () => {
-            await pdfDocument.destroy();
-        },
+        destroy: () => pdfDocument.loadingTask.destroy(),
     };
 }
 

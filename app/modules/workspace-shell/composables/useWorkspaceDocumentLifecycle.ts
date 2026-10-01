@@ -23,6 +23,10 @@ import {
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {
+    beginOpenSurfaceWithPageShape,
+    readPdfPageShape,
+} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -133,11 +137,16 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         const initialPage = request.kind === 'restore'
             ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1))
             : 1;
-        options.openSurface.begin({
-            documentId: String(request.target?.originalPath ?? transactionId),
+        const path = request.target?.originalPath ?? null;
+        // One page-shape read per open: the one its input started, or this one.
+        const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
+        beginOpenSurfaceWithPageShape(options.openSurface, {
+            documentId: String(path ?? transactionId),
             documentRevision: `open-intent:${transactionId}`,
             provisional: true,
-        }, null, initialPage);
+        }, initialPage, initialPage !== 1
+            ? null
+            : request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource));
         if (pendingPage !== null) {
             options.openSurface.requestNavigation(pendingPage);
             pendingPage = null;

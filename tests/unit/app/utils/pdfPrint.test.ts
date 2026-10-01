@@ -167,12 +167,10 @@ describe('pdfPrint', () => {
             render: vi.fn(() => ({ promise: Promise.resolve() })),
         };
         const loadingTaskDestroy = vi.fn(async () => {});
-        const pdfDocumentDestroy = vi.fn(async () => {});
         const getPage = vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage);
         pdfjsModule.getDocument.mockReturnValue({
             destroy: loadingTaskDestroy,
             promise: Promise.resolve({
-                destroy: pdfDocumentDestroy,
                 getPage,
                 numPages: 2,
             }),
@@ -217,7 +215,6 @@ describe('pdfPrint', () => {
         expect(createdSections[1]?.style).toEqual({});
         expect(firstPage.cleanup).toHaveBeenCalledTimes(1);
         expect(secondPage.cleanup).toHaveBeenCalledTimes(1);
-        expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
         expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
     });
 
@@ -232,12 +229,10 @@ describe('pdfPrint', () => {
             },
             querySelector: () => root,
         };
-        const pdfDocumentDestroy = vi.fn(async () => {});
         const loadingTaskDestroy = vi.fn(async () => {});
         pdfjsModule.getDocument.mockReturnValue({
             destroy: loadingTaskDestroy,
             promise: Promise.resolve({
-                destroy: pdfDocumentDestroy,
                 getPage: vi.fn(),
                 numPages: 0,
             }),
@@ -248,7 +243,6 @@ describe('pdfPrint', () => {
         const pdfData = pdfjsModule.getDocument.mock.calls[0]?.[0]?.data;
         expect(pdfData).toBeInstanceOf(Uint8Array);
         expect(pdfData).toEqual(Uint8Array.of(1, 2, 3));
-        expect(pdfDocumentDestroy).toHaveBeenCalledTimes(1);
         expect(loadingTaskDestroy).toHaveBeenCalledTimes(1);
     });
 
@@ -363,7 +357,6 @@ describe('pdfPrint', () => {
         pdfjsModule.getDocument.mockReturnValue({
             destroy: vi.fn(async () => {}),
             promise: Promise.resolve({
-                destroy: vi.fn(async () => {}),
                 getPage: vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage),
                 numPages: 2,
             }),
@@ -429,11 +422,9 @@ describe('pdfPrint', () => {
             render: vi.fn(() => ({ promise: Promise.resolve() })),
         };
         const loadingTaskDestroy = vi.fn(async () => {});
-        const pdfDocumentDestroy = vi.fn(async () => {});
         pdfjsModule.getDocument.mockReturnValue({
             destroy: loadingTaskDestroy,
             promise: Promise.resolve({
-                destroy: pdfDocumentDestroy,
                 getPage: vi.fn(async () => page),
                 numPages: 1,
             }),

@@ -19,6 +19,7 @@ import { decode as decodePng } from 'fast-png';
 import {
     PDFDocument,
     rgb,
+    StandardFonts,
 } from 'pdf-lib';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
@@ -33,6 +34,7 @@ import {
 } from 'node:path';
 import {
     createAnnotatedLinkFixturePdf,
+    createFixturePath,
     createLargeScannedFixturePdf,
     createMixedSizeTextFixturePdf,
     createNativeDjvuLatePageSearchFixture,
@@ -87,6 +89,8 @@ import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/help
 import { waitForAnimationFrames } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
+import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -1657,10 +1661,12 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, point);
         // Rows render from pages the pdf.js worker prepares. Pausing that worker
         // keeps the rows a jump reveals as placeholders until the press is
-        // down, and resuming it lands their rasters while it is held. Every
-        // wait is bounded far inside the test timeout, and one idempotent
-        // restore runs from finally and from onTestFinished, so no path leaves
-        // the shared session's worker paused or its button down.
+        // down, and resuming it lands their rasters while it is held. An idle
+        // worker stops only when the next request reaches it, so the press
+        // waits for that stop. Every wait is bounded far inside the test
+        // timeout, and one idempotent restore runs from finally and from
+        // onTestFinished, so no path leaves the shared session's worker paused
+        // or its button down.
         const worker = page.workers().find(candidate => candidate.url().includes('pdf.worker'));
         expect(worker, 'the pdf.js worker serves this document').toBeDefined();
         const workerDebugger = worker!.client;
@@ -1679,9 +1685,11 @@ describe('Electron E2E - Viewer Smoke', () => {
         };
         onTestFinished(restore);
         await workerDebugger.send('Debugger.enable');
+        const workerPaused = new Promise<true>(resolve => workerDebugger.once('Debugger.paused', () => resolve(true)));
         await workerDebugger.send('Debugger.pause');
         try {
             await page.mouse.wheel({deltaY: 9_000});
+            expect(await bounded(workerPaused), 'the pdf.js worker stops at a request').toBe(true);
             await waitForFunctionInPage(page, ({
                 x, y,
             }: {
@@ -3375,6 +3383,49 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, {timeout: 15_000});
     });
 
+    // #928 F6: a damaged search cache is rebuilt instead of failing the search.
+    it('rebuilds a search index whose cached header claims an impossible record table', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-search-cache-${Date.now()}`,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-search-cache-${Date.now()}.pdf`,
+            4,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        const search = async (query: string) => {
+            const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
+            await input!.click();
+            // Setup only: select the previous query so the typed one replaces it.
+            await input!.evaluate(element => element.select());
+            await session.page.keyboard.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string, text: string) => (
+                Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`))
+                    .some(result => result.textContent?.includes(text))
+            ), {timeout: 15_000}, sidebar, query);
+        };
+
+        await search('Page 3 sample text');
+        // Keep the header and revision of the index the search just built, and
+        // claim the largest record table its count field can name, with none.
+        const indexPath = getWorkingCopyDerivedPath(
+            await getActiveWorkspaceWorkingCopyPath(session.page),
+            'search-index',
+        );
+        const index = await readFile(indexPath);
+        const forged = Buffer.from(index.subarray(0, 32 + index.readUInt32LE(20)));
+        forged.writeUInt32LE(0xffff_ffff, 24);
+        await writeFile(indexPath, forged);
+
+        await search('Page 2 sample text');
+    });
+
     it('runs regex and whole-word searches on a document over 200 pages', async () => {
         let session = sessionFixture.getSession();
 
@@ -3436,6 +3487,87 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(wholeWord.panelText).not.toContain('Search unavailable');
         expect(wholeWord.summary).toMatch(/\b240\b/u);
         expect(wholeWord.firstGroupPage).toBe('1');
+    });
+
+    // #928 F5: the page highlights what the desktop index found for a regex,
+    // including a class that holds \W (PR #938 review).
+    it.each([
+        String.raw`caf\w`,
+        String.raw`caf[^\W\d]`,
+    ])('highlights a regex match that needs a Unicode word character: %s', async (query) => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-unicode-regex-${Date.now()}`,
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Le café est noir', {
+            font,
+            size: 28,
+            x: 72,
+            y: 640,
+        });
+        const fixturePath = createFixturePath(`viewer-unicode-regex-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await (await session.page.waitForSelector(`${sidebar} .document-search-bar button[aria-label="Use regular expression"]`))!.click();
+        await (await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true}))!.click();
+        await session.page.keyboard.type(query);
+        await session.page.keyboard.press('Enter');
+        const result = await session.page.waitForSelector(`${sidebar} .document-search-result`, {
+            visible: true,
+            timeout: 30_000,
+        });
+        expect(await result!.evaluate(element => element.textContent)).toContain('café');
+        await result!.click();
+
+        const highlighted = await waitForFunctionInPage(session.page, () => (
+            Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-search-highlight--current'))
+                .some(highlight => highlight.getBoundingClientRect().width > 0)
+        ), {timeout: 15_000}).then(() => true, () => false);
+        expect(highlighted, 'the match the results list shows is highlighted on the page').toBe(true);
+    });
+
+    // #937: a page of thousands of text items gets its selectable text layer.
+    it('builds the text layer of a page with thousands of text items', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-dense-text-layer-${Date.now()}`,
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Courier);
+        const page = pdf.addPage([
+            2400,
+            3200,
+        ]);
+        for (let line = 0; line < 60; line += 1) {
+            page.drawText(`${'aaaaaaaaa '.repeat(40)}${line}`, {
+                font,
+                size: 6,
+                x: 10,
+                y: 3180 - line * 20,
+            });
+        }
+        const fixturePath = createFixturePath(`viewer-dense-text-layer-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        const openedAt = Date.now();
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        // The renderer drops a text layer that takes longer than its 15 s
+        // stage limit, so a layer that is never ready is the failure.
+        const ready = await waitForFunctionInPage(session.page, () => (
+            document.querySelector('.editor-pane.is-active .page_container[data-page="1"] .textLayer[data-pdf-text-layer-ready="true"]') !== null
+        ), {timeout: 20_000}).then(() => true, () => false);
+        console.info(`[iss937] dense text layer ready=${String(ready)} after ${String(Date.now() - openedAt)} ms`);
+        expect(ready, 'the dense page has a selectable text layer').toBe(true);
     });
 
     it('finds text set in a non-embedded CJK font on a later page', async () => {
@@ -6736,9 +6868,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.keyboard.down('Control');
         await session.page.keyboard.press('f');
         await session.page.keyboard.up('Control');
-        await waitForFunctionInPage(session.page, (selector: string) => (
-            (document.querySelector(selector)?.getClientRects().length ?? 0) > 0
-        ), {timeout: 5_000}, searchSelector);
+        // Click the box once the sidebar has slid open. Mid-slide the box has
+        // its full size but is still clipped, so its center hits the page.
+        await waitForFunctionInPage(session.page, (selector: string) => {
+            const sidebar = document.querySelector(selector)?.closest('.sidebar-wrapper:not(.is-closed)');
+            return sidebar !== null && sidebar !== undefined && sidebar.getAnimations().length === 0;
+        }, {timeout: 5_000}, searchSelector);
         await session.page.click(searchSelector);
         const searchClickFocused = await session.page.evaluate((selector: string) => (
             document.activeElement === document.querySelector(selector)

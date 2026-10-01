@@ -32,12 +32,8 @@ import {
     canUseBrowserSearchWorker,
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,
-    createBrowserSearchWorkerPageStreamRequest,
 } from '@app/platform/browser-api/browserSearchWorkerClient';
-import {
-    iterateBrowserSearchDocumentPages,
-    streamBrowserSearchDocumentPages,
-} from '@app/platform/browser-api/browserSearchCore';
+import { iterateBrowserSearchDocumentPages } from '@app/platform/browser-api/browserSearchCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
@@ -126,7 +122,6 @@ interface IIterateSearchPagesOptions {
     requestId?: TRequestId;
     requestGeneration?: number | undefined;
     expectedPageCount?: number;
-    streamDirectExtraction?: boolean;
     continueExtractionAfterStop?: boolean;
     requireGeometry?: boolean;
 }
@@ -535,15 +530,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         generation: number;
         canceled: boolean
     }>();
-    const activePageWorkerSearchRequests = new Map<TRequestId, {
-        generation: number;
-        workerRequestId: number;
-        resetWorkerOnCancel: boolean;
-    }>();
     const activeMatchWorkerSearchRequests = new Map<TRequestId, {
         generation: number;
         workerRequestId: number;
-        resetWorkerOnCancel: boolean;
     }>();
     let nextSearchGeneration = 0;
 
@@ -594,22 +583,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         if (!requestId) {
             return undefined;
         }
-        for (const workerRequests of [
-            activePageWorkerSearchRequests,
-            activeMatchWorkerSearchRequests,
-        ]) {
-            const previousWorkerRequest = workerRequests.get(requestId);
-            if (!previousWorkerRequest) {
-                continue;
-            }
-            void cancelBrowserSearchWorkerRequest(
-                previousWorkerRequest.workerRequestId,
-                previousWorkerRequest.resetWorkerOnCancel
-                    ? {resetWorker: true}
-                    : {},
-            );
-            workerRequests.delete(requestId);
-        }
+        cancelMatchWorkerRequest(requestId);
         const generation = nextSearchGeneration + 1;
         nextSearchGeneration = generation;
         activeSearchRequests.set(requestId, {
@@ -635,15 +609,20 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         if (active?.generation === generation) {
             activeSearchRequests.delete(requestId);
         }
-        for (const workerRequests of [
-            activePageWorkerSearchRequests,
-            activeMatchWorkerSearchRequests,
-        ]) {
-            const workerRequest = workerRequests.get(requestId);
-            if (workerRequest?.generation === generation) {
-                workerRequests.delete(requestId);
-            }
+        if (activeMatchWorkerSearchRequests.get(requestId)?.generation === generation) {
+            activeMatchWorkerSearchRequests.delete(requestId);
         }
+    }
+
+    // A regular expression can run long inside the worker; cancelling it
+    // terminates the worker.
+    function cancelMatchWorkerRequest(requestId: TRequestId) {
+        const workerRequest = activeMatchWorkerSearchRequests.get(requestId);
+        if (!workerRequest) {
+            return;
+        }
+        cancelBrowserSearchWorkerRequest(workerRequest.workerRequestId, {resetWorker: true});
+        activeMatchWorkerSearchRequests.delete(requestId);
     }
 
     function isExtractionCanceled(requestId: TRequestId | undefined, generation: number | undefined) {
@@ -712,61 +691,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         return record;
     }
 
-    interface IStreamedSearchPage extends ISearchPageData {pageCount?: number;}
-
-    interface IStreamedSearchDocumentText {
-        pages: AsyncIterable<IStreamedSearchPage>;
-        completion: Promise<number>;
-        cancel: () => void;
-    }
-
-    function createDirectSearchDocumentTextStream(
-        pdfPath: string,
-        requestId: TRequestId | undefined,
-        requestGeneration: number | undefined,
-    ): IStreamedSearchDocumentText {
-        return {
-            pages: streamBrowserSearchDocumentPages(
-                pdfPath,
-                {shouldContinue: () => !isExtractionCanceled(requestId, requestGeneration)},
-            ),
-            completion: Promise.resolve(0),
-            cancel: () => {},
-        };
-    }
-
-    function createSearchDocumentTextStream(
-        pdfPath: string,
-        requestId: TRequestId | undefined,
-        requestGeneration: number | undefined,
-    ): IStreamedSearchDocumentText {
-        if (!canUseBrowserSearchWorker()) {
-            return createDirectSearchDocumentTextStream(pdfPath, requestId, requestGeneration);
-        }
-        try {
-            const workerRequest = createBrowserSearchWorkerPageStreamRequest({pdfPath});
-            if (requestId) {
-                activePageWorkerSearchRequests.set(requestId, {
-                    generation: requestGeneration ?? 0,
-                    workerRequestId: workerRequest.requestId,
-                    resetWorkerOnCancel: false,
-                });
-            }
-            const completion = workerRequest.promise.then(result => result.pageCount);
-            void completion.catch(() => {});
-            return {
-                pages: workerRequest.pages,
-                completion,
-                cancel: () => cancelBrowserSearchWorkerRequest(workerRequest.requestId),
-            };
-        } catch (error) {
-            if (error instanceof BrowserSearchWorkerUnavailableError) {
-                return createDirectSearchDocumentTextStream(pdfPath, requestId, requestGeneration);
-            }
-            throw error;
-        }
-    }
-
     async function matchSearchPage(
         pageText: string,
         query: string,
@@ -778,9 +702,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         requestId: TRequestId,
         requestGeneration: number,
         maxMatches: number,
-        deadlineAtMs: number,
+        regexBudget: {remainingMs: number},
     ) {
-        if (matchOptions.useRegex && Date.now() >= deadlineAtMs) {
+        if (matchOptions.useRegex && regexBudget.remainingMs <= 0) {
             throw new SearchRegexLimitError(
                 `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
             );
@@ -814,26 +738,28 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 query,
                 options: matchOptions,
                 maxMatches,
-                deadlineAtMs,
+                budgetMs: regexBudget.remainingMs,
             },
-            {
-                timeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
-                resetWorkerOnTimeout: true,
-            },
+            {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
         );
         activeMatchWorkerSearchRequests.set(requestId, {
             generation: requestGeneration,
             workerRequestId: workerRequest.requestId,
-            resetWorkerOnCancel: true,
         });
         try {
-            const result = await workerRequest.promise;
+            const {
+                matches, truncated, matchingMs,
+            } = await workerRequest.promise;
+            regexBudget.remainingMs -= matchingMs;
             return isSearchCanceled(requestId, requestGeneration)
                 ? {
                     matches: [],
                     truncated: false,
                 }
-                : result;
+                : {
+                    matches,
+                    truncated,
+                };
         } catch (error) {
             if (error instanceof BrowserSearchWorkerTimeoutError) {
                 throw new SearchRegexLimitError(
@@ -865,95 +791,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         emitPageProgress(options.requestId, page.pageNumber, pageCount);
         await yieldAfterSearchPage(page.pageNumber);
         return 'continue';
-    }
-
-    async function iterateStreamedDocumentText(
-        cache: IPreparedSearchDocumentCache,
-        pdfPath: string,
-        fileSize: number,
-        contentSignature: string,
-        documentRevision: string,
-        options: IIterateSearchPagesOptions,
-    ) {
-        const stream = createSearchDocumentTextStream(pdfPath, options.requestId, options.requestGeneration);
-        let pageCount = 0;
-        let canceled = false;
-        let stopped = false;
-        const cancelStream = () => {
-            void stream.completion.catch(() => {});
-            stream.cancel();
-        };
-
-        try {
-            for await (const page of stream.pages) {
-                if (isSearchCanceled(options.requestId, options.requestGeneration)) {
-                    canceled = true;
-                    cancelStream();
-                    break;
-                }
-
-                pageCount = page.pageCount ?? page.pageNumber;
-                rememberPageData(cache, page);
-                if (stopped) {
-                    emitPageProgress(options.requestId, page.pageNumber, pageCount);
-                    await yieldAfterSearchPage(page.pageNumber);
-                    continue;
-                }
-
-                const outcome = await deliverPage(page, pageCount, options);
-                if (outcome === 'cancel') {
-                    canceled = true;
-                    cancelStream();
-                    break;
-                }
-                if (outcome === 'stop') {
-                    stopped = true;
-                    if (options.continueExtractionAfterStop !== true) {
-                        cancelStream();
-                        break;
-                    }
-                }
-            }
-
-            if (!canceled && !stopped) {
-                const completedPageCount = await stream.completion;
-                pageCount = completedPageCount > 0 ? completedPageCount : pageCount;
-            }
-        } catch (error) {
-            if (isBrowserSearchCanceledError(error)) {
-                resetExtractedPageCache(cache);
-                if (stopped && !canceled && !isExtractionCanceled(options.requestId, options.requestGeneration)) {
-                    cache.pageCount = pageCount > 0 ? pageCount : cache.pageCount;
-                    return true;
-                }
-                return !canceled && stopped;
-            }
-            throw error;
-        } finally {
-            if (options.requestId) {
-                const workerRequest = activePageWorkerSearchRequests.get(options.requestId);
-                if (workerRequest?.generation === (options.requestGeneration ?? 0)) {
-                    activePageWorkerSearchRequests.delete(options.requestId);
-                }
-            }
-        }
-
-        cache.pageCount = pageCount;
-        cache.isComplete = !canceled && !stopped && cache.canCacheWholeDocumentText;
-        if (cache.isComplete && canPersistPageTexts(cache.pageTexts)) {
-            await persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
-                pdfPath,
-                fileSize,
-                contentSignature,
-                documentRevision,
-                pageCount,
-                cache.pageTexts,
-                createSearchCacheAccessTimestamp(),
-                SEARCH_CACHE_RECORD_VERSION,
-                PDFJS_TEXT_SOURCE,
-            ));
-        }
-        return !canceled;
     }
 
     async function iterateCachedDocumentPages(
@@ -1057,76 +894,65 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             await clearPersistedSearchCacheForDocument(pdfPath);
         }
 
-        if (options.streamDirectExtraction) {
-            let canceled = false as boolean;
-            let stopped = false as boolean;
-            let pageCount = 0;
-            try {
-                pageCount = await iterateBrowserSearchDocumentPages(
-                    pdfPath,
-                    async (page, totalPages) => {
-                        if (isSearchCanceled(options.requestId, options.requestGeneration)) {
-                            canceled = true;
-                            return;
-                        }
-                        pageCount = totalPages;
-                        rememberPageData(cache, page);
-                        if (stopped) {
-                            emitPageProgress(options.requestId, page.pageNumber, totalPages);
-                            await yieldAfterSearchPage(page.pageNumber);
-                        } else {
-                            const outcome = await deliverPage(page, totalPages, options);
-                            if (outcome === 'cancel') {
-                                canceled = true;
-                            } else if (outcome === 'stop') {
-                                stopped = true;
-                            }
-                        }
-                    },
-                    {shouldContinue: () => (
-                        !isExtractionCanceled(options.requestId, options.requestGeneration)
-                            && !canceled
-                            && (options.continueExtractionAfterStop === true || !stopped)
-                    )},
-                );
-            } catch (error) {
-                if (isBrowserSearchCanceledError(error)) {
-                    resetExtractedPageCache(cache);
-                    if (stopped && !canceled && !isExtractionCanceled(options.requestId, options.requestGeneration)) {
-                        cache.pageCount = pageCount > 0 ? pageCount : cache.pageCount;
-                        return true;
+        let canceled = false as boolean;
+        let stopped = false as boolean;
+        let pageCount = 0;
+        try {
+            pageCount = await iterateBrowserSearchDocumentPages(
+                pdfPath,
+                async (page, totalPages) => {
+                    if (isSearchCanceled(options.requestId, options.requestGeneration)) {
+                        canceled = true;
+                        return;
                     }
-                    return !canceled && stopped;
+                    pageCount = totalPages;
+                    rememberPageData(cache, page);
+                    if (stopped) {
+                        emitPageProgress(options.requestId, page.pageNumber, totalPages);
+                        await yieldAfterSearchPage(page.pageNumber);
+                    } else {
+                        const outcome = await deliverPage(page, totalPages, options);
+                        if (outcome === 'cancel') {
+                            canceled = true;
+                        } else if (outcome === 'stop') {
+                            stopped = true;
+                        }
+                    }
+                },
+                {shouldContinue: () => (
+                    !isExtractionCanceled(options.requestId, options.requestGeneration)
+                        && !canceled
+                        && (options.continueExtractionAfterStop === true || !stopped)
+                )},
+            );
+        } catch (error) {
+            if (isBrowserSearchCanceledError(error)) {
+                resetExtractedPageCache(cache);
+                if (stopped && !canceled && !isExtractionCanceled(options.requestId, options.requestGeneration)) {
+                    cache.pageCount = pageCount > 0 ? pageCount : cache.pageCount;
+                    return true;
                 }
-                throw error;
+                return !canceled && stopped;
             }
-
-            cache.pageCount = pageCount;
-            cache.isComplete = !canceled && cache.canCacheWholeDocumentText;
-            if (cache.isComplete && canPersistPageTexts(cache.pageTexts)) {
-                await persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
-                    pdfPath,
-                    fileSize,
-                    contentSignature,
-                    documentRevision,
-                    pageCount,
-                    cache.pageTexts,
-                    createSearchCacheAccessTimestamp(),
-                    SEARCH_CACHE_RECORD_VERSION,
-                    PDFJS_TEXT_SOURCE,
-                ));
-            }
-            return !canceled;
+            throw error;
         }
 
-        return iterateStreamedDocumentText(
-            cache,
-            pdfPath,
-            fileSize,
-            contentSignature,
-            documentRevision,
-            options,
-        );
+        cache.pageCount = pageCount;
+        cache.isComplete = !canceled && cache.canCacheWholeDocumentText;
+        if (cache.isComplete && canPersistPageTexts(cache.pageTexts)) {
+            await persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
+                pdfPath,
+                fileSize,
+                contentSignature,
+                documentRevision,
+                pageCount,
+                cache.pageTexts,
+                createSearchCacheAccessTimestamp(),
+                SEARCH_CACHE_RECORD_VERSION,
+                PDFJS_TEXT_SOURCE,
+            ));
+        }
+        return !canceled;
     }
 
     async function resolveSearchDocumentRevision(pdfPath: string, requestedRevision: string | undefined) {
@@ -1167,7 +993,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             let truncated = false;
             const pageMatchCounts = new Map<number, number>();
             const requestGeneration = startSearchRequest(requestId);
-            let regexDeadlineAtMs: number | null = null;
+            // Only time spent matching spends the budget: reading page text
+            // and starting the worker do not.
+            const regexBudget = {remainingMs: SEARCH_REGEX_MAX_EXECUTION_MS};
             try {
                 const { size } = await browserDocumentStore.stat(pdfPath);
                 const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
@@ -1176,16 +1004,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     requestId,
                     ...(requestGeneration === undefined ? {} : {requestGeneration}),
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
-                    streamDirectExtraction: true,
                     requireGeometry: true,
                     onPage: async (page, pageCount) => {
                         if (isSearchCanceled(requestId, requestGeneration)) {
                             return false;
                         }
 
-                        if (matchOptions.useRegex && regexDeadlineAtMs === null) {
-                            regexDeadlineAtMs = Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS;
-                        }
                         const matchResult = await matchSearchPage(
                             page.text,
                             query,
@@ -1193,7 +1017,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             requestId,
                             requestGeneration ?? 0,
                             (SEARCH_RESULT_LIMIT - results.length) + 1,
-                            regexDeadlineAtMs ?? Number.POSITIVE_INFINITY,
+                            regexBudget,
                         );
                         for (const match of matchResult.matches) {
                             if (isSearchCanceled(requestId, requestGeneration)) {
@@ -1294,22 +1118,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 if (active) {
                     active.canceled = true;
                 }
-                for (const workerRequests of [
-                    activePageWorkerSearchRequests,
-                    activeMatchWorkerSearchRequests,
-                ]) {
-                    const workerRequest = workerRequests.get(requestId);
-                    if (!workerRequest) {
-                        continue;
-                    }
-                    void cancelBrowserSearchWorkerRequest(
-                        workerRequest.workerRequestId,
-                        workerRequest.resetWorkerOnCancel
-                            ? {resetWorker: true}
-                            : {},
-                    );
-                    workerRequests.delete(requestId);
-                }
+                cancelMatchWorkerRequest(requestId);
             }
             return Promise.resolve({ canceled: true });
         },

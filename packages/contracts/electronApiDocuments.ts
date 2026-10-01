@@ -130,9 +130,7 @@ export type {
 } from '@contracts/documentsPersistenceSchemas';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
-export {
-    PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-} from '@contracts/pdfAnnotationParseTypes';
+export {PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 export type * from '@contracts/pdfAnnotationParseTypes';
 export type {
     IPdfDecryptRequest, IPdfDecryptResult, TPdfDecryptOutcome,
