@@ -8,6 +8,7 @@ import {
     BROWSER_SEARCH_WORKER_ERROR_RESPONSE_SCHEMA,
     BROWSER_SEARCH_WORKER_RESPONSE_STATUS_SCHEMA,
     BROWSER_SEARCH_WORKER_RESULT_SCHEMAS,
+    BROWSER_SEARCH_WORKER_STARTED_RESPONSE_SCHEMA,
     BROWSER_SEARCH_WORKER_SUCCESS_RESPONSE_SCHEMA,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -27,12 +28,16 @@ interface IPendingWorkerRequest {
     resolveData: (data: unknown) => boolean;
     reject: (error: Error) => void;
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
+    matchTimeoutMs?: number;
 }
 
-interface IBrowserSearchWorkerRequestOptions {
-    timeoutMs?: number;
-    resetWorkerOnTimeout?: boolean;
-}
+/**
+ * `matchTimeoutMs` bounds the match from the moment the worker reports it
+ * started, so a cold worker's start-up is not counted, and terminates the
+ * worker when the bound passes: a running regular expression cannot be
+ * interrupted.
+ */
+interface IBrowserSearchWorkerRequestOptions {matchTimeoutMs?: number;}
 
 const BROWSER_SEARCH_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS = 60_000;
@@ -127,6 +132,18 @@ function settleSearchWorkerResponse(
         return;
     }
 
+    if (v.is(BROWSER_SEARCH_WORKER_STARTED_RESPONSE_SCHEMA, response)) {
+        const matchTimeoutMs = pending.matchTimeoutMs;
+        if (matchTimeoutMs !== undefined) {
+            browserSearchWorkerClient.restartRequestTimeout(
+                responseId,
+                () => createMatchTimeoutError(matchTimeoutMs),
+                matchTimeoutMs,
+            );
+        }
+        return;
+    }
+
     const timeoutTimer = pending.timeoutTimer;
     pendingWorkerRequests.delete(responseId);
     if (timeoutTimer) {
@@ -160,6 +177,14 @@ function settleSearchWorkerResponse(
         ? new SearchRegexLimitError(errorMessage)
         : new BrowserSearchWorkerRequestError(errorMessage));
     scheduleIdleWorkerTermination();
+}
+
+function createMatchTimeoutError(timeoutMs: number) {
+    const timeoutError = reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
+        `Browser search worker match timed out after ${timeoutMs}ms`,
+    ));
+    browserSearchWorkerClient.resetWorker(timeoutError);
+    return timeoutError;
 }
 
 export function canUseBrowserSearchWorker() {
@@ -207,6 +232,7 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
         new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
             browserSearchWorkerClient.registerPendingRequest(request.id, {
                 requestType: type,
+                ...(options.matchTimeoutMs === undefined ? {} : {matchTimeoutMs: options.matchTimeoutMs}),
                 resolveData: (value) => {
                     const decoded = decodeSearchWorkerResult(type, value);
                     if (!decoded) {
@@ -216,16 +242,9 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
                     return true;
                 },
                 reject: error => reject(reportWorkerFailure(error)),
-            }, () => {
-                const timeoutMs = options.timeoutMs ?? BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS;
-                const timeoutError = reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
-                    `Browser search worker request timed out after ${timeoutMs}ms`,
-                ));
-                if (options.resetWorkerOnTimeout) {
-                    browserSearchWorkerClient.resetWorker(timeoutError);
-                }
-                return timeoutError;
-            }, options.timeoutMs);
+            }, () => reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
+                `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
+            )));
 
             try {
                 worker.postMessage(request);

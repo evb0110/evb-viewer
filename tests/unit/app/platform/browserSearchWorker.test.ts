@@ -92,6 +92,7 @@ describe('browserSearch worker', () => {
                     },
                 ],
                 truncated: true,
+                matchingMs: expect.any(Number),
             },
         });
     });
@@ -117,6 +118,10 @@ describe('browserSearch worker', () => {
             },
         }} as MessageEvent<unknown>);
 
+        expect(postMessage).toHaveBeenNthCalledWith(1, {
+            id: 8,
+            started: true,
+        });
         expect(postMessage).toHaveBeenLastCalledWith({
             id: 8,
             type: 'matchPageText',
@@ -133,6 +138,7 @@ describe('browserSearch worker', () => {
                     },
                 ],
                 truncated: false,
+                matchingMs: expect.any(Number),
             },
         });
     });

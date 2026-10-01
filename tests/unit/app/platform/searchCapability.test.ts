@@ -253,6 +253,7 @@ describe('createBrowserSearchCapability', () => {
                     endOffset: 9,
                 }],
                 truncated: false,
+                matchingMs: 1,
             }),
         });
 
@@ -280,13 +281,59 @@ describe('createBrowserSearchCapability', () => {
                     useRegex: true,
                 },
                 maxMatches: 501,
-                deadlineAtMs: expect.any(Number),
+                budgetMs: 250,
             },
-            expect.objectContaining({
-                timeoutMs: 1_250,
-                resetWorkerOnTimeout: true,
-            }),
+            {matchTimeoutMs: 1_250},
         );
+    });
+
+    it('spends the regex budget on the matching time the worker reports', async () => {
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 3,
+            getPage,
+            loadingTask: {destroy: vi.fn(async () => {})},
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        const reportedMatchingMs = [
+            200,
+            60,
+        ];
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation(() => ({
+            requestId: 41,
+            promise: Promise.resolve({
+                matches: [],
+                truncated: false,
+                matchingMs: reportedMatchingMs.shift() ?? 0,
+            }),
+        }));
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+
+        await expect(capability.run('/tmp/regex-budget.pdf', 'a+b', {
+            matchCase: true,
+            useRegex: true,
+            requestId: requireRequestId('regex-budget'),
+        })).rejects.toMatchObject({
+            name: 'SearchRegexLimitError',
+            code: 'SEARCH_REGEX_LIMIT',
+        });
+        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mock.calls.map(
+            call => (call[1] as {budgetMs: number}).budgetMs,
+        )).toEqual([
+            250,
+            50,
+        ]);
     });
 
     it('turns a stalled regex worker into a typed bounded failure', async () => {
@@ -325,6 +372,7 @@ describe('createBrowserSearchCapability', () => {
                             endOffset: 4,
                         }],
                         truncated: false,
+                        matchingMs: 1,
                     }),
                 }
                 : {

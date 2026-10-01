@@ -91,6 +91,7 @@ class FakeWorker {
                         endOffset: 5,
                     }],
                     truncated: false,
+                    matchingMs: 0,
                 },
             });
         });
@@ -155,6 +156,7 @@ describe('browserSearchWorkerClient', () => {
                             endOffset: 5,
                         }],
                         truncated: false,
+                        matchingMs: 0,
                     },
                 });
             });
@@ -207,6 +209,7 @@ describe('browserSearchWorkerClient', () => {
                                 endOffset: 9,
                             }],
                             truncated: false,
+                            matchingMs: 0,
                         },
                     });
                     return;
@@ -236,6 +239,7 @@ describe('browserSearchWorkerClient', () => {
                 endOffset: 9,
             }],
             truncated: false,
+            matchingMs: 0,
         });
 
         const failedRequest = createBrowserSearchWorkerRequest('matchPageText', {
@@ -255,7 +259,7 @@ describe('browserSearchWorkerClient', () => {
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
-    it('terminates the shared worker when a bounded match request times out', async () => {
+    it('bounds a match from the worker start signal and then terminates the shared worker', async () => {
         vi.useFakeTimers();
         FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
@@ -270,12 +274,23 @@ describe('browserSearchWorkerClient', () => {
                 useRegex: true,
             },
             maxMatches: 2,
-        }, {
-            timeoutMs: 25,
-            resetWorkerOnTimeout: true,
-        });
+        }, {matchTimeoutMs: 25});
         const siblingRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('sibling'));
+        let matchSettled = false;
+        void matchRequest.promise.catch(() => undefined).finally(() => {
+            matchSettled = true;
+        });
 
+        // A cold worker has not started matching yet, so its start-up is not
+        // counted against the match bound.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(matchSettled).toBe(false);
+        expect(terminateSpy).not.toHaveBeenCalled();
+
+        FakeWorker.lastInstance?.dispatchMessage({
+            id: matchRequest.requestId,
+            started: true,
+        });
         const matchFailure = expect(matchRequest.promise)
             .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
         const siblingFailure = expect(siblingRequest.promise)
@@ -367,6 +382,7 @@ describe('browserSearchWorkerClient', () => {
                     endOffset: 5,
                 }],
                 truncated: false,
+                matchingMs: 0,
             },
         });
         worker.dispatchMessage({
@@ -379,6 +395,7 @@ describe('browserSearchWorkerClient', () => {
                     endOffset: 11,
                 }],
                 truncated: false,
+                matchingMs: 0,
             },
         });
 
@@ -388,6 +405,7 @@ describe('browserSearchWorkerClient', () => {
                 endOffset: 11,
             }],
             truncated: false,
+            matchingMs: 0,
         });
     });
 
@@ -413,11 +431,13 @@ describe('browserSearchWorkerClient', () => {
             data: {
                 matches: [],
                 truncated: false,
+                matchingMs: 0,
             },
         });
         await expect(otherRequest.promise).resolves.toEqual({
             matches: [],
             truncated: false,
+            matchingMs: 0,
         });
         expect(terminateSpy).not.toHaveBeenCalled();
     });
