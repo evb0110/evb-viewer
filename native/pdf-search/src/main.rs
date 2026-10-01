@@ -137,6 +137,13 @@ fn parse_index(data: Vec<u8>, expected_revision: &str) -> Option<SearchIndex> {
         return None;
     }
     let text_offset = records_offset.checked_add(record_count.checked_mul(RECORD_SIZE)?)?;
+    // Each record names a distinct scanned page and owns at least one text
+    // byte after the table, so a count the file cannot hold is refused before
+    // anything is reserved for it.
+    let text_len = data.len().checked_sub(text_offset)?;
+    if record_count > usize::try_from(pages_scanned).ok()? || record_count > text_len {
+        return None;
+    }
     let mut records = Vec::with_capacity(record_count);
     let mut offset = text_offset;
     let mut previous_page = 0u32;
@@ -144,7 +151,7 @@ fn parse_index(data: Vec<u8>, expected_revision: &str) -> Option<SearchIndex> {
         let record_offset = records_offset + index * RECORD_SIZE;
         let page_number = read_u32(&data, record_offset)?;
         let byte_len = usize::try_from(read_u32(&data, record_offset + 4)?).ok()?;
-        if page_number <= previous_page || page_number > page_count || byte_len == 0 {
+        if page_number <= previous_page || page_number > pages_scanned || byte_len == 0 {
             return None;
         }
         records.push(PageRecord {

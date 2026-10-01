@@ -179,6 +179,46 @@ fn written_index_reads_back_for_its_revision_only() {
     fs::remove_dir_all(&directory).expect("remove test directory");
 }
 
+fn index_bytes(index: &SearchIndex, name: &str) -> Vec<u8> {
+    let directory = std::env::temp_dir().join(format!("evb-pdf-search-{name}-{}", process::id()));
+    fs::create_dir_all(&directory).expect("create test directory");
+    let path = directory.join("document.pdf.evb-search-index");
+    write_index(index, REVISION, &path).expect("write index");
+    let bytes = fs::read(&path).expect("read index bytes");
+    fs::remove_dir_all(&directory).expect("remove test directory");
+    bytes
+}
+
+fn set_header_field(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+#[test]
+fn treats_a_header_claiming_an_impossible_record_table_as_stale() {
+    const PAGES_SCANNED: usize = 12;
+    const RECORD_COUNT: usize = 24;
+    let valid = index_bytes(
+        &build_index(4, &[(1, "first page"), (3, "third page")]),
+        "header",
+    );
+    assert!(parse_index(valid.clone(), REVISION).is_some());
+
+    // The header of a real index for this revision with no table behind it,
+    // claiming every record the count field can name.
+    let mut forged = valid[..HEADER_SIZE + REVISION.len()].to_vec();
+    set_header_field(&mut forged, RECORD_COUNT, u32::MAX);
+    assert!(parse_index(forged, REVISION).is_none());
+
+    // More records than pages scanned, with a table and text to match.
+    let mut more_records_than_pages = valid.clone();
+    set_header_field(&mut more_records_than_pages, PAGES_SCANNED, 1);
+    assert!(parse_index(more_records_than_pages, REVISION).is_none());
+
+    // A table whose text was cut off.
+    let truncated = valid[..valid.len() - 3].to_vec();
+    assert!(parse_index(truncated, REVISION).is_none());
+}
+
 #[test]
 fn page_count_defaults_to_the_pages_received() {
     let index = read_index_input(

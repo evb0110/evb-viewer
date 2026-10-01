@@ -87,6 +87,8 @@ import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/help
 import { waitForAnimationFrames } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
+import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -3373,6 +3375,49 @@ describe('Electron E2E - Viewer Smoke', () => {
             return Math.min(viewerRect.bottom, pageRect.bottom) - Math.max(viewerRect.top, pageRect.top) > 8
                 && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
         }, {timeout: 15_000});
+    });
+
+    // #928 F6: a damaged search cache is rebuilt instead of failing the search.
+    it('rebuilds a search index whose cached header claims an impossible record table', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-search-cache-${Date.now()}`,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-search-cache-${Date.now()}.pdf`,
+            4,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        const search = async (query: string) => {
+            const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
+            await input!.click();
+            // Setup only: select the previous query so the typed one replaces it.
+            await input!.evaluate(element => element.select());
+            await session.page.keyboard.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string, text: string) => (
+                Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`))
+                    .some(result => result.textContent?.includes(text))
+            ), {timeout: 15_000}, sidebar, query);
+        };
+
+        await search('Page 3 sample text');
+        // Keep the header and revision of the index the search just built, and
+        // claim the largest record table its count field can name, with none.
+        const indexPath = getWorkingCopyDerivedPath(
+            await getActiveWorkspaceWorkingCopyPath(session.page),
+            'search-index',
+        );
+        const index = await readFile(indexPath);
+        const forged = Buffer.from(index.subarray(0, 32 + index.readUInt32LE(20)));
+        forged.writeUInt32LE(0xffff_ffff, 24);
+        await writeFile(indexPath, forged);
+
+        await search('Page 2 sample text');
     });
 
     it('runs regex and whole-word searches on a document over 200 pages', async () => {
