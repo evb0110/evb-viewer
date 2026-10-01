@@ -1,0 +1,22 @@
+packages/contracts/searchIndexWire.ts
+  s_bf66933ca7b2e8::t_22d4270dcd67db 8,45-47,49
+tests/unit/electron/searchNativeErrorMapping.test.ts
+  s_bf66933ca7b2e8::t_6c4c22fe0c82d5 26,63,114,242-243,256-276
+  ai_agent 244-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "366c57799505ca10a1d5d81971d732d447379096",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
