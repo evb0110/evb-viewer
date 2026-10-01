@@ -29,15 +29,8 @@ import {
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
 import { attachNativeWindowCloseHandshake } from '@electron/window/windowCloseHandshake';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
-import {
-    encodeHostResourceProfileArgument,
-    getHostResourceProfileSnapshot,
-} from '@electron/resources/hostResourceProfile';
-import {
-    captureMainFailure,
-    getMainDiagnosticsPreference,
-} from '@electron/features/diagnostics/public';
-import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
+import { captureMainFailure } from '@electron/features/diagnostics/public';
+import { createPreloadStartupArguments } from '@electron/window/createPreloadStartupArguments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -524,16 +517,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             contextIsolation: true,
             sandbox: true,
             preload: preloadPath,
-            additionalArguments: [
-                encodeHostResourceProfileArgument(getHostResourceProfileSnapshot()),
-                encodeDiagnosticsPolicyArgument(getMainDiagnosticsPreference()),
-                ...(runtimeConfig.startupTrace ? ['--evb-startup-trace'] : []),
-                ...(runtimeConfig.automationUserDataDir
-                    && runtimeConfig.automationSessionName
-                    && runtimeConfig.automationEnableRendererFileOpenHelper
-                    ? ['--evb-renderer-file-open-helper']
-                    : []),
-            ],
+            additionalArguments: createPreloadStartupArguments(),
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });

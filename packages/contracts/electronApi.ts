@@ -2,6 +2,7 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
+import type { IHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
 
 export type * from '@contracts/agent';
 export type * from '@contracts/pdfConformance';
@@ -27,5 +28,7 @@ export type * from '@contracts/shellPlatformFeature';
 
 export type IElectronAPI = IPlatformApi & {
     diagnostics: IDiagnosticsRendererCapability;
+    /** The host main passed to this window at creation, readable before the first layout. */
+    startupHostEnvironment: Readonly<IHostEnvironmentSnapshot> | null;
     updates: IUpdatesCapability;
 };

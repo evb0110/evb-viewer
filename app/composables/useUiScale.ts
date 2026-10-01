@@ -9,6 +9,7 @@ import type {
 import { clamp } from 'es-toolkit/math';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getHostCapability } from '@app/utils/getHostCapability';
+import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 
 const FALLBACK_PLATFORM: THostPlatform = typeof process !== 'undefined' && process.platform === 'darwin'
     ? 'darwin'
@@ -63,9 +64,12 @@ function applyUiScaleToDocument(scale: number, snapshot: IHostEnvironmentSnapsho
 }
 
 export const useUiScale = () => {
+    // Main passes the desktop host to the window at creation, so the first
+    // layout already uses the final scale; `getEnvironment` and the change
+    // event correct it later.
     const hostSnapshot = useState<IHostEnvironmentSnapshot>(
         'host:environment',
-        () => DEFAULT_HOST_SNAPSHOT,
+        () => getRawElectronPlatformApi()?.startupHostEnvironment ?? DEFAULT_HOST_SNAPSHOT,
     );
 
     const preference = useState<TUiScalePreference>(

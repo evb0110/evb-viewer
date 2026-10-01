@@ -37,7 +37,10 @@ import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import {
+    HOST_PLATFORM_FEATURE,
+    type IHostEnvironmentSnapshot,
+} from '@contracts/hostPlatformFeature';
 import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import {
@@ -159,6 +162,7 @@ function readSystemMemoryInfo() {
 
 interface ICreateElectronApiOptions {
     diagnosticsPolicy?: IPreloadDiagnosticsApi['startupPolicy'];
+    hostEnvironment?: IHostEnvironmentSnapshot | null;
     resourceProfile?: IHostResourceProfileSnapshot | null;
     waitForDocumentOpenDirect?: (path: string) => Promise<void>;
 }
@@ -512,6 +516,7 @@ export function createElectronApi(
         },
 
         diagnostics: {startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'})},
+        startupHostEnvironment: options.hostEnvironment ?? null,
 
         system: {
             ...systemIpc,

@@ -8,6 +8,7 @@ import type {
     Rectangle,
 } from 'electron';
 import {
+    HOST_ENVIRONMENT_ARGUMENT_PREFIX,
     HOST_PLATFORM_FEATURE,
     type IHostEnvironmentSnapshot,
     type IHostZenModeState,
@@ -74,6 +75,15 @@ function snapshotHostEnvironmentForWindow(window: BrowserWindow | null): IHostEn
         platform: resolvePlatform(),
         osScaleFactor: readScaleFactorForWindow(window),
     };
+}
+
+// A window's arguments are fixed before it exists, so this reads the primary
+// display; `getEnvironment` and the change event correct it afterwards.
+export function encodeHostEnvironmentArgument() {
+    const encodedSnapshot = Buffer
+        .from(JSON.stringify(snapshotHostEnvironmentForWindow(null)), 'utf8')
+        .toString('base64url');
+    return `${HOST_ENVIRONMENT_ARGUMENT_PREFIX}${encodedSnapshot}`;
 }
 
 function isWindowInHostZenMode(window: BrowserWindow) {
