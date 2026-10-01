@@ -27,6 +27,7 @@ import { requireSessionId } from '@contracts/shared';
 import { requireTabId } from '@contracts/windowTabs';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentSnapshot,
@@ -63,6 +64,14 @@ export interface IWorkspaceOpenRequest {
     kind: Exclude<TWorkspaceDocumentTransactionKind, 'close'>;
     target: IWorkspaceDocumentTarget | null;
     acceptDocumentWithoutVisual?: boolean | undefined;
+    /** The page-shape read the open's input started, if it started one. */
+    pageShape?: IPdfPageShapeRead | null | undefined;
+    /**
+     * The file whose pages the open shows, when it is not the target's source
+     * (a recovered, decrypted or generated working copy); null when there is
+     * none to read yet, as for a file that still waits for its password.
+     */
+    pageShapeSource?: TDocumentRef | null | undefined;
 }
 
 /**

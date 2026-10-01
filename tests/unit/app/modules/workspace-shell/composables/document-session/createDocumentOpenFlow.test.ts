@@ -24,9 +24,12 @@ import {
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {
+    beginOpenSurfaceWithPageShape,
+    readPdfPageShape,
+} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -38,8 +41,8 @@ const mocks = vi.hoisted(() => ({
         readFileRange: vi.fn(),
         statFile: vi.fn(),
         writeFile: vi.fn(),
-        getPdfOpeningGeometry: vi.fn(),
         getDocumentRevision: vi.fn(),
+        getPdfOpeningGeometry: vi.fn(),
     },
     documentOpen: {
         onOpenDocumentDirectBatchProgress: vi.fn(() => vi.fn()),
@@ -82,14 +85,11 @@ interface IResetHistoryTestOptions {
     isCurrent?: (() => boolean) | undefined;
 }
 
-function createOpenFlowHarness(options: {
-    openSurface?: IDocumentOpenSurfaceSession;
-    reportOpenFailure?: (
-        operationId: string,
-        reason: 'unsupported-encryption',
-        detail?: string | null,
-    ) => boolean;
-} = {}) {
+function createOpenFlowHarness(options: {reportOpenFailure?: (
+    operationId: string,
+    reason: 'unsupported-encryption',
+    detail?: string | null,
+) => boolean;} = {}) {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
@@ -99,7 +99,6 @@ function createOpenFlowHarness(options: {
         ensureHistoryBaselineForMutation: vi.fn(async () => true),
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
-        ...(options.openSurface === undefined ? {} : {getOpenSurface: () => options.openSurface ?? null}),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
         ...(options.reportOpenFailure === undefined ? {} : {reportOpenFailure: options.reportOpenFailure}),
@@ -144,15 +143,6 @@ describe('createDocumentOpenFlow', () => {
             warnings: [],
         });
         mocks.documentRecentFiles.recentFiles.get.mockResolvedValue([]);
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
-            pageNumber: requirePageNumber(1),
-            pageCount: 1,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            size: PDF_BYTES.byteLength,
-            modifiedAt: requireEpochMs(1),
-        });
         mocks.documentFiles.getDocumentRevision.mockImplementation(async (path: string) => ({
             version: 1,
             token: `revision:${path}`,
@@ -846,91 +836,80 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupPreviousWorkingCopy).toHaveBeenCalledWith('/tmp/first-working.pdf', '/tmp/second-working.pdf');
     });
 
-    it('sizes the opening skeleton from the source while the open makes its working copy', async () => {
-        const originalPath = requireDocumentRef('/documents/dropped.pdf');
+});
+
+const shapedPath = requireDocumentRef('/books/grammar.pdf');
+const pageShape = {
+    pageNumber: requirePageNumber(1),
+    pageCount: 116,
+    width: 420,
+    height: 640,
+    rotation: 0 as const,
+    widestPageWidth: 420,
+    size: 12_000_000,
+    modifiedAt: requireEpochMs(1),
+};
+
+function claim(transactionId: string) {
+    return {
+        documentId: shapedPath,
+        documentRevision: `open-intent:${transactionId}`,
+        provisional: true,
+    };
+}
+
+describe('the opening surface takes the page shape at its claim', () => {
+    it('claims with the page shape main already answered, so the first frame has it', async () => {
+        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(pageShape);
+        const read = readPdfPageShape(shapedPath);
+        await read?.answer;
         const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:1',
-            provisional: true,
-        });
-        const openResult = Promise.withResolvers<unknown>();
-        mocks.documentOpen.openDocumentDirect.mockReturnValue(openResult.promise);
-        const { openFlow } = createOpenFlowHarness({openSurface});
 
-        const opening = openFlow.openFileDirect(originalPath);
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, read);
 
-        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
-            documentId: originalPath,
-            width: 612,
-            height: 792,
-        }));
-        expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledWith(originalPath);
-        openResult.resolve({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/dropped-working.pdf'),
+        expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
+            documentId: shapedPath,
+            width: 420,
+            height: 640,
         });
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
-        expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledTimes(1);
     });
 
-    it('reads no first-page geometry for an open that starts on another page', async () => {
-        // The native reader measures page 1; a restore at page 5 can size its
-        // skeleton only from PDF.js, so neither the source nor the working
-        // copy is read for it.
-        const originalPath = requireDocumentRef('/documents/restored.pdf');
+    it('commits a page shape still on its way when it arrives', async () => {
+        const answer = Promise.withResolvers<typeof pageShape>();
+        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(answer.promise);
+        const read = readPdfPageShape(shapedPath);
         const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:1',
-            provisional: true,
-        }, null, requirePageNumber(5));
-        mocks.documentOpen.openDocumentDirect.mockResolvedValue({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/restored-working.pdf'),
-        });
-        const { openFlow } = createOpenFlowHarness({openSurface});
 
-        await expect(openFlow.openFileDirect(originalPath)).resolves.toMatchObject({status: 'opened'});
-        expect(mocks.documentFiles.getPdfOpeningGeometry).not.toHaveBeenCalled();
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, read);
+        expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
+        answer.resolve(pageShape);
+
+        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({width: 420}));
     });
 
-    it('sizes the opening skeleton from native geometry on a constrained profile', async () => {
-        mocks.performanceProfile.lowCpu = true;
-        const originalPath = requireDocumentRef('/documents/constrained.pdf');
+    it('drops a page shape that arrives after another open took the surface', async () => {
+        const answer = Promise.withResolvers<typeof pageShape>();
+        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(answer.promise);
+        const read = readPdfPageShape(shapedPath);
         const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:1',
-        });
-        const geometry = Promise.withResolvers<unknown>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometry.promise);
-        const { openFlow } = createOpenFlowHarness({openSurface});
 
-        const opening = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/constrained-working.pdf'),
-        });
-        geometry.resolve({
-            pageNumber: requirePageNumber(1),
-            pageCount: 12,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            widestPageWidth: 792,
-            size: PDF_BYTES.byteLength,
-            modifiedAt: requireEpochMs(1),
-        });
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, read);
+        beginOpenSurfaceWithPageShape(openSurface, claim('2'), 1, null);
+        answer.resolve(pageShape);
+        await read?.answer;
+        await Promise.resolve();
 
-        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
-            documentId: originalPath,
-            pageCount: 12,
-            widestPageWidth: 792,
-        }));
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
+        expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
     });
 
+    it('gives an open at another page no first-page shape', async () => {
+        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(pageShape);
+        const read = readPdfPageShape(shapedPath);
+        await read?.answer;
+        const openSurface = createDocumentOpenSurfaceSession();
+
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 5, read);
+
+        expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
+    });
 });

@@ -7,9 +7,7 @@ import {
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -24,7 +22,6 @@ const mocks = vi.hoisted(() => ({
     cloneWorkingCopy: vi.fn(),
     analyzeConformance: vi.fn(),
     getRevision: vi.fn(),
-    getOpeningGeometry: vi.fn(),
     repair: vi.fn(),
     optimize: vi.fn(),
     optimizeAsCopy: vi.fn(),
@@ -34,7 +31,6 @@ const electronApi = createElectronPlatformApiFixture({
     documentFiles: {
         analyzePdfConformance: mocks.analyzeConformance,
         getDocumentRevision: mocks.getRevision,
-        getPdfOpeningGeometry: mocks.getOpeningGeometry,
         optimizePdfAsCopy: mocks.optimizeAsCopy,
         optimizePdfForInteraction: mocks.optimize,
         readFile: mocks.read,
@@ -156,15 +152,6 @@ describe('usePdfFile façade', () => {
             mintedAt: 1,
             token: 'revision-token',
         });
-        mocks.getOpeningGeometry.mockResolvedValue({
-            pageNumber: requirePageNumber(1),
-            pageCount: 1,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            size: PDF_BYTES.byteLength,
-            modifiedAt: 1,
-        });
         mocks.analyzeConformance.mockResolvedValue({
             isSigned: false,
             isEncrypted: false,
@@ -185,44 +172,6 @@ describe('usePdfFile façade', () => {
             optimizeWorkingCopy: expect.any(Function),
             optimizeWorkingCopyAsCopy: expect.any(Function),
         });
-    });
-
-    it('threads the workspace open surface into PDF open geometry', async () => {
-        const result = pdfResult('surface');
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: result.originalPath,
-            documentRevision: 'open-intent:1',
-        });
-        const geometry = Promise.withResolvers<{
-            pageNumber: ReturnType<typeof requirePageNumber>;
-            pageCount: number;
-            width: number;
-            height: number;
-            rotation: 0;
-            size: number;
-            modifiedAt: number;
-        }>();
-        mocks.getOpeningGeometry.mockReturnValue(geometry.promise);
-        const file = createFacade({getOpenSurface: () => openSurface});
-        const opening = file.openFile(result);
-        geometry.resolve({
-            pageNumber: requirePageNumber(1),
-            pageCount: 7,
-            width: 640,
-            height: 900,
-            rotation: 0,
-            size: PDF_BYTES.byteLength,
-            modifiedAt: 1,
-        });
-
-        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
-            documentId: result.originalPath,
-            pageCount: 7,
-            width: 640,
-            height: 900,
-        }));
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {

@@ -197,7 +197,8 @@
                                 :data-recent-open-actionable="isRecentOpenReady(file) ? 'true' : 'false'"
                                 :data-recent-open-ready="isRecentOpenReady(file) ? 'true' : 'false'"
                                 :data-recent-source="String(file.originalPath)"
-                                @click="openRecentFromRow(file)"
+                                @pointerdown="pressRecent(file, $event)"
+                                @click="openRecentFromRow(file, $event)"
                             >
                                 <span class="recent-col recent-col--name" role="cell">
                                     <AppTooltip :text="file.fileName" :delay-duration="800" usefulness="always">
@@ -205,7 +206,7 @@
                                             type="button"
                                             class="recent-open"
                                             :disabled="isRecentRowDisabled(file)"
-                                            @click.stop="openRecent(file)"
+                                            @click.stop="openRecent(file, $event)"
                                         >
                                             <span class="recent-file-icon" aria-hidden="true">
                                                 <FileTypeIcon :kind="getFileKind(file)" />
@@ -390,7 +391,8 @@ const {
 const emit = defineEmits<{
     'update:start-section': [section: TStartSection];
     'open-file': [];
-    'open-recent': [file: IRecentFile];
+    'press-recent': [file: IRecentFile];
+    'open-recent': [file: IRecentFile, pressed: boolean];
     'remove-recent': [file: IRecentFile];
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
@@ -509,7 +511,15 @@ function openFile() {
 
 const pendingRecentOpenPath = ref<string | null>(null);
 
-function openRecent(file: IRecentFile) {
+// A click opens on release; the press lets the host start work for that open
+// sooner. A keyboard activation has no press, and its click's detail is 0.
+function pressRecent(file: IRecentFile, event: PointerEvent) {
+    if (event.button === 0 && !isRecentRowDisabled(file)) {
+        emit('press-recent', file);
+    }
+}
+
+function openRecent(file: IRecentFile, event: MouseEvent) {
     // The host registers its open transaction asynchronously, so a rapid
     // second click can slip through before eligibility flips; dedupe here.
     if (pendingRecentOpenPath.value === file.originalPath) {
@@ -517,7 +527,7 @@ function openRecent(file: IRecentFile) {
     }
     pendingRecentOpenPath.value = file.originalPath;
     recentFilesBeforeOpen.value ??= recentFiles.slice();
-    emit('open-recent', file);
+    emit('open-recent', file, event.detail > 0);
     void nextTick().then(() => {
         if (!openInProgress) {
             recentFilesBeforeOpen.value = null;
@@ -526,9 +536,9 @@ function openRecent(file: IRecentFile) {
     });
 }
 
-function openRecentFromRow(file: IRecentFile) {
+function openRecentFromRow(file: IRecentFile, event: MouseEvent) {
     if (!isRecentRowDisabled(file)) {
-        openRecent(file);
+        openRecent(file, event);
     }
 }
 

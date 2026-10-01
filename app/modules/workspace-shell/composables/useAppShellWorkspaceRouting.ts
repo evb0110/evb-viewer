@@ -3,6 +3,7 @@ import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type {
@@ -91,8 +92,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return true;
         }
         const view = session.getView(tabId);
+        // The page's shape is asked for now, so the answer arrives while a new
+        // tab's workspace mounts instead of after its open is claimed.
+        const pageShape = typeof target === 'string' ? readPdfPageShape(target) : null;
         const open = (workspace: IWorkspaceExpose) => (typeof target === 'string'
-            ? workspace.handleOpenFileDirectWithPersist(target)
+            ? workspace.handleOpenFileDirectWithPersist(target, pageShape)
             : workspace.handleOpenFileWithResult(target));
         const mounted = view?.mountedWorkspace.value;
         if (mounted) {
