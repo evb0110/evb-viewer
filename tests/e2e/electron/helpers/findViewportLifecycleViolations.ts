@@ -1,6 +1,7 @@
-import type {
-    ICommittedSurfaceFrame,
-    ICommittedSurfaceTrace,
+import {
+    isOpeningBeforePageGeometry,
+    type ICommittedSurfaceFrame,
+    type ICommittedSurfaceTrace,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 
 export interface IViewportLifecycleContract {
@@ -36,14 +37,7 @@ function getCheckpointFrames(
 }
 
 function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
-    if (
-        frame.kind === 'blank'
-        || frame.kind === 'loader'
-        || frame.kind === 'neutral' && (
-            frame.openSurfacePhase !== 'pending'
-            || frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'false'
-        )
-    ) {
+    if (frame.kind === 'blank' && !isOpeningBeforePageGeometry(frame) || frame.kind === 'loader') {
         return `frame ${String(frame.frame)} exposed ${frame.kind} instead of one viewport owner: ${JSON.stringify({
             navigation: frame.pdfNavigationDiagnostic,
             openSurface: frame.openSurfaceDiagnostic,

@@ -5,7 +5,10 @@ import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceOpenFailure,
+} from '@app/types/workspaceExpose';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -15,14 +18,16 @@ import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { snapshotOccupiesTab } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { describeDocumentTarget } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {
+    describeDocumentTarget,
+    describeOpenResult,
+} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 
 type TWorkspaceOpenDocumentTarget = TDocumentRef | TOpenFileResult;
 
 interface IUseAppShellWorkspaceRoutingOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    presentationFallbackTabId: Ref<string | null>;
     documentSessions: TWorkspaceDocumentSessions;
     tabLifecycleById: Readonly<Ref<Record<string, ITabLifecycleState>>>;
     createTab: (options: {
@@ -85,13 +90,29 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             });
             return true;
         }
-        const workspace = await session.getView(tabId)?.whenMounted() ?? null;
-        if (!workspace) {
-            return false;
-        }
-        return typeof target === 'string'
+        const view = session.getView(tabId);
+        const open = (workspace: IWorkspaceExpose) => (typeof target === 'string'
             ? workspace.handleOpenFileDirectWithPersist(target)
-            : workspace.handleOpenFileWithResult(target);
+            : workspace.handleOpenFileWithResult(target));
+        const mounted = view?.mountedWorkspace.value;
+        if (mounted) {
+            return open(mounted);
+        }
+        // The tab is opening from this request, not from when its workspace
+        // chunk arrives, so a new tab never shows its Start page first. The
+        // workspace's own open supersedes this transaction once it is mounted,
+        // which settles it as not presented; the open's own result is the answer.
+        const opened = (view?.whenMounted() ?? Promise.resolve(null))
+            .then(workspace => (workspace ? open(workspace) : false));
+        return session.runOpen(
+            typeof target === 'string'
+                ? {
+                    kind: 'open',
+                    target: describeDocumentTarget(target),
+                }
+                : describeOpenResult(target),
+            () => opened,
+        ).then(() => opened);
     }
 
     async function handleFallbackToolbarOpenFile() {
@@ -112,43 +133,35 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         await fallbackWorkspace.handleOpenFileFromUi();
     }
 
-    // The outgoing tab keeps painting until the new tab presents its document,
-    // so an open never flashes an empty pane. A document that does not open
-    // takes its tab with it and says why.
+    // The new tab shows its own opening, as an open in the current tab does.
+    // A document that does not open takes its tab with it and says why.
     async function handleOpenInNewTab(target: TWorkspaceOpenDocumentTarget, paneId?: string) {
         const outgoingTabId = activeTabId.value;
-        options.presentationFallbackTabId.value = outgoingTabId;
+        const tab = createTab({
+            paneId: paneId ?? activePaneId.value,
+            activate: true,
+        });
+        let opened = false;
         try {
-            const tab = createTab({
-                paneId: paneId ?? activePaneId.value,
-                activate: true,
+            opened = await openInTab(tab.id, target);
+        } catch (error) {
+            BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
+                error,
+                tabId: tab.id,
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+        }
+        if (!opened) {
+            logPdfRenderTrace('pdf-open-replacement-rollback', {
+                failedTabId: tab.id,
+                restoredTabId: outgoingTabId,
             });
-            let opened = false;
-            try {
-                opened = await openInTab(tab.id, target);
-            } catch (error) {
-                BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
-                    error,
-                    tabId: tab.id,
-                }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-            }
-            if (!opened) {
-                logPdfRenderTrace('pdf-open-replacement-rollback', {
-                    failedTabId: tab.id,
-                    restoredTabId: outgoingTabId,
-                });
-                const failure = readFailure(tab.id);
-                options.removeTabFromState(tab.id);
-                if (failure) {
-                    options.reportOpenFailure?.(failure.fileName, failure);
-                }
-            }
-            return opened;
-        } finally {
-            if (options.presentationFallbackTabId.value === outgoingTabId) {
-                options.presentationFallbackTabId.value = null;
+            const failure = readFailure(tab.id);
+            options.removeTabFromState(tab.id);
+            if (failure) {
+                options.reportOpenFailure?.(failure.fileName, failure);
             }
         }
+        return opened;
     }
 
     // A document that failed fails the same way in any tab, so it is reported

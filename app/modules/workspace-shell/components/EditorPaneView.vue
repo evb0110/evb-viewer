@@ -25,12 +25,8 @@
                 <!-- A tab that starts or stops sharing a document remounts for its new one. -->
                 <DocumentWorkspaceTab
                     v-if="shouldMountHost(tab.id)"
-                    v-show="tab.id === pane.activeTabId || tab.id === presentationFallbackTabId"
+                    v-show="tab.id === pane.activeTabId"
                     :key="documentSessionsByTabId[tab.id]!.snapshot.value.sessionId"
-                    :class="{
-                        'is-presentation-fallback': tab.id === presentationFallbackTabId
-                            && tab.id !== pane.activeTabId,
-                    }"
                     :tab-id="tab.id"
                     :document-session="documentSessionsByTabId[tab.id]!"
                     :is-active="pane.paneId === activePaneId && tab.id === pane.activeTabId"
@@ -86,7 +82,6 @@ const {
     tabs: ITab[];
     activePaneId: string | null;
     isTabTransitionBusy: boolean;
-    presentationFallbackTabId: string | null;
     tabContextAvailability: ITabContextAvailability | null;
     startSectionByTabId: Record<string, TStartSection>;
     tabLifecycleById: Record<string, ITabLifecycleState>;
@@ -173,23 +168,10 @@ function shouldMountHost(tabId: string) {
     min-height: 0;
     overflow: hidden;
     box-sizing: border-box;
-}
 
-.editor-pane-content > .is-presentation-fallback {
-    position: absolute;
-    inset: 0;
-    z-index: var(--app-z-workspace-overlay);
-    pointer-events: none;
-}
-
-/*
- * The outgoing tab keeps painting its centre pixels under the claiming document
- * until that document commits its own, which is what keeps the open from
- * flashing. Its sidebar describes a different document, so presenting it beside
- * the new tab's title would put two document identities on screen at once.
- */
-.editor-pane-content > .is-presentation-fallback :deep(.sidebar-wrapper) {
-    visibility: hidden;
+    /* Start and a mounted workspace paint over this. A tab whose workspace is
+       still loading for an open shows the empty viewer it is about to become. */
+    background: var(--app-document-viewer-bg);
 }
 
 .editor-pane-content > * {
