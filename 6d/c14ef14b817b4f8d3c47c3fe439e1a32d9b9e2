@@ -1,0 +1,19 @@
+docs/contributing/vercel-deploy.md
+  s_34e600d66823f2::t_f9ce4002d2a22d 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6dc14ef14b817b4f8d3c47c3fe439e1a32d9b9e2",
+  "prompts": {},
+  "sessions": {
+    "s_34e600d66823f2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "122e9011-3836-47a8-857a-f4702f3fcf81",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
