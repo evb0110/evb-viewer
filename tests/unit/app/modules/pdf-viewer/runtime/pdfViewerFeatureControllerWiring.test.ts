@@ -14,6 +14,7 @@ import {
     computed,
     createApp,
     defineComponent,
+    effectScope,
     h,
     ref,
 } from 'vue';
@@ -110,7 +111,10 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
         controller = usePdfViewerFeatureController(viewerProps, emit, chassisAuthority);
         return () => h('div');
     }}));
-    app.provide(pdfDocumentSessionSlotKey, createPdfDocumentSessionSlot({src: computed(() => viewerProps.src)}));
+    // The slot's scope belongs to the document in production; here the test
+    // owns that document scope and stops it with the mount.
+    const documentScope = effectScope();
+    app.provide(pdfDocumentSessionSlotKey, documentScope.run(() => createPdfDocumentSessionSlot({src: computed(() => viewerProps.src)}))!);
     const host = document.createElement('div');
     document.body.append(host);
     app.mount(host);
@@ -119,6 +123,7 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
     }
     mountedControllers.push(() => {
         app.unmount();
+        documentScope.stop();
         host.remove();
     });
     return {

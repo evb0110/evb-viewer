@@ -29,6 +29,7 @@ const RENDERER_BODY_PROBE_TIMEOUT_MS = 5_000;
 const BROWSER_PAGE_DISCOVERY_TIMEOUT_MS = 5_000;
 const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
 const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
+const WINDOW_PAINT_TIMEOUT_MS = 30_000;
 
 function createViteOptimizeDepError(details = '') {
     const message = details
@@ -714,9 +715,14 @@ export async function connectToBrowser(cdpPort: number): Promise<{
         // from the frame the renderer reports and the renderer stops taking
         // size changes, so a window resize would settle short. Animation
         // frames run only once the window paints.
-        await page.evaluate(() => new Promise<void>(resolve => {
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }));
+        await Promise.race([
+            page.evaluate(() => new Promise<void>(resolve => {
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            })),
+            delay(WINDOW_PAINT_TIMEOUT_MS).then(() => {
+                throw createRendererReadinessError(`Renderer startup timed out: the window did not paint within ${String(WINDOW_PAINT_TIMEOUT_MS / 1000)} s after its bindings were ready`);
+            }),
+        ]);
         logLauncher('debug', 'cdp', 'Connected to app');
         logTiming('Renderer painted');
         return {

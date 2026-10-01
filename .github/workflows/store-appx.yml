@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Release tag or commit SHA to package (for example v1.2.3).
+        description: Release tag to package (for example v1.2.3).
         required: true
         type: string
 
@@ -57,6 +57,20 @@ jobs:
       - name: Fetch pinned native tools
         shell: bash
         run: node --import tsx scripts/fetchRuntimeBinaries.ts --target win32-${{ matrix.arch }}
+
+      # Release commits no longer carry the version; the tag does. Stamp it
+      # the same way the release workflow does before anything reads it.
+      - name: Set application version from release tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.ref }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Store packages are built from a release tag such as v1.2.3; got '$RELEASE_TAG'."
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+          RELEASE_VERSION="${RELEASE_TAG#v}" node -e "const fs=require('node:fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.env.RELEASE_VERSION; fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
 
       - name: Build (Nuxt + Electron)
         env:
@@ -187,6 +201,10 @@ jobs:
       - name: Verify packaged app contents in Microsoft Store AppX
         shell: bash
         run: node scripts/release/assert-packaged-app-contents.mjs ".tmp/store-appx-${{ matrix.arch }}"
+
+      - name: Verify packaged version in Microsoft Store AppX
+        shell: bash
+        run: node scripts/release/assert-packaged-version.mjs ".tmp/store-appx-${{ matrix.arch }}" "$RELEASE_VERSION"
 
       - name: Record Microsoft Store packaged-app provenance
         shell: bash
