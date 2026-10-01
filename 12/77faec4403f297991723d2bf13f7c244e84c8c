@@ -1,0 +1,22 @@
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_7a7f3638474d75::t_d8490004b2a30c 284
+  s_7a7f3638474d75::t_6dab256ff6aa49 282-283
+electron/features/ocr/pipeline/selectOcrPagesForSupersession.ts
+  s_7a7f3638474d75::t_970281d9dd915d 158-159,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1277faec4403f297991723d2bf13f7c244e84c8c",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
