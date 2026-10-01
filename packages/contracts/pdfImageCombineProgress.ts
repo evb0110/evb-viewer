@@ -10,7 +10,7 @@ export const PDF_IMAGE_COMBINE_PROGRESS_SCHEMA = v.pipe(v.object({
     total: v.number(),
     percent: v.number(),
     elapsedMs: v.number(),
-    estimatedRemainingMs: v.optional(v.unknown()),
+    estimatedRemainingMs: v.optional(v.number()),
 }), v.transform(({
     processed,
     total,
@@ -22,9 +22,7 @@ export const PDF_IMAGE_COMBINE_PROGRESS_SCHEMA = v.pipe(v.object({
     total,
     percent,
     elapsedMs,
-    estimatedRemainingMs: typeof estimatedRemainingMs === 'number'
-        ? estimatedRemainingMs
-        : null,
+    estimatedRemainingMs: estimatedRemainingMs ?? null,
 })));
 
 export type TPdfImageCombineProgress = v.InferOutput<typeof PDF_IMAGE_COMBINE_PROGRESS_SCHEMA>;
