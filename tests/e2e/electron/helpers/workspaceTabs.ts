@@ -47,20 +47,11 @@ function readCenter(selector: string) {
         : null;
 }
 
-/**
- * Split Right or Split Down from the active tab's context menu, with trusted
- * clicks. `beforeChoosing` runs once the menu is asked for, before its item is chosen.
- */
-export async function splitActiveTabFromTabMenu(
-    page: Page,
-    direction: 'right' | 'down',
-    timeoutMs = 20_000,
-    beforeChoosing?: () => Promise<void>,
-) {
+/** Split Right or Split Down from the active tab's context menu, with trusted clicks. */
+export async function splitActiveTabFromTabMenu(page: Page, direction: 'right' | 'down', timeoutMs = 20_000) {
     const paneCount = await page.$$eval('.editor-pane', panes => panes.length);
     const tabSelector = '.editor-pane.is-active .tab.is-active[data-tab-id]';
     await clickPoint(page, await page.evaluate(readCenter, tabSelector), tabSelector, 'right');
-    await beforeChoosing?.();
     const label = SPLIT_MENU_LABELS[direction];
     const item = await page.waitForFunction((text: string) => {
         const menuItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
