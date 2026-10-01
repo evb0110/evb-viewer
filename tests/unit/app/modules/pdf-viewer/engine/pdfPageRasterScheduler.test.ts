@@ -591,6 +591,85 @@ describe('PdfPageRasterScheduler', () => {
         expect(disposalSettled).toHaveBeenCalledOnce();
     });
 
+    it('releases one source\'s rasters and keeps another source\'s rasters of the same pages', async () => {
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            leasePage: async pageNumber => ({
+                page: cast<IPdfPage>({pageNumber}),
+                release: vi.fn(),
+            }),
+            maxConcurrency: 2,
+            surfaceBudget: createWorkspaceSurfaceBudgetController(1_000_000),
+        });
+        const released: Record<'left' | 'right', number[]> = {
+            left: [],
+            right: [],
+        };
+        const policy = {
+            expand: (input: readonly IPdfRasterDemand[]) => input,
+            compareWithinLane: () => 0,
+        };
+        for (const view of [
+            'left',
+            'right',
+        ] as const) {
+            scheduler.setDemand({
+                sourceId: `viewport:${view}`,
+                input: [
+                    createDemand(1, 'viewport-visible'),
+                    createDemand(2, 'viewport-visible'),
+                ],
+                policy,
+                target: {
+                    id: `viewport:${view}`,
+                    prepare: async demand => ({pageNumber: demand.pageNumber}),
+                    start: () => createTask(),
+                    commit: () => true,
+                    discard: vi.fn(),
+                    release: pageNumber => released[view].push(pageNumber),
+                },
+            });
+        }
+        await vi.waitFor(() => expect(scheduler.snapshot().residentPages).toHaveLength(4));
+        const leftWaiting = scheduler.request({
+            sourceId: 'viewport:left',
+            demand: createDemand(3, 'navigation-target'),
+            target: {
+                id: 'viewport:left',
+                prepare: () => new Promise<null>(() => {}),
+                start: () => createTask(),
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+
+        await scheduler.releaseSource('viewport:left');
+
+        await expect(leftWaiting).resolves.toMatchObject({status: 'cancelled'});
+        expect(released).toEqual({
+            left: [
+                1,
+                2,
+            ],
+            right: [],
+        });
+        expect(scheduler.snapshot()).toMatchObject({
+            accepting: true,
+            residentPages: [
+                expect.objectContaining({
+                    pageNumber: 1,
+                    sourceId: 'viewport:right',
+                }),
+                expect.objectContaining({
+                    pageNumber: 2,
+                    sourceId: 'viewport:right',
+                }),
+            ],
+            reservedPixels: 200,
+        });
+    });
+
     it('discards a stale consumer generation without committing it', async () => {
         const prepareGate = Promise.withResolvers<{pageNumber: number} | null>();
         const harness = createHarness({prepare: () => prepareGate.promise});

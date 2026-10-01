@@ -127,6 +127,7 @@ export interface IPdfPageRasterScheduler {
     }): Promise<TPdfRasterOutcome>;
     invalidate(scope: IPdfRasterInvalidation): void;
     cancelSource(sourceId: string): Promise<void>;
+    releaseSource(sourceId: string): Promise<void>;
     snapshot(): IPdfRasterSchedulerSnapshot;
     dispose(): Promise<void>;
 }
@@ -922,6 +923,17 @@ export function createPdfPageRasterScheduler(
         await Promise.allSettled(workSettlements);
     }
 
+    // Ends one consumer: its pending work and its committed rasters. Other
+    // sources keep theirs, including rasters of the same pages.
+    async function releaseSource(sourceId: string) {
+        const cancellation = cancelSource(sourceId);
+        invalidate({
+            reason: 'source-released',
+            sourceId,
+        });
+        await cancellation;
+    }
+
     function snapshot(): IPdfRasterSchedulerSnapshot {
         const queuedByLane = createLaneCounts();
         const inFlightByLane = createLaneCounts();
@@ -984,6 +996,7 @@ export function createPdfPageRasterScheduler(
         request,
         invalidate,
         cancelSource,
+        releaseSource,
         snapshot,
         dispose,
     };
