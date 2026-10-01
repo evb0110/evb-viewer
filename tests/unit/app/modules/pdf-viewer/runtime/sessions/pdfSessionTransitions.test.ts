@@ -123,11 +123,12 @@ describe('PdfDocumentSession transitions', () => {
         });
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const session = createPdfDocumentSession({src: source});
+        const view = session.attachView();
         const observed: string[] = [];
-        session.subscribe(transition => {
+        view.subscribe(transition => {
             observed.push(`viewport:${transition.phase}`);
         });
-        session.subscribe(transition => {
+        view.subscribe(transition => {
             observed.push(`rendering:${transition.phase}`);
         });
 
@@ -187,8 +188,9 @@ describe('PdfDocumentSession transitions', () => {
 
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const predecessor = createPdfDocumentSession({src: source});
+        const predecessorView = predecessor.attachView();
         const predecessorPhases: IPdfDocumentTransition[] = [];
-        predecessor.subscribe(transition => {
+        predecessorView.subscribe(transition => {
             predecessorPhases.push(transition);
         });
 
@@ -202,17 +204,15 @@ describe('PdfDocumentSession transitions', () => {
         await predecessor.dispose();
 
         const active = ref(true);
-        const successor = createPdfDocumentSession({
-            src: source,
-            isActive: computed(() => active.value),
-        });
+        const successor = createPdfDocumentSession({src: source});
+        const successorView = successor.attachView({isActive: computed(() => active.value)});
         const viewportPhases: string[] = [];
         const renderingPhases: string[] = [];
         let renderingFence: IPdfDocumentTransition['fence'] | null = null;
-        successor.subscribe((transition) => {
+        successorView.subscribe((transition) => {
             viewportPhases.push(transition.phase);
         });
-        successor.subscribe((transition) => {
+        successorView.subscribe((transition) => {
             renderingPhases.push(transition.phase);
             if (transition.phase === 'ready' || transition.phase === 'restore') {
                 renderingFence = transition.fence;
@@ -230,14 +230,14 @@ describe('PdfDocumentSession transitions', () => {
         expect(viewportPhases).toEqual(renderingPhases);
         expect(successor.document.value).toBe(recoveredDocument);
         expect(renderingFence).not.toBeNull();
-        expect(successor.isCurrent(renderingFence!)).toBe(true);
+        expect(successorView.isCurrent(renderingFence!)).toBe(true);
 
         // A disposed predecessor resolving afterwards cannot invalidate or
         // tear down the remounted rendering session.
         wedged.settle();
         await wedgedLoad;
         expect(predecessorPhases).toHaveLength(1);
-        expect(predecessor.isCurrent(wedgedFence)).toBe(false);
+        expect(predecessorView.isCurrent(wedgedFence)).toBe(false);
         expect(successor.document.value).toBe(recoveredDocument);
         expect(renderingPhases.at(-1)).toBe('restore');
     });
@@ -249,14 +249,15 @@ describe('PdfDocumentSession transitions', () => {
         });
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const session = createPdfDocumentSession({src: source});
+        const view = session.attachView();
         const renderingPhases: string[] = [];
 
-        session.subscribe(async (transition) => {
+        view.subscribe(async (transition) => {
             if (transition.phase === 'ready') {
                 await session.invalidate('superseded-during-viewport-placement');
             }
         });
-        session.subscribe((transition) => {
+        view.subscribe((transition) => {
             renderingPhases.push(transition.phase);
         });
 
@@ -271,14 +272,15 @@ describe('PdfDocumentSession transitions', () => {
 
     it('disposes registered sessions in reverse creation order', async () => {
         const session = createPdfDocumentSession();
+        const view = session.attachView();
         const disposed: string[] = [];
-        session.registerDisposable(() => {
+        view.registerDisposable(() => {
             disposed.push('viewport');
         });
-        session.registerDisposable(() => {
+        view.registerDisposable(() => {
             disposed.push('rendering');
         });
-        session.registerDisposable(() => {
+        view.registerDisposable(() => {
             disposed.push('annotation');
         });
 
@@ -301,13 +303,14 @@ describe('PdfDocumentSession transitions', () => {
         });
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const session = createPdfDocumentSession({src: source});
+        const view = session.attachView();
 
         await session.load();
-        const fence = session.captureFence();
-        expect(session.isCurrent(fence)).toBe(true);
+        const fence = view.captureFence();
+        expect(view.isCurrent(fence)).toBe(true);
 
         await session.invalidate('test');
-        expect(session.isCurrent(fence)).toBe(false);
+        expect(view.isCurrent(fence)).toBe(false);
     });
 
     it('carries preserved and selective reload intent through the typed transition', async () => {
@@ -317,18 +320,19 @@ describe('PdfDocumentSession transitions', () => {
         }));
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const session = createPdfDocumentSession({src: source});
+        const view = session.attachView();
         const loadingPlans: Array<IPdfDocumentTransition['plan']> = [];
-        session.subscribe((transition) => {
+        view.subscribe((transition) => {
             if (transition.phase === 'loading') {
                 loadingPlans.push(transition.plan);
             }
         });
 
         await session.load();
-        session.preserveNextReloadVisibleContent(true);
+        view.preserveNextReloadVisibleContent(true);
         await session.load(true);
-        session.preserveNextReloadVisibleContent(true);
-        session.invalidatePagesOnNextReload([
+        view.preserveNextReloadVisibleContent(true);
+        view.invalidatePagesOnNextReload([
             2,
             4,
         ]);
@@ -401,11 +405,13 @@ describe('PdfDocumentSession transitions', () => {
         const session = createPdfDocumentSession({
             src: source,
             documentRevisionToken: computed(() => documentRevisionToken.value),
+        });
+        const view = session.attachView({
             chassisAuthority: chassisAuthority as never,
             emitInitialVisualPending,
         });
         const loadingPlans: Array<IPdfDocumentTransition['plan']> = [];
-        session.subscribe((transition) => {
+        view.subscribe((transition) => {
             if (transition.phase === 'loading') {
                 loadingPlans.push(transition.plan);
             }
@@ -416,7 +422,7 @@ describe('PdfDocumentSession transitions', () => {
             destroy: vi.fn(),
         }));
         await session.load();
-        expect(session.preparePageMutationRevisionSwap(String(nextRevision), [135], 135)).toBe(true);
+        expect(view.preparePageMutationRevisionSwap(String(nextRevision), [135], 135)).toBe(true);
 
         documentRevisionToken.value = nextRevision;
         await session.load(true);
@@ -483,17 +489,17 @@ describe('PdfDocumentSession transitions', () => {
         const session = createPdfDocumentSession({
             src: source,
             documentRevisionToken: computed(() => documentRevisionToken.value),
-            chassisAuthority: {
-                openSurface: surface,
-                source: sourceRef,
-                bindSource: vi.fn((pageSource: unknown) => {
-                    sourceRef.value = pageSource;
-                }),
-                surfaceBudget: undefined,
-            } as never,
         });
+        const view = session.attachView({chassisAuthority: {
+            openSurface: surface,
+            source: sourceRef,
+            bindSource: vi.fn((pageSource: unknown) => {
+                sourceRef.value = pageSource;
+            }),
+            surfaceBudget: undefined,
+        } as never});
         const loadingPlans: Array<IPdfDocumentTransition['plan']> = [];
-        session.subscribe((transition) => {
+        view.subscribe((transition) => {
             if (transition.phase === 'loading' && transition.plan.isSelectiveReload) {
                 loadingPlans.push(transition.plan);
             }
@@ -522,7 +528,7 @@ describe('PdfDocumentSession transitions', () => {
         });
 
         expect(session.beginPageMutationRotationPreview([2], 90)).toBe(true);
-        expect(session.preparePageMutationRevisionSwap(
+        expect(view.preparePageMutationRevisionSwap(
             String(nextRevision),
             [2],
             2,
@@ -571,12 +577,10 @@ describe('PdfDocumentSession transitions', () => {
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const observed: string[] = [];
         let collecting = false;
-        const session = createPdfDocumentSession({
-            src: source,
-            emitDocument: () => {
-                if (collecting) observed.push('replacement-source-published');
-            },
-        });
+        const session = createPdfDocumentSession({src: source});
+        const view = session.attachView({emitDocument: () => {
+            if (collecting) observed.push('replacement-source-published');
+        }});
 
         await session.load();
         await session.ensurePageMetricsInRange(currentPage, currentPage);
@@ -586,7 +590,7 @@ describe('PdfDocumentSession transitions', () => {
             rotation: 0,
         });
 
-        session.subscribe(async transition => {
+        view.subscribe(async transition => {
             if (transition.phase !== 'ready' || !transition.plan.isSelectiveReload) return;
             expect(transition.plan.pagesToInvalidate).toEqual([currentPage]);
             await session.ensurePageMetricsInRange(
@@ -602,8 +606,8 @@ describe('PdfDocumentSession transitions', () => {
             observed.push('replacement-geometry-ready');
         });
         collecting = true;
-        session.preserveNextReloadVisibleContent(true);
-        session.invalidatePagesOnNextReload([currentPage]);
+        view.preserveNextReloadVisibleContent(true);
+        view.invalidatePagesOnNextReload([currentPage]);
         await session.load(true);
 
         expect(observed).toEqual([
@@ -623,12 +627,10 @@ describe('PdfDocumentSession transitions', () => {
         });
         const source = ref<Blob | null>(null);
         const active = ref(false);
-        const session = createPdfDocumentSession({
-            src: computed(() => source.value as never),
-            isActive: computed(() => active.value),
-        });
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        const view = session.attachView({isActive: computed(() => active.value)});
         const phases: string[] = [];
-        session.subscribe((transition) => {
+        view.subscribe((transition) => {
             phases.push(transition.phase);
         });
 
@@ -658,6 +660,7 @@ describe('PdfDocumentSession transitions', () => {
             });
         const source = ref<Blob | null>(sourceA);
         const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        session.attachView();
 
         session.scheduleLoad();
         await vi.waitFor(() => {
@@ -694,7 +697,7 @@ describe('PdfDocumentSession transitions', () => {
         });
         const loadingTransitions: IPdfDocumentTransition[] = [];
         const session = createPdfDocumentSession({src: computed(() => source.value as never)});
-        session.subscribe((transition) => {
+        session.attachView().subscribe((transition) => {
             if (transition.phase === 'loading') {
                 loadingTransitions.push(transition);
             }
@@ -720,10 +723,8 @@ describe('PdfDocumentSession transitions', () => {
         pdfjsState.getDocument.mockReturnValueOnce(pendingA.task);
         const source = ref<Blob | null>(new Blob(['a'], {type: 'application/pdf'}));
         const emitDocument = vi.fn();
-        const session = createPdfDocumentSession({
-            src: computed(() => source.value as never),
-            emitDocument,
-        });
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        session.attachView({emitDocument});
 
         session.scheduleLoad();
         await vi.waitFor(() => {
@@ -761,10 +762,8 @@ describe('PdfDocumentSession transitions', () => {
             }));
         const source = computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never);
         const emitLoadError = vi.fn();
-        const session = createPdfDocumentSession({
-            src: source,
-            emitLoadError,
-        });
+        const session = createPdfDocumentSession({src: source});
+        session.attachView({emitLoadError});
 
         const superseded = session.load();
         await vi.waitFor(() => {
@@ -781,5 +780,129 @@ describe('PdfDocumentSession transitions', () => {
 
         expect(emitLoadError).toHaveBeenCalledExactlyOnceWith(currentFailure);
         expect(session.loadError.value).toBe(currentFailure);
+    });
+});
+
+describe('PdfDocumentSession linked views', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.stubGlobal('URL', {
+            ...URL,
+            createObjectURL: () => 'blob:pdf',
+            revokeObjectURL: () => undefined,
+        });
+    });
+
+    function observe(view: ReturnType<ReturnType<typeof createPdfDocumentSession>['attachView']>) {
+        const phases: string[] = [];
+        view.subscribe((transition) => {
+            phases.push(transition.phase);
+        });
+        return phases;
+    }
+
+    it('opens the PDF once and presents it in every view', async () => {
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(createDocumentProxy('shared')),
+            destroy: vi.fn(),
+        });
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        const left = observe(session.attachView());
+        const right = observe(session.attachView());
+
+        await session.load();
+
+        expect(pdfjsState.getDocument).toHaveBeenCalledOnce();
+        expect(left).toEqual([
+            'loading',
+            'ready',
+            'settled',
+        ]);
+        expect(right).toEqual([
+            'loading',
+            'ready',
+            'settled',
+        ]);
+        await session.dispose();
+    });
+
+    it('presents an open document to a view attached afterwards as a fresh open', async () => {
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(createDocumentProxy('shared')),
+            destroy: vi.fn(),
+        });
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        const source = observe(session.attachView());
+        await session.load();
+        await session.load(true);
+        const sourcePhaseCount = source.length;
+
+        const emitDocument = vi.fn();
+        const lateView = session.attachView({emitDocument});
+        const plans: Array<IPdfDocumentTransition['plan']> = [];
+        lateView.subscribe((transition) => {
+            plans.push(transition.plan);
+        });
+        const late = observe(lateView);
+        lateView.present();
+        await vi.waitFor(() => expect(late).toEqual([
+            'loading',
+            'ready',
+            'settled',
+        ]));
+
+        expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
+        expect(plans[0]).toMatchObject({
+            isReload: false,
+            preserveVisibleContent: false,
+        });
+        expect(emitDocument).toHaveBeenLastCalledWith(session.pdfDocument.value);
+        // The view that already shows the document is not reloaded for it.
+        expect(source).toHaveLength(sourcePhaseCount);
+        await session.dispose();
+    });
+
+    it('cancels only the view that stops being active and reclaims caches once none is', async () => {
+        const document = createDocumentProxy('shared');
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(document),
+            destroy: vi.fn(),
+        });
+        const leftActive = ref(true);
+        const rightActive = ref(true);
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        const left = observe(session.attachView({isActive: computed(() => leftActive.value)}));
+        const right = observe(session.attachView({isActive: computed(() => rightActive.value)}));
+        await session.load();
+
+        leftActive.value = false;
+        await vi.waitFor(() => expect(left.at(-1)).toBe('invalidated'));
+        await Promise.resolve();
+        expect(right.at(-1)).toBe('settled');
+        expect(document.cleanup).not.toHaveBeenCalled();
+
+        rightActive.value = false;
+        await vi.waitFor(() => expect(right.at(-1)).toBe('invalidated'));
+        await vi.waitFor(() => expect(document.cleanup).toHaveBeenCalledOnce());
+        await session.dispose();
+    });
+
+    it('keeps the PDF.js document until the last view leaves', async () => {
+        const document = createDocumentProxy('shared');
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(document),
+            destroy: vi.fn(),
+        });
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        const left = session.attachView();
+        const right = session.attachView();
+        await session.load();
+
+        await left.dispose();
+        expect(session.pdfDocument.value).toBe(document);
+
+        await right.dispose();
+        expect(session.pdfDocument.value).toBeNull();
+        await vi.waitFor(() => expect(document.destroy).toHaveBeenCalledOnce());
     });
 });

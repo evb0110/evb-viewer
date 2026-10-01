@@ -22,7 +22,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import {resolvePdfAnnotationSelectionGeometry} from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
 import { subtypeForAnnotationTool } from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { cast } from '@tests/helpers/cast';
 
 function rect(
@@ -572,7 +572,7 @@ describe('annotation highlight geometry', () => {
         };
         const release = vi.fn();
         const getTextContent = vi.fn(async () => textContent);
-        const documentSession = cast<TPdfDocumentSession>({
+        const documentSession = cast<TPdfDocumentView>({
             captureFence: () => ({
                 loadToken: 1,
                 documentVersion: 1,

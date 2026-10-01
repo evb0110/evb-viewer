@@ -3,6 +3,7 @@ import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
     createPdfDocumentAnnotations,
+    createPdfDocumentSessionSlot,
     useOcrTextContent,
     usePageContextMenu,
     usePdfHistory,
@@ -281,6 +282,14 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         currentPage,
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
+    });
+    // The one PDF.js document every view of this document shows.
+    const pdfDocumentSessionSlot = createPdfDocumentSessionSlot({
+        src: pdfSrc,
+        reloadSrc: file.pdfReloadSrc,
+        documentLifecycleKey: computed(() => originalPath.value ?? pendingDocumentPath.value),
+        documentRevisionToken,
+        isAnySaving: saveService.isAnySaving,
     });
     const driver = useWorkspaceDocumentDriver({
         djvuSourcePath: file.djvuSourcePath,
@@ -684,6 +693,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         metadata,
         annotations,
         pdfDocumentAnnotations,
+        pdfDocumentSessionSlot,
         saveService,
         save,
         exportWorkflow,

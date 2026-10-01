@@ -46,7 +46,7 @@ import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/l
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import { createPdfRasterQualityRefineGate } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRasterQualityRefineGate';
 import { resolvePdfRasterJobPages } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfRasterJobPages';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfPageTextLayerReadyWaiter } from '@app/modules/pdf-viewer/runtime/sessions/createPdfPageTextLayerReadyWaiter';
 import { promotePrioritizedTextLayers } from '@app/modules/pdf-viewer/runtime/sessions/promotePrioritizedTextLayers';
 import type {
@@ -60,7 +60,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportRasterJob';
 const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
 export interface ICreatePdfRenderingSessionOptions {
-    document: TPdfDocumentSession;
+    document: TPdfDocumentView;
     viewport: TPdfViewportSession;
     chassisAuthority: IDocumentViewerRuntime | null;
     openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
@@ -882,7 +882,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         renderedPageStateVersion.value += 1;
     }
     // Drops every page this view shows, with its rasters on the scheduler;
-    // another consumer of the scheduler keeps its own.
+    // another view keeps its own, and the document owns the page cache.
     async function cleanupRenderedPages() {
         const release = activeRasterScheduler?.releaseSource(viewportRasterSourceId);
         bumpRenderVersion();
@@ -896,7 +896,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             release,
             pageRenderer.cleanupAllLayers(),
         ]);
-        documentSession.cleanupPageCache();
     }
     function isPageVisualReady(pageNumber: TPageNumber) {
         void renderedPageStateVersion.value; return isCommittedVisual(pageNumber);

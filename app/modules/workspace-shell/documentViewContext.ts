@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import {
     pdfDocumentAnnotationsKey,
+    pdfDocumentSessionSlotKey,
     usePageContextMenu,
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
@@ -110,8 +111,8 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         pdfData,
         pdfSrc,
     } = file;
-    // This view's own PDF.js document and page count; the document reads them
-    // through the view whose tab is in use and never writes another view's.
+    // What this view shows of the document, and its page count; the document
+    // reads them through the view whose tab is in use.
     const view = useWorkspaceViewerShellState(initialViewState);
     const {
         pdfViewerRef,
@@ -456,7 +457,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             isRenderActive: options.isRenderActive,
             isWorkspaceLayoutResizing: options.isWorkspaceLayoutResizing,
             pageMatches: computed(() => searchShown.value ? search.pageMatches.value : hiddenSearchPageMatches),
-            pdfReloadSrc: file.pdfReloadSrc,
             pdfRasterDisplayProfile: file.pdfRasterDisplayProfile,
             pdfSrc,
             pendingDocumentPath: document.pendingDocumentPath,
@@ -545,7 +545,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     onScopeDispose(document.views.attachView(viewContext));
     provideDocumentContext(document);
     provideDocumentViewContext(viewContext);
-    // The viewer this workspace mounts edits the document's one annotation store.
+    // The viewer this workspace mounts shows the document's one PDF.js
+    // document and edits its one annotation store.
+    provide(pdfDocumentSessionSlotKey, document.pdfDocumentSessionSlot);
     provide(pdfDocumentAnnotationsKey, document.pdfDocumentAnnotations);
     return viewContext;
 };

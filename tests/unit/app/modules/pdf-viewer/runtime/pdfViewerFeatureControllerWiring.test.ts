@@ -11,12 +11,17 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     createApp,
     defineComponent,
     h,
     ref,
 } from 'vue';
 import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
+import {
+    createPdfDocumentSessionSlot,
+    pdfDocumentSessionSlotKey,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import type { TDocumentPageSourceKind } from '@app/modules/document-viewer/source/documentPageSource';
 import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
@@ -97,17 +102,15 @@ function mountFeatureController(props: Partial<IPdfViewerProps> = {}) {
     }) as IPdfViewerEmit;
     const chassisAuthority = createDocumentViewerRuntime(ref<TDocumentPageSourceKind>('pdf'));
     let controller: TFeatureController | null = null;
+    const viewerProps = {
+        src: null,
+        ...props,
+    };
     const app = createApp(defineComponent({setup() {
-        controller = usePdfViewerFeatureController(
-            {
-                src: null,
-                ...props,
-            },
-            emit,
-            chassisAuthority,
-        );
+        controller = usePdfViewerFeatureController(viewerProps, emit, chassisAuthority);
         return () => h('div');
     }}));
+    app.provide(pdfDocumentSessionSlotKey, createPdfDocumentSessionSlot({src: computed(() => viewerProps.src)}));
     const host = document.createElement('div');
     document.body.append(host);
     app.mount(host);

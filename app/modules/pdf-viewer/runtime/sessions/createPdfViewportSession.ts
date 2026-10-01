@@ -65,7 +65,7 @@ import type { IPdfViewportReloadPlacement } from '@app/modules/pdf-viewer/runtim
 import { resolvePdfFlingBackdrop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFlingBackdrop';
 import type {
     IPdfDocumentTransition,
-    TPdfDocumentSession,
+    TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 const RELOAD_RECOVERY_PAGE_PIN_MS = 900;
 export interface IPdfViewportDemand {
@@ -91,7 +91,7 @@ interface IPdfViewportPageSignal {
 }
 
 export interface ICreatePdfViewportSessionOptions {
-    document: TPdfDocumentSession;
+    document: TPdfDocumentView;
     isPageFreshlyRenderedForNavigation: (pageNumber: TPageNumber) => boolean;
     waitForPageTextLayerReady?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<boolean>) | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;

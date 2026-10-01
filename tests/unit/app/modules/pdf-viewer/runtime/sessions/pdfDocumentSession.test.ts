@@ -175,10 +175,8 @@ describe('PdfDocumentSession range loading', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
         const source = shallowRef<Blob | null>(new Blob(['pdf'], {type: 'application/pdf'}));
-        const documentState = createPdfDocumentSession({
-            chassisAuthority: authority,
-            src: computed(() => source.value),
-        });
+        const documentState = createPdfDocumentSession({src: computed(() => source.value)});
+        const view = documentState.attachView({chassisAuthority: authority});
         const generation = openSurface.begin({
             documentId: '/tmp/opened-after-session.pdf',
             documentRevision: 'open-intent:1',
@@ -189,7 +187,7 @@ describe('PdfDocumentSession range loading', () => {
             await expect(documentState.load())
                 .resolves
                 .not.toBeNull();
-            expect(documentState.openSurfaceGeneration).toBe(generation);
+            expect(view.openSurfaceGeneration).toBe(generation);
             expect(openSurface.snapshot.value.identity).toMatchObject({
                 documentId: '/tmp/opened-after-session.pdf',
                 documentRevision: 'load:1',
@@ -204,9 +202,9 @@ describe('PdfDocumentSession range loading', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
         const source = shallowRef(new Blob(['pdf'], {type: 'application/pdf'}));
-        const documentState = createPdfDocumentSession({
+        const documentState = createPdfDocumentSession({src: computed(() => source.value)});
+        documentState.attachView({
             chassisAuthority: authority,
-            src: computed(() => source.value),
             originalDocumentId: computed(() => documentId),
             currentPage: computed(() => 1),
         });
@@ -1607,11 +1605,12 @@ describe('PdfDocumentSession range loading', () => {
             destroy: vi.fn(),
         });
         const active = ref(true);
-        const documentState = createPdfDocumentSession({isActive: computed(() => active.value)});
+        const documentState = createPdfDocumentSession();
         const invalidation = vi.fn(() => cancellation.promise);
-        documentState.subscribe(transition => transition.phase === 'invalidated'
-            ? invalidation()
-            : undefined);
+        documentState.attachView({isActive: computed(() => active.value)})
+            .subscribe(transition => transition.phase === 'invalidated'
+                ? invalidation()
+                : undefined);
 
         await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
         active.value = false;
@@ -1661,11 +1660,12 @@ describe('PdfDocumentSession range loading', () => {
                 destroy: vi.fn(),
             });
         const active = ref(true);
-        const documentState = createPdfDocumentSession({isActive: computed(() => active.value)});
+        const documentState = createPdfDocumentSession();
         const invalidation = vi.fn(() => cancellation.promise);
-        documentState.subscribe(transition => transition.phase === 'invalidated'
-            ? invalidation()
-            : undefined);
+        documentState.attachView({isActive: computed(() => active.value)})
+            .subscribe(transition => transition.phase === 'invalidated'
+                ? invalidation()
+                : undefined);
 
         await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
         active.value = false;
@@ -1818,6 +1818,7 @@ describe('PdfDocumentSession range loading', () => {
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
         const source = shallowRef<Blob | null>(new Blob([Uint8Array.of(1)]));
         const documentState = createPdfDocumentSession({src: computed(() => source.value)});
+        const view = documentState.attachView();
         await documentState.loadPdf(source.value!);
         const scheduler = documentState.rasterScheduler!;
         const demand = {
@@ -1859,7 +1860,7 @@ describe('PdfDocumentSession range loading', () => {
             },
         });
         await vi.waitFor(() => expect(scheduler.snapshot().inFlightPages).toHaveLength(1));
-        documentState.subscribe(async (transition) => {
+        view.subscribe(async (transition) => {
             if (transition.phase !== 'invalidated') {
                 return;
             }
@@ -2170,7 +2171,9 @@ describe('PdfDocumentSession range loading', () => {
             4,
         ]));
 
+        const active = ref(true);
         const documentState = createPdfDocumentSession();
+        documentState.attachView({isActive: computed(() => active.value)});
         await documentState.loadPdf({
             kind: 'path',
             path: requireDocumentRef('/tmp/deferred-lease-cleanup.pdf'),
@@ -2178,7 +2181,9 @@ describe('PdfDocumentSession range loading', () => {
         });
         getPage.mockClear();
         const pageLease = await documentState.leasePage(requirePageNumber(1));
-        documentState.cleanupPageCache();
+        // No view shows the document any more, so its page cache is reclaimed.
+        active.value = false;
+        await vi.waitFor(() => expect(loadedPages.get(2)?.[0]?.cleanup).toHaveBeenCalledOnce());
 
         expect(loadedPages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
 
@@ -2265,6 +2270,7 @@ describe('PdfDocumentSession range loading', () => {
         electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
 
         const documentState = createPdfDocumentSession();
+        const view = documentState.attachView();
         await documentState.loadPdf({
             kind: 'path',
             path: requireDocumentRef('/tmp/stable-proxy-leases.pdf'),
@@ -2272,9 +2278,9 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         const firstLease = await documentState.leasePage(requirePageNumber(1));
-        documentState.evictPage(requirePageNumber(1));
+        view.evictPage(requirePageNumber(1));
         const secondLease = await documentState.leasePage(requirePageNumber(1));
-        documentState.evictPage(requirePageNumber(1));
+        view.evictPage(requirePageNumber(1));
 
         secondLease.release();
         expect(stablePage.cleanup).not.toHaveBeenCalled();
@@ -2288,7 +2294,7 @@ describe('PdfDocumentSession range loading', () => {
 
         const thirdLease = await documentState.leasePage(requirePageNumber(1));
         const fourthLease = await documentState.leasePage(requirePageNumber(1));
-        documentState.evictPage(requirePageNumber(1));
+        view.evictPage(requirePageNumber(1));
 
         thirdLease.release();
         expect(stablePage.cleanup).toHaveBeenCalledOnce();

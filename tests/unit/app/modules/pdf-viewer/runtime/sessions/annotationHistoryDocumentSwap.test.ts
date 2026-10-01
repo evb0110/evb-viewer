@@ -20,7 +20,7 @@ import {
 import type { ComputedRef } from 'vue';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import { cast } from '@tests/helpers/cast';
@@ -96,7 +96,7 @@ function mountAnnotationSession(mountOptions: IMountAnnotationSessionOptions = {
             // Only the three sibling sessions are cast: each is a wide surface
             // this fixture has no reason to stub whole. The options themselves
             // stay typed so a renamed or retyped option fails to compile here.
-            document: cast<TPdfDocumentSession>({
+            document: cast<TPdfDocumentView>({
                 pdfDocument,
                 numPages: ref(1),
                 registerDisposable: vi.fn(),

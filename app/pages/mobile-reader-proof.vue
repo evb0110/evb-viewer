@@ -225,7 +225,11 @@ import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/
 import { PdfPageDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfPageDropdown';
 import { PdfToolbar } from '@app/modules/pdf-viewer/public/component-exports/pdfToolbar';
 import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
-import { usePdfSearch } from '@app/modules/pdf-viewer/public';
+import {
+    createPdfDocumentSessionSlot,
+    pdfDocumentSessionSlotKey,
+    usePdfSearch,
+} from '@app/modules/pdf-viewer/public';
 import { usePdfFile } from '@app/modules/workspace-shell/public';
 import SettingsDialog from '@app/components/SettingsDialog.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
@@ -245,6 +249,8 @@ const {
     openFile,
     openFileDirect,
 } = usePdfFile();
+// The page's one PDF document, which its viewer presents.
+provide(pdfDocumentSessionSlotKey, createPdfDocumentSessionSlot({src: pdfSrc}));
 const {
     recentFiles,
     isResolved: recentFilesResolved,

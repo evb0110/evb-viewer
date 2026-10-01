@@ -13,6 +13,7 @@ import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import { createPdfRenderPagePredicate } from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
 import { createPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import { pdfDocumentSessionSlotKey } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 import {
     createPdfViewportSession,
     type TPdfViewportSession,
@@ -51,7 +52,6 @@ export const usePdfViewerFeatureController = (
     const openSurfaceRenderOwner = chassisAuthority.openSurface.claimRenderOwner();
     const {
         src,
-        reloadSrc,
         sourcePdfData,
         rasterDisplayProfile,
         bufferPages,
@@ -96,7 +96,13 @@ export const usePdfViewerFeatureController = (
     const viewerCurrentPage = computed(() => viewportSessionRef.value?.currentPage.value ?? 1);
     const viewerEffectiveScale = computed(() => viewportSessionRef.value?.scale.effectiveScale.value ?? 1);
 
-    const documentSession = createPdfDocumentSession({
+    // Every viewer of a document shows the one PDF.js document its host
+    // keeps; this viewer presents it on its own surface.
+    const pdfDocumentSessionSlot = inject(pdfDocumentSessionSlotKey, null);
+    if (!pdfDocumentSessionSlot) {
+        throw new Error('PdfViewer needs the PDF document session slot of its document (pdfDocumentSessionSlotKey).');
+    }
+    const documentSession = pdfDocumentSessionSlot.resolve(createPdfDocumentSession).attachView({
         chassisAuthority,
         openSurfaceDocumentId: () => {
             const source = src.value;
@@ -107,18 +113,22 @@ export const usePdfViewerFeatureController = (
                     : 'pdf-open');
         },
         emitInitialVisualPending: () => emit('initial-visual-pending'),
-        src,
-        reloadSrc,
-        documentLifecycleKey: computed(() => props.originalPath ?? null),
-        documentRevisionToken,
         originalDocumentId: computed(() => props.originalPath ?? null),
         currentPage: viewerCurrentPage,
         isActive,
-        isAnySaving,
         emitDocument: document => emit('update:document', document),
         emitTotalPages: total => emit('update:totalPages', total),
         emitLoading: loading => emit('loading', loading),
         emitLoadError: error => emit('load-error', error),
+        onPageRotationGeometry: (pages, rotationDelta) => {
+            if (rotationDelta === null) {
+                renderingSession.cancelPageRotationPreview(pages);
+            }
+            updatePageMutationFitWidth();
+            if (rotationDelta !== null) {
+                void nextTick(() => renderingSession.preparePageRotationPreview(pages, rotationDelta));
+            }
+        },
     });
 
     const {
@@ -425,6 +435,8 @@ export const usePdfViewerFeatureController = (
         }, getRequestAnchor(undefined, page));
     }
 
+    // The rotation preview changes the geometry every view shares; the
+    // document has each view keep its place and preview its own rasters.
     async function beginPageRotationPreview(input: {
         invalidatedPages: readonly number[];
         rotationDelta: 90 | 180 | 270;
@@ -432,19 +444,13 @@ export const usePdfViewerFeatureController = (
         if (!documentSession.beginPageMutationRotationPreview(input.invalidatedPages, input.rotationDelta)) {
             return false;
         }
-        updatePageMutationFitWidth();
         await nextTick();
-        renderingSession.preparePageRotationPreview(input.invalidatedPages, input.rotationDelta);
         return true;
     }
 
     function cancelPageRotationPreview(input: {invalidatedPages: readonly number[]}) {
-        const didCancelGeometry = documentSession.cancelPageMutationRotationPreview();
-        const didCancelRaster = renderingSession.cancelPageRotationPreview(input.invalidatedPages);
-        if (didCancelGeometry) {
-            updatePageMutationFitWidth();
-        }
-        return didCancelGeometry || didCancelRaster;
+        return documentSession.cancelPageMutationRotationPreview()
+            || renderingSession.cancelPageRotationPreview(input.invalidatedPages);
     }
 
     const pdfViewerPublicApi = usePdfViewerPublicApiController({

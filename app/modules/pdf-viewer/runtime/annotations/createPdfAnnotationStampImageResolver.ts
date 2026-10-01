@@ -1,5 +1,5 @@
 import type {IPlacedImageEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
@@ -66,7 +66,7 @@ export function createPdfStampImageCache(
     };
 }
 
-export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdfDocumentSession, 'pdfDocument' | 'leasePage'>) {
+export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdfDocumentView, 'pdfDocument' | 'leasePage'>) {
     const stampImageCacheByDocument = new WeakMap<object, IPdfStampImageCache>();
     const stampImageRequestsByDocument = new WeakMap<object, Map<string, Promise<string | null>>>();
 
@@ -95,7 +95,7 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
             return pendingRequest;
         }
         const request = (async () => {
-            let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
+            let lease: Awaited<ReturnType<TPdfDocumentView['leasePage']>> | null = null;
             const controller = new AbortController();
             const stopWatchingDocument = watch(documentSession.pdfDocument, current => {
                 if (current !== pdfDocument) controller.abort();
