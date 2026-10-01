@@ -19,7 +19,10 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
+import {
+    PDF_ANNOTATION_PARSE_ENTRY_SCHEMA,
+    PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA,
+} from '@contracts/pdfAnnotationParseSchemas';
 import * as v from 'valibot';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
@@ -58,8 +61,6 @@ const PARSE_NATIVE_STDOUT_BYTES = 64 * 1_024;
 const PARSE_NATIVE_STDERR_BYTES = 512 * 1_024;
 const PARSE_DEFAULT_TTL_MS = 10 * 60 * 1_000;
 const PARSE_SWEEP_MAX_ENTRIES = 200;
-const PARSE_FORMAT = 'evb-pdf-annotation-parse';
-const PARSE_SCHEMA_VERSION = 1;
 const PARSE_MODIFIED_AT = 'D:19700101000000Z';
 const logger = createLogger('pdf-annotation-parse');
 
@@ -105,33 +106,11 @@ function rejectUnknownFields(value: Record<string, unknown>, label: string, allo
 }
 
 function decodeHeader(value: unknown) {
-    if (!isRecord(value)) {
-        throw new Error('PDF annotation parse sidecar is missing its JSONL header');
+    const header = v.safeParse(PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA, value, {abortEarly: true});
+    if (!header.success) {
+        throw new Error(`PDF annotation parse sidecar has an unsupported header: ${v.summarize(header.issues)}`);
     }
-    rejectUnknownFields(value, 'PDF annotation parse sidecar header', [
-        'format',
-        'schemaVersion',
-        'pageCount',
-        'chunkBytes',
-    ]);
-    if (
-        value.format !== PARSE_FORMAT
-        || value.schemaVersion !== PARSE_SCHEMA_VERSION
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 0
-    ) {
-        throw new Error('PDF annotation parse sidecar has an unsupported header');
-    }
-    if (
-        typeof value.chunkBytes !== 'number'
-        || !Number.isSafeInteger(value.chunkBytes)
-        || value.chunkBytes < 64
-        || value.chunkBytes > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES
-    ) {
-        throw new Error('PDF annotation parse sidecar header has an invalid chunk size');
-    }
-    return value.pageCount;
+    return header.output.pageCount;
 }
 
 function decodeDataLine(value: unknown): IPdfAnnotationParseEntry[] {
