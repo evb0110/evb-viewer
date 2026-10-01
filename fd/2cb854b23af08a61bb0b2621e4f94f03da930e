@@ -1,0 +1,19 @@
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_bf66933ca7b2e8::t_53e7f28b145825 3492-3497,3522
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fd2cb854b23af08a61bb0b2621e4f94f03da930e",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
