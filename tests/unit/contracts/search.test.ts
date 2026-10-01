@@ -324,6 +324,19 @@ describe('assembleSearchablePageText', () => {
         expect(assembled.sourceOffsets).toHaveLength(assembled.text.length);
     });
 
+    it('keeps identical lines at different heights as separate text', () => {
+        const items = Array.from({length: 400}, (_line, line) => RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
+            text,
+            separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? 'line' as const : 'none' as const,
+            origin: {
+                x: 10 + index * 5,
+                y: 3180 - line * 20,
+            },
+        }))).flat();
+
+        expect(findPdfSearchMatches(assembleSearchablePageText(items).text, 'aaaaaaaaa')).toHaveLength(400 * 40);
+    });
+
     it('preserves source Unicode offsets while joining line hyphenation', () => {
         expect(assembleSearchablePageText([
             {

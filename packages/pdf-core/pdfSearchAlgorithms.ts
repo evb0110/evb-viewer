@@ -19,8 +19,10 @@ import {
     isLastOcrWordInLine,
 } from '@contracts/ocrText';
 
+const SEARCH_LINE_HYPHENATION = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
+
 function joinSearchLineHyphenation(text: string) {
-    return text.replace(/\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu, '');
+    return text.replace(SEARCH_LINE_HYPHENATION, '');
 }
 
 /**
@@ -82,40 +84,37 @@ export function assembleSearchablePageText(
         }
     };
     let normalizedOffset = 0;
-    const hyphenationPattern = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
-    for (const match of rawText.matchAll(hyphenationPattern)) {
+    for (const match of rawText.matchAll(SEARCH_LINE_HYPHENATION)) {
         retain(normalizedOffset, match.index);
         normalizedOffset = match.index + match[0].length;
     }
     retain(normalizedOffset, rawText.length);
 
-    const text = collapseRepeatedPdfSearchPageText(joinedText);
-    const finalOwners = retainedOwners.slice(0, text.length);
+    // A text layer drawn again in place repeats its first item's origin; an
+    // identical line further down the page does not, and stays searchable.
+    const firstOrigin = items[retainedOwners[0] ?? -1]?.origin;
+    const text = collapseRepeatedPdfSearchPageText(joinedText, (copyStart) => {
+        const copyOrigin = items[retainedOwners[copyStart]!]?.origin;
+        return !firstOrigin || !copyOrigin || (copyOrigin.x === firstOrigin.x && copyOrigin.y === firstOrigin.y);
+    });
     const sourceOffsets = retainedSourceStarts.slice(0, text.length).map((startOffset, index) => ({
         startOffset,
         endOffset: retainedSourceEnds[index] ?? startOffset,
     }));
     const itemStarts = new Int32Array(items.length).fill(-1);
     const itemEnds = new Int32Array(items.length).fill(-1);
-    for (let offset = 0; offset < finalOwners.length; offset += 1) {
-        const owner = finalOwners[offset];
-        if (owner === undefined || owner < 0 || owner >= items.length) {
-            continue;
-        }
+    for (let offset = 0; offset < text.length; offset += 1) {
+        const owner = retainedOwners[offset]!;
         if (itemStarts[owner] === -1) {
             itemStarts[owner] = offset;
         }
         itemEnds[owner] = offset + 1;
     }
-    const itemOffsets = items.map((_item, itemIndex) => {
-        const startOffset = itemStarts[itemIndex] ?? -1;
-        const endOffset = itemEnds[itemIndex] ?? -1;
-        return {
-            itemIndex,
-            startOffset: startOffset < 0 ? 0 : startOffset,
-            endOffset: endOffset < 0 ? 0 : endOffset,
-        };
-    });
+    const itemOffsets = items.map((_item, itemIndex) => ({
+        itemIndex,
+        startOffset: Math.max(0, itemStarts[itemIndex]!),
+        endOffset: Math.max(0, itemEnds[itemIndex]!),
+    }));
 
     return {
         text,
@@ -128,7 +127,10 @@ const MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH = 48;
 const MIN_TWO_COPY_PAGE_TEXT_SEGMENT_LENGTH = 160;
 const MAX_REPEATED_PAGE_TEXT_COPIES = 16;
 
-export function collapseRepeatedPdfSearchPageText(text: string) {
+export function collapseRepeatedPdfSearchPageText(
+    text: string,
+    isCopyInPlace: (copyStart: number) => boolean = () => true,
+) {
     const maxRepeatCount = Math.min(
         MAX_REPEATED_PAGE_TEXT_COPIES,
         Math.floor(text.length / MIN_REPEATED_PAGE_TEXT_SEGMENT_LENGTH),
@@ -148,15 +150,11 @@ export function collapseRepeatedPdfSearchPageText(text: string) {
         }
 
         const firstSegment = text.slice(0, segmentLength);
-        let isRepeated = true;
-        for (let index = 1; index < repeatCount; index += 1) {
-            if (text.slice(index * segmentLength, (index + 1) * segmentLength) !== firstSegment) {
-                isRepeated = false;
-                break;
-            }
+        let copyStart = segmentLength;
+        while (copyStart < text.length && text.startsWith(firstSegment, copyStart) && isCopyInPlace(copyStart)) {
+            copyStart += segmentLength;
         }
-
-        if (isRepeated) {
+        if (copyStart === text.length) {
             return firstSegment;
         }
     }
@@ -168,6 +166,7 @@ export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
     return assembleSearchablePageText(words.map((word, index) => ({
         text: buildOcrTextLayerItemText(word),
         separatorAfter: isLastOcrWordInLine(words, index) ? 'line' : 'none',
+        origin: word,
     }))).text;
 }
 

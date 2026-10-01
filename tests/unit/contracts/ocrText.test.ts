@@ -21,6 +21,18 @@ function word(text: string, y: number, height = 10): IOcrWord {
     };
 }
 
+const REPEATED_LINE = 'The quick brown fox jumps over the lazy dog near the old stone bridge.';
+
+function lineWords(text: string, y: number): IOcrWord[] {
+    return text.split(' ').map((wordText, index) => ({
+        text: wordText,
+        x: index * 40,
+        y,
+        width: 30,
+        height: 10,
+    }));
+}
+
 describe('OCR text contracts', () => {
     it('builds item text with a trailing word separator', () => {
         expect(buildOcrTextLayerItemText(word('alpha', 0))).toBe('alpha ');
@@ -57,6 +69,33 @@ describe('OCR text contracts', () => {
         expect(isLastOcrWordInLine(words, 0)).toBe(false);
         expect(isLastOcrWordInLine(words, 1)).toBe(true);
         expect(buildOcrTextLayerIndexText(words)).toBe('same edge \nnext \n');
+    });
+
+    // #937: identical lines down a page are separate text. Only copies of a
+    // text layer drawn in the same place are one repeated stream.
+    it('keeps identical lines at different heights as separate text', () => {
+        const words = [
+            0,
+            40,
+            80,
+            120,
+            160,
+        ].flatMap(y => lineWords(REPEATED_LINE, y));
+
+        expect(buildOcrTextLayerIndexText(words).match(/fox/gu)).toHaveLength(5);
+    });
+
+    it('collapses a text layer drawn several times in the same place', () => {
+        const layer = [
+            ...lineWords(REPEATED_LINE, 0),
+            ...lineWords('A second line of the same page, long enough to count.', 20),
+        ];
+
+        expect(buildOcrTextLayerIndexText([
+            ...layer,
+            ...layer,
+            ...layer,
+        ])).toBe(buildOcrTextLayerIndexText(layer));
     });
 
     it('treats missing neighbor indexes as line endings', () => {

@@ -303,6 +303,7 @@ function buildBrowserDjvuSearchPage(
     const assembled = assembleSearchablePageText(zones.map(zone => ({
         text: zone.text,
         separatorAfter: 'space',
+        origin: zone,
     })));
     return {
         text: assembled.text,
