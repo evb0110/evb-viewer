@@ -846,6 +846,35 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupPreviousWorkingCopy).toHaveBeenCalledWith('/tmp/first-working.pdf', '/tmp/second-working.pdf');
     });
 
+    it('sizes the opening skeleton from the source while the open makes its working copy', async () => {
+        const originalPath = requireDocumentRef('/documents/dropped.pdf');
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: originalPath,
+            documentRevision: 'open-intent:1',
+            provisional: true,
+        });
+        const openResult = Promise.withResolvers<unknown>();
+        mocks.documentOpen.openDocumentDirect.mockReturnValue(openResult.promise);
+        const { openFlow } = createOpenFlowHarness({openSurface});
+
+        const opening = openFlow.openFileDirect(originalPath);
+
+        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
+            documentId: originalPath,
+            width: 612,
+            height: 792,
+        }));
+        expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledWith(originalPath);
+        openResult.resolve({
+            kind: 'pdf',
+            originalPath,
+            workingPath: requireDocumentRef('/tmp/dropped-working.pdf'),
+        });
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+        expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledTimes(1);
+    });
+
     it('sizes the opening skeleton from native geometry on a constrained profile', async () => {
         mocks.performanceProfile.lowCpu = true;
         const originalPath = requireDocumentRef('/documents/constrained.pdf');

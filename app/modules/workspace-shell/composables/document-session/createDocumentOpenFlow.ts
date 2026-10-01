@@ -40,7 +40,10 @@ import {
 } from '@app/utils/platformDocuments';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import {validatePdfRevision} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
-import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {
+    commitPdfOpeningGeometryWhenRead,
+    resolvePdfOpeningGeometry,
+} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import {
     isDjvuOpenResult,
     isPdfOpenResult,
@@ -61,6 +64,11 @@ import {
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
+
+interface ISourceOpeningGeometryRead {
+    readonly path: TDocumentRef;
+    readonly committed: Promise<boolean>;
+}
 
 interface ICreateDocumentOpenFlowDeps {
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
@@ -332,6 +340,7 @@ export function createDocumentOpenFlow(
         result: Extract<TOpenFileResult, { kind: 'pdf' }>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
+        sourceGeometry: ISourceOpeningGeometryRead | null = null,
     ) {
         if (result.recoveryDirtyBaseline === true) {
             // A failed first read must leave the checkpoint-owned bytes for a
@@ -348,8 +357,14 @@ export function createDocumentOpenFlow(
             ?? registeredRasterDisplayProfile;
         const documentFiles = getDocumentFilesCapability();
         const readOpeningGeometry = documentFiles.getPdfOpeningGeometry;
+        const sourceGeometryCommitted = sourceGeometry?.path === result.originalPath
+            ? sourceGeometry.committed
+            : null;
         const readOpeningGeometryForOpen = readOpeningGeometry
             ? async () => {
+                if (await sourceGeometryCommitted) {
+                    return null;
+                }
                 try {
                     const workingGeometry = await readOpeningGeometry(result.workingPath);
                     if (workingGeometry !== null || result.originalPath === result.workingPath) {
@@ -452,9 +467,28 @@ export function createDocumentOpenFlow(
         });
     }
 
+    // The page's shape is read from the source while the open makes its working
+    // copy, so the opening skeleton does not wait for the copy.
+    function readSourceOpeningGeometry(openRequestId: number, path: TDocumentRef): ISourceOpeningGeometryRead | null {
+        const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
+        if (!readOpeningGeometry || !/\.pdf$/iu.test(path)) {
+            return null;
+        }
+        return {
+            path,
+            committed: commitPdfOpeningGeometryWhenRead({
+                documentId: path,
+                isCurrent: () => isCurrentOpenRequest(openRequestId),
+                openSurface: deps.getOpenSurface?.() ?? undefined,
+                read: () => readOpeningGeometry(path),
+            }),
+        };
+    }
+
     async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
         resetOpenState();
+        const sourceGeometry = readSourceOpeningGeometry(openRequestId, path);
         logPdfRenderTrace('pdf-open-direct-start', {
             openRequestId,
             path,
@@ -527,7 +561,7 @@ export function createDocumentOpenFlow(
                     workingPath: result.workingPath,
                 },
             );
-            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct', options);
+            const outcome = await finishPdfOpenResult(openRequestId, result, 'direct', options, sourceGeometry);
             if (outcome.status === 'stale') {
                 BrowserLogger.debug(
                     RECENT_OPEN_LOG_SECTION,

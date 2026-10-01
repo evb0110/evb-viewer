@@ -82,7 +82,6 @@ export interface IDocumentOpenSurfaceSession {
     cancelRevisionSwap(generation: number, documentRevision: string): boolean;
     acquireSource(identity: IDocumentOpenSurfaceIdentity, expectedGeneration: number): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
-    clearOpeningPageFrame(generation: number, ownerId: string): boolean;
     commitGeometry(generation: number, geometry: IDocumentOpenSurfaceGeometry): boolean;
     claimRenderOwner(): IDocumentOpenSurfaceRenderOwner;
     createRenderFence(

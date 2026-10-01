@@ -322,6 +322,19 @@ async function clickRecentFile(session: IElectronE2ESession, sourcePath: string)
     expect(clicked).toBe(true);
 }
 
+// The open is held before its working copy exists, so a skeleton now was sized
+// from the source file, not from the copy.
+async function waitForOpeningSkeletonWhileOpenHeld(session: IElectronE2ESession) {
+    await waitForFunctionInPage(session.page, () => Array.from(
+        document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
+        ),
+    ).some((skeleton) => {
+        const rect = skeleton.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
+    }), {timeout: RECENT_OPEN_TIMEOUT_MS});
+}
+
 async function waitForStartupOverlayRemoved(session: IElectronE2ESession) {
     await waitForFunctionInPage(session.page, () => (
         document.querySelector('#evb-startup-overlay') === null
@@ -606,7 +619,7 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens Recent to one page-shaped skeleton, showing no placeholder before the page shape is known', async () => {
+    it('opens Recent to one page-shaped skeleton, shown from the source before the working copy is made', async () => {
         let session = sessionFixture.getSession();
 
         const fixturePath = await createScannedTextFixturePdf(
@@ -630,22 +643,14 @@ describe('Electron E2E - Recent Files', () => {
             fixturePath,
         );
         expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
-        // The open is held before its source is read, so the page shape stays
-        // unknown. A placeholder drawn now could only guess the shape and would
-        // change it once the geometry arrives.
-        await delay(130);
-        const skeletonWhileShapeUnknown = await evaluateInPage(session.page, () => Array.from(
-            document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
-            ),
-        ).some((skeleton) => {
-            const rect = skeleton.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
-        }));
+        // The open is held before the working copy exists, as a slow disk holds
+        // it. The page's shape is read from the source file when the open
+        // starts, so the page-shaped skeleton is on screen while the open is
+        // still held, not the bare viewer until the working copy is made.
+        await waitForOpeningSkeletonWhileOpenHeld(session);
         const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef);
-        expect(skeletonWhileShapeUnknown).toBe(false);
         expect(sourceReleased).toBe(true);
         // Opening a Recent file consumes the current empty tab; it must not create
         // another tab or replace the current tab identity.
@@ -881,6 +886,11 @@ describe('Electron E2E - Recent Files', () => {
 
         await installCommittedSurfaceSampler(session.page);
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'drop');
+        // Hold the open before its working copy exists, as a slow disk does.
+        const droppedDocumentRef = requireDocumentRef(droppedPath);
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__deferDocumentOpenForAutomation?.(path) ?? false
+        ), droppedDocumentRef)).toBe(true);
         // A file dragged in from the desktop, through the browser's drag input.
         const cdp = await session.page.createCDPSession();
         try {
@@ -904,6 +914,12 @@ describe('Electron E2E - Recent Files', () => {
         } finally {
             await cdp.detach();
         }
+        // The dropped file's page shape is read from the file itself, so its
+        // skeleton is on screen while the open is still held.
+        await waitForOpeningSkeletonWhileOpenHeld(session);
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__releaseDocumentOpenForAutomation?.(path) ?? false
+        ), droppedDocumentRef)).toBe(true);
         await waitForFunctionInPage(session.page, (fileName: string) => (
             document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName
             && document.querySelector(
