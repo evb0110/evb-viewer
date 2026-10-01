@@ -52,7 +52,6 @@ import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/co
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
-import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
@@ -2038,7 +2037,7 @@ export async function readPdfAnnotationDetails(filePath: string): Promise<IPdfAn
             }
         }
     } finally {
-        await document.destroy();
+        await document.loadingTask.destroy();
     }
 
     return details;
@@ -2231,7 +2230,7 @@ export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSn
             });
         }
     } finally {
-        await document.destroy();
+        await document.loadingTask.destroy();
     }
 
     return pages;
@@ -2478,8 +2477,7 @@ async function openPdfWithLowVerbosity(filePath: string) {
         data,
         ...createPdfjsNodeDocumentOptions(),
     });
-    const document = await task.promise;
-    return adaptPdfjsDocument(document, () => task.destroy());
+    return task.promise;
 }
 
 interface IPdfjsOutlineSummary {

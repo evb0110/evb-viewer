@@ -145,7 +145,7 @@ describe('createPdfAnnotationStampImageResolver document ownership', () => {
             getPageIndex: vi.fn(),
             saveDocument: vi.fn(),
             cleanup: vi.fn(),
-            destroy: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
         };
         const activeDocument = shallowRef<IPdfDocument | null>(document);
         const pdfDocument = computed(() => activeDocument.value);

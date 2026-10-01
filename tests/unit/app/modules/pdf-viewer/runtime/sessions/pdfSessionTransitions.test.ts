@@ -61,7 +61,7 @@ function createDocumentProxy(id: string, numPages = 1) {
             }),
             cleanup: vi.fn(),
         })),
-        destroy: vi.fn(async () => undefined),
+        loadingTask: {destroy: vi.fn(async () => undefined)},
         cleanup: vi.fn(async () => undefined),
     };
 }
@@ -903,7 +903,7 @@ describe('PdfDocumentSession linked views', () => {
 
         await right.dispose();
         expect(session.pdfDocument.value).toBeNull();
-        await vi.waitFor(() => expect(document.destroy).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(document.loadingTask.destroy).toHaveBeenCalledOnce());
     });
 });
 

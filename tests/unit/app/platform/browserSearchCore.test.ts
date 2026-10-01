@@ -44,7 +44,7 @@ describe('browserSearchCore', () => {
         mocks.getDocument.mockReturnValue({
             destroy: mocks.destroyLoadingTask,
             promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
+                loadingTask: {destroy: mocks.destroyDocument},
                 getPage: mocks.getPage,
                 numPages: 1,
             }),
@@ -77,7 +77,7 @@ describe('browserSearchCore', () => {
         mocks.getDocument.mockReturnValue({
             destroy: mocks.destroyLoadingTask,
             promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
+                loadingTask: {destroy: mocks.destroyDocument},
                 getPage: mocks.getPage,
                 numPages: 1_000_000,
             }),
@@ -115,7 +115,7 @@ describe('browserSearchCore', () => {
         mocks.getDocument.mockReturnValue({
             destroy: mocks.destroyLoadingTask,
             promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
+                loadingTask: {destroy: mocks.destroyDocument},
                 getPage: mocks.getPage,
                 numPages: 2_646,
             }),

@@ -132,9 +132,18 @@ const pdfjsModule = vi.hoisted(() => {
         GlobalWorkerOptions: {},
         PDFDataRangeTransport: MockPdfDataRangeTransport,
         VerbosityLevel: {ERRORS: 3},
-        getDocument: vi.fn((_rawInit: unknown) => ({promise: Promise.resolve({destroy: vi.fn(async () => {})})})),
+        getDocument: vi.fn((_rawInit: unknown) => (createLoadedPdfTask())),
     };
 });
+
+// A PDF.js loading task whose document disposes through it, as PDF.js does.
+function createLoadedPdfTask() {
+    const destroy = vi.fn(async () => {});
+    return {
+        promise: Promise.resolve({loadingTask: {destroy}}),
+        destroy,
+    };
+}
 
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
@@ -326,7 +335,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         utifMock.toRGBA8.mockReset();
         utifMock.toRGBA8.mockReturnValue(new Uint8Array());
         pdfjsModule.getDocument.mockReset();
-        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy: vi.fn(async () => {})})});
+        pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
     });
 
     it('returns typed unsupported results for desktop-only folder actions', async () => {
@@ -599,7 +608,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const readRangeSpy = vi.spyOn(browserDocumentStore, 'readRange').mockResolvedValue(
             new Uint8Array(4 * 1024 * 1024),
         );
-        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({destroy: vi.fn(async () => {})})});
+        pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
 
         await expect(capability.validatePdfPath(path)).resolves.toEqual({
             isValid: true,
@@ -642,8 +651,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 onDataRange: (...args: unknown[]) => void;
             }};
             const destroy = vi.fn(async () => {});
-            const promise = new Promise<{destroy: typeof destroy}>(resolve => {
-                init.range.onDataRange = () => resolve({destroy});
+            const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>(resolve => {
+                init.range.onDataRange = () => resolve({loadingTask: {destroy}});
                 init.range.requestDataRange(chunkSize, chunkSize * 2);
             });
             return {
@@ -700,7 +709,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 onDataRange: (...args: unknown[]) => void;
             }};
             const destroy = vi.fn(async () => {});
-            const promise = new Promise<{destroy: typeof destroy}>(() => {
+            const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>(() => {
                 init.range.onDataRange = () => undefined;
                 init.range.requestDataRange(chunkSize, chunkSize * 2);
             });

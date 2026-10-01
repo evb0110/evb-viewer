@@ -1,5 +1,5 @@
-import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {getPdfjsLib} from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import type { TPdfjsTextOps } from '@pdf-core/pdfjsTextGeometry';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
@@ -8,11 +8,7 @@ import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBr
 import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 
 interface ILoadedBrowserSearchDocument {
-    pdfDocument: {
-        numPages: number;
-        getPage: (pageNumber: number) => Promise<IPdfPage>;
-        destroy: () => Promise<void>;
-    };
+    pdfDocument: IPdfDocument;
     pdfjsOps: TPdfjsTextOps;
     pageCount: number;
     destroy: () => Promise<void>;
@@ -33,16 +29,13 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
 async function loadBrowserSearchDocument(
     pdfPath: string,
 ): Promise<ILoadedBrowserSearchDocument> {
-    const pdfjsLib = await getPdfjsLib();
-    const pdfDocument = await loadBrowserPdfjsDocument(pdfjsLib, pdfPath);
+    const pdfDocument = await loadBrowserPdfjsDocument(pdfPath);
 
     return {
         pdfDocument,
         pdfjsOps: pdfjsLib.OPS,
         pageCount: pdfDocument.numPages,
-        destroy: async () => {
-            await pdfDocument.destroy();
-        },
+        destroy: () => pdfDocument.loadingTask.destroy(),
     };
 }
 

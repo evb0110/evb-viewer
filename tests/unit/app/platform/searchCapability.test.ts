@@ -172,7 +172,7 @@ describe('createBrowserSearchCapability', () => {
         const fakePdfDocument = {
             numPages: pageTexts.length,
             getPage,
-            destroy,
+            loadingTask: {destroy},
         };
 
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
@@ -209,7 +209,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -236,7 +236,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -297,7 +297,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 2,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -376,7 +376,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, _offset: number, length: number) => new Uint8Array(length));
@@ -448,7 +448,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -485,7 +485,7 @@ describe('createBrowserSearchCapability', () => {
                 getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
                 cleanup: vi.fn(async () => {}),
             })),
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         };
         const secondDocument = {
             numPages: 1,
@@ -493,7 +493,7 @@ describe('createBrowserSearchCapability', () => {
                 getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
                 cleanup: vi.fn(async () => {}),
             })),
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         };
         const firstDocumentGetPage = firstDocument.getPage;
         const secondDocumentGetPage = secondDocument.getPage;
@@ -536,7 +536,7 @@ describe('createBrowserSearchCapability', () => {
                 getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
                 cleanup: vi.fn(async () => {}),
             })),
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         };
         const secondDocument = {
             numPages: 1,
@@ -544,7 +544,7 @@ describe('createBrowserSearchCapability', () => {
                 getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
                 cleanup: vi.fn(async () => {}),
             })),
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         };
         const firstDocumentGetPage = firstDocument.getPage;
         const secondDocumentGetPage = secondDocument.getPage;
@@ -607,7 +607,7 @@ describe('createBrowserSearchCapability', () => {
                 getTextContent: vi.fn(async () => ({items: [{str: 'alpha foo'}]})),
                 cleanup: vi.fn(async () => {}),
             })),
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         };
         const secondDocument = {
             numPages: 1,
@@ -615,7 +615,7 @@ describe('createBrowserSearchCapability', () => {
                 getTextContent: vi.fn(async () => ({items: [{str: 'beta bar'}]})),
                 cleanup: vi.fn(async () => {}),
             })),
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         };
         const secondDocumentGetPage = secondDocument.getPage;
 
@@ -662,7 +662,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -693,7 +693,7 @@ describe('createBrowserSearchCapability', () => {
                     getTextContent: vi.fn(async () => ({items: [{str: pageText}]})),
                     cleanup: vi.fn(async () => {}),
                 })),
-                destroy: vi.fn(async () => {}),
+                loadingTask: {destroy: vi.fn(async () => {})},
             }) };
         });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
@@ -727,7 +727,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -761,7 +761,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -848,7 +848,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1_000_000,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -904,7 +904,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -972,7 +972,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -1024,7 +1024,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -1070,7 +1070,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -1123,7 +1123,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 1,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -1160,7 +1160,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: pageTexts.length,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
@@ -1207,7 +1207,7 @@ describe('createBrowserSearchCapability', () => {
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
             numPages: 3,
             getPage,
-            destroy: vi.fn(async () => {}),
+            loadingTask: {destroy: vi.fn(async () => {})},
         }) });
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
