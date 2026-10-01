@@ -153,25 +153,28 @@ export class BrowserWorkerClient<
         requestTimeoutMs?: number,
     ) {
         this.clearIdleTerminateTimer();
-        const timeoutMs = requestTimeoutMs ?? this.options.requestTimeoutMs;
-        if (typeof timeoutMs === 'number' && timeoutMs > 0) {
-            pendingRequest.timeoutTimer = setTimeout(() => {
-                if (!this.pendingRequests.delete(requestId)) {
-                    return;
-                }
+        this.pendingRequests.set(requestId, pendingRequest);
+        this.armRequestTimeout(
+            requestId,
+            pendingRequest,
+            createTimeoutError,
+            requestTimeoutMs ?? this.options.requestTimeoutMs,
+        );
+    }
 
-                this.clearRequestTimeout(pendingRequest);
-                const timeoutError = createTimeoutError();
-                pendingRequest.reject(timeoutError);
-                if (this.pendingRequests.size === 0) {
-                    this.resetWorker();
-                } else {
-                    this.scheduleIdleWorkerTermination();
-                }
-            }, timeoutMs);
+    /** Replaces a pending request's timeout, measured from now. */
+    public restartRequestTimeout(
+        requestId: number,
+        createTimeoutError: () => Error,
+        timeoutMs: number,
+    ) {
+        const pendingRequest = this.pendingRequests.get(requestId);
+        if (!pendingRequest) {
+            return;
         }
 
-        this.pendingRequests.set(requestId, pendingRequest);
+        this.clearRequestTimeout(pendingRequest);
+        this.armRequestTimeout(requestId, pendingRequest, createTimeoutError, timeoutMs);
     }
 
     public cancelPendingRequest(
@@ -196,6 +199,32 @@ export class BrowserWorkerClient<
             this.scheduleIdleWorkerTermination();
         }
         return true;
+    }
+
+    private armRequestTimeout(
+        requestId: number,
+        pendingRequest: TPendingRequest,
+        createTimeoutError: () => Error,
+        timeoutMs: number | undefined,
+    ) {
+        if (typeof timeoutMs !== 'number' || timeoutMs <= 0) {
+            return;
+        }
+
+        pendingRequest.timeoutTimer = setTimeout(() => {
+            if (!this.pendingRequests.delete(requestId)) {
+                return;
+            }
+
+            this.clearRequestTimeout(pendingRequest);
+            const timeoutError = createTimeoutError();
+            pendingRequest.reject(timeoutError);
+            if (this.pendingRequests.size === 0) {
+                this.resetWorker();
+            } else {
+                this.scheduleIdleWorkerTermination();
+            }
+        }, timeoutMs);
     }
 
     private clearRequestTimeout(request: TPendingRequest) {

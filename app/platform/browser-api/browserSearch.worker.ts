@@ -18,15 +18,17 @@ function handleMatchPageTextRequest(
     request: IBrowserSearchWorkerRequest,
 ) {
     const {
-        text, query, options, maxMatches, deadlineAtMs,
+        text, query, options, maxMatches, budgetMs,
     } = request.payload;
     validateSearchQuery(query, options);
+
+    const startedAtMs = Date.now();
 
     const matches = [];
     let truncated = false;
     for (const match of iteratePdfSearchMatches(text, query, {
         ...options,
-        ...(deadlineAtMs === undefined ? {} : {deadlineAtMs}),
+        ...(budgetMs === undefined ? {} : {deadlineAtMs: startedAtMs + budgetMs}),
     })) {
         if (matches.length >= maxMatches) {
             truncated = true;
@@ -38,6 +40,7 @@ function handleMatchPageTextRequest(
     return {
         matches,
         truncated,
+        matchingMs: Date.now() - startedAtMs,
     };
 }
 
@@ -56,6 +59,10 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
     }
 
     try {
+        self.postMessage({
+            id: request.id,
+            started: true,
+        } satisfies TBrowserSearchWorkerResponse);
         const data = handleMatchPageTextRequest(request);
         const response = {
             id: request.id,

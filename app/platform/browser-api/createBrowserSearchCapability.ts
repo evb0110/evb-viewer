@@ -702,9 +702,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         requestId: TRequestId,
         requestGeneration: number,
         maxMatches: number,
-        deadlineAtMs: number,
+        regexBudget: {remainingMs: number},
     ) {
-        if (matchOptions.useRegex && Date.now() >= deadlineAtMs) {
+        if (matchOptions.useRegex && regexBudget.remainingMs <= 0) {
             throw new SearchRegexLimitError(
                 `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
             );
@@ -738,25 +738,28 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 query,
                 options: matchOptions,
                 maxMatches,
-                deadlineAtMs,
+                budgetMs: regexBudget.remainingMs,
             },
-            {
-                timeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
-                resetWorkerOnTimeout: true,
-            },
+            {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
         );
         activeMatchWorkerSearchRequests.set(requestId, {
             generation: requestGeneration,
             workerRequestId: workerRequest.requestId,
         });
         try {
-            const result = await workerRequest.promise;
+            const {
+                matches, truncated, matchingMs,
+            } = await workerRequest.promise;
+            regexBudget.remainingMs -= matchingMs;
             return isSearchCanceled(requestId, requestGeneration)
                 ? {
                     matches: [],
                     truncated: false,
                 }
-                : result;
+                : {
+                    matches,
+                    truncated,
+                };
         } catch (error) {
             if (error instanceof BrowserSearchWorkerTimeoutError) {
                 throw new SearchRegexLimitError(
@@ -990,7 +993,9 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             let truncated = false;
             const pageMatchCounts = new Map<number, number>();
             const requestGeneration = startSearchRequest(requestId);
-            let regexDeadlineAtMs: number | null = null;
+            // Only time spent matching spends the budget: reading page text
+            // and starting the worker do not.
+            const regexBudget = {remainingMs: SEARCH_REGEX_MAX_EXECUTION_MS};
             try {
                 const { size } = await browserDocumentStore.stat(pdfPath);
                 const contentSignature = await browserDocumentStore.getContentSignature(pdfPath);
@@ -1005,9 +1010,6 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             return false;
                         }
 
-                        if (matchOptions.useRegex && regexDeadlineAtMs === null) {
-                            regexDeadlineAtMs = Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS;
-                        }
                         const matchResult = await matchSearchPage(
                             page.text,
                             query,
@@ -1015,7 +1017,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             requestId,
                             requestGeneration ?? 0,
                             (SEARCH_RESULT_LIMIT - results.length) + 1,
-                            regexDeadlineAtMs ?? Number.POSITIVE_INFINITY,
+                            regexBudget,
                         );
                         for (const match of matchResult.matches) {
                             if (isSearchCanceled(requestId, requestGeneration)) {

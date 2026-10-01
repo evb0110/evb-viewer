@@ -859,4 +859,66 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 120_000);
+
+    it('finds a regex match while the search worker is still starting', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            // A first search on a hosted page fetches the worker over the
+            // network. Holding that fetch past the 250 ms matching budget
+            // checks that the budget counts matching and not worker start-up.
+            await page.route(url => url.pathname.includes('browserSearch.worker'), async (route) => {
+                await new Promise(resolveDelay => setTimeout(resolveDelay, 1_500));
+                await route.continue();
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/electron/generated-text.pdf',
+            ));
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+
+            const regexToggle = page.locator('.document-search-bar button[aria-label="Use regular expression"]:visible');
+            if (await regexToggle.count() === 0) {
+                if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                    await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+                }
+                await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            }
+            await regexToggle.first().click();
+            const searchInput = page.locator('.document-search-bar input:visible').first();
+            await searchInput.fill('Fir\\w+');
+            await searchInput.press('Enter');
+
+            await expect.poll(
+                () => page.locator('.document-search-results:visible').first().textContent(),
+                {timeout: 30_000},
+            ).toMatch(/1 result|Search unavailable/u);
+            expect(await page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
+                .toEqual(['First']);
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
 });
