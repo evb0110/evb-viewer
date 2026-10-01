@@ -1,0 +1,22 @@
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_bf66933ca7b2e8::t_96393f78a9b21e 222,231-232,234-235,238
+  s_bf66933ca7b2e8::t_90b0b69a8d4d39 192-200,205-209,216-218,220-221,226-230,233,236-237,239-240
+packages/contracts/searchConformanceCorpus.json
+  s_bf66933ca7b2e8::t_a79e17440dcc73 9,678-768
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "077f07488cb55cef22833766ea4578018fc61c8e",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
