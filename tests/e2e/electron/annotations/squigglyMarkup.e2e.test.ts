@@ -548,6 +548,9 @@ describe('Electron E2E - EVB text markup', () => {
         await waitForViewerInteractive(page);
         await waitForRenderedTextSpans(page, [1]);
 
+        // Saved markup reaches the canonical layer through the writer parse,
+        // which can finish after the text layer has rendered.
+        await waitForEvbTextMarkupVisualCount(page, 1);
         const reopenedVisuals = await readEvbTextMarkupVisuals(page);
         expect(reopenedVisuals.map(({
             pageNumber, subtype: kind, rects,
