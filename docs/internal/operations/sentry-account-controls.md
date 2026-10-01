@@ -88,7 +88,7 @@ names and their runtime purpose here, never their values.
 | Item | Required state | Verification |
 | --- | --- | --- |
 | `evb-viewer-desktop` project | One key named `desktop-runtime` | Owner verified 2026-09-04 |
-| `evb-viewer-web` project | Key named `web-browser` (the `web-nitro` key has no consumer) | Owner verified 2026-09-04 |
+| `evb-viewer-web` project | One key named `web-browser` | Owner verified 2026-09-04; the unused `web-nitro` key deleted 2026-10-01 |
 | Browser allowed origins | Canonical production viewer and two viewer Vercel aliases | Owner verified 2026-09-04 |
 | Source-map upload tokens | Two organization tokens with `org:ci` only: one for release builds in GitHub Actions, one for viewer builds in Vercel | GitHub token verified by successful strict upload 2026-09-04; Vercel token verified by the production deployment's upload 2026-09-30 |
 | Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
@@ -112,7 +112,8 @@ Post-change desktop and browser test events contained no geography. This rule
 is required and must survive account-control reviews.
 
 The alert definitions, privacy incident response, credential rotation and
-emergency disablement are in `sentry-runbook.md`. `SENTRY_VERIFICATION_TOKEN`
-and the GitHub copy of `SENTRY_BROWSER_DSN` are no longer read by anything in
-the repository; the owner may revoke them. `SENTRY_NITRO_DSN` and the
-`EVB_SENTRY_NITRO_*` gates were removed from Vercel Preview on 2026-10-01.
+emergency disablement are in `sentry-runbook.md`. On 2026-10-01 the unread
+GitHub secrets `SENTRY_VERIFICATION_TOKEN` and `SENTRY_BROWSER_DSN` were deleted,
+and `SENTRY_NITRO_DSN` and the `EVB_SENTRY_NITRO_*` gates were removed from
+Vercel Preview. The read-only verification token stays valid in Sentry until
+the owner revokes it there.
