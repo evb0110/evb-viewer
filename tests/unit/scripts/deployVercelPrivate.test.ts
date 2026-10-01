@@ -416,6 +416,11 @@ describe('private Vercel deployment source', () => {
 
         try {
             expect(resolveViewerAppVersion(projectRoot)).toBe('1.2.3');
+            execFileSync('git', [
+                'tag',
+                'v1.2.4-beta.1',
+            ], {cwd: projectRoot});
+            expect(resolveViewerAppVersion(projectRoot)).toBe('1.2.3');
 
             writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = 2;\n');
             commitFixtureChanges(projectRoot);

@@ -71,8 +71,12 @@ const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDE
 const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
 const packageJson = requireFromConfig('./package.json') as {version?: unknown};
 // Release builds stamp package.json from their tag. A hosted deploy builds an
-// untagged main commit, so scripts/deployVercelPrivate.mjs names it instead.
+// untagged main commit, so scripts/deployVercelPrivate.mjs names it instead, and
+// a hosted build without that name would report a stale version.
 const appVersion = process.env.EVB_APP_VERSION?.trim() || String(packageJson.version);
+if (isVercelBuildOutput && !process.env.EVB_APP_VERSION?.trim()) {
+    throw new Error('Hosted viewer builds need EVB_APP_VERSION; deploy with `pnpm run deploy:web`, which names it from the release tag.');
+}
 // Hosted browser builds report to Sentry only when a DSN is configured; the
 // desktop renderer sends through Electron main instead. Source maps are
 // emitted only for a build that uploads them (scripts/upload-sentry-sourcemaps.mjs).

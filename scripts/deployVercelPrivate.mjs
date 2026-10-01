@@ -319,6 +319,9 @@ export function resolveViewerAppVersion(projectRoot) {
             '--tags',
             '--match',
             'v[0-9]*',
+            // Releases are vMAJOR.MINOR.PATCH (release.yml); skip any other v* tag.
+            '--exclude',
+            'v*-*',
             '--long',
             '--abbrev=12',
             'HEAD',
