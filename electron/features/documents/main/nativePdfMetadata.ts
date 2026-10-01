@@ -495,8 +495,9 @@ function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) 
 /**
  * Answers a file's page shape from memory while the file keeps the size and
  * modification time it was read at, and reads it otherwise. Every
- * opening-geometry answer comes from here, so a file the app has read before
- * costs one stat instead of a pdfinfo run over every page box.
+ * opening-geometry answer for a file read in place comes from here, so a file
+ * the app has read before costs one stat instead of a pdfinfo run over every
+ * page box.
  */
 export async function answerPdfPageShape(
     path: string,
@@ -536,16 +537,24 @@ export async function handlePdfOpeningGeometry(
         throw error;
     }
     const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
-    const identityBefore = originalBackedRead
-        ? normalizePdfOpeningIdentity(originalBackedRead.identity)
-        : await readPdfOpeningGeometryIdentity(resolvedPath);
+    // A working copy that still reads its original keeps its admission
+    // identity when the original changes, so only the checked read can tell.
+    if (originalBackedRead) {
+        return readPdfOpeningGeometry(
+            context,
+            resolvedPath,
+            originalBackedRead,
+            normalizePdfOpeningIdentity(originalBackedRead.identity),
+        );
+    }
+    const identityBefore = await readPdfOpeningGeometryIdentity(resolvedPath);
     if (identityBefore === null) {
         return null;
     }
     return answerPdfPageShape(
         resolvedPath,
         identityBefore,
-        () => readPdfOpeningGeometry(context, resolvedPath, originalBackedRead, identityBefore),
+        () => readPdfOpeningGeometry(context, resolvedPath, null, identityBefore),
     );
 }
 

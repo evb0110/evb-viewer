@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as TViMockOriginalPlatformModule from '@app/utils/platform';
 
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
@@ -29,8 +30,16 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     )}),
 }));
 
+// The desktop app lists each file's folder with a button that reveals it.
+const platform = vi.hoisted(() => ({desktop: false}));
+vi.mock('@app/utils/platform', async (importOriginal) => ({
+    ...(await importOriginal<typeof TViMockOriginalPlatformModule>()),
+    isBrowserPlatformActive: () => !platform.desktop,
+}));
+
 afterEach(() => {
     document.body.innerHTML = '';
+    platform.desktop = false;
 });
 
 function createRecentFile(originalPath: string, timestamp: number): IRecentFile {
@@ -146,6 +155,48 @@ describe('PdfEmptyState recent-file order', () => {
             expect.stringContaining('1980.pdf'),
             expect.stringContaining('1980-optimized.pdf'),
         ]);
+
+        app.unmount();
+    });
+});
+
+describe('PdfEmptyState recent-row press', () => {
+    it('announces a press that can open the row, not one on its reveal or remove button', async () => {
+        const file: IRecentFile = {
+            originalPath: requireDocumentRef('/books/grammar.pdf'),
+            fileName: 'grammar.pdf',
+            timestamp: requireEpochMs(1),
+        };
+        const pressed: string[] = [];
+        platform.desktop = true;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
+            recentFiles: [file],
+            recentFilesResolved: true,
+            openInProgress: false,
+            onPressRecent: (pressedFile: IRecentFile) => pressed.push(pressedFile.originalPath),
+        })}));
+        registerUiStubs(app);
+
+        app.mount(host);
+        await nextTick();
+        const press = (selector: string) => {
+            const target = host.querySelector<HTMLElement>(selector);
+            expect(target, selector).not.toBeNull();
+            target!.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+            }));
+            const count = pressed.length;
+            pressed.length = 0;
+            return count;
+        };
+
+        expect(press('.recent-location--reveal')).toBe(0);
+        expect(press('.recent-action--remove')).toBe(0);
+        expect(press('button.recent-open')).toBe(1);
+        expect(press('.recent-row--data .recent-col--time')).toBe(1);
 
         app.unmount();
     });

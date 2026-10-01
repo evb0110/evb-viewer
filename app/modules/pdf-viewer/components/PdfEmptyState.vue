@@ -513,8 +513,11 @@ const pendingRecentOpenPath = ref<string | null>(null);
 
 // A click opens on release; the press lets the host start work for that open
 // sooner. A keyboard activation has no press, and its click's detail is 0.
+// The row's other buttons reveal or remove the file, so their presses open
+// nothing.
 function pressRecent(file: IRecentFile, event: PointerEvent) {
-    if (event.button === 0 && !isRecentRowDisabled(file)) {
+    const button = event.target instanceof Element ? event.target.closest('button') : null;
+    if (event.button === 0 && !isRecentRowDisabled(file) && (!button || button.classList.contains('recent-open'))) {
         emit('press-recent', file);
     }
 }
