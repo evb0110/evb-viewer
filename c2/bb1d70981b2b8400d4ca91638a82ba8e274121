@@ -1,0 +1,23 @@
+tests/unit/electron/nativeTiffCombine.test.ts
+  s_bf66933ca7b2e8::t_b2906fd8e0af9b 26-27
+  s_bf66933ca7b2e8::t_12371aae4757f1 200
+  s_bf66933ca7b2e8::t_d7449df8a6d9dc 4,20-25,28-30,33,184-199,201-207
+electron/native-tools/runNativeToolCommand.ts
+  ai_agent 6,88-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c2bb1d70981b2b8400d4ca91638a82ba8e274121",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
