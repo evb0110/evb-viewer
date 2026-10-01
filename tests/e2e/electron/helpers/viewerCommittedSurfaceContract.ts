@@ -11,7 +11,6 @@ export type TCommittedSurfaceKind =
     | 'committed-canvas'
     | 'committed-empty'
     | 'loader'
-    | 'neutral'
     | 'page-shell'
     | 'tool-surface';
 
@@ -109,6 +108,8 @@ export interface ICommittedSurfaceFrame {
     viewportScrollTop?: number | null;
     viewportScrollWidth?: number | null;
     visiblePdfPageVisuals?: ICommittedSurfaceVisiblePdfPageVisual[];
+    /** Tab hosts painted in the active pane; more than one puts two documents on screen. */
+    visibleWorkspaceHostCount?: number;
 }
 
 interface ICommittedSurfaceSamplerError {
@@ -193,6 +194,17 @@ function ownsPageFrameStyle(style: ICommittedSurfaceStyle | null) {
     );
 }
 
+/**
+ * Until the first page's shape is known an opening shows the bare viewport,
+ * because a placeholder of a guessed shape would change shape when the real
+ * geometry arrives. An empty frame then is the opening, not a lost surface.
+ */
+export function isOpeningBeforePageGeometry(frame: ICommittedSurfaceFrame) {
+    return frame.kind === 'blank'
+        && frame.openSurfacePhase === 'pending'
+        && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false';
+}
+
 /** Returns release-blocking contract violations, keeping Vitest assertions out of the helper. */
 export function findCommittedSurfaceContractViolations(
     trace: ICommittedSurfaceTrace,
@@ -206,18 +218,23 @@ export function findCommittedSurfaceContractViolations(
         return ['fewer than two animation frames were sampled'];
     }
 
+    // An open never goes back a step: once it has shown its page shape, the
+    // bare viewport of that same open is a regression, not the opening.
+    const openingsWithShell = new Set<string>();
+    const openingKey = (frame: ICommittedSurfaceFrame) => (
+        `${frame.openSurfaceDiagnostic?.openSurfaceDocumentId ?? ''}#${frame.openSurfaceDiagnostic?.openSurfaceGeneration ?? ''}`
+    );
     for (const frame of frames) {
         const isExplicitDeferredOpening = options.allowDeferredOpening === true
             && frame.kind === 'blank'
             && frame.openSurfacePhase === 'pending'
             && frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
+        if (frame.kind === 'page-shell') {
+            openingsWithShell.add(openingKey(frame));
+        }
+        const isOpeningBlank = isOpeningBeforePageGeometry(frame) && !openingsWithShell.has(openingKey(frame));
         if (
-            (frame.kind === 'blank'
-            || frame.kind === 'loader'
-            || frame.kind === 'neutral' && (
-                frame.openSurfacePhase !== 'pending'
-                || frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'false'
-            ))
+            (frame.kind === 'blank' && !isOpeningBlank || frame.kind === 'loader')
             && !isExplicitDeferredOpening
         ) {
             violations.push(`frame ${String(frame.frame)} exposed ${frame.kind}`);
@@ -295,17 +312,10 @@ export function findCommittedSurfaceContractViolations(
         violations.push('the committed canvas wrapper did not own the visible page frame style');
     }
 
-    // The opening shell may present with fallback dimensions before the
-    // document's real geometry is known; geometry stability is only
-    // meaningful once the surface first reports committed geometry. Only the
-    // leading provisional frames are exempt: a geometry flap after the first
-    // valid report must remain a violation.
-    const allShellFrames = frames.slice(0, firstCanvasIndex)
+    // The opening shell appears only at the page's final geometry, so every
+    // shell frame must already match the canvas that replaces it.
+    const shellFrames = frames.slice(0, firstCanvasIndex)
         .filter(frame => frame.kind === 'page-shell');
-    const firstGeometryIndex = allShellFrames.findIndex(frame => (
-        frame.openSurfaceDiagnostic?.openSurfaceHasGeometry !== 'false'
-    ));
-    const shellFrames = firstGeometryIndex < 0 ? [] : allShellFrames.slice(firstGeometryIndex);
     const firstShell = shellFrames[0];
     if (firstShell) {
         for (const shell of shellFrames.slice(1)) {
@@ -549,7 +559,6 @@ export function findCommittedSurfaceInteractionTailViolations(
         if (
             frame.kind === 'blank'
             || frame.kind === 'loader'
-            || frame.kind === 'neutral'
             || (frame.kind === 'page-shell' && !allowsSkeleton)
         ) {
             violations.push(
@@ -988,21 +997,12 @@ export async function installCommittedSurfaceSampler(
                 const activeHost = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
                 ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-                const presentationFallback = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host.is-presentation-fallback',
-                );
-                let host = isVisible(activeHost)
+                const host = isVisible(activeHost)
                     ? activeHost
                     : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisible) ?? null;
-                if (isVisible(presentationFallback) && ownsVisibleCenter(presentationFallback)) {
-                    host = presentationFallback;
-                }
                 const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')
                 ?? host?.querySelector<HTMLElement>('#pdf-viewer')
                 ?? null;
-                const visibleNeutral = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '[data-document-open-surface="neutral"], .workspace-host-document-open-fallback',
-                ) ?? []).find(ownsVisibleCenter) ?? null;
                 const visibleLoader = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
@@ -1043,7 +1043,7 @@ export async function installCommittedSurfaceSampler(
                 const skeletonCandidates = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.document-page-skeleton, .document-source-viewer__skeleton',
                 ) ?? [])
-                    .filter(candidate => isVisible(candidate) && !visibleNeutral?.contains(candidate));
+                    .filter(isVisible);
                 // The page-source skeleton wrapper renders the shared
                 // DocumentPageSkeleton inside itself, so both selectors match
                 // one logical skeleton. Keep only the outermost element of
@@ -1123,9 +1123,7 @@ export async function installCommittedSurfaceSampler(
                 );
 
                 let kind: TCommittedSurfaceKind = 'blank';
-                if (visibleNeutral) {
-                    kind = 'neutral';
-                } else if (visibleLoader) {
+                if (visibleLoader) {
                     kind = 'loader';
                 } else if (visibleToolSurface) {
                     kind = 'tool-surface';
@@ -1337,6 +1335,9 @@ export async function installCommittedSurfaceSampler(
                     viewportScrollTop: viewport ? Math.round(viewport.scrollTop) : null,
                     viewportScrollWidth: viewport?.scrollWidth ?? null,
                     visiblePdfPageVisuals,
+                    visibleWorkspaceHostCount: Array.from(document.querySelectorAll<HTMLElement>(
+                        '.editor-pane.is-active .editor-pane-content > .workspace-host',
+                    )).filter(isVisible).length,
                 });
             } catch (error) {
                 testWindow.__committedSurfaceErrors!.push({

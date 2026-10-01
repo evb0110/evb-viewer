@@ -24,6 +24,7 @@
         :data-chassis-current-page="chassisAuthority.currentPage.value"
         :data-chassis-resize-anchor-page="retainedResizeAnchor?.pageNumber ?? ''"
         :data-chassis-resizing="props.isResizing === true"
+        :aria-busy="isOpening ? 'true' : undefined"
         :class="{'document-viewer-chassis--fling-backdrop': chassisAuthority.viewportFlingBackdrop.value !== null}"
     >
         <DocumentViewerFlingBackdrop
@@ -48,15 +49,6 @@
             @contextmenu="chassisAuthority.dispatchViewportEvent('contextmenu', $event)"
             @selectstart="chassisAuthority.dispatchViewportEvent('selectstart', $event)"
         >
-            <div
-                v-if="shouldShowNeutralOpeningSurface"
-                class="absolute inset-0 z-[var(--app-workspace-transition-overlay-z-index)] overflow-hidden pointer-events-none bg-[var(--app-document-viewer-bg)]"
-                data-document-open-surface="neutral"
-                :aria-label="t('common.loading')"
-                role="status"
-            >
-                <DocumentPageSkeleton :content-height="null" />
-            </div>
             <div
                 v-if="chassisOpeningPageShell && shouldShowChassisOpeningPageSkeleton"
                 class="document-viewer-chassis__opening-layer"
@@ -140,7 +132,6 @@ const props = defineProps<{
     mountPresentation?: boolean;
     isResizing?: boolean;
 }>();
-const { t } = useTypedI18n();
 const emit = defineEmits<{
     'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrame>];
     'update:current-page': [pageNumber: number];
@@ -433,6 +424,9 @@ const isOpening = computed(() => [
     'canvas-committed',
     'viewport-committed',
 ].includes(chassisAuthority.openSurface.snapshot.value.phase));
+// The opening skeleton appears only once the page's shape is known. Until then
+// the viewport shows its own background: a placeholder of a guessed shape
+// would change shape again when the geometry arrives.
 const chassisOpeningPageShell = computed(() => {
     void openingFrameLayoutRevision.value;
     const snapshot = chassisAuthority.openSurface.snapshot.value;
@@ -484,7 +478,6 @@ const chassisOpeningPageShell = computed(() => {
     };
 });
 const shouldShowChassisOpeningPageSkeleton = computed(() => chassisAuthority.openingPageVisual.value !== 'fresh');
-const shouldShowNeutralOpeningSurface = computed(() => isOpening.value && chassisOpeningPageShell.value === null);
 
 watch(
     [

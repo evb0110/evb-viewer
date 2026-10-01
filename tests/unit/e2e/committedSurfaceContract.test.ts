@@ -379,7 +379,6 @@ describe('committed surface E2E contract', () => {
     it.each([
         'blank',
         'loader',
-        'neutral',
     ] as const)('rejects a visible %s frame', kind => {
         const frames = [
             frame(1),
@@ -388,6 +387,98 @@ describe('committed surface E2E contract', () => {
         ];
 
         expect(findCommittedSurfaceContractViolations({frames}).join('\n')).toContain(`exposed ${kind}`);
+    });
+
+    it('accepts the bare viewport only while the opening page shape is unknown', () => {
+        const openingFrame = (sequence: number, hasOpeningGeometry: 'true' | 'false') => frame(sequence, {
+            kind: 'blank',
+            openSurfacePhase: 'pending',
+            openSurfaceDiagnostic: {openSurfaceHasOpeningGeometry: hasOpeningGeometry},
+        });
+        const canvases = Array.from({length: 10}, (_, index) => committedCanvas(index + 3));
+
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            openingFrame(2, 'false'),
+            ...canvases,
+        ]})).toEqual([]);
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            openingFrame(2, 'true'),
+            ...canvases,
+        ]}).join('\n')).toContain('exposed blank');
+    });
+
+    it('rejects an opening that goes back to the bare viewport after its page shell', () => {
+        const opening = {
+            openSurfaceDocumentId: '/documents/a.pdf',
+            openSurfaceGeneration: '2',
+        };
+        const shell = frame(2, {
+            kind: 'page-shell',
+            openSurfaceDiagnostic: {
+                ...opening,
+                openSurfaceHasOpeningGeometry: 'true',
+            },
+            pageNumber: 1,
+            shellId: 4,
+            shellRect: rect,
+            shellStyle: style,
+            skeletonCount: 1,
+            skeletonSharesShell: true,
+            skeletonRect: rect,
+            skeletonStyle,
+        });
+        const backToBare = frame(3, {
+            kind: 'blank',
+            openSurfacePhase: 'pending',
+            openSurfaceDiagnostic: {
+                ...opening,
+                openSurfaceHasOpeningGeometry: 'false',
+            },
+        });
+        const canvases = Array.from({length: 10}, (_, index) => committedCanvas(index + 4));
+
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            shell,
+            ...canvases,
+        ]})).toEqual([]);
+        expect(findCommittedSurfaceContractViolations({frames: [
+            frame(1),
+            shell,
+            backToBare,
+            ...canvases,
+        ]}).join('\n')).toContain('frame 3 exposed blank');
+    });
+
+    it('compares every opening shell frame with the canvas, including one not yet measured', () => {
+        const narrowRect = {
+            ...rect,
+            width: rect.width / 2,
+        };
+        const frames = [
+            frame(1),
+            frame(2, {
+                kind: 'page-shell',
+                openSurfaceDiagnostic: {
+                    openSurfaceHasGeometry: 'false',
+                    openSurfaceHasOpeningGeometry: 'true',
+                },
+                pageNumber: 1,
+                shellId: 4,
+                shellRect: narrowRect,
+                shellStyle: style,
+                skeletonCount: 1,
+                skeletonSharesShell: true,
+                skeletonRect: narrowRect,
+                skeletonStyle,
+            }),
+            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 3)),
+        ];
+
+        expect(findCommittedSurfaceContractViolations({frames}).join('\n'))
+            .toContain('page shell geometry changed at canvas commit');
     });
 
     it('rejects a detached or geometrically different skeleton shell', () => {
