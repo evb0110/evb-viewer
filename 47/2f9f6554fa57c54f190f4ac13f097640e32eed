@@ -1,0 +1,28 @@
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle.ts
+  s_2831ae8aade27f::t_9bea89af11255c 21-24,51-52,203-205,225
+app/modules/pdf-viewer/runtime/lifecycle/usePdfOpeningGeometryLifecycle.ts
+  s_2831ae8aade27f::t_4a6a557544b52a 93-95,99,123
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_2831ae8aade27f::t_6cd13a0b30079e 437-439,447,454,474,517
+  s_2831ae8aade27f::t_40509184df06e5 708-715
+tests/e2e/electron/navigation/inactivePdfTabs.e2e.test.ts
+  ai_agent 33-37,442-516
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_2831ae8aade27f::t_9bea89af11255c 489
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "472f9f6554fa57c54f190f4ac13f097640e32eed",
+  "prompts": {},
+  "sessions": {
+    "s_2831ae8aade27f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d02ef569-9c0f-440e-8bad-a83565088b71",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
