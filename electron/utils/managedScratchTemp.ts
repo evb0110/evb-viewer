@@ -30,6 +30,7 @@ const MANAGED_SCRATCH_PREFIXES = [
     'qpdfOutput-',
     'pdf-page-ops-',
     'native-command-',
+    'djvu-export-',
     'djvu-image-export-',
     'djvu-tiff-export-',
     'scan-cleanup-preview-',
@@ -133,13 +134,7 @@ export async function removeManagedScratchTempDir(
     rootPath: string,
 ) {
     const resolvedDirectory = resolve(directoryPath);
-    const resolvedRoot = resolve(rootPath);
-    const normalizedDirectory = process.platform === 'win32'
-        ? resolvedDirectory.toLowerCase()
-        : resolvedDirectory;
-    const normalizedRoot = process.platform === 'win32'
-        ? resolvedRoot.toLowerCase()
-        : resolvedRoot;
+    const comparable = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
     let directoryStat;
     try {
         directoryStat = await lstat(resolvedDirectory);
@@ -151,7 +146,7 @@ export async function removeManagedScratchTempDir(
     }
     if (!directoryStat.isDirectory()
         || directoryStat.isSymbolicLink()
-        || dirname(normalizedDirectory) !== normalizedRoot
+        || dirname(comparable(resolvedDirectory)) !== comparable(resolve(rootPath))
         || !basename(resolvedDirectory).startsWith(prefix)) {
         return false;
     }
