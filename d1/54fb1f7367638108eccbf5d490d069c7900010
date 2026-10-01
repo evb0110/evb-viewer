@@ -1,0 +1,57 @@
+packages/contracts/pdfOcrTextVisibility.ts
+  s_7a7f3638474d75::t_b550862eb05b90 1-32
+electron/features/ocr/pipeline/pageTextClassifier.ts
+  s_7a7f3638474d75::t_b5112ea185c985 175-177
+  s_7a7f3638474d75::t_02b54c68aebb01 1-6,14-17,20-21,149,153,155,158-170,173-174,178-180,184,186-204,207-210,213,218-219,222-223,229,231-235,237-238,240-245
+tests/unit/electron/ocrPageTextClassifier.test.ts
+  s_7a7f3638474d75::t_84bc292e1d8fc6 1-2,9-11,16-31,34-54,56,60,64,68,72,102,105-109,111-118,124,129,133-136,146,148,155,157,163,165,168,170,176,178,181,183,186,188
+electron/features/ocr/pipeline/selectOcrPagesForSupersession.ts
+  s_7a7f3638474d75::t_02b54c68aebb01 98,100,108-115,130-142,145,149-153,171,176-180,186
+native/protocol-fixtures/pdf-page-ops-ocr-text-visibility.json
+  s_7a7f3638474d75::t_20797ec0a515e4 1-22
+native/pdf-page-ops/src/text_layer.rs
+  s_7a7f3638474d75::t_be5d704ebd3bad 102
+tests/e2e/electron/smoke/ocrJourney.e2e.test.ts
+  s_7a7f3638474d75::t_09ca8bdea7b029 282,284-285
+  s_7a7f3638474d75::t_595ed53cf9c453 286
+  s_7a7f3638474d75::t_1863425a7aeda8 256-281,283,287-306
+  s_7a7f3638474d75::t_b68ee71218544b 8-12
+  s_7a7f3638474d75::t_e86821c55d6cdc 30
+  s_7a7f3638474d75::t_6730d9fb68c761 117-157
+native/pdf-page-ops/tests/text_layer.rs
+  s_7a7f3638474d75::t_7cbb070baf9c92 1470-1477,1509-1512
+  s_7a7f3638474d75::t_48473596a24ded 1269-1469,1478-1508,1513-1555
+native/pdf-page-ops/src/dispatcher.rs
+  s_7a7f3638474d75::t_1f754d80475af9 34-43
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_7a7f3638474d75::t_02b54c68aebb01 23-24,27-51,117-118,132-133,363,368-372,377,382-463
+native/pdf-page-ops/src/cli.rs
+  s_7a7f3638474d75::t_1f754d80475af9 177-179,235
+native/pdf-page-ops/src/types.rs
+  s_7a7f3638474d75::t_1f754d80475af9 712-714
+native/pdf-page-ops/src/ocr_layer.rs
+  s_7a7f3638474d75::t_be5d704ebd3bad 9-11,15,412-416,425,506,521,529,537,543,545,568,578
+  s_7a7f3638474d75::t_74c4d65a508f80 322,329,337-340
+  s_7a7f3638474d75::t_4296053b9e3a1c 378-411,417-424,426-505,507-513,520,522-528,530-536,538-542,544,546-567,569-577,579-593
+  s_7a7f3638474d75::t_921e04b620235d 728-736,738-739,741-803,806
+  s_7a7f3638474d75::t_7cbb070baf9c92 514-519,804-805
+  s_7a7f3638474d75::t_a446160f4d2277 175-242,244-260,262-263,265-276
+electron/features/ocr/pipeline/runOcrJob.ts
+  s_7a7f3638474d75::t_e8f1506611f860 818,820
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d154fb1f7367638108eccbf5d490d069c7900010",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
