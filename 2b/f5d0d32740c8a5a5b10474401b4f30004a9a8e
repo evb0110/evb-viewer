@@ -1,0 +1,23 @@
+electron/features/search/searchIndex.ts
+  s_7a7f3638474d75::t_7990d652660947 8-14,79,138,236,257
+packages/contracts/searchIndexWire.ts
+  s_7a7f3638474d75::t_67dac96eec1154 1-45
+electron/features/agent/documentText.ts
+  s_7a7f3638474d75::t_cebfcc9c4f9fe1 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2bf5d0d32740c8a5a5b10474401b4f30004a9a8e",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
