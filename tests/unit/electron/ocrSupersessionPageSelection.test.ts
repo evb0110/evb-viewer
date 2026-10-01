@@ -279,6 +279,9 @@ describe('OCR supersession page selection', () => {
             pageNumber: 2,
             message: expect.stringContaining('native-text'),
         }]);
+        // A page kept for its own text is information about the run, never a
+        // warning the renderer presents as a failed page.
+        expect(selection.warnings.filter(warning => warning.includes('Skipped page'))).toEqual([]);
     });
 
     it('reports a failed text probe instead of silently treating pages as text bearing', async () => {

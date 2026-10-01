@@ -155,8 +155,10 @@ export async function selectOcrPagesForSupersession(input: {
             pages.push(page);
             continue;
         }
+        // Keeping a page's own text is what the policy asked for, so it is
+        // information about the run, not a warning that it fell short.
         const message = `Skipped page ${page.pageNumber}: classified ${evidence.classification} under ${input.supersessionPolicy} policy`;
-        warnings.push(message);
+        input.log('debug', message);
         diagnostics.push({
             code: 'OCR_EXISTING_TEXT_SKIPPED',
             severity: 'info',
