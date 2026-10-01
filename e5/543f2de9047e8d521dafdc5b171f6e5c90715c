@@ -1,0 +1,32 @@
+tests/unit/electron/searchNativeErrorMapping.test.ts
+  s_7a7f3638474d75::t_b81e583891b30b 56-58,60
+tests/e2e/electron/nightly/search/searchIndexConcurrency.e2e.test.ts
+  s_7a7f3638474d75::t_f1c34d9f01cb99 23,39-40,50,53
+  s_7a7f3638474d75::t_9bb3ca7d539d23 1-8,10-19,25,27-34,36-38,41-42,47-49,51-52,54-93,96-98,100-103,106-107,120,133
+  s_7a7f3638474d75::t_5efa5e0932a572 9,20-22,43-46,94-95,99,104-105,108-119,121-132
+  s_7a7f3638474d75::t_5a23e8c4b118b8 24,35
+  s_7a7f3638474d75::t_a0c3f08648edfc 26
+electron/features/search/searchIndex.ts
+  s_7a7f3638474d75::t_3e795583735381 25
+  s_7a7f3638474d75::t_fc96e3c2813fd1 1,3-6,103-104,126-128,132-154
+  s_7a7f3638474d75::t_093415df546946 2
+electron/features/search/writeSearchIndexInput.ts
+  s_7a7f3638474d75::t_3e795583735381 1-38,43-44,46-51
+  s_7a7f3638474d75::t_fc96e3c2813fd1 39-42,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e5543f2de9047e8d521dafdc5b171f6e5c90715c",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
