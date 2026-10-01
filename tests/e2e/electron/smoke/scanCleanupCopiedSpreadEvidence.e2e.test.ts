@@ -4,6 +4,7 @@ import {
     mkdtempSync,
     statSync,
 } from 'node:fs';
+import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
     join, resolve,
@@ -12,6 +13,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {readPdfPageSnapshots} from '@tests/e2e/electron/helpers/fixtures';
@@ -66,7 +68,12 @@ describe('scan cleanup copied spread evidence', () => {
             1280,
             900,
         ]);
-        const sourcePath = join(mkdtempSync(join(tmpdir(), 'evb-e2e-cleanup-spread-')), 'e2e-document-ops-cleanup-two.pdf');
+        const sourceDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-cleanup-spread-'));
+        onTestFinished(() => rm(sourceDirectory, {
+            recursive: true,
+            force: true,
+        }));
+        const sourcePath = join(sourceDirectory, 'e2e-document-ops-cleanup-two.pdf');
         copyFileSync(resolve(process.cwd(), 'tests/fixtures/electron/document-ops-cleanup-two.pdf'), sourcePath);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
