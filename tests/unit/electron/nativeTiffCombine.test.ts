@@ -1,6 +1,7 @@
 import type * as TRunNativeToolCommandModule from '@electron/native-tools/runNativeToolCommand';
 import {
     mkdtemp,
+    readdir,
     readFile,
     rm,
     writeFile,
@@ -16,14 +17,20 @@ import {
     vi,
 } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-    runNativeCommand: vi.fn(),
-    atomicReplace: vi.fn(),
-    makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
-    nativePath: '/mock/evb-pdf-image-combine',
-}));
+const mocks = vi.hoisted(() => {
+    // A development app's build IDs: the real runner checks the binary first.
+    Reflect.set(globalThis, '__EVB_NATIVE_BUILD_IDS__', {'evb-pdf-image-combine': 'app-build'});
+    return {
+        runNativeCommand: vi.fn(),
+        runProcess: vi.fn(),
+        atomicReplace: vi.fn(),
+        makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
+        nativePath: '/mock/evb-pdf-image-combine',
+    };
+});
 
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({resolveNativePdfImageCombinePath: () => mocks.nativePath}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runProcess}));
 vi.mock('@electron/native-tools/runNativeToolCommand', async importOriginal => ({
     ...await importOriginal<typeof TRunNativeToolCommandModule>(),
     runNativeToolCommand: mocks.runNativeCommand,
@@ -172,6 +179,32 @@ describe('native TIFF combine wrapper', () => {
         // app as in tests: a stale binary is thrown, any other failure is not.
         expect(createNativeFallbackTestError(false, 'Native TIFF combine', 'failed', stale)).toBe(stale);
         expect(createNativeFallbackTestError(false, 'Native TIFF combine', 'failed', new Error('exit 1'))).toBeNull();
+    });
+
+    it('removes its scratch when the binary build check outlives its kill', async () => {
+        const {runNativeToolCommand} = await vi.importActual<typeof TRunNativeToolCommandModule>('@electron/native-tools/runNativeToolCommand');
+        mocks.runNativeCommand.mockImplementationOnce(runNativeToolCommand);
+        mocks.runProcess.mockRejectedValueOnce(markUnprovenNativeTermination(
+            new Error('evb-pdf-image-combine(build-id) timed out'),
+            'evb-pdf-image-combine(build-id) process tree was not proven dead',
+        ));
+        const scratchRoot = await mkdtemp(join(tempDir, 'scratch-'));
+        const environment = {...process.env};
+        Object.assign(process.env, {
+            TMPDIR: scratchRoot,
+            TMP: scratchRoot,
+            TEMP: scratchRoot,
+        });
+        try {
+            await expect(tryCombinePagesWithNativeTiffCombiner([join(tempDir, 'page-001.tif')], join(tempDir, 'combined.tiff')))
+                .rejects.toThrow();
+        } finally {
+            Object.assign(process.env, environment);
+        }
+        // The build check reads none of the combine's files; only the combine's
+        // own child keeps them.
+        expect(await readdir(scratchRoot)).toEqual([]);
+        expect(mocks.runProcess).toHaveBeenCalledWith('/mock/evb-pdf-image-combine', ['--build-id'], expect.any(Object));
     });
 
     it('rejects when native output is missing in enabled test mode', async () => {

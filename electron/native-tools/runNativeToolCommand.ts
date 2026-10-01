@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
 /**
  * Build IDs of the native tools, keyed by binary name, embedded by
@@ -84,6 +85,12 @@ export function assertNativeToolBuild(command: string) {
                     + `Rebuild it with pnpm run build:${baseName.slice('evb-'.length)}.`,
                 );
             }
+        }, (error: unknown) => {
+            // The check's child opens none of the caller's files, so one that
+            // outlived its kill must not keep the caller from reclaiming them.
+            throw getUnprovenNativeTerminationDetail(error) === undefined || !(error instanceof Error)
+                ? error
+                : new Error(error.message, {cause: error});
         });
         verified.catch(() => verifiedBuilds.delete(command));
         verifiedBuilds.set(command, verified);
