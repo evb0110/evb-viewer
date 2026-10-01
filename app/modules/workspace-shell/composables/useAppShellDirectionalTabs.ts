@@ -153,8 +153,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     });
 
     // Split Right/Down shows the active tab's PDF in the new pane as a second
-    // view of the same document; New Pane and anything that is not a presented
-    // PDF open an empty pane.
+    // view of the same document, also while that PDF is still opening; New
+    // Pane and anything that is not a PDF open an empty pane.
     async function splitEditorInto(direction: TPaneDirection, linkSourceDocument: boolean) {
         options.setWorkspaceLayoutResizing?.(true);
         await nextTick();

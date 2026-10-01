@@ -96,13 +96,17 @@ vi.mock('electron', () => {
             unregister: mocks.globalShortcutUnregister,
         },
         screen: {
-            getDisplayMatching: vi.fn(() => {
-                return {workArea: {
-                    x: 0,
-                    y: 0,
-                    width: 800,
-                    height: 600,
-                }};
+            // A 1x primary display left of a 2x one at x = 1920.
+            getDisplayMatching: vi.fn((rectangle: {x: number}) => {
+                return {
+                    scaleFactor: rectangle.x >= 1920 ? 2 : 1,
+                    workArea: {
+                        x: 0,
+                        y: 0,
+                        width: 800,
+                        height: 600,
+                    },
+                };
             }),
             getDisplayNearestPoint: vi.fn(() => ({scaleFactor: 1})),
             getPrimaryDisplay: vi.fn(() => ({scaleFactor: 1})),
@@ -231,5 +235,21 @@ describe('host environment zen Escape handling', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+describe('host environment startup argument', () => {
+    it('describes the display the window bounds fall on, not the primary one', async () => {
+        const { encodeHostEnvironmentArgument } = await import('@electron/hostEnvironment');
+        const { readHostEnvironmentArgument } = await import('@electron/preload/readHostEnvironmentArgument');
+        const readStartupScaleFactor = (bounds: {x: number}) => readHostEnvironmentArgument([encodeHostEnvironmentArgument({
+            ...bounds,
+            y: 200,
+            width: 900,
+            height: 700,
+        })])?.osScaleFactor;
+
+        expect(readStartupScaleFactor({x: 2400})).toBe(2);
+        expect(readStartupScaleFactor({x: 100})).toBe(1);
     });
 });
