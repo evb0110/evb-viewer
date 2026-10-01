@@ -5,19 +5,17 @@ export const TEST_PDF_SAVE_BYTE_ROUTE_DECISION: IPdfSaveByteRouteDecision = {
     annotationPlan: {
         route: 'source-clean',
         expectedCost: 'small',
-        reason: 'no-live-pdfjs-annotation-work',
-        unreplayableLiveAnnotationIds: [],
+        reason: 'no-annotation-work',
+        unreplayableAnnotationIds: [],
     },
     canonical: {
         comments: [],
         pendingTexts: new Map(),
         pendingDeletes: [],
-        liveAnnotationChanges: {
+        frontierChanges: {
             ids: new Set(),
-            replayableEditorNoteIds: new Set(),
-            nativeFreeTextEditors: new Map(),
+            noteIds: new Set(),
             hasChanges: false,
-            fingerprint: '',
         },
         replayableEmbeddedAnnotationIds: new Set(),
         replayableCanonicalStickyNoteStableKeys: new Set(),

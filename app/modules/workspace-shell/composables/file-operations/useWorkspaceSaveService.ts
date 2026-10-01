@@ -223,7 +223,6 @@ async function persistNativeMutationProjection(
         || projection.hasShapeMutations
         || (projection.mutations.placedImages?.length ?? 0) > 0
         || (projection.textBoxes?.length ?? 0) > 0
-        || projection.freeTextEditors.length > 0
         || !deps.persistence.trySaveEmbeddedNoteTextUpdates
     ) {
         return null;
@@ -279,13 +278,6 @@ async function executeNativeMutationSave(
         }, deps, {markAnnotationStateSaved: true});
         if (result.status === 'saved') {
             saveTransaction.commitAnnotationSave?.();
-            return {
-                ...result,
-                completion: {
-                    ...result.completion,
-                    preserveLivePdfjsSession: !result.persisted.didSaveAs,
-                },
-            };
         }
         return result;
     }
@@ -407,7 +399,6 @@ async function executeNativeMutationSave(
     const annotationEditsWritten = projection.noteTextUpdates.length > 0
         || (projection.noteGeometryUpdates?.length ?? 0) > 0
         || projection.freeTextNotes.length > 0
-        || projection.freeTextEditors.length > 0
         || (projection.textBoxes?.length ?? 0) > 0
         || projection.annotationDeletes.length > 0
         || projection.hasMarkupMutations
@@ -427,8 +418,6 @@ async function executeNativeMutationSave(
             allowAnnotationSaveStateRefresh: annotationEditsWritten,
             allowBookmarksSaveStateRefresh: bookmarkEditsWritten,
             allowPageLabelsSaveStateRefresh: pageLabelEditsWritten,
-            preserveLivePdfjsSession: !persisted.didSaveAs,
-            resetAnnotationStorage: true,
         },
     };
 }
@@ -509,8 +498,6 @@ async function executeNativeRepairSave(
             allowAnnotationSaveStateRefresh: false,
             allowBookmarksSaveStateRefresh: false,
             allowPageLabelsSaveStateRefresh: false,
-            preserveLivePdfjsSession: false,
-            resetAnnotationStorage: true,
         },
     };
 }

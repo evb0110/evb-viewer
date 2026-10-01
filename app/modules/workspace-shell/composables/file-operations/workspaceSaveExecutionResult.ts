@@ -29,8 +29,6 @@ export interface ISaveCompletionPolicy {
     markAnnotationStateSaved: boolean;
     markBookmarksStateSaved: boolean;
     markPageLabelsStateSaved: boolean;
-    preserveLivePdfjsSession: boolean;
-    resetAnnotationStorage: boolean;
 }
 
 /**
@@ -166,8 +164,6 @@ export function workingCopySaveResult(
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: false,
             markPageLabelsStateSaved: false,
-            preserveLivePdfjsSession: false,
-            resetAnnotationStorage: false,
             ...completion,
         },
     };

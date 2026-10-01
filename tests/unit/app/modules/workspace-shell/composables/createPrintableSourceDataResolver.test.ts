@@ -53,7 +53,6 @@ const PRINT_PROJECTION: INativePdfMutationProjection = {
     mutations: {updates: []},
     noteTextUpdates: [],
     freeTextNotes: [],
-    freeTextEditors: [],
     annotationDeletes: [],
     hasMetadataMutations: false,
     hasShapeMutations: false,
