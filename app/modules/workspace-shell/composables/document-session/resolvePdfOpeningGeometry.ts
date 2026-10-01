@@ -14,7 +14,8 @@ const RECENT_OPEN_LOG_SECTION = 'recent-open';
 /**
  * Reads the first page's geometry and gives it to the opening surface, which
  * sizes the opening skeleton from it, when the same open still owns the same
- * surface generation. Resolves whether the geometry was committed.
+ * surface generation. Resolves whether the geometry was committed. An open
+ * that starts on another page has nothing to commit, so it reads nothing.
  */
 export function commitPdfOpeningGeometryWhenRead(options: {
     readonly documentId: TDocumentRef;
@@ -27,14 +28,16 @@ export function commitPdfOpeningGeometryWhenRead(options: {
         isCurrent,
         openSurface,
     } = options;
-    const surfaceGeneration = openSurface?.snapshot.value.generation;
+    if (openSurface?.viewportSession.value.requestedPage !== 1) {
+        return Promise.resolve(false);
+    }
+    const surfaceGeneration = openSurface.snapshot.value.generation;
     return options.read()
         .then((openingGeometry) => {
-            const currentSurface = openSurface?.snapshot.value;
+            const currentSurface = openSurface.snapshot.value;
             return Boolean(
                 openingGeometry
-                && openSurface
-                && currentSurface?.phase === 'pending'
+                && currentSurface.phase === 'pending'
                 && currentSurface.generation === surfaceGeneration
                 && currentSurface.identity?.documentId === documentId
                 && openSurface.viewportSession.value.requestedPage === openingGeometry.pageNumber
