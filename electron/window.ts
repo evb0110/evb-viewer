@@ -30,7 +30,7 @@ import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
 import { attachNativeWindowCloseHandshake } from '@electron/window/windowCloseHandshake';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import { captureMainFailure } from '@electron/features/diagnostics/public';
-import { createPreloadStartupArguments } from '@electron/window/createPreloadStartupArguments';
+import { createWindowStartupOptions } from '@electron/window/createWindowStartupOptions';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -503,9 +503,9 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const preloadPath = join(__dirname, 'preload.cjs');
     const keepAutomationRendererActive = config.automation.hideWindow || config.automation.noFocus;
 
+    const startupOptions = createWindowStartupOptions();
     const window = new BrowserWindow({
-        width: config.window.width,
-        height: config.window.height,
+        ...startupOptions.bounds,
         title: config.window.title,
         ...(windowIconPath ? { icon: windowIconPath } : {}),
         autoHideMenuBar: false,
@@ -517,7 +517,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             contextIsolation: true,
             sandbox: true,
             preload: preloadPath,
-            additionalArguments: createPreloadStartupArguments(),
+            additionalArguments: startupOptions.additionalArguments,
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });
