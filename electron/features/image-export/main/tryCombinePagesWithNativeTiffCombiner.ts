@@ -9,7 +9,7 @@ import { join } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     atomicReplace,
     makeSiblingTempPath,
@@ -138,13 +138,11 @@ async function runNativeTiffCombine(
         if (typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0) {
             args.push('--dpi', String(Math.round(dpi)));
         }
-        await runNativeCommand(binaryPath, args, {
+        await runNativeToolCommand(binaryPath, args, {
             timeoutMs: NATIVE_TIFF_COMBINE_TIMEOUT_MS,
             commandLabel: 'evb-pdf-image-combine(tiff)',
             maxStdoutBytes: 1024,
             maxStderrBytes: 8_192,
-            defaultCwdToCommandDir: true,
-            prependCommandDirToPath: true,
             onTerminationProof,
             ...(signal ? { signal } : {}),
         });

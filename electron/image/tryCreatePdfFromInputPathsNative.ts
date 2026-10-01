@@ -30,7 +30,7 @@ import {
     readNativePdfCatalog,
     resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
-import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import {runtimeConfig} from '@electron/runtimeConfig';
@@ -442,7 +442,7 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?:
                     ? mutationsPath
                     : join(mutationsDir, `mutations-${chunkIndex}.json`);
                 await writeFile(chunkMutationsPath, JSON.stringify(mutationChunk), 'utf8');
-                await runNativeCommand(pageOpsPath, [
+                await runNativeToolCommand(pageOpsPath, [
                     'save-mutations',
                     '--input',
                     outputPath,
