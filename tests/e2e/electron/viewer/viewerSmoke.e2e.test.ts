@@ -6736,9 +6736,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.keyboard.down('Control');
         await session.page.keyboard.press('f');
         await session.page.keyboard.up('Control');
-        await waitForFunctionInPage(session.page, (selector: string) => (
-            (document.querySelector(selector)?.getClientRects().length ?? 0) > 0
-        ), {timeout: 5_000}, searchSelector);
+        // Click the box once the sidebar has slid open. Mid-slide the box has
+        // its full size but is still clipped, so its center hits the page.
+        await waitForFunctionInPage(session.page, (selector: string) => {
+            const sidebar = document.querySelector(selector)?.closest('.sidebar-wrapper:not(.is-closed)');
+            return sidebar !== null && sidebar !== undefined && sidebar.getAnimations().length === 0;
+        }, {timeout: 5_000}, searchSelector);
         await session.page.click(searchSelector);
         const searchClickFocused = await session.page.evaluate((selector: string) => (
             document.activeElement === document.querySelector(selector)
