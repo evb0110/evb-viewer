@@ -1,0 +1,21 @@
+app/modules/pdf-viewer/components/PdfViewer.vue
+  s_2831ae8aade27f::t_9d76b5a63ad456 193-195,201,203,233,254
+tests/unit/app/modules/document-viewer/documentOpenSurfaceSession.test.ts
+  s_2831ae8aade27f::t_c4fa0850793e2d 1496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1f1bc168457ce49f5f632d85bc7474f45ec2f8c6",
+  "prompts": {},
+  "sessions": {
+    "s_2831ae8aade27f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d02ef569-9c0f-440e-8bad-a83565088b71",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
