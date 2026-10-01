@@ -1,0 +1,21 @@
+native/pdf-page-ops/tests/text_layer.rs
+  s_bf66933ca7b2e8::t_ffe3edd441fcef 1418,1444-1453
+native/pdf-page-ops/src/ocr_layer.rs
+  s_bf66933ca7b2e8::t_342f72676a51b6 419-421,454
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9a7fccc4b81f143f075f5792254b5887d5487b13",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
