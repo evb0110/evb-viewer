@@ -16,18 +16,22 @@ interface ICreatePdfPageSourceOptions {
     pdfDocument: IPdfDocument;
     /** Reuses the document session's bounded page-proxy owner for background metrics. */
     getPage?: (pageNumber: number) => Promise<IPdfPage>;
-    /** Delegates to the existing coordinated PDF.js path; the generic chassis never rasterizes PDF itself. */
-    renderPage: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
     /** Metrics the viewer already holds, when it has them for the page. */
     getPageMetrics?: (pageNumber: number) => Promise<IDocumentPageMetrics | undefined>;
-    renderThumbnail?: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
+    /**
+     * The viewer's raster scheduler, which owns page leases, the surface
+     * budget, cancellation, view rotation and annotation suppression. The
+     * generic chassis never rasterizes a PDF itself; a page it asks for comes
+     * from the same scheduled render as a thumbnail.
+     */
+    renderThumbnail: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
 }
 
 export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocumentPageSource {
     function renderPage(request: IDocumentPageRenderRequest) {
         assertDocumentPageNumber(request.pageNumber, options.pdfDocument.numPages);
         request.signal.throwIfAborted();
-        return options.renderPage(request);
+        return options.renderThumbnail(request);
     }
 
     return {
@@ -52,7 +56,7 @@ export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocu
             };
         },
         renderPage,
-        thumbnailProvider: {renderThumbnail: options.renderThumbnail ?? renderPage},
+        thumbnailProvider: {renderThumbnail: renderPage},
         dispose() {},
     };
 }
