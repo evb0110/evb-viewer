@@ -189,17 +189,19 @@ describe('native TIFF combine wrapper', () => {
             'evb-pdf-image-combine(build-id) process tree was not proven dead',
         ));
         const scratchRoot = await mkdtemp(join(tempDir, 'scratch-'));
-        const environment = {...process.env};
-        Object.assign(process.env, {
-            TMPDIR: scratchRoot,
-            TMP: scratchRoot,
-            TEMP: scratchRoot,
-        });
+        for (const name of [
+            'TMPDIR',
+            'TMP',
+            'TEMP',
+        ]) {
+            vi.stubEnv(name, scratchRoot);
+        }
         try {
             await expect(tryCombinePagesWithNativeTiffCombiner([join(tempDir, 'page-001.tif')], join(tempDir, 'combined.tiff')))
                 .rejects.toThrow();
         } finally {
-            Object.assign(process.env, environment);
+            // Restores unset variables too, which a copy of process.env cannot.
+            vi.unstubAllEnvs();
         }
         // The build check reads none of the combine's files; only the combine's
         // own child keeps them.
