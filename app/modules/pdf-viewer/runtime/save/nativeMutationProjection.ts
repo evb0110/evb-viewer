@@ -26,15 +26,12 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import {
-    mergeLivePdfJsAnnotationChanges,
-    type IPdfLiveAnnotationChangeSummary,
-} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {
     INativeAppendSaveRoute,
     TNativePdfMutationSaveMode,
 } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 import type {
+    IPdfLiveAnnotationChangeSummary,
     IPdfSaveByteRouteDecision,
     IPdfSaveCanonicalInputs,
     IPdfViewerAnnotationSavePlan,
@@ -85,7 +82,6 @@ export interface IPdfSaveRouteCapabilities {
     readonly nativeCapabilities: IPdfViewerSaveTransactionNativeCapabilities | undefined;
     readonly dirtyState: IPdfViewerSaveTransactionDirtyState | undefined;
     readonly documentStructure: IPdfViewerSaveTransactionDocumentStructure | undefined;
-    readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     readonly hasLoadedSource: boolean;
     readonly forceWriterSave: boolean;
     readonly rewriteShapeState: boolean;
@@ -231,30 +227,7 @@ function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnota
         replayableEditorNoteIds,
         nativeFreeTextEditors: new Map(),
         hasChanges: changedEntities.length > 0,
-        hasUnknownChanges: false,
         fingerprint: `frontier:${plan.frontier.epoch}:${plan.frontier.entityBaselineHash}:${Array.from(ids).sort().join(',')}`,
-    };
-}
-
-/**
- * The captured frontier and the live PDF.js editor session are two observations of
- * the same save work; routing consumes their union plus whatever the caller has
- * already declared dirty but PDF.js can no longer enumerate.
- */
-function resolveLiveAnnotationChanges(
-    plan: ISerializationPlan,
-    pdfjs: IPdfLiveAnnotationChangeSummary,
-    declaredLiveChanges: boolean,
-): IPdfLiveAnnotationChangeSummary {
-    const merged = mergeLivePdfJsAnnotationChanges(summarizeCanonicalLiveChanges(plan), pdfjs);
-    if (!declaredLiveChanges || merged.hasChanges) {
-        return merged;
-    }
-    return {
-        ...merged,
-        hasChanges: true,
-        hasUnknownChanges: true,
-        fingerprint: `${merged.fingerprint}|declared-live-pdfjs-changes`,
     };
 }
 
@@ -439,11 +412,7 @@ function deriveCanonicalSaveInputs(
             pendingTexts.set(summary.stableKey, summary.text);
         }
     });
-    const liveAnnotationChanges = resolveLiveAnnotationChanges(
-        plan,
-        capabilities.liveAnnotationChanges,
-        false,
-    );
+    const liveAnnotationChanges = summarizeCanonicalLiveChanges(plan);
     const replayableCanonicalStickyNoteStableKeys = new Set(
         changedEntities
             .filter(isNewCanonicalStickyNoteEntity)
@@ -486,15 +455,6 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
         && !isReplayableCanonicalTextBox(comment)
         && !canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
     );
-
-    if (live.hasUnknownChanges) {
-        return {
-            route: 'writer-save',
-            expectedCost: 'full-document',
-            reason: 'unknown-live-pdfjs-annotation-storage',
-            unreplayableLiveAnnotationIds: [],
-        };
-    }
 
     if (hasPendingReplayableEmbeddedChanges && !hasEditorOnlyAnnotationsPendingMaterialization) {
         // Replayable sticky notes stay on the loaded-source writer route. The

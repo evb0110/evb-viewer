@@ -21,7 +21,6 @@ import type {
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
-import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {TDocumentRef} from '@contracts/documentRef';
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
@@ -47,7 +46,6 @@ export type TPdfViewerAnnotationSaveReason =
     | 'pending-embedded-annotation-operations'
     | 'live-pdfjs-ids-covered-by-embedded-operations'
     | 'unreplayable-live-pdfjs-annotation-ids'
-    | 'unknown-live-pdfjs-annotation-storage'
     | 'live-pdfjs-annotation-storage'
     | 'editor-only-annotations-pending-materialization'
     | 'saved-pdfjs-annotation-baseline-diverged'
@@ -59,6 +57,19 @@ export interface IPdfViewerAnnotationSavePlan {
     expectedCost: 'small' | 'full-document';
     reason: TPdfViewerAnnotationSaveReason;
     unreplayableLiveAnnotationIds: string[];
+}
+
+/**
+ * Annotation work the save captured from the canonical store's frontier:
+ * the ids it changed and the changed notes and text boxes a native append
+ * can replay.
+ */
+export interface IPdfLiveAnnotationChangeSummary {
+    ids: Set<string>;
+    replayableEditorNoteIds: Set<string>;
+    nativeFreeTextEditors: Map<string, IPdfNativeFreeTextEditor>;
+    hasChanges: boolean;
+    fingerprint: string;
 }
 
 export interface IPdfSaveCanonicalInputs {

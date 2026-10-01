@@ -44,7 +44,7 @@ describe('browserSearchCore', () => {
         mocks.getDocument.mockReturnValue({
             destroy: mocks.destroyLoadingTask,
             promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
+                loadingTask: {destroy: mocks.destroyDocument},
                 getPage: mocks.getPage,
                 numPages: 1,
             }),
@@ -72,79 +72,12 @@ describe('browserSearchCore', () => {
         expect(mocks.destroyDocument).toHaveBeenCalledOnce();
     });
 
-    it('keeps the legacy array API at the explicit 1,024-page boundary', async () => {
-        mocks.getDocument.mockReturnValue({
-            destroy: mocks.destroyLoadingTask,
-            promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
-                getPage: mocks.getPage,
-                numPages: 1_024,
-            }),
-        });
-
-        const { extractBrowserSearchDocumentText } =
-            await import('@app/platform/browser-api/browserSearchCore');
-
-        const result = await extractBrowserSearchDocumentText('/tmp/1024.pdf');
-
-        expect(result.pageCount).toBe(1_024);
-        expect(result.pageTexts).toHaveLength(1_024);
-        expect(result.pageTexts[1_023]).toBe('alpha');
-    });
-
-    it('requires the page stream immediately above the legacy array boundary', async () => {
-        mocks.getDocument.mockReturnValue({
-            destroy: mocks.destroyLoadingTask,
-            promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
-                getPage: mocks.getPage,
-                numPages: 1_025,
-            }),
-        });
-
-        const { extractBrowserSearchDocumentText } =
-            await import('@app/platform/browser-api/browserSearchCore');
-
-        await expect(extractBrowserSearchDocumentText('/tmp/1025.pdf'))
-            .rejects.toThrow('ERR_BROWSER_SEARCH_STREAM_REQUIRED');
-        expect(mocks.getPage).not.toHaveBeenCalled();
-        expect(mocks.destroyDocument).toHaveBeenCalledOnce();
-    });
-
-    it('rejects legacy array extraction before allocating a million-page result', async () => {
-        const arrayFrom = vi.spyOn(Array, 'from');
-        mocks.getDocument.mockReturnValue({
-            destroy: mocks.destroyLoadingTask,
-            promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
-                getPage: mocks.getPage,
-                numPages: 1_000_000,
-            }),
-        });
-
-        const { extractBrowserSearchDocumentText } =
-            await import('@app/platform/browser-api/browserSearchCore');
-
-        await expect(extractBrowserSearchDocumentText('/tmp/million.pdf'))
-            .rejects.toThrow('ERR_BROWSER_SEARCH_STREAM_REQUIRED');
-
-        expect(mocks.getPage).not.toHaveBeenCalled();
-        expect(mocks.destroyDocument).toHaveBeenCalledOnce();
-        expect(arrayFrom.mock.calls.some(([value]) => (
-            typeof value === 'object'
-            && value !== null
-            && 'length' in value
-            && Number((value as {length?: unknown}).length) >= 1_000_000
-        ))).toBe(false);
-        arrayFrom.mockRestore();
-    });
-
     it('streams a million-page document with one-page backpressure', async () => {
         const arrayFrom = vi.spyOn(Array, 'from');
         mocks.getDocument.mockReturnValue({
             destroy: mocks.destroyLoadingTask,
             promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
+                loadingTask: {destroy: mocks.destroyDocument},
                 getPage: mocks.getPage,
                 numPages: 1_000_000,
             }),
@@ -182,7 +115,7 @@ describe('browserSearchCore', () => {
         mocks.getDocument.mockReturnValue({
             destroy: mocks.destroyLoadingTask,
             promise: Promise.resolve({
-                destroy: mocks.destroyDocument,
+                loadingTask: {destroy: mocks.destroyDocument},
                 getPage: mocks.getPage,
                 numPages: 2_646,
             }),

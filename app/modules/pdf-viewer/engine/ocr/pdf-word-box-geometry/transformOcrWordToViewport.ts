@@ -34,20 +34,14 @@ export function transformOcrWordToViewport(
     const pdfX2 = pageX + (word.x + word.width) * sx;
     const pdfY2 = pageY + pageHeight - word.y * sy;
 
-    const rawRect: unknown = viewport.convertToViewportRectangle([
-        pdfX,
-        pdfY,
-        pdfX2,
-        pdfY2,
-    ]);
-    if (!Array.isArray(rawRect) || rawRect.length < 4) {
-        return null;
-    }
-    const rectValues = rawRect as unknown[];
-    const x1 = rectValues[0];
-    const y1 = rectValues[1];
-    const x2 = rectValues[2];
-    const y2 = rectValues[3];
+    const [
+        x1,
+        y1,
+    ] = viewport.convertToViewportPoint(pdfX, pdfY);
+    const [
+        x2,
+        y2,
+    ] = viewport.convertToViewportPoint(pdfX2, pdfY2);
     if (
         typeof x1 !== 'number'
         || !Number.isFinite(x1)

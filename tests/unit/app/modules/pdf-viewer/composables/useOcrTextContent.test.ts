@@ -78,12 +78,6 @@ function createViewport(): IPdfViewport {
             0,
             0,
         ],
-        convertToViewportRectangle: () => [
-            0,
-            0,
-            0,
-            0,
-        ],
         convertToPdfPoint: () => [
             0,
             0,

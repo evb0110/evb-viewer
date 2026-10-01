@@ -30,11 +30,9 @@ describe('transformOcrWordToViewport', () => {
     };
 
     it('maps OCR pixels through the PDF viewport', () => {
-        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn((rect: readonly number[]) => [
-            rect[0]! + 10,
-            rect[1]! + 20,
-            rect[2]! + 10,
-            rect[3]! + 20,
+        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn((x: number, y: number) => [
+            x + 10,
+            y + 20,
         ])});
 
         expect(transformOcrWordToViewport(
@@ -52,28 +50,25 @@ describe('transformOcrWordToViewport', () => {
             width: 400,
             height: 60,
         });
-        expect(viewport.convertToViewportRectangle).toHaveBeenCalledWith([
-            200,
-            840,
-            600,
-            900,
-        ]);
     });
 
     it('returns null when OCR render geometry is absent', () => {
-        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn()});
+        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn()});
 
         expect(transformOcrWordToViewport(baseWord, {}, 2000, 1000, viewport)).toBeNull();
-        expect(viewport.convertToViewportRectangle).not.toHaveBeenCalled();
+        expect(viewport.convertToViewportPoint).not.toHaveBeenCalled();
     });
 
     it('returns null when the viewport returns an invalid rectangle', () => {
-        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn(() => [
-            0,
-            Number.NaN,
-            10,
-            20,
-        ])});
+        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn()
+            .mockReturnValueOnce([
+                0,
+                Number.NaN,
+            ])
+            .mockReturnValueOnce([
+                10,
+                20,
+            ])});
 
         expect(transformOcrWordToViewport(
             baseWord,
@@ -125,42 +120,28 @@ describe('transformOcrWordToViewport', () => {
             },
         ],
     ] as const)('maps the OCR box through the current %d degree viewport', (rotation, expected) => {
-        const viewport = cast<IPdfViewport>({convertToViewportRectangle: vi.fn((rect: readonly number[]) => {
-            const [
-                x1,
-                y1,
-                x2,
-                y2,
-            ] = cast<readonly [number, number, number, number]>(rect);
+        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn((x: number, y: number) => {
             if (rotation === 0) {
                 return [
-                    x1,
-                    1000 - y1,
-                    x2,
-                    1000 - y2,
+                    x,
+                    1000 - y,
                 ];
             }
             if (rotation === 90) {
                 return [
-                    y1,
-                    x1,
-                    y2,
-                    x2,
+                    y,
+                    x,
                 ];
             }
             if (rotation === 180) {
                 return [
-                    1000 - x1,
-                    y1,
-                    1000 - x2,
-                    y2,
+                    1000 - x,
+                    y,
                 ];
             }
             return [
-                1000 - y1,
-                1000 - x1,
-                1000 - y2,
-                1000 - x2,
+                1000 - y,
+                1000 - x,
             ];
         })});
 
@@ -184,11 +165,9 @@ describe('transformOcrWordToViewport', () => {
                 100,
                 200,
             ],
-            convertToViewportRectangle: vi.fn((rect: readonly number[]) => [
-                100 - rect[0]!,
-                rect[1]!,
-                100 - rect[2]!,
-                rect[3]!,
+            convertToViewportPoint: vi.fn((x: number, y: number) => [
+                100 - x,
+                y,
             ]),
         });
 

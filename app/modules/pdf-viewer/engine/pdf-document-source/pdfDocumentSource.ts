@@ -13,7 +13,6 @@ import {
     createPdfRangeRequestBridge,
     type IPdfPreloadedRange,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/createPdfRangeRequestBridge';
-import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 export const maxCachedPdfPages = getPerformanceProfile().maxCachedPdfPages;
@@ -24,18 +23,25 @@ type TPdfSource = Blob | {
     size: number
 };
 
+/**
+ * A document PDF.js opened. Its two lifecycle operations are separate:
+ * `cleanup` reclaims caches of a document that stays open and may be used
+ * again, and destroying `loadingTask` disposes the document and its worker.
+ * The loading task is the only disposal handle, so a caller cannot dispose a
+ * document by cleaning its caches.
+ */
 export interface IPdfDocument {
     readonly numPages: number;
-    readonly annotationStorage: unknown;
+    readonly loadingTask: IPdfLoadingTask;
     getPage(pageNumber: number): Promise<IPdfPage>;
     getPageLabels(): Promise<string[] | null>;
     getOutline(): Promise<unknown[] | null>;
     getDestination(destination: string): Promise<unknown[] | null>;
     getPageIndex(pageRef: IPdfRef): Promise<number>;
-    saveDocument(): Promise<Uint8Array>;
     cleanup(): Promise<void>;
-    destroy(): Promise<void>;
 }
+
+export interface IPdfLoadingTask {destroy(): Promise<void>;}
 
 export interface IPdfRef {
     readonly num: number;
@@ -78,7 +84,6 @@ export interface IPdfViewport {
     readonly height: number;
     readonly rawDims: object;
     readonly transform: number[];
-    convertToViewportRectangle(rect: readonly number[]): number[];
     convertToViewportPoint(x: number, y: number): number[];
     convertToPdfPoint(x: number, y: number): number[];
     clone(options?: {
@@ -97,7 +102,6 @@ export interface IPdfRenderTask {
     readonly imageCoordinates?: unknown;
     readonly onError?: unknown;
     readonly separateAnnots?: unknown;
-    readonly _internalRenderTask?: unknown;
     readonly promise: Promise<unknown>;
     cancel(extraDelay?: number): void;
     // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
@@ -637,7 +641,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             numPages: document.numPages,
             elapsedMs: performance.now() - startedAt,
         });
-        return adaptPdfjsDocument(document, () => task.destroy());
+        return document;
     }
 
     async function openPath(
@@ -752,7 +756,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             numPages: document.numPages,
             elapsedMs: performance.now() - startedAt,
         });
-        return adaptPdfjsDocument(document, () => task.destroy());
+        return document;
     }
 
     return {

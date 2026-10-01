@@ -1,102 +1,14 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
+import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
 import type {
     IWorkspaceSurfaceBudgetController,
     IDocumentPageRenderRequest,
     IDocumentRenderLease,
 } from '@app/modules/document-viewer/public';
 import { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/public';
-
-const PDF_PAGE_SOURCE_MAX_PIXELS = 16 * 1024 * 1024;
-const PDF_PAGE_SOURCE_MAX_DIMENSION = 32_767;
-
-export async function renderPdfDocumentPageSource(options: {
-    document: IPdfDocument;
-    request: IDocumentPageRenderRequest;
-    scopeId: string;
-    surfaceBudget: IWorkspaceSurfaceBudgetController;
-}): Promise<IDocumentRenderLease> {
-    const {
-        document,
-        request,
-        scopeId,
-        surfaceBudget,
-    } = options;
-    request.signal.throwIfAborted();
-    const page = await document.getPage(request.pageNumber);
-    const baseViewport = page.getViewport({scale: 1});
-    const requestedScale = request.widthPx / Math.max(1, baseViewport.width);
-    const requestedViewport = page.getViewport({scale: requestedScale});
-    const dimensions = resolveBoundedRasterDimensions({
-        width: requestedViewport.width,
-        height: requestedViewport.height,
-        maxPixels: PDF_PAGE_SOURCE_MAX_PIXELS,
-        maxDimension: PDF_PAGE_SOURCE_MAX_DIMENSION,
-    });
-    const viewport = page.getViewport({scale: requestedScale * dimensions.scale});
-    const bytes = dimensions.width * dimensions.height * 4;
-    const budgetLease = surfaceBudget.tryReserve({
-        scopeId,
-        category: 'pdf-page-canvas',
-        bytes,
-        priority: request.priority === 'navigation' ? 100 : 50,
-        canEvict: () => false,
-    });
-    if (!budgetLease) {
-        throw new RangeError('PDF page source exceeds the available workspace surface budget');
-    }
-    const canvas = window.document.createElement('canvas');
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
-    const canvasContext = canvas.getContext('2d');
-    if (!canvasContext) {
-        budgetLease.release();
-        throw new Error('PDF page-source canvas context is unavailable');
-    }
-    const renderTask = page.render({
-        canvas,
-        canvasContext,
-        viewport,
-    });
-    const cancelRender = () => renderTask.cancel();
-    request.signal.addEventListener('abort', cancelRender, {once: true});
-    if (request.signal.aborted) {
-        cancelRender();
-    }
-    try {
-        await renderTask.promise;
-        request.signal.throwIfAborted();
-    } catch (error) {
-        budgetLease.release();
-        canvas.width = 0;
-        canvas.height = 0;
-        throw error;
-    } finally {
-        request.signal.removeEventListener('abort', cancelRender);
-    }
-    let released = false;
-    return {
-        widthPx: canvas.width,
-        heightPx: canvas.height,
-        bytes,
-        surface: canvas,
-        release() {
-            if (released) {
-                return;
-            }
-            released = true;
-            budgetLease.release();
-            canvas.width = 0;
-            canvas.height = 0;
-        },
-    };
-}
 
 const PDF_THUMBNAIL_MAX_PIXELS = 4 * 1024 * 1024;
 const PDF_THUMBNAIL_MAX_DIMENSION = 16_384;
@@ -182,30 +94,13 @@ export async function renderPdfDocumentThumbnail(options: {
                         : null);
                 },
                 start(prepared, page) {
-                    const renderOptions = {
+                    const hiddenAnnotationIds = toPdfjsHiddenAnnotationIds(options.hiddenAnnotationIds);
+                    return page.render({
                         annotationMode: AnnotationMode?.ENABLE_STORAGE ?? AnnotationMode?.ENABLE_FORMS ?? 1,
                         canvas: prepared.canvas,
                         canvasContext: prepared.context,
                         viewport: prepared.viewport,
-                    };
-                    if (options.hiddenAnnotationIds.size === 0) {
-                        return page.render(renderOptions);
-                    }
-                    const filter = createRenderTaskHiddenAnnotationOperationsFilter(options.hiddenAnnotationIds);
-                    const task = page.render({
-                        ...renderOptions,
-                        operationsFilter: filter.filter,
-                    });
-                    if (filter.bindTask(task)) {
-                        return task;
-                    }
-                    // Without the operator list nothing can be left out
-                    // selectively, so drop every annotation rather than show a
-                    // deleted one.
-                    task.cancel();
-                    return page.render({
-                        ...renderOptions,
-                        annotationMode: AnnotationMode?.DISABLE ?? 0,
+                        ...(hiddenAnnotationIds ? {hiddenAnnotationIds} : {}),
                     });
                 },
                 commit(prepared) {

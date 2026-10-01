@@ -2,9 +2,8 @@ import pdfjsRuntime, {
     AnnotationLayer,
     TextLayer,
 } from '@app/services/pdfjs/runtimeLib';
-import type { AnnotationEditorUIManager as TAnnotationEditorUIManager } from 'pdfjs-dist';
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
-import type {IPdfjsLinkService} from '@app/types/pdfjs';
+import type {IPdfjsLinkService} from '@app/types/pdfjsLinkService';
 import type {
     IPdfAnnotation,
     IPdfPage,
@@ -17,9 +16,7 @@ export interface ICreatePdfjsAnnotationLayerOptions {
     page: IPdfPage;
     viewport: IPdfViewport;
     annotationCanvasMap?: Map<string, HTMLCanvasElement> | null | undefined;
-    annotationEditorUiManager: TAnnotationEditorUIManager | null;
     linkService: IPdfjsLinkService;
-    annotationStorage?: unknown;
 }
 
 export interface IRenderPdfjsAnnotationLayerOptions {
@@ -28,7 +25,6 @@ export interface IRenderPdfjsAnnotationLayerOptions {
     page: IPdfPage;
     viewport: IPdfViewport;
     linkService: IPdfjsLinkService;
-    annotationStorage?: unknown;
     renderForms: boolean;
 }
 
@@ -64,11 +60,12 @@ export function createPdfjsAnnotationLayer(options: ICreatePdfjsAnnotationLayerO
         viewport: options.viewport,
         accessibilityManager: null,
         annotationCanvasMap: options.annotationCanvasMap ?? null,
-        annotationEditorUIManager: options.annotationEditorUiManager,
+        annotationEditorUIManager: null,
         structTreeLayer: null,
         commentManager: null,
         linkService: options.linkService as never,
-        annotationStorage: options.annotationStorage,
+        // The canonical EVB store owns annotation state; PDF.js storage stays unused.
+        annotationStorage: undefined,
     });
 }
 
@@ -83,7 +80,6 @@ export function renderPdfjsAnnotationLayer(
         page: options.page as never,
         linkService: options.linkService as never,
         renderForms: options.renderForms,
-        annotationStorage: options.annotationStorage as never,
     });
 }
 

@@ -464,6 +464,11 @@ describe('Electron and Playwright annotation opacity parity', () => {
 
             expect(electronMetrics.managedShapeCount).toBe(2);
             expect(webMetrics.managedShapeCount).toBe(2);
+            // The EVB layer draws the managed stroke; PDF.js leaves that
+            // annotation's appearance out of the page canvas beneath it, so
+            // it is drawn once.
+            expect(electronMetrics.canvasInkPixelCount).toBe(0);
+            expect(webMetrics.canvasInkPixelCount).toBe(0);
             expect(electronMetrics.strokeWidthAttribute).toBe(webMetrics.strokeWidthAttribute);
             expect(electronMetrics.scaleFactor).toBeCloseTo(webMetrics.scaleFactor ?? 0, 5);
             expect(electronMetrics.userUnit).toBeCloseTo(webMetrics.userUnit ?? 0, 5);

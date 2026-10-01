@@ -137,15 +137,13 @@ describe('createPdfAnnotationStampImageResolver document ownership', () => {
         };
         const document: IPdfDocument = {
             numPages: 1,
-            annotationStorage: null,
             getPage: vi.fn(async () => page),
             getPageLabels: vi.fn(),
             getOutline: vi.fn(),
             getDestination: vi.fn(),
             getPageIndex: vi.fn(),
-            saveDocument: vi.fn(),
             cleanup: vi.fn(),
-            destroy: vi.fn(),
+            loadingTask: {destroy: vi.fn()},
         };
         const activeDocument = shallowRef<IPdfDocument | null>(document);
         const pdfDocument = computed(() => activeDocument.value);

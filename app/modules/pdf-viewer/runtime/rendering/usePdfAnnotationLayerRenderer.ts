@@ -9,7 +9,7 @@ import type {
     Ref,
 } from 'vue';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import type { IPdfjsLinkService } from '@app/types/pdfjs';
+import type { IPdfjsLinkService } from '@app/types/pdfjsLinkService';
 import {
     createPdfjsAnnotationLayer,
     renderPdfjsAnnotationLayer,
@@ -18,13 +18,16 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import type { IAnnotationLayerRenderOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 
-// fallow-ignore-next-line unused-type -- compatibility type remains until #195 removes the dormant renderer bridge.
-export type { TAnnotationEditorLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
+
+interface IAnnotationLayerRenderOptions {
+    shouldContinue?: () => boolean;
+    signal?: AbortSignal | undefined;
+    documentVersion?: number | undefined;
+}
 
 // pdf.js parses a page's annotations once per document but re-serializes them,
 // and re-extracts their text content, on every getAnnotations() call. The page
@@ -304,7 +307,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             page: pdfPage,
             viewport,
             annotationCanvasMap: annotationCanvasMap ?? null,
-            annotationEditorUiManager: null,
             linkService: simpleLinkService,
         });
         if (!shouldContinueLayerRender(options)) {

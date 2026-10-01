@@ -9,50 +9,34 @@ import { parseBrowserPageOpsWorkerRequest } from '@app/platform/browser-api/brow
 
 describe('browser worker request parsers', () => {
     it('parses and rejects browser search worker requests', () => {
-        expect(parseBrowserSearchWorkerRequest({
+        const request = {
             id: 1,
-            type: 'extractDocumentText',
-            payload: {pdfPath: '/tmp/file.pdf'},
-        })).toEqual({
-            id: 1,
-            type: 'extractDocumentText',
-            payload: {pdfPath: '/tmp/file.pdf'},
-        });
+            type: 'matchPageText',
+            payload: {
+                text: 'alpha beta',
+                query: 'beta',
+                options: {
+                    matchCase: false,
+                    wholeWord: false,
+                    useRegex: false,
+                },
+                maxMatches: 2,
+            },
+        };
+        expect(parseBrowserSearchWorkerRequest(request)).toEqual(request);
 
         expect(parseBrowserSearchWorkerRequest({
-            id: 2,
-            type: 'cancel',
-            payload: {requestId: 1},
-        })).toEqual({
-            id: 2,
-            type: 'cancel',
-            payload: {requestId: 1},
-        });
-
+            ...request,
+            payload: {
+                ...request.payload,
+                maxMatches: 0,
+            },
+        })).toBeNull();
+        // The worker opens no documents.
         expect(parseBrowserSearchWorkerRequest({
             id: 3,
             type: 'streamDocumentText',
             payload: {pdfPath: '/tmp/stream.pdf'},
-        })).toEqual({
-            id: 3,
-            type: 'streamDocumentText',
-            payload: {pdfPath: '/tmp/stream.pdf'},
-        });
-
-        expect(parseBrowserSearchWorkerRequest({
-            id: 4,
-            type: 'acknowledgePage',
-            payload: {requestId: 3},
-        })).toEqual({
-            id: 4,
-            type: 'acknowledgePage',
-            payload: {requestId: 3},
-        });
-
-        expect(parseBrowserSearchWorkerRequest({
-            id: 5,
-            type: 'extractDocumentText',
-            payload: {pdfPath: ''},
         })).toBeNull();
     });
 

@@ -7,7 +7,6 @@ import type {
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
 import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
@@ -48,19 +47,8 @@ export interface IDocumentTransitionDeps {
     navigationTicket?: Readonly<Ref<IDocumentNavigationTicket | null>> | undefined;
 }
 
-interface IDestroyablePdfDocument { destroy?: () => Promise<void> }
-
 type TBookmarkSidebarSnapshot = readonly [boolean, TPdfSidebarTab];
 type TDjvuSourceSnapshot = readonly [boolean, TDocumentRef | null];
-
-function isDestroyablePdfDocument(value: unknown): value is IDestroyablePdfDocument {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-
-    const { destroy } = value as { destroy?: unknown };
-    return destroy === undefined || typeof destroy === 'function';
-}
 
 export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     const {
@@ -153,20 +141,12 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             closePageContextMenu();
         }
         if (!newSrc) {
-            const previousDocument = isDestroyablePdfDocument(pdfDocument.value) ? pdfDocument.value : null;
+            // The PDF document session owns the document and destroys it once
+            // its renders have settled.
             currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;
             showSidebar.value = false;
-            if (previousDocument?.destroy) {
-                previousDocument.destroy().catch((error) => {
-                    BrowserLogger.debug(
-                        'pdf-document',
-                        'PDF document destroy rejected during close',
-                        error,
-                    );
-                });
-            }
             resetSearchCache();
             closeSearch();
             annotationTool.value = 'none';
