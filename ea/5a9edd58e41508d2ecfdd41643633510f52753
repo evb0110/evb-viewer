@@ -1,0 +1,21 @@
+packages/contracts/pdfImageCombineProgress.ts
+  s_bf66933ca7b2e8::t_d6da1b621365b9 13,25
+tests/unit/contracts/electronApiDocuments.test.ts
+  s_bf66933ca7b2e8::t_5bc7f2a8af191f 11,104-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ea5a9edd58e41508d2ecfdd41643633510f52753",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
