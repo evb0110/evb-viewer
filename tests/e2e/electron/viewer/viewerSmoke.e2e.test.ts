@@ -19,6 +19,7 @@ import { decode as decodePng } from 'fast-png';
 import {
     PDFDocument,
     rgb,
+    StandardFonts,
 } from 'pdf-lib';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
@@ -33,6 +34,7 @@ import {
 } from 'node:path';
 import {
     createAnnotatedLinkFixturePdf,
+    createFixturePath,
     createLargeScannedFixturePdf,
     createMixedSizeTextFixturePdf,
     createNativeDjvuLatePageSearchFixture,
@@ -3481,6 +3483,48 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(wholeWord.panelText).not.toContain('Search unavailable');
         expect(wholeWord.summary).toMatch(/\b240\b/u);
         expect(wholeWord.firstGroupPage).toBe('1');
+    });
+
+    // #928 F5: the page highlights what the desktop index found for a regex.
+    it('highlights a regex match that needs a Unicode word character', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-unicode-regex-${Date.now()}`,
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Le café est noir', {
+            font,
+            size: 28,
+            x: 72,
+            y: 640,
+        });
+        const fixturePath = createFixturePath(`viewer-unicode-regex-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await (await session.page.waitForSelector(`${sidebar} .document-search-bar button[aria-label="Use regular expression"]`))!.click();
+        await (await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true}))!.click();
+        await session.page.keyboard.type(String.raw`caf\w`);
+        await session.page.keyboard.press('Enter');
+        const result = await session.page.waitForSelector(`${sidebar} .document-search-result`, {
+            visible: true,
+            timeout: 30_000,
+        });
+        expect(await result!.evaluate(element => element.textContent)).toContain('café');
+        await result!.click();
+
+        const highlighted = await waitForFunctionInPage(session.page, () => (
+            Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-search-highlight--current'))
+                .some(highlight => highlight.getBoundingClientRect().width > 0)
+        ), {timeout: 15_000}).then(() => true, () => false);
+        expect(highlighted, 'the match the results list shows is highlighted on the page').toBe(true);
     });
 
     it('finds text set in a non-embedded CJK font on a later page', async () => {
