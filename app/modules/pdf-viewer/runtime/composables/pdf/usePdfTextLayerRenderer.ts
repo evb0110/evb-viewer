@@ -965,20 +965,6 @@ export const usePdfTextLayerRenderer = (deps: {
                 structTreeDom = typeof HTMLElement !== 'undefined' && renderedStructure instanceof HTMLElement
                     ? renderedStructure
                     : null;
-                if (
-                    structTreeDom
-                    && textLayerRenderGenerations.get(textLayerDiv) === renderGeneration
-                    && !signal?.aborted
-                ) {
-                    structTreeLayer.updateTextLayer();
-                    exposeMarkedContentNames(structTreeDom, textLayerDiv);
-                    const structureHost = textLayerDiv.closest<HTMLElement>('.page_container')
-                        ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
-                    structureHost?.append(structTreeDom);
-                } else {
-                    structTreeDom?.remove();
-                    structTreeDom = null;
-                }
             } catch (structureError) {
                 if (!signal?.aborted) {
                     BrowserLogger.warn('pdf-text-layer', 'PDF structure tree unavailable', structureError);
@@ -986,6 +972,22 @@ export const usePdfTextLayerRenderer = (deps: {
                 structTreeLayer = undefined;
                 structTreeDom = null;
             }
+        }
+
+        // Cleanup and every newer render move the generation, and cancellation
+        // aborts the signal. A render that waited on optional structure past
+        // either publishes nothing: no structure, mapping, cache entry or
+        // readiness, so it cannot restore a cleaned layer or overwrite a newer one.
+        if (textLayerRenderGenerations.get(textLayerDiv) !== renderGeneration) {
+            throw createAbortError();
+        }
+        throwIfAborted(signal);
+        if (structTreeLayer && structTreeDom) {
+            structTreeLayer.updateTextLayer();
+            exposeMarkedContentNames(structTreeDom, textLayerDiv);
+            const structureHost = textLayerDiv.closest<HTMLElement>('.page_container')
+                ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
+            structureHost?.append(structTreeDom);
         }
 
         registerTextLayerTextMapping(textLayerDiv, {
