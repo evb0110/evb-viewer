@@ -1,0 +1,26 @@
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_7a7f3638474d75::t_235c60a0d9b0b0 183-254,268,483-484
+tests/unit/app/platform/searchCapability.test.ts
+  s_7a7f3638474d75::t_1af977d21fd263 378-381
+packages/contracts/searchConformanceCorpus.json
+  s_7a7f3638474d75::t_235c60a0d9b0b0 8-9,495-674
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_7a7f3638474d75::t_92ac6adde9ea6e 22,37,3488-3493,3497-3505,3507-3527
+  s_7a7f3638474d75::t_638a74b58db6ff 3494-3496,3506
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c1fab90b5c64fa30ced403707023a25c495c9d25",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
