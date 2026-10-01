@@ -443,11 +443,12 @@ describe('private Vercel deployment source', () => {
                     };
                 },
             })).resolves.toBe(0);
+            const spawnedArg = (arg: string) => (process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg);
             expect(deployCalls).toEqual([expect.arrayContaining([
                 'deploy',
                 '--build-env',
                 `EVB_APP_VERSION=1.2.3+${commit}`,
-            ])]);
+            ].map(spawnedArg))]);
 
             execFileSync('git', [
                 'tag',
