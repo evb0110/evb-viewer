@@ -2,9 +2,12 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {requireEpochMs} from '@contracts/timestamps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
+    answerPdfPageShape,
     parsePdfOpeningGeometryMetadata,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
@@ -90,5 +93,57 @@ Page    1 size:  612 x 792 pts (letter)
             width: 612,
             height: 792,
         });
+    });
+});
+
+describe('PDF page-shape store', () => {
+    const revision = {
+        size: 1_000,
+        modifiedAt: requireEpochMs(1_720_000_000_000),
+    };
+    const shapeAt = (identity: typeof revision, width: number) => ({
+        pageNumber: requirePageNumber(1),
+        pageCount: 3,
+        width,
+        height: 792,
+        rotation: 0 as const,
+        widestPageWidth: width,
+        ...identity,
+    });
+
+    it('answers a file it has read from memory while the file is unchanged', async () => {
+        const read = vi.fn(async () => shapeAt(revision, 612));
+
+        await expect(answerPdfPageShape('/books/unchanged.pdf', revision, read)).resolves.toMatchObject({width: 612});
+        await expect(answerPdfPageShape('/books/unchanged.pdf', revision, read)).resolves.toMatchObject({width: 612});
+
+        expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        [
+            'size',
+            {
+                ...revision,
+                size: 1_001,
+            },
+        ],
+        [
+            'modification time',
+            {
+                ...revision,
+                modifiedAt: requireEpochMs(1_720_000_000_001),
+            },
+        ],
+    ])('reads the file again once its %s changes', async (_change, changed) => {
+        const path = `/books/changed-${String(changed.size)}-${String(changed.modifiedAt)}.pdf`;
+        await answerPdfPageShape(path, revision, async () => shapeAt(revision, 612));
+        const reread = vi.fn(async () => shapeAt(changed, 842));
+
+        await expect(answerPdfPageShape(path, changed, reread)).resolves.toMatchObject({width: 842});
+        // The new revision replaces the old one.
+        await expect(answerPdfPageShape(path, changed, reread)).resolves.toMatchObject({width: 842});
+
+        expect(reread).toHaveBeenCalledTimes(1);
     });
 });
