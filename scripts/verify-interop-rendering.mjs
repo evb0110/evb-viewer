@@ -306,12 +306,15 @@ export async function verifyInteropRendering({
             fail('corpus reported no scenarios');
         }
     }
-    const files = await Promise.all(paths.map(inputPath => {
+    const files = await Promise.all(paths.map(async (inputPath, index) => {
         const resolvedPath = resolve(inputPath);
         const entry = expectedEntries.get(resolvedPath);
+        // Inputs run concurrently; same-named files from different directories must not share PNG paths.
+        const fileDirectory = join(outputDirectory, String(index));
+        await mkdir(fileDirectory, {recursive: true});
         return validateFile(
             resolvedPath,
-            outputDirectory,
+            fileDirectory,
             entry?.qpdfWarningBaseline ?? null,
         );
     }));
