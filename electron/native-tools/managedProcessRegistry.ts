@@ -23,6 +23,9 @@ export const MANAGED_PROCESS_REGISTRY_DIRECTORY = '.evb-scan-cleanup-sidecars';
 export const MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX = 'sidecar-';
 const MANAGED_PROCESS_REGISTRY_VERSION = 1;
 const MANAGED_PROCESS_REAP_GRACE_MS = 1_500;
+// Covers spawn latency and the gap between process creation and Node's
+// uptime origin, which is far below the time a pid takes to be reused.
+const WINDOWS_START_TIME_TOLERANCE_MS = 5_000;
 
 export interface IManagedProcessIdentity {
     executablePath: string;
@@ -245,11 +248,28 @@ async function readProcessIdentity(pid: number, platform: NodeJS.Platform) {
     return null;
 }
 
-let ownerIdentityPromise: Promise<IManagedProcessIdentity | null> | null = null;
+// Windows has no in-process way to read a process's start time, and asking
+// PowerShell costs about a second for every command while usually finding a
+// short command already gone (#930). A child is created inside the spawn call
+// that has just returned, and this process started uptime() ago, so the clock
+// bounds both start times. The owner's is taken at module load, close to its
+// creation, so a later sleep or clock correction cannot skew it. The reaper
+// compares Windows start times within WINDOWS_START_TIME_TOLERANCE_MS; its one
+// PowerShell read per live entry runs at startup, off any command's path.
+const ownerStartedAtOnWindows = Date.now() - process.uptime() * 1_000;
 
-function getOwnerIdentity() {
-    ownerIdentityPromise ??= readProcessIdentity(process.pid, process.platform);
-    return ownerIdentityPromise;
+async function readRegistrationStartTime(pid: number) {
+    if (process.platform === 'win32') {
+        return new Date(pid === process.pid ? ownerStartedAtOnWindows : Date.now()).toISOString();
+    }
+    return (await readProcessIdentity(pid, process.platform))?.startTime ?? null;
+}
+
+let ownerStartTimePromise: Promise<string | null> | null = null;
+
+function getOwnerStartTime() {
+    ownerStartTimePromise ??= readRegistrationStartTime(process.pid);
+    return ownerStartTimePromise;
 }
 
 function defaultIsProcessAlive(pid: number) {
@@ -266,6 +286,14 @@ function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
     return platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
+function startTimesMatch(recorded: string, observed: string, platform: NodeJS.Platform) {
+    if (platform !== 'win32') {
+        return recorded === observed;
+    }
+    const difference = Math.abs(Date.parse(recorded) - Date.parse(observed));
+    return difference <= WINDOWS_START_TIME_TOLERANCE_MS;
+}
+
 function processIdentityMatches(
     entry: IManagedProcessRegistryEntry,
     identity: IManagedProcessIdentity,
@@ -273,7 +301,7 @@ function processIdentityMatches(
 ) {
     const manifestIndex = identity.arguments.indexOf('--manifest');
     return normalizeIdentityPath(identity.executablePath, platform) === normalizeIdentityPath(entry.binaryPath, platform)
-        && (entry.processStartTime === undefined || entry.processStartTime === identity.startTime)
+        && (entry.processStartTime === undefined || startTimesMatch(entry.processStartTime, identity.startTime, platform))
         && (entry.manifestPath === undefined
             || (manifestIndex >= 0
                 && identity.arguments[manifestIndex + 1] !== undefined
@@ -294,15 +322,15 @@ export async function registerManagedProcess(
         scratchPath?: string;
     },
 ): Promise<IManagedProcessRegistration> {
+    const processStartTime = await readRegistrationStartTime(input.pid);
+    const ownerStartTime = await getOwnerStartTime();
     const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     await mkdir(registryDirectory, {recursive: true});
     const entryPath = join(
         registryDirectory,
         `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${randomUUID()}.json`,
     );
-    const processIdentity = await readProcessIdentity(input.pid, process.platform);
-    const ownerIdentity = await getOwnerIdentity();
-    if (processIdentity === null) {
+    if (processStartTime === null) {
         throw new Error(`Could not prove identity for managed process pid ${String(input.pid)}`);
     }
     const entry: IManagedProcessRegistryEntry = {
@@ -312,8 +340,8 @@ export async function registerManagedProcess(
         binaryPath: resolve(input.binaryPath),
         ...(input.scratchPath === undefined ? {} : {scratchPath: resolve(input.scratchPath)}),
         ...(input.manifestPath === undefined ? {} : {manifestPath: resolve(input.manifestPath)}),
-        processStartTime: processIdentity.startTime,
-        ...(ownerIdentity === null ? {} : {ownerStartTime: ownerIdentity.startTime}),
+        processStartTime,
+        ...(ownerStartTime === null ? {} : {ownerStartTime}),
     };
     await writeFile(entryPath, `${JSON.stringify(entry)}\n`, {
         encoding: 'utf8',
@@ -411,7 +439,9 @@ export async function reapOrphanedManagedProcesses(
             log('warn', `Skipped managed process pid ${String(entry.pid)} because its live owner identity could not be proven`);
             continue;
         }
-        if (ownerIsAlive && ownerIdentity?.startTime === entry.ownerStartTime) {
+        if (ownerIdentity !== null
+            && entry.ownerStartTime !== undefined
+            && startTimesMatch(entry.ownerStartTime, ownerIdentity.startTime, platform)) {
             continue;
         }
         if (!isProcessAlive(entry.pid)) {
