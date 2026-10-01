@@ -936,6 +936,26 @@ describe('PdfDocumentSession residency across views', () => {
         await session.dispose();
     });
 
+    it('reports a view as loading while it presents a document that is already open', async () => {
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(createDocumentProxy('shared')),
+            destroy: vi.fn(),
+        });
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        session.attachView();
+        await session.load();
+
+        const loading: boolean[] = [];
+        const lateView = session.attachView({emitLoading: value => loading.push(value)});
+        lateView.present();
+        await vi.waitFor(() => expect(loading).toEqual([
+            false,
+            true,
+            false,
+        ]));
+        await session.dispose();
+    });
+
     it('reclaims caches when the last active view leaves only after the other views have cancelled their work', async () => {
         const document = createDocumentProxy('shared');
         pdfjsState.getDocument.mockReturnValue({

@@ -1554,6 +1554,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             ?? (options.documentRevisionToken?.value == null ? null : String(options.documentRevisionToken.value));
         let viewPlan: IPdfDocumentLoadPlan = IDLE_PLAN;
         let presentedDocument: IPdfDocument | null = null;
+        // The view is loading from the moment it begins presenting a load
+        // until the document it presents is in, also when it presents a
+        // document that is already open.
+        const presenting = shallowRef(false);
         // The page this view read when a page operation staged its revision.
         let stagedRevisionSwapPage: number | null = null;
         const disposables: Array<() => void | Promise<void>> = [];
@@ -1703,6 +1707,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 resolveLoadSettle();
                 return null;
             }
+            presenting.value = true;
             if (!viewPlan.preserveVisibleContent) {
                 viewOptions.emitInitialVisualPending?.();
             }
@@ -1723,6 +1728,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (token === null || token !== viewToken) {
                 return;
             }
+            presenting.value = false;
             if (error) {
                 viewOptions.emitLoadError?.(error);
             }
@@ -1737,6 +1743,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (token === null || token !== viewToken) {
                 return;
             }
+            presenting.value = false;
             const reason = viewPlan.isReload ? 'reload' : 'open';
             const deferSelectiveDocumentPublish = viewPlan.isSelectiveReload
                 && viewPlan.preserveVisibleContent;
@@ -1764,6 +1771,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         async function invalidateView(reason: string, isSameDocumentRewrite = false) {
             viewToken += 1;
+            presenting.value = false;
             await publish('invalidated', reason, captureFence(), isSameDocumentRewrite);
             resolveLoadSettle();
         }
@@ -1874,7 +1882,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 src: options.src,
             });
         }
-        const isEffectivelyLoading = computed(() => Boolean(options.src?.value) && isLoading.value);
+        const isEffectivelyLoading = computed(() => Boolean(options.src?.value) && (isLoading.value || presenting.value));
         watch(isEffectivelyLoading, value => viewOptions.emitLoading?.(value), { immediate: true });
         if (getCurrentInstance()) {
             onMounted(present);
