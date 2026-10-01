@@ -11,8 +11,16 @@
         <div
             class="document-thumbnail-list__content"
             :data-thumbnail-scroll-segment="activeScrollSegmentIndex"
-            :style="{height: contentHeight}"
+            :style="{height: contentHeight, ...slotPatternStyle}"
         >
+            <span v-if="slotPatternStyle" class="document-thumbnail-list__slots" aria-hidden="true" />
+            <span
+                v-for="item in virtualItems"
+                :key="item.pageNumber"
+                class="document-thumbnail-list__underlay"
+                :style="{height: `${String(item.height)}px`, transform: `translateY(${String(item.top)}px)`}"
+                aria-hidden="true"
+            />
             <DocumentThumbnailItem
                 v-for="item in virtualItems"
                 :key="item.pageNumber"
@@ -102,6 +110,7 @@ const {
     handlePointerDown,
     handleScroll,
     handleWheel,
+    slotPatternStyle,
     userScrollSuppressed,
     outputScale,
     rasterWidth,
@@ -204,5 +213,38 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
    under the pointer lets a press that spans the swap still click the row. */
 .document-thumbnail-list__item :is(img, .document-thumbnail-list__canvas-host, .document-thumbnail-list__placeholder) {
     pointer-events: none;
+}
+
+.document-thumbnail-list__slots,
+.document-thumbnail-list__underlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    pointer-events: none;
+}
+
+.document-thumbnail-list__slots {
+    top: calc(-1 * var(--document-thumbnail-slot-stride));
+    height: var(--document-thumbnail-slot-cover);
+    background:
+        linear-gradient(var(--ui-bg-accented) var(--document-thumbnail-slot-height), transparent 0)
+        var(--document-thumbnail-slot-x) var(--document-thumbnail-slot-y) / var(--document-thumbnail-slot-width) var(--document-thumbnail-slot-stride)
+        repeat-y;
+    animation: document-thumbnail-slots both steps(var(--document-thumbnail-slot-steps), end);
+    animation-range: 0 calc(var(--document-thumbnail-slot-steps) * var(--document-thumbnail-slot-stride));
+    animation-timeline: scroll(nearest block);
+}
+
+@keyframes document-thumbnail-slots {
+    to { transform: translateY(calc(var(--document-thumbnail-slot-steps) * var(--document-thumbnail-slot-stride))); }
+}
+
+/* Each mounted row sits on the rail color, so the slots never show around a
+   letterboxed page or under a row tint. One per row, not one for the whole
+   range: a drawing that fills most of a layer becomes the color Chromium
+   shows for its unrastered tiles, which would hide the slots again. */
+.document-thumbnail-list__underlay {
+    background: var(--app-document-thumbnails-background);
 }
 </style>
