@@ -543,7 +543,7 @@ describe('createElectronApi', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
-    it('exposes the startup host environment without an IPC round trip', async () => {
+    it('exposes the startup host environment and UI scale without an IPC round trip', async () => {
         const ipcRenderer = {
             invoke: vi.fn(async () => undefined),
             on: vi.fn(),
@@ -555,9 +555,16 @@ describe('createElectronApi', () => {
         } as const;
         const { createElectronApi } = await import('@electron/preload/createElectronApi');
 
-        expect(createElectronApi(ipcRenderer as never, { getPathForFile: () => '' }, {hostEnvironment}).startupHostEnvironment)
-            .toBe(hostEnvironment);
-        expect(createElectronApi(ipcRenderer as never, { getPathForFile: () => '' }).startupHostEnvironment).toBeNull();
+        const api = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' }, {
+            hostEnvironment,
+            uiScalePreference: 'large',
+        });
+        const absentApi = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' });
+
+        expect(api.startupHostEnvironment).toBe(hostEnvironment);
+        expect(api.startupUiScalePreference).toBe('large');
+        expect(absentApi.startupHostEnvironment).toBeNull();
+        expect(absentApi.startupUiScalePreference).toBeNull();
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 

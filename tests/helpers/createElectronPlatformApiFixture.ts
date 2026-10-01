@@ -30,6 +30,7 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
             ...diagnosticsOverrides?.startupPolicy,
         }},
         startupHostEnvironment: null,
+        startupUiScalePreference: null,
         updates: platformApi.updates,
     };
     return electronApi as IElectronAPI & TOverrides;

@@ -6,6 +6,7 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 
 const HYDRATION_CONSOLE_QUIET_WINDOW_MS = 1_500;
 const HYDRATION_CONSOLE_POLL_INTERVAL_MS = 100;
@@ -205,6 +206,27 @@ async function installStartupReadinessSampler(session: IElectronE2ESession) {
     });
 }
 
+async function expectStableToolbarAcrossReload(session: IElectronE2ESession) {
+    await waitForAppReady(session);
+    await installToolbarStartupSampler(session);
+    await session.page.reload({ waitUntil: 'domcontentloaded' });
+    await waitForAppReady(session);
+    await waitForHydrationConsoleQuiet(session);
+    await delay(100);
+
+    const shellSamples = getShellStartupSamples(await readToolbarStartupSamples(session));
+    expect(shellSamples.length).toBeGreaterThan(0);
+
+    const collapsedSamples = shellSamples.filter(sample => (
+        (sample.shell?.height ?? 0) < TOOLBAR_MIN_VISIBLE_HEIGHT_PX
+    ));
+    expect(collapsedSamples).toEqual([]);
+
+    const workspaceTops = shellSamples.map(sample => sample.workspace?.top ?? 0);
+    const workspaceTopShift = Math.max(...workspaceTops) - Math.min(...workspaceTops);
+    expect(workspaceTopShift).toBeLessThanOrEqual(TOOLBAR_MAX_STARTUP_SHIFT_PX);
+}
+
 describe('Electron E2E - Startup Hydration', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-startup-hydration-${Date.now()}`});
 
@@ -219,26 +241,27 @@ describe('Electron E2E - Startup Hydration', () => {
     });
 
     it('keeps the start-page toolbar row stable across startup hydration', async () => {
+        await expectStableToolbarAcrossReload(sessionFixture.getSession());
+    });
+
+    it('keeps the start-page toolbar row stable with a non-default UI scale', async () => {
         const session = sessionFixture.getSession();
 
         await waitForAppReady(session);
-        await installToolbarStartupSampler(session);
-        await session.page.reload({ waitUntil: 'domcontentloaded' });
-        await waitForAppReady(session);
-        await waitForHydrationConsoleQuiet(session);
-        await delay(100);
-
-        const shellSamples = getShellStartupSamples(await readToolbarStartupSamples(session));
-        expect(shellSamples.length).toBeGreaterThan(0);
-
-        const collapsedSamples = shellSamples.filter(sample => (
-            (sample.shell?.height ?? 0) < TOOLBAR_MIN_VISIBLE_HEIGHT_PX
-        ));
-        expect(collapsedSamples).toEqual([]);
-
-        const workspaceTops = shellSamples.map(sample => sample.workspace?.top ?? 0);
-        const workspaceTopShift = Math.max(...workspaceTops) - Math.min(...workspaceTops);
-        expect(workspaceTopShift).toBeLessThanOrEqual(TOOLBAR_MAX_STARTUP_SHIFT_PX);
+        await session.page.evaluate(async () => {
+            const saveSettings = (window as IE2EWindow).electronAPI?.settings.save;
+            if (!saveSettings) {
+                throw new Error('Electron settings save bridge is unavailable');
+            }
+            await saveSettings({uiScale: 'large'});
+        });
+        // Main hands the stored preference to a window when it creates it.
+        const restarted = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+        });
+        await expectStableToolbarAcrossReload(restarted);
+        expect(await restarted.page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe('20px');
     });
 
     it('keeps the empty-shell overlay until app-ready and an empty startup claim', async () => {

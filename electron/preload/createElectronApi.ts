@@ -13,7 +13,10 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import type {TRequestId} from '@contracts/shared';
+import type {
+    TRequestId,
+    TUiScalePreference,
+} from '@contracts/shared';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -164,6 +167,7 @@ interface ICreateElectronApiOptions {
     diagnosticsPolicy?: IPreloadDiagnosticsApi['startupPolicy'];
     hostEnvironment?: IHostEnvironmentSnapshot | null;
     resourceProfile?: IHostResourceProfileSnapshot | null;
+    uiScalePreference?: TUiScalePreference | null;
     waitForDocumentOpenDirect?: (path: string) => Promise<void>;
 }
 
@@ -517,6 +521,7 @@ export function createElectronApi(
 
         diagnostics: {startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'})},
         startupHostEnvironment: options.hostEnvironment ?? null,
+        startupUiScalePreference: options.uiScalePreference ?? null,
 
         system: {
             ...systemIpc,
