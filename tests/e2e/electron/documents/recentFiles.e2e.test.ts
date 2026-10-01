@@ -486,6 +486,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                         targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
                         targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
                         clickAtMs = performance.now();
+                        pressWindow.__recentPressPoint = null;
                         (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
                             .__committedSurfaceInteractionCheckpoint = 'recent-click';
                     }, {
@@ -535,6 +536,18 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
     await session.page.mouse.down();
     await delay(RECENT_PRESS_MS);
     await session.page.mouse.up();
+    // The press opens only if its click reached the row's open button. One
+    // that missed, because the row moved or was replaced after its point was
+    // read, would leave the sampler waiting for a click until the test timed out.
+    const clicked = await waitForFunctionInPage(session.page, () => (
+        (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint === null
+    ), {timeout: RECENT_ROW_TIMEOUT_MS}).then(() => true, () => false);
+    if (!clicked) {
+        void transition.catch(() => undefined);
+        throw new Error(`The press at ${JSON.stringify(pressPoint)} did not click the Recent row of ${sourcePath}: ${
+            describeRecentOpenDomState(await readRecentOpenDomState(session, sourcePath))
+        }`);
+    }
     return transition;
 }
 
