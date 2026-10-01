@@ -1235,27 +1235,33 @@ describe('shared PDF split', () => {
         // The open is held before the working copy exists, as a slow disk holds
         // it, so the tab stays in its opening state until the split is made.
         expect(await page.evaluate(path => window.__deferDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
-        void page.evaluate(async (path: string) => {
+        const opened = page.evaluate(async (path: string) => {
             const target = window as typeof globalThis & IE2EWindow & {
                 __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
                 __openFileDirect?: (value: string) => Promise<boolean>;
             };
-            await target.__allowRendererFileOpenForAutomation?.(path);
-            await target.__openFileDirect?.(path);
-        }, pdfPath).catch(() => undefined);
+            return await target.__allowRendererFileOpenForAutomation?.(path) === true
+                && await target.__openFileDirect?.(path) === true;
+        }, pdfPath);
         // The tab names the file and shows the page shape read from the source
-        // file; the rest of the open waits for the hold.
-        await page.waitForFunction((name: string) => (
-            document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
-            && Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
-            )).some(skeleton => skeleton.getBoundingClientRect().width > 0)
-        ), {timeout: SETTLE_TIMEOUT_MS}, fileName);
+        // file; the rest of the open waits for the hold, so an open that settles
+        // first has failed.
+        const heldOpen = await Promise.race([
+            page.waitForFunction((name: string) => (
+                document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
+                && Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
+                )).some(skeleton => skeleton.getBoundingClientRect().width > 0)
+            ), {timeout: SETTLE_TIMEOUT_MS}, fileName).then(() => 'held', (error: unknown) => `no opening skeleton: ${String(error)}`),
+            opened.then(result => `open settled while held: ${String(result)}`, (error: unknown) => `open failed: ${String(error)}`),
+        ]);
+        expect(heldOpen).toBe('held');
 
         await splitActiveTabFromTabMenu(page, 'right', SETTLE_TIMEOUT_MS);
         // The split was chosen before the source view painted a page.
         expect(await page.$$eval(PAINTED_FIRST_PAGE, canvases => canvases.length)).toBe(0);
         expect(await page.evaluate(path => window.__releaseDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
+        expect(await opened).toBe(true);
 
         const [
             leftPane,
