@@ -357,7 +357,6 @@ describe('pdfPrint', () => {
         pdfjsModule.getDocument.mockReturnValue({
             destroy: vi.fn(async () => {}),
             promise: Promise.resolve({
-                destroy: vi.fn(async () => {}),
                 getPage: vi.fn(async (pageNumber: number) => pageNumber === 1 ? firstPage : secondPage),
                 numPages: 2,
             }),
