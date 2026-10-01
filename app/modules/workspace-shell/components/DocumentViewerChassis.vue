@@ -434,7 +434,9 @@ const chassisOpeningPageShell = computed(() => {
     if (!isOpening.value || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
         return null;
     }
-    const currentPage = chassisAuthority.currentPage.value;
+    // The page the open presents, which a restore or a navigation during the
+    // open can set before the viewport has shown any page.
+    const openingPage = chassisAuthority.openSurface.viewportSession.value.requestedPage;
     const geometry = snapshot.openingPageGeometry;
     const {
         zoom,
@@ -442,14 +444,14 @@ const chassisOpeningPageShell = computed(() => {
     } = readZoomPolicy();
     const viewport = readOpeningViewportSize();
     // PDF Fit Width follows the widest page, which only the prepared frame knows.
-    const liveFrame = rendererKind.value === 'page-source' && geometry?.pageNumber === currentPage ? resolveDocumentPageSourceOpeningFrame({
+    const liveFrame = rendererKind.value === 'page-source' && geometry?.pageNumber === openingPage ? resolveDocumentPageSourceOpeningFrame({
         geometry,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
         zoom,
         zoomMode,
     }) : null;
-    const style = liveFrame?.style ?? (frame?.pageNumber === currentPage ? frame.style : null);
+    const style = liveFrame?.style ?? (frame?.pageNumber === openingPage ? frame.style : null);
     if (style === null) {
         return null;
     }
@@ -469,7 +471,7 @@ const chassisOpeningPageShell = computed(() => {
         height: liveHeight,
         id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
         ownerId: frame?.ownerId ?? 'chassis-provisional',
-        pageNumber: currentPage,
+        pageNumber: openingPage,
         style: {
             ...style,
             top: `${String(margin)}px`,
@@ -512,7 +514,7 @@ watch(
         }
         if (
             chassisAuthority.openSurface.snapshot.value.openingPageGeometry?.pageNumber
-            !== chassisAuthority.currentPage.value
+            !== chassisAuthority.openSurface.viewportSession.value.requestedPage
         ) {
             return;
         }
@@ -701,6 +703,14 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     background: var(--app-document-page-bg);
     border-radius: var(--app-document-page-radius);
     box-shadow: var(--app-document-page-shadow);
+}
+
+/* Until an open knows its page shape the viewer shows only its background
+   (behavior contract T5). The renderer may already have laid its pages out
+   underneath at a scale it has not fitted, at the page it has not reached. */
+.document-viewer-chassis[aria-busy='true'][data-open-surface-presentation='idle'] :deep(.page_container),
+.document-viewer-chassis[aria-busy='true'][data-open-surface-presentation='idle'] :deep(.document-source-viewer__page) {
+    visibility: hidden;
 }
 
 /* The opening shell is the sole visible page-frame owner until commit. The
