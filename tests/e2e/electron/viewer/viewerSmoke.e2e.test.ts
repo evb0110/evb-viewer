@@ -1569,6 +1569,154 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect.soft(indicator.renderedPage, 'visible toolbar acknowledges clicked page').toBe(observed.downPage);
     }, 120_000);
 
+    it('navigates when a pressed placeholder row receives its raster before release', async () => {
+        const {page} = sessionFixture.getSession();
+        await page.setViewport({
+            width: 1400,
+            height: 900,
+            deviceScaleFactor: 2,
+        });
+        const fixture = await createLargeScannedFixturePdf(`thumbs-press-swap-${Date.now()}.pdf`, 348, 0);
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        // Earlier cases leave other documents open with hidden rails; act only
+        // on the rail the active pane shows.
+        const readRail = () => page.evaluate(() => {
+            const rail = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-thumbnails')]
+                .find(element => element.getBoundingClientRect().width > 0);
+            const sash = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .sidebar-resizer')]
+                .find(element => element.getBoundingClientRect().height > 0);
+            const railBox = rail?.getBoundingClientRect();
+            const sashBox = sash?.getBoundingClientRect();
+            return railBox && sashBox
+                ? {
+                    rail: {
+                        x: railBox.x,
+                        y: railBox.y,
+                        width: railBox.width,
+                    },
+                    sash: {
+                        x: sashBox.x + sashBox.width / 2,
+                        y: sashBox.y + 200,
+                    },
+                }
+                : null;
+        });
+        const before = await readRail();
+        expect(before, 'the active pane shows its thumbnail rail').not.toBeNull();
+        await page.mouse.move(before!.sash.x, before!.sash.y);
+        await page.mouse.down();
+        await page.mouse.move(502, before!.sash.y, {steps: 20});
+        await page.mouse.up();
+        const widened = await readRail();
+        const point = {
+            x: widened!.rail.x + widened!.rail.width / 2,
+            y: widened!.rail.y + 200,
+        };
+        await page.mouse.move(point.x, point.y);
+        await waitForFunctionInPage(page, ({
+            x, y,
+        }: {
+            x: number;
+            y: number
+        }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-thumbnail-page]')?.querySelector('canvas')), {timeout: 20_000}, point);
+        await page.evaluate(({
+            x, y,
+        }: {
+            x: number;
+            y: number
+        }) => {
+            const rail = document.elementFromPoint(x, y)!.closest<HTMLElement>('.pdf-thumbnails')!;
+            const press = {
+                downPage: 0,
+                downHadRaster: true,
+                upPage: 0,
+                upHadRaster: false,
+            };
+            Object.assign(window, {__thumbsPressSwap: press});
+            const rowOf = (event: Event) => (event.target as Element).closest<HTMLElement>('[data-thumbnail-page]');
+            rail.addEventListener('pointerdown', event => {
+                const row = rowOf(event);
+                press.downPage = Number(row?.dataset.thumbnailPage);
+                press.downHadRaster = Boolean(row?.querySelector('canvas'));
+            }, {
+                capture: true,
+                once: true,
+            });
+            rail.addEventListener('pointerup', event => {
+                const row = rowOf(event);
+                press.upPage = Number(row?.dataset.thumbnailPage);
+                press.upHadRaster = Boolean(row?.querySelector('canvas'));
+            }, {
+                capture: true,
+                once: true,
+            });
+        }, point);
+        // Rows render from pages the pdf.js worker prepares. Pausing that worker
+        // keeps the rows a jump reveals as placeholders until the press is
+        // down, and resuming it lands their rasters while it is held. Every
+        // wait is bounded far inside the test timeout, and one idempotent
+        // restore runs from finally and from onTestFinished, so no path leaves
+        // the shared session's worker paused or its button down.
+        const worker = page.workers().find(candidate => candidate.url().includes('pdf.worker'));
+        expect(worker, 'the pdf.js worker serves this document').toBeDefined();
+        const workerDebugger = worker!.client;
+        let pressed = false;
+        let restored = false;
+        const bounded = (work: Promise<unknown>) => Promise.race([
+            work.catch(() => undefined),
+            new Promise(resolve => setTimeout(resolve, 5_000)),
+        ]);
+        const restore = async () => {
+            if (restored) return;
+            restored = true;
+            if (pressed) await bounded(page.mouse.up());
+            await bounded(workerDebugger.send('Debugger.resume'));
+            await bounded(workerDebugger.send('Debugger.disable'));
+        };
+        onTestFinished(restore);
+        await workerDebugger.send('Debugger.enable');
+        await workerDebugger.send('Debugger.pause');
+        try {
+            await page.mouse.wheel({deltaY: 9_000});
+            await waitForFunctionInPage(page, ({
+                x, y,
+            }: {
+                x: number;
+                y: number
+            }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-thumbnail-page]')?.querySelector('.document-thumbnail-list__placeholder')), {timeout: 10_000}, point);
+            await page.mouse.down();
+            pressed = true;
+            await workerDebugger.send('Debugger.resume');
+            // Hold the press until the row's raster replaces its placeholder.
+            await waitForFunctionInPage(page, () => {
+                const press = (window as Window & {__thumbsPressSwap?: {downPage: number}}).__thumbsPressSwap!;
+                return Boolean(document.querySelector(`.editor-pane.is-active .pdf-thumbnails [data-thumbnail-page="${String(press.downPage)}"] canvas`));
+            }, {timeout: 15_000});
+            pressed = false;
+            await page.mouse.up();
+        } finally {
+            await restore();
+        }
+        const press = await page.evaluate(() => (window as Window & {__thumbsPressSwap?: {
+            downPage: number;
+            downHadRaster: boolean;
+            upPage: number;
+            upHadRaster: boolean
+        }}).__thumbsPressSwap!);
+        expect(press.downHadRaster, 'the press lands on a placeholder').toBe(false);
+        expect(press.upHadRaster, 'the raster arrives before release').toBe(true);
+        expect(press.upPage).toBe(press.downPage);
+        const readCurrent = () => Number(document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-thumbnails .is-current')?.dataset.thumbnailPage);
+        await waitForFunctionInPage(page, (expected: number) => (
+            Number(document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-thumbnails .is-current')?.dataset.thumbnailPage) === expected
+        ), {timeout: 5_000}, press.downPage).catch(() => undefined);
+        expect(await page.evaluate(readCurrent), 'the pressed row becomes current').toBe(press.downPage);
+        expect((await readToolbarPageIndicator(page)).renderedPage, 'the toolbar follows the pressed row').toBe(press.downPage);
+    }, 120_000);
+
     it('selects a bookmark on the first activation and follows later page navigation', async () => {
         const {page} = sessionFixture.getSession();
         const fixture = await createOutlinePageLabelFixturePdf(`bookmark-selection-${Date.now()}.pdf`, [
