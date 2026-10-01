@@ -212,6 +212,10 @@ struct PageTextScan {
     saved_modes: Vec<i64>,
     painted: bool,
     hidden: bool,
+    /// What the open text object has shown so far. A text object may span
+    /// content streams (ISO 32000-1 7.8.2), so this outlives one stream.
+    object_hidden: bool,
+    object_other: bool,
     /// Why removing this page's hidden text could change what it paints.
     unsupported: Option<&'static str>,
 }
@@ -226,12 +230,11 @@ impl PageTextScan {
         mut on_draw: impl FnMut(&Object, i64),
     ) -> Vec<usize> {
         let mut hidden = Vec::new();
-        let (mut object_hidden, mut object_other) = (false, false);
         for (index, operation) in operations.iter().enumerate() {
             match operation.operator.as_str() {
                 "q" => self.saved_modes.push(self.mode),
                 "Q" => self.mode = self.saved_modes.pop().unwrap_or(self.mode),
-                "BT" => (object_hidden, object_other) = (false, false),
+                "BT" => (self.object_hidden, self.object_other) = (false, false),
                 "Tr" => match rendering_mode(operation) {
                     Some(mode) => self.mode = mode,
                     None => self.refuse("a Tr operator is malformed"),
@@ -245,16 +248,16 @@ impl PageTextScan {
                     if self.mode == 3 {
                         hidden.push(index);
                         self.hidden = true;
-                        object_hidden = true;
+                        self.object_hidden = true;
                     } else {
                         // Modes 4 to 6 paint and clip; mode 7 only clips.
                         self.painted |= self.mode != 7;
-                        object_other = true;
+                        self.object_other = true;
                     }
                     if self.mode >= 4 {
                         self.refuse("text clipping rendering modes cannot be replaced safely");
                     }
-                    if object_hidden && object_other {
+                    if self.object_hidden && self.object_other {
                         // Removing part of a text object moves the text after it.
                         self.refuse("hidden and visible text share one text object");
                     }
@@ -736,6 +739,19 @@ mod tests {
         let mut scan = PageTextScan::default();
         let mixed = Content::decode(b"BT 3 Tr (a) Tj 0 Tr (b) Tj ET").unwrap();
         scan.scan_stream(&mixed.operations, |_, _| {});
+        assert_eq!(
+            scan.unsupported,
+            Some("hidden and visible text share one text object")
+        );
+    }
+
+    #[test]
+    fn refuses_a_text_object_split_across_content_streams() {
+        let mut scan = PageTextScan::default();
+        let first = Content::decode(b"BT 3 Tr (a) Tj").unwrap();
+        let second = Content::decode(b"0 Tr (b) Tj ET").unwrap();
+        scan.scan_stream(&first.operations, |_, _| {});
+        scan.scan_stream(&second.operations, |_, _| {});
         assert_eq!(
             scan.unsupported,
             Some("hidden and visible text share one text object")
