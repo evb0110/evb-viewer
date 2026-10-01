@@ -1,0 +1,19 @@
+native/pdf-page-ops/src/ocr_layer.rs
+  s_caaf0ba2d8e4e3::t_80ec9337a890cd 215-218,237,251,255,260,743-754
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2594bdf4a591185ad0b16182abd1aff52d39c6c9",
+  "prompts": {},
+  "sessions": {
+    "s_caaf0ba2d8e4e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "83e60e56-7d41-4a53-8a32-ea168377c5d9",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
