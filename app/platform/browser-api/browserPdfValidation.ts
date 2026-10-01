@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -84,6 +85,14 @@ export async function analyzeBrowserPdfConformance(path: string): Promise<IPdfCo
     return buildMarkerOnlyConformanceProfile(bytes);
 }
 
+// Validation asks whether the document loads. Once it has, a failure to
+// tear it down is logged and does not turn the answer into "invalid".
+function destroyValidatedDocument(loadingTask: {destroy(): Promise<void>}) {
+    return loadingTask.destroy().catch((error: unknown) => {
+        BrowserLogger.warn('pdf-validation', 'PDF.js teardown failed after a successful load', error);
+    });
+}
+
 export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfValidationResult> {
     if (!(data instanceof Uint8Array) || data.byteLength === 0) {
         return {
@@ -107,7 +116,7 @@ export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfVali
             await loadingTask.destroy().catch(() => undefined);
             throw error;
         }
-        await loadingTask.destroy();
+        await destroyValidatedDocument(loadingTask);
         return {
             isValid: true,
             tool: 'browser',
@@ -140,7 +149,7 @@ export async function validateBrowserPdfPath(path: string): Promise<IPdfValidati
         // The shared loader also fails on a later range read and destroys the
         // loading task itself when loading fails.
         const pdfDocument = await loadBrowserPdfjsDocument(path);
-        await pdfDocument.loadingTask.destroy();
+        await destroyValidatedDocument(pdfDocument.loadingTask);
         return {
             isValid: true,
             tool: 'browser',

@@ -393,6 +393,8 @@ describe('Electron and Playwright annotation opacity parity', () => {
             path: ELECTRON_SCREENSHOT_PATH,
             type: 'png',
         });
+        // The page canvas the screenshot shows, after the resizes redrew it.
+        const electronScreenshotMetrics = await session.page.evaluate(readStrokePaintMetrics);
         console.info(`STROKE_PARITY_STEP electron-measure:complete ${JSON.stringify(electronMetrics)}`);
 
         const webApp = await serveBuiltWebApp();
@@ -455,6 +457,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
             await webPage.waitForFunction(viewerLayoutSettledInPage);
             const playwrightPageOrigin = await webPage.evaluate(readPageSurfaceOrigin);
             await webPage.screenshot({path: PLAYWRIGHT_SCREENSHOT_PATH});
+            const webScreenshotMetrics = await webPage.evaluate(readStrokePaintMetrics);
             console.info(`STROKE_PARITY_STEP playwright-measure:complete ${JSON.stringify(webMetrics)}`);
 
             console.info(`ANNOTATION_STROKE_PARITY ${JSON.stringify({
@@ -469,6 +472,8 @@ describe('Electron and Playwright annotation opacity parity', () => {
             // it is drawn once.
             expect(electronMetrics.canvasInkPixelCount).toBe(0);
             expect(webMetrics.canvasInkPixelCount).toBe(0);
+            expect(electronScreenshotMetrics.canvasInkPixelCount).toBe(0);
+            expect(webScreenshotMetrics.canvasInkPixelCount).toBe(0);
             expect(electronMetrics.strokeWidthAttribute).toBe(webMetrics.strokeWidthAttribute);
             expect(electronMetrics.scaleFactor).toBeCloseTo(webMetrics.scaleFactor ?? 0, 5);
             expect(electronMetrics.userUnit).toBeCloseTo(webMetrics.userUnit ?? 0, 5);
