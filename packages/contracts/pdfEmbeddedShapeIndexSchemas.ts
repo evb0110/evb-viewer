@@ -223,7 +223,7 @@ export const PDF_EMBEDDED_SHAPE_INDEX_SIDECAR_HEADER_SCHEMA = v.object({
     format: v.literal('evb-pdf-embedded-shape-index'),
     schemaVersion: v.literal(1),
     pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-    chunkBytes: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES))),
+    chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES)),
 });
 
 export {
