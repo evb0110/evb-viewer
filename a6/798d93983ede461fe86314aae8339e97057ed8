@@ -1,0 +1,46 @@
+packages/pdf-core/pdfSearchCore.ts
+  s_7a7f3638474d75::t_6785e5a4d8c789 23
+packages/pdf-core/pdfSearchAlgorithms.ts
+  s_7a7f3638474d75::t_6785e5a4d8c789 26-34
+tests/unit/contracts/search.test.ts
+  s_7a7f3638474d75::t_c3b4a758e72606 18,313-324
+native/pdf-search/src/main.rs
+  s_7a7f3638474d75::t_c33adbbdee4bfb 33,194-211,214,216-218,223-225,229-230,235,243,246,255,273-285,289-290,301,710,764-774,851-855,857
+  s_7a7f3638474d75::t_d0cc3535f20ed3 4-8
+  s_7a7f3638474d75::t_204b881b5ed3cc 212-213,215
+native/pdf-search/src/tests.rs
+  s_7a7f3638474d75::t_5fe80bf8038cbd 250
+  s_7a7f3638474d75::t_9ce2def1e32403 67,229,242,248-249,251-322
+packages/contracts/searchIndexWire.ts
+  s_7a7f3638474d75::t_cb37f63bbb64c1 2-5,10-26,35-38
+  s_7a7f3638474d75::t_98bc746da35c8e 27-34
+electron/features/search/pdfPageTexts.ts
+  s_7a7f3638474d75::t_729bafc8a92dd8 5,13,39,44,104-107,109-110,126-127,161
+  s_7a7f3638474d75::t_c98046aab4abdd 16,21-27,120-122,124,132-135,158-159,163
+  s_7a7f3638474d75::t_093c88b305ed42 160
+electron/features/search/main/ipc.ts
+  s_7a7f3638474d75::t_57fda023b36c60 20-23,43-47
+electron/features/search/searchIndex.ts
+  s_7a7f3638474d75::t_57fda023b36c60 9,13,39-41,94-100,108-109,111,113,115,118,145-170
+  s_7a7f3638474d75::t_4b521d88f17984 102-107,110,112
+packages/pdf-core/index.ts
+  s_7a7f3638474d75::t_3942e0240e6aef 61
+tests/unit/electron/searchNativeErrorMapping.test.ts
+  s_7a7f3638474d75::t_b7fc5ad3e3488e 1-6,9,13,15-111,153-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a6798d93983ede461fe86314aae8339e97057ed8",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
