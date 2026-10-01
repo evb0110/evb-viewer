@@ -10,6 +10,7 @@ import {
 import type {
     CDPSession,
     Page,
+    Protocol,
 } from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -25,6 +26,7 @@ import {
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
 const PAGE_COUNT = 40;
+const HOLD_DEADLINE_MS = 20_000;
 const pageLine = (pageNumber: number) => `Page ${pageNumber} keeps its selectable line`;
 
 async function writeTextPdf(path: string) {
@@ -79,20 +81,29 @@ async function holdStructureTreeRequests(page: Page) {
     const before = scriptSource.slice(0, returnAt);
     const lineNumber = before.split('\n').length - 1;
     const columnNumber = returnAt - (before.lastIndexOf('\n') + 1);
-    // Resolves with the page whose structure tree the worker is holding.
-    const paused = new Promise<number>((resolve, reject) => client.once('Debugger.paused', async (event) => {
+    async function readHeldPage(event: Protocol.Debugger.PausedEvent) {
         const local = event.callFrames[0]?.scopeChain.find(scope => scope.type === 'local');
         const properties = local?.object.objectId
             ? (await client.send('Runtime.getProperties', {objectId: local.object.objectId})).result
             : [];
         const pageIndex = properties.find(property => property.name === 'pageIndex')
             ?? properties.find(property => typeof property.value?.value === 'number');
-        if (typeof pageIndex?.value?.value === 'number') {
-            resolve(pageIndex.value.value + 1);
-        } else {
-            reject(new Error('The held structure-tree request names no page'));
+        if (typeof pageIndex?.value?.value !== 'number') {
+            throw new Error('The held structure-tree request names no page');
         }
-    }));
+        return pageIndex.value.value + 1;
+    }
+    // Resolves with the page whose structure tree the worker is holding, and
+    // fails with the step's own error when no request reaches the handler.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const paused = new Promise<number>((resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error(
+            `No page requested its structure tree within ${String(HOLD_DEADLINE_MS)} ms`,
+        )), HOLD_DEADLINE_MS);
+        client.once('Debugger.paused', (event) => {
+            readHeldPage(event).then(resolve, reject);
+        });
+    }).finally(() => clearTimeout(deadline));
     const {breakpointId} = await client.send('Debugger.setBreakpoint', {location: {
         scriptId: script.scriptId,
         lineNumber,
@@ -101,6 +112,7 @@ async function holdStructureTreeRequests(page: Page) {
     return {
         paused,
         async release() {
+            clearTimeout(deadline);
             await client.send('Debugger.removeBreakpoint', {breakpointId});
             await client.send('Debugger.resume');
             await client.send('Debugger.disable');
