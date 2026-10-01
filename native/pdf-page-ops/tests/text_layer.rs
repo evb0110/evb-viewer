@@ -1415,7 +1415,7 @@ fn reports_existing_page_text_the_way_a_reader_paints_it() {
 
 #[test]
 fn reads_the_text_of_the_form_xobjects_a_page_draws() {
-    let cases: [(&str, &[u8], &[u8], serde_json::Value); 5] = [
+    let cases: [(&str, &[u8], &[u8], serde_json::Value); 7] = [
         (
             "a scan wrapped in a form under a hidden layer is a replaceable layer",
             b"q /Fm0 Do Q BT /F1 12 Tf 3 Tr 10 30 Td (layer) Tj ET",
@@ -1439,6 +1439,18 @@ fn reads_the_text_of_the_form_xobjects_a_page_draws() {
             b"3 Tr /Fm0 Do",
             b"BT /F1 12 Tf 10 90 Td (inherited) Tj ET",
             visibility(false, false, false, Some(FORM_HIDDEN), None),
+        ),
+        (
+            "a form drawn hidden and then visible paints its text",
+            b"q 3 Tr /Fm0 Do Q /Fm0 Do",
+            b"BT /F1 12 Tf 10 90 Td (stamp) Tj ET",
+            visibility(false, true, false, Some(FORM_HIDDEN), None),
+        ),
+        (
+            "a form drawn visible and then hidden keeps hidden text",
+            b"/Fm0 Do 3 Tr /Fm0 Do",
+            b"BT /F1 12 Tf 10 90 Td (stamp) Tj ET",
+            visibility(false, true, false, Some(FORM_HIDDEN), None),
         ),
         (
             "an earlier EVB layer drawn as a form is recognized without reading the form",
