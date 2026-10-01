@@ -1,0 +1,30 @@
+packages/contracts/pdfEmbeddedShapeIndexSchemas.ts
+  s_7a7f3638474d75::t_eac1ddf56a365d 221-228
+packages/contracts/pdfAnnotationParseSchemas.ts
+  s_7a7f3638474d75::t_eac1ddf56a365d 7-10,321-328
+electron/features/documents/main/pdfAnnotationParse.ts
+  s_7a7f3638474d75::t_eac1ddf56a365d 22-25,109-111,113
+electron/features/documents/main/pdfEmbeddedShapeIndex.ts
+  s_7a7f3638474d75::t_74f2b6f86c6c37 25-26
+  s_7a7f3638474d75::t_eac1ddf56a365d 102-104,106
+electron/image/tryCreatePdfWithNativeImageCombiner.ts
+  s_7a7f3638474d75::t_eac1ddf56a365d 36-39,56,123-124
+packages/contracts/pdfImageCombineProgress.ts
+  s_7a7f3638474d75::t_eac1ddf56a365d 1-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "355615e4ea24c0802f5214b5ae296ae3af30bd04",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
