@@ -189,66 +189,55 @@ const SEARCH_WORD_CHARACTER_CLASS = '\\p{L}\\p{N}\\p{M}_\'’';
 // character but a line feed. JavaScript gives \d, \w and \b ASCII meanings
 // and keeps . from \r, \u2028 and \u2029, so a query is translated first.
 const UNICODE_REGEX_WORD = String.raw`\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}`;
-const UNICODE_REGEX_ESCAPES: Readonly<Record<string, readonly [outsideClass: string, insideClass: string | null]>> = {
-    d: [
-        String.raw`\p{Nd}`,
-        String.raw`\p{Nd}`,
-    ],
-    D: [
-        String.raw`\P{Nd}`,
-        String.raw`\P{Nd}`,
-    ],
-    s: [
-        String.raw`\p{White_Space}`,
-        String.raw`\p{White_Space}`,
-    ],
-    S: [
-        String.raw`\P{White_Space}`,
-        String.raw`\P{White_Space}`,
-    ],
-    w: [
-        `[${UNICODE_REGEX_WORD}]`,
-        UNICODE_REGEX_WORD,
-    ],
-    W: [
-        `[^${UNICODE_REGEX_WORD}]`,
-        null,
-    ],
-    b: [
-        `(?:(?<=[${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}]))`,
-        null,
-    ],
-    B: [
-        `(?:(?<=[${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}]))`,
-        null,
-    ],
+const UNICODE_REGEX_ESCAPES: Readonly<Record<string, string>> = {
+    d: String.raw`\p{Nd}`,
+    D: String.raw`\P{Nd}`,
+    s: String.raw`\p{White_Space}`,
+    S: String.raw`\P{White_Space}`,
+    w: `[${UNICODE_REGEX_WORD}]`,
+    W: `[^${UNICODE_REGEX_WORD}]`,
+    b: `(?:(?<=[${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}]))`,
+    B: `(?:(?<=[${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}]))`,
 };
 
 function toUnicodeSearchRegex(pattern: string) {
     let output = '';
-    let inClass = false;
+    // u-mode cannot nest \W in a class, so a class holding it becomes a group
+    // of disjoint branches: [X\W] is X or a non-word character outside X, and
+    // [^X\W] a word character outside X.
+    let classOpen = -1;
+    let classHasNonWord = false;
     for (let index = 0; index < pattern.length; index += 1) {
         const char = pattern[index]!;
         if (char === '\\' && index + 1 < pattern.length) {
             index += 1;
             const escape = pattern[index]!;
             const unicode = UNICODE_REGEX_ESCAPES[escape];
-            if (unicode === undefined) {
-                output += char + escape;
-                continue;
-            }
-            const replacement = inClass ? unicode[1] : unicode[0];
-            if (replacement === null) {
+            if (unicode === undefined || classOpen < 0) {
+                output += unicode ?? char + escape;
+            } else if (escape === 'b' || escape === 'B') {
                 throw new Error(`Invalid search regex: \\${escape} is not supported inside a character class`);
+            } else {
+                classHasNonWord ||= escape === 'W';
+                output += escape === 'w' ? UNICODE_REGEX_WORD : escape === 'W' ? '' : unicode;
             }
-            output += replacement;
             continue;
         }
-        if (inClass) {
-            inClass = char !== ']';
-        } else if (char === '[') {
-            inClass = true;
-        } else if (char === '.') {
+        if (classOpen < 0 && char === '[') {
+            classOpen = output.length;
+        } else if (classOpen >= 0 && char === ']') {
+            const negated = output[classOpen + 1] === '^';
+            const members = `[${output.slice(classOpen + (negated ? 2 : 1))}]`;
+            const open = classOpen;
+            classOpen = -1;
+            if (classHasNonWord) {
+                classHasNonWord = false;
+                output = output.slice(0, open) + (negated
+                    ? `(?:(?!${members})[${UNICODE_REGEX_WORD}])`
+                    : `(?:${members}|(?!${members})[^${UNICODE_REGEX_WORD}])`);
+                continue;
+            }
+        } else if (classOpen < 0 && char === '.') {
             output += '[^\\n]';
             continue;
         }

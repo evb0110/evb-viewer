@@ -6,7 +6,7 @@
     "matching": "Default matching is Unicode-aware, case-insensitive literal matching. wholeWord adds letter/number/underscore boundaries. Regex cases use the guarded PDF search regex validator.",
     "excerpt": "Excerpts use a UTF-16 code unit context window. Only the before and after text collapse JavaScript whitespace runs to one space, then trim the outer edge nearest the excerpt boundary.",
     "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist.",
-    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b and \\B the boundaries of that \\w, and . any character but a line feed. \\W and \\b inside a character class are refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator."
+    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b and \\B the boundaries of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator."
   },
   "cases": [
     {
@@ -672,6 +672,100 @@
             "before": "cd, ",
             "match": "ёж",
             "after": "!"
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-non-word-class-inside-brackets",
+      "description": "A regex class may hold \\W: [\\W\\d] matches a non-word character or a digit.",
+      "text": "ab-cd, ёж! 12",
+      "query": "[\\W\\d]+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "ab",
+            "match": "-",
+            "after": "cd,"
+          }
+        },
+        {
+          "startOffset": 5,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": true,
+            "before": "b-cd",
+            "match": ", ",
+            "after": "ёж!"
+          }
+        },
+        {
+          "startOffset": 9,
+          "endOffset": 13,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": ", ёж",
+            "match": "! 12",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "regex-negated-non-word-class-inside-brackets",
+      "description": "A negated class holding \\W matches a Unicode word character outside the class: [^\\W\\d] is a letter, not a digit.",
+      "text": "ab-cd, ёж! 12",
+      "query": "[^\\W\\d]+",
+      "options": {
+        "matchCase": true,
+        "useRegex": true
+      },
+      "contextChars": 4,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "ab",
+            "after": "-cd,"
+          }
+        },
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "ab-",
+            "match": "cd",
+            "after": ", ёж"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "cd, ",
+            "match": "ёж",
+            "after": "! 12"
           }
         }
       ]
