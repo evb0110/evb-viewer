@@ -85,19 +85,22 @@ export const useWorkspaceDocumentSessions = (options: {
         const source = sessionsByTabId.value.get(sourceTabId);
         const current = sessionsByTabId.value.get(targetTabId);
         const snapshot = source?.snapshot.value;
+        // A PDF still opening links too; the view presents it when the open does.
+        const opening = snapshot?.phase === 'opening' ? snapshot.activeTransaction?.target ?? null : null;
+        const isPdf = snapshot?.phase === 'presented'
+            ? !snapshot.identity.isDjvu && identityHasDocument(snapshot.identity)
+            : Boolean(opening?.originalPath && !opening.isDjvu);
         if (
             !source
             || !snapshot
             || source === current
-            || snapshot.phase !== 'presented'
-            || snapshot.identity.isDjvu
-            || !identityHasDocument(snapshot.identity)
+            || !isPdf
             || (current && (snapshotOccupiesTab(current.snapshot.value) || current.views.value.size > 1))
         ) {
             return false;
         }
         const sourceView = source.getView(sourceTabId);
-        const readingAnchor = seed ? null : sourceView?.mountedWorkspace.value?.captureReadingAnchor?.() ?? null;
+        const readingAnchor = seed || opening ? null : sourceView?.mountedWorkspace.value?.captureReadingAnchor?.() ?? null;
         // The reader's place and panels, not a scan-cleanup surface.
         const view = source.addView(targetTabId, seed ?? (sourceView
             ? {

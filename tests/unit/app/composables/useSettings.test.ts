@@ -153,10 +153,13 @@ describe('useSettings', () => {
     });
 
     it('starts from the UI scale main passed to the window before settings load', async () => {
-        vi.stubGlobal('window', {electronAPI: {
-            ...mockPlatformApi,
+        vi.stubGlobal('window', {electronAPI: createElectronPlatformApiFixture({
+            settings: {
+                get: mockGet,
+                save: mockSave,
+            },
             startupUiScalePreference: 'large',
-        }});
+        })});
         try {
             const { useSettings } = await import('@app/composables/useSettings');
             const {

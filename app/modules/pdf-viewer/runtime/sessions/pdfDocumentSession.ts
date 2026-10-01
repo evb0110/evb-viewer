@@ -1204,13 +1204,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             || document !== pdfDocument.value
             || transitionGeneration !== residencyTransitionGeneration
             || isAnyViewActive()
+            || options.isAnySaving?.value === true
         ) {
             return;
         }
         pageCache.cleanupAll();
-        if (options.isAnySaving?.value === true) {
-            return;
-        }
         const decision = resolvePdfViewerResidencyDecision({
             isActive: false,
             isAnySaving: false,

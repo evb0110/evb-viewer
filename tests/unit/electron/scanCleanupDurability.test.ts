@@ -270,6 +270,47 @@ describe('scan-cleanup durability', () => {
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
+    it('on Windows reaps a tool started at its recorded spawn time and spares a reused pid', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
+        await mkdir(registryDirectory);
+        const writeEntry = async (pid: number) => {
+            const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${String(pid)}.json`);
+            const entry: IManagedProcessRegistryEntry = {
+                version: 1,
+                pid,
+                ownerPid: 4241,
+                binaryPath: '/native/qpdf.exe',
+                // Registration records the clock right after spawn returns.
+                processStartTime: '2026-10-01T10:00:00.000Z',
+                ownerStartTime: '2026-10-01T09:00:00.000Z',
+            };
+            await writeFile(entryPath, JSON.stringify(entry), 'utf8');
+            return entryPath;
+        };
+        const orphanEntryPath = await writeEntry(4242);
+        const reusedEntryPath = await writeEntry(4343);
+        const terminate = vi.fn(async () => true);
+
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
+            isProcessAlive: pid => pid !== 4241,
+            readProcessIdentity: async pid => ({
+                executablePath: '/native/QPDF.EXE',
+                arguments: ['/native/qpdf.exe'],
+                // PowerShell reports the creation time, which precedes the
+                // recorded spawn time; pid 4343 now belongs to a later process.
+                startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T11:00:00.0000000Z',
+            }),
+            terminateProcessTree: terminate,
+            platform: 'win32',
+        })).resolves.toBe(1);
+
+        expect(terminate).toHaveBeenCalledOnce();
+        expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: false}));
+        await expect(access(orphanEntryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(reusedEntryPath)).resolves.toBeUndefined();
+    });
+
     itPosix('keeps native scratch while a process group has a live descendant', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
