@@ -49,11 +49,13 @@ a map: it runs no Sentry client, so its frames never appear in reports.
 
 A hosted build with `SENTRY_BROWSER_DSN` but no `SENTRY_AUTH_TOKEN` fails
 instead of publishing a bundle without Debug IDs, and `pnpm run
-deploy:web:prod` refuses to start with that combination. Deploy the viewer
-with `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, the web `SENTRY_PROJECT` and
-`SENTRY_BROWSER_DSN` set locally: it builds with `pnpm run build`, which uploads
-the maps of `.vercel/output/static`, and deploys that prebuilt output. A Vercel
-source build does the same only if the Vercel environment holds all four.
+deploy:web:prod` refuses to start with that combination in the local
+environment. The Vercel Preview and Production environments hold all four
+variables, so a plain `pnpm run deploy:web:prod` lets Vercel build the viewer
+and upload the maps of `.vercel/output/static`. With `SENTRY_AUTH_TOKEN`,
+`SENTRY_ORG`, the web `SENTRY_PROJECT` and `SENTRY_BROWSER_DSN` set locally,
+the command instead builds with `pnpm run build`, which uploads the same maps,
+and deploys that prebuilt output.
 
 ## Alerts
 
@@ -92,7 +94,7 @@ privacy incident.
 1. Disable reporting as below. Inspect no more events than needed.
 2. Keep only the event ID, diagnostic code, release and dates for the record.
 3. Delete the affected events and issues in Sentry.
-4. Rotate the affected DSN key, and the upload token if it may be exposed.
+4. Rotate the affected DSN key, and any upload token that may be exposed.
 5. Fix the scrubber and add the leaked shape to its unit test.
 
 ## Disable reporting
