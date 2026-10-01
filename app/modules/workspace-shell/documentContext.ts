@@ -33,11 +33,7 @@ import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { describeOpenResult } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
-import {
-    didOpenDocument,
-    type TDocumentOpenOutcome,
-} from '@app/types/documentOpenOutcome';
+import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import {
@@ -147,6 +143,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         createViewerLifecycleHooks: context => driver.createLifecycleHooks(context),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         failureSurface: failure,
+        runDocumentOpen,
     });
     const {
         workingCopyPath,
@@ -601,15 +598,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     });
 
     const viewerCapabilities = computed(() => activeDriver.value?.capabilities);
-    // A split restore reopens its payload as the tab's open transaction.
-    async function openSplitPayloadResult(result: TOpenFileResult) {
-        const opened: {outcome: TDocumentOpenOutcome} = {outcome: {status: 'cancelled'}};
-        const presented = await runDocumentOpen(describeOpenResult(result), async () => {
-            opened.outcome = await file.openFileWithViewerLifecycle(result);
-            return didOpenDocument(opened.outcome);
-        });
-        return presented || !didOpenDocument(opened.outcome) ? opened.outcome : {status: 'cancelled' as const};
-    }
     const splitPayload = useWorkspaceSplitPayload({
         pdfSrc,
         isDjvuMode: file.isDjvuMode,
@@ -624,7 +612,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pdfViewerRef,
         documentViewerRef,
         pdfData,
-        openFileWithViewerLifecycle: openSplitPayloadResult,
+        // A split restore reopens its payload as the tab's open transaction.
+        openFileWithViewerLifecycle: file.openFileInDocumentTransaction,
         waitForPdfReload: pdfHistory.waitForPdfReload,
         loadPdfFromPath: file.loadPdfFromPath,
         documentRevisionToken,
