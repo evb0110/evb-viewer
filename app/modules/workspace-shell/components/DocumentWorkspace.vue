@@ -145,9 +145,9 @@
         </Teleport>
         <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader'" />
         <DjvuConversionOverlay
+            v-bind="conversionState"
             :is-converting="conversionState.isConverting && isRenderActive"
-            :phase="conversionState.phase"
-            :percent="conversionState.percent"
+            :modal="isActive"
             @cancel="handleDjvuCancel"
         />
         <WorkspaceSaveDialogHost

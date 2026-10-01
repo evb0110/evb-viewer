@@ -64,6 +64,7 @@ function mountOverlay() {
         }, 'Workspace action'),
         h(DjvuConversionOverlay, {
             isConverting: open.value,
+            modal: true,
             phase: 'converting',
             percent: 25,
             onCancel: () => {
