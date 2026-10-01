@@ -70,14 +70,13 @@
 </template>
 
 <script setup lang="ts">
-import packageJson from '@root-package';
 import { getShellCapability } from '@app/utils/getShellCapability';
 
 const SENTRY_OPEN_SOURCE_URL = 'https://sentry.io/for/open-source/';
 const SENTRY_WORDMARK_PATH = '/sentry-wordmark.svg';
 const LICENSE_URL = 'https://github.com/evb0110/evb-viewer/blob/main/LICENSE';
 const THIRD_PARTY_NOTICES_URL = 'https://github.com/evb0110/evb-viewer/blob/main/THIRD_PARTY_NOTICES.md';
-const appVersion = packageJson.version;
+const appVersion = String(useRuntimeConfig().public.appVersion);
 
 const { t } = useTypedI18n();
 const { isDesktopRuntime } = useRuntimeEnvironment();

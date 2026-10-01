@@ -70,6 +70,9 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
 const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1';
 const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
 const packageJson = requireFromConfig('./package.json') as {version?: unknown};
+// Release builds stamp package.json from their tag. A hosted deploy builds an
+// untagged main commit, so scripts/deployVercelPrivate.mjs names it instead.
+const appVersion = process.env.EVB_APP_VERSION?.trim() || String(packageJson.version);
 // Hosted browser builds report to Sentry only when a DSN is configured; the
 // desktop renderer sends through Electron main instead. Source maps are
 // emitted only for a build that uploads them (scripts/upload-sentry-sourcemaps.mjs).
@@ -295,9 +298,10 @@ export default defineNuxtConfig({
 
     runtimeConfig: {
         public: {
+            appVersion,
             sentry: {
                 dsn: sentryBrowserDsn,
-                release: `evb-viewer-web@${String(packageJson.version)}`,
+                release: `evb-viewer-web@${appVersion}`,
                 environment: process.env.VERCEL_ENV || 'development',
             },
             analyticsEnabled: process.env.NUXT_PUBLIC_ANALYTICS_ENABLED === '1',

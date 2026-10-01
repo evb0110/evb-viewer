@@ -29,7 +29,10 @@ interface IPrivateDeployModule {
     buildPrivateDeployArgs: (
         sourceRoot: string,
         rawArgs?: string[],
-        options?: {prebuilt?: boolean},
+        options?: {
+            appVersion?: string;
+            prebuilt?: boolean;
+        },
     ) => string[];
     extractVercelDeploymentUrl: (output: string) => string | null;
     extractVercelDeploymentIdentity: (output: string, options?: {
@@ -48,6 +51,7 @@ interface IPrivateDeployModule {
         projectRoot?: string;
     }) => IPreparedPrivateDeploySource;
     quoteWindowsShellArg: (arg: string) => string;
+    resolveViewerAppVersion: (projectRoot: string) => string;
     resolveProductionAcceptanceUrls: (options: {
         deployTarget: string;
         env: Record<string, string | undefined>;
@@ -64,6 +68,7 @@ const {
     promoteLandingVercelOutput,
     preparePrivateDeploySource,
     quoteWindowsShellArg,
+    resolveViewerAppVersion,
     resolveProductionAcceptanceUrls,
     runPrivateVercelDeploy,
 } = await import(
@@ -173,6 +178,10 @@ function createProjectFixture() {
         '--quiet',
         '-m',
         'fixture',
+    ], {cwd: projectRoot});
+    execFileSync('git', [
+        'tag',
+        'v1.2.3',
     ], {cwd: projectRoot});
 
     return projectRoot;
@@ -390,6 +399,71 @@ describe('private Vercel deployment source', () => {
             '--prebuilt',
             '--logs',
         ]);
+        expect(buildPrivateDeployArgs('/tmp/source', ['--prod'], {appVersion: '1.2.3'})).toEqual([
+            'deploy',
+            '/tmp/source',
+            '--yes',
+            '--archive=tgz',
+            '--build-env',
+            'EVB_APP_VERSION=1.2.3',
+            '--prod',
+        ]);
+    });
+
+    it('names the viewer version after the release tag and the deployed commit', async () => {
+        const projectRoot = createProjectFixture();
+        const deployCalls: string[][] = [];
+
+        try {
+            expect(resolveViewerAppVersion(projectRoot)).toBe('1.2.3');
+
+            writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = 2;\n');
+            commitFixtureChanges(projectRoot);
+            const commit = execFileSync('git', [
+                'rev-parse',
+                '--short=12',
+                'HEAD',
+            ], {
+                cwd: projectRoot,
+                encoding: 'utf8',
+            }).trim();
+            expect(resolveViewerAppVersion(projectRoot)).toBe(`1.2.3+${commit}`);
+
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                projectRoot,
+                rawArgs: [],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    deployCalls.push(args);
+                    return {
+                        stderr: '',
+                        stdout: '',
+                        status: 0,
+                    };
+                },
+            })).resolves.toBe(0);
+            expect(deployCalls).toEqual([expect.arrayContaining([
+                'deploy',
+                '--build-env',
+                `EVB_APP_VERSION=1.2.3+${commit}`,
+            ])]);
+
+            execFileSync('git', [
+                'tag',
+                '--delete',
+                'v1.2.3',
+            ], {cwd: projectRoot});
+            expect(() => resolveViewerAppVersion(projectRoot))
+                .toThrow('no release tag reaches HEAD');
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
     });
 
     it('copies ignored Vercel output separately for viewer prebuilt deployment', () => {
