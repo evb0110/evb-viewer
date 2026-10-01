@@ -38,6 +38,11 @@ Hidden macOS sessions also pass `-AppleShowScrollBars Always`. With the
 system's automatic setting, scroll bars switch between overlay and classic as
 a mouse connects or sleeps, and every viewport width changes with them.
 
+Hidden Windows windows are never shown. Their compositor draws only while a
+copy is pending, so the main process keeps a frame subscription on them;
+without it `page.screenshot` never returns. Never show, move off-screen or
+fade a hidden window to get frames.
+
 ## Packaged runs
 
 Use the shared runner with an unused task-owned directory and a free CDP port:
