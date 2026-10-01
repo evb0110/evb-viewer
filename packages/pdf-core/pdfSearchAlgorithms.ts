@@ -72,17 +72,22 @@ export function assembleSearchablePageText(
     const retainedOwners: number[] = [];
     const retainedSourceStarts: number[] = [];
     const retainedSourceEnds: number[] = [];
+    // One push per character: spreading a page-long slice into push() passes
+    // every element as an argument and overflows the stack on long pages.
+    const retain = (start: number, end: number) => {
+        for (let offset = start; offset < end; offset += 1) {
+            retainedOwners.push(owners[offset]!);
+            retainedSourceStarts.push(rawSourceStarts[offset]!);
+            retainedSourceEnds.push(rawSourceEnds[offset]!);
+        }
+    };
     let normalizedOffset = 0;
     const hyphenationPattern = /\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu;
     for (const match of rawText.matchAll(hyphenationPattern)) {
-        retainedOwners.push(...owners.slice(normalizedOffset, match.index));
-        retainedSourceStarts.push(...rawSourceStarts.slice(normalizedOffset, match.index));
-        retainedSourceEnds.push(...rawSourceEnds.slice(normalizedOffset, match.index));
+        retain(normalizedOffset, match.index);
         normalizedOffset = match.index + match[0].length;
     }
-    retainedOwners.push(...owners.slice(normalizedOffset));
-    retainedSourceStarts.push(...rawSourceStarts.slice(normalizedOffset));
-    retainedSourceEnds.push(...rawSourceEnds.slice(normalizedOffset));
+    retain(normalizedOffset, rawText.length);
 
     const text = collapseRepeatedPdfSearchPageText(joinedText);
     const finalOwners = retainedOwners.slice(0, text.length);
