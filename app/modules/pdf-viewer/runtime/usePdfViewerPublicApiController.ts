@@ -356,7 +356,6 @@ export const usePdfViewerPublicApiController = (
             { comment },
             { source: 'user' },
         ),
-        deleteAnnotationEditor: comment => annotationRuntime.deleteAnnotationComment(comment),
         deleteReopenedEditorAnnotation: comment => annotationMutationService.deleteReopenedEditorAnnotation(
             {comment},
             {source: 'user'},

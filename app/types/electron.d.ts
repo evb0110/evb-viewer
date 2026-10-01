@@ -2,7 +2,6 @@ import type { IElectronAPI } from '@contracts/electronApi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
-import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
 import type {TDiagnosticsCanaryAction} from '@electron/platform-ipc/coreContract';
@@ -33,7 +32,6 @@ declare global {
         __evbTestApi?: IEvbTestApi;
         __evbDiagnosticsCanaryMain?: IEvbDiagnosticsCanaryMainApi;
         __evbRendererDiagnosticsCanary?: IEvbRendererDiagnosticsCanaryApi;
-        __evbAnnotationSyncActivity?: IAnnotationSyncAutomationActivity;
         __stagedPdfNativeMutationCommitBarrierForAutomation?: (
             stagedArtifact: ITypedStagedArtifact,
         ) => Promise<void> | void;

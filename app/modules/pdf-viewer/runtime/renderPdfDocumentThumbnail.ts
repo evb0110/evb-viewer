@@ -21,7 +21,7 @@ interface IPreparedPdfThumbnail {
 
 /**
  * A thumbnail is one raster request on the viewer's scheduler, so it queues
- * behind the pages on screen. It draws the annotation storage the page shows,
+ * behind the pages on screen. It draws the annotations the page shows,
  * leaves out deleted annotations and follows the rotation the page geometry
  * presents, which a rotation preview changes before the rewritten file exists.
  */

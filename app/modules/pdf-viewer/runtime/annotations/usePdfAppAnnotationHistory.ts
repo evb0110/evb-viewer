@@ -1,5 +1,4 @@
 import type { IAnnotationEditorState } from '@app/types/annotations';
-import type {Ref} from 'vue';
 import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IPdfAppAnnotationHistoryCommand,
@@ -18,7 +17,6 @@ const MAX_ANNOTATION_HISTORY_BYTES = 16 * 1024 * 1024;
 const DEFAULT_COMMAND_BYTES = 1024;
 
 export const usePdfAppAnnotationHistory = (options: {
-    pdfjsAnnotationState?: Ref<IAnnotationEditorState>;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     markModified: () => void;
 }) => {
@@ -30,7 +28,6 @@ export const usePdfAppAnnotationHistory = (options: {
     const annotationHistoryResetVersion = ref(0);
     const canUndo = computed(() => undoDepth.value > 0);
     const canRedo = computed(() => redoDepth.value > 0);
-    let routedPdfjsHistoryDepth = 0;
     let transactionDepth = 0;
     let transactionCommands: IPdfAppAnnotationHistoryCommand[] = [];
     let workspaceCommandSink: IWorkspaceCommandSink | null = null;
@@ -257,19 +254,6 @@ export const usePdfAppAnnotationHistory = (options: {
         registerCommand(command);
     }
 
-    function withRoutedPdfjsHistory(action: () => void) {
-        routedPdfjsHistoryDepth += 1;
-        try {
-            action();
-        } finally {
-            routedPdfjsHistoryDepth -= 1;
-        }
-    }
-
-    function isRoutingPdfjsHistory() {
-        return routedPdfjsHistoryDepth > 0;
-    }
-
     function throwReplayFailure(originalError: unknown, rollbacks: ReadonlyArray<() => void>): never {
         const failure = buildAnnotationHistoryReplayFailure(originalError, rollbacks);
         if (isAnnotationHistoryPoisoningError(failure)) {
@@ -305,7 +289,7 @@ export const usePdfAppAnnotationHistory = (options: {
         const rollbacks: Array<() => void> = [];
         try {
             beginReplay();
-            withRoutedPdfjsHistory(() => apply(rollback => rollbacks.unshift(rollback)));
+            apply(rollback => rollbacks.unshift(rollback));
             finishReplay();
             return true;
         } catch (error) {
@@ -322,7 +306,7 @@ export const usePdfAppAnnotationHistory = (options: {
         const rollbacks: Array<() => void> = [];
         try {
             beginReplay();
-            withRoutedPdfjsHistory(() => apply(rollback => rollbacks.unshift(rollback)));
+            apply(rollback => rollbacks.unshift(rollback));
             rollbacks.unshift(() => {
                 undoStack.splice(0, undoStack.length, ...undoBefore);
                 redoStack.splice(0, redoStack.length, ...redoBefore);
@@ -391,7 +375,6 @@ export const usePdfAppAnnotationHistory = (options: {
         forgetCommands,
         registerExecutorCommand,
         runTransaction,
-        isRoutingPdfjsHistory,
         undo,
         redo,
         undoForEditor,

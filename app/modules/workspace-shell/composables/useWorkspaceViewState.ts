@@ -50,8 +50,8 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
     const isFitHeightActive = computed(
         () => deps.zoomMode.value === 'fit-height',
     );
-    // App-routed PDF.js commands are undoable before live storage fingerprinting
-    // necessarily reports a dirty annotation state.
+    // A command in the app-owned annotation history is undoable before the
+    // document reports a dirty annotation state.
     const hasAppAnnotationHistoryUndoState = computed(() => (
         deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
         || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
