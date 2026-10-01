@@ -23,6 +23,15 @@ function joinSearchLineHyphenation(text: string) {
     return text.replace(/\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu, '');
 }
 
+/**
+ * The text `assembleSearchablePageText` produces for a page read as one item,
+ * without the per-character offset maps a caller that indexes only the text
+ * would otherwise build and discard.
+ */
+export function normalizeSearchablePageText(text: string) {
+    return collapseRepeatedPdfSearchPageText(joinSearchLineHyphenation(text));
+}
+
 export function assembleSearchablePageText(
     items: readonly ISearchablePageTextItem[],
 ): IAssembledSearchablePageText {

@@ -1,8 +1,41 @@
 import {isRecord} from '@contracts/runtimeGuards';
-import {pdfSearchResultSchema} from '@contracts/search';
+import {
+    pdfSearchResultSchema,
+    SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES,
+} from '@contracts/search';
 import * as v from 'valibot';
 
 const safeInteger = v.pipe(v.number(), v.safeInteger());
+
+/**
+ * The text budget of one document's index, in UTF-8 bytes of normalized page
+ * text. A page above the page budget, or one that would take the index above
+ * the total, ends the index there and its coverage reports it truncated.
+ * Every shell's search uses the same page budget.
+ */
+export const SEARCH_INDEX_TEXT_BUDGET = {
+    maxPageTextBytes: SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES,
+    maxTotalTextBytes: 256 * 1024 * 1024,
+} as const;
+
+/**
+ * One line of `evb-pdf-search index` stdin: a page's text, in increasing page
+ * order, or the page where the producer stopped because its text is over the
+ * budget, which must be the last line.
+ */
+export type TSearchIndexInputLine =
+    | {
+        pageNumber: number;
+        text: string
+    }
+    | {
+        pageNumber: number;
+        overBudget: true
+    };
+
+export function encodeSearchIndexInputLine(line: TSearchIndexInputLine) {
+    return `${JSON.stringify(line)}\n`;
+}
 
 /**
  * `evb-pdf-search index` and `stat` stdout: how much of the document the

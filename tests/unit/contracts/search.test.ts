@@ -15,6 +15,7 @@ const {
     collectSearchMatchWords,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
+    normalizeSearchablePageText,
     SearchRegexLimitError,
 } = pdfSearchCore;
 
@@ -306,6 +307,21 @@ describe('assembleSearchablePageText', () => {
             },
             {text: '\uFB01le'},
         ]).text).toBe('Cafe\u0301 ex\uFB01le');
+    });
+});
+
+describe('normalizeSearchablePageText', () => {
+    it('produces the assembled text of a page read as one item', () => {
+        const repeated = `${'The same OCR line repeated on this page. '.repeat(5)}\n`;
+        for (const text of [
+            'plain words',
+            'line hyphen-\nation and soft\u00ADhyphen',
+            'Cafe\u0301 ex-  \n  \uFB01le',
+            repeated.repeat(3),
+            '',
+        ]) {
+            expect(normalizeSearchablePageText(text)).toBe(assembleSearchablePageText([{text}]).text);
+        }
     });
 });
 

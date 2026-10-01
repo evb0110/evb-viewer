@@ -6,9 +6,11 @@ import {
     SEARCH_RESULT_LIMIT,
 } from '@contracts/search';
 import {
+    encodeSearchIndexInputLine,
     isStaleSearchIndexAnswer,
     SEARCH_INDEX_COVERAGE_SCHEMA,
     SEARCH_INDEX_RESPONSE_SCHEMA,
+    SEARCH_INDEX_TEXT_BUDGET,
     type ISearchIndexCoverage,
     type ISearchIndexResponse,
 } from '@contracts/searchIndexWire';
@@ -34,7 +36,9 @@ export interface ISearchIndexedDocument {
     documentRevision: string;
     /** The working copy whose close cancels an index build. */
     workingCopyPath?: string;
-    readPages(signal: AbortSignal): AsyncIterable<IPageText>;
+    /** The document's page count, so coverage stays whole when the index ends early. */
+    readPageCount?(signal: AbortSignal): Promise<number>;
+    readPages(signal: AbortSignal, pageCount: number | undefined): AsyncIterable<IPageText>;
 }
 
 export interface ISearchQueryOptions {
@@ -87,13 +91,31 @@ interface IIndexBuild {
 
 const builds = new Map<string, IIndexBuild>();
 
-async function* toJsonLines(pages: AsyncIterable<IPageText>, onPage: (pageNumber: number) => void) {
+/**
+ * The index input of a page stream, within the index text budget. The first
+ * page over it is reported instead of sent and ends the input, which stops
+ * extraction there; the index then reports itself truncated at that page.
+ */
+async function* toIndexInputLines(pages: AsyncIterable<IPageText>, onPage: (pageNumber: number) => void) {
+    let totalBytes = 0;
     for await (const page of pages) {
+        const textBytes = Buffer.byteLength(page.text);
+        totalBytes += textBytes;
+        if (
+            textBytes > SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes
+            || totalBytes > SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes
+        ) {
+            yield encodeSearchIndexInputLine({
+                pageNumber: page.pageNumber,
+                overBudget: true,
+            });
+            return;
+        }
         onPage(page.pageNumber);
-        yield `${JSON.stringify({
+        yield encodeSearchIndexInputLine({
             pageNumber: page.pageNumber,
             text: page.text,
-        })}\n`;
+        });
     }
 }
 
@@ -120,21 +142,32 @@ export function buildSearchIndex(
             operation.signal,
         ]);
         const listeners = new Set<(pagesScanned: number) => void>();
-        const promise = mkdir(dirname(document.indexPath), {recursive: true}).then(() => runNativeToolCommand(resolvePdfSearchBinary(), [
-            'index',
-            '--out',
-            document.indexPath,
-            '--document-revision',
-            indexRevision(document),
-        ], {
-            commandLabel: 'evb-pdf-search(index)',
-            signal,
-            stdin: toJsonLines(document.readPages(signal), (pageNumber) => {
-                for (const listener of listeners) {
-                    listener(pageNumber);
-                }
-            }),
-        })).then((result) => {
+        const promise = mkdir(dirname(document.indexPath), {recursive: true}).then(async () => {
+            const pageCount = await document.readPageCount?.(signal);
+            return runNativeToolCommand(resolvePdfSearchBinary(), [
+                'index',
+                '--out',
+                document.indexPath,
+                '--document-revision',
+                indexRevision(document),
+                ...(pageCount !== undefined && pageCount > 0 ? [
+                    '--page-count',
+                    String(pageCount),
+                ] : []),
+                '--max-page-text-bytes',
+                String(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes),
+                '--max-total-text-bytes',
+                String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
+            ], {
+                commandLabel: 'evb-pdf-search(index)',
+                signal,
+                stdin: toIndexInputLines(document.readPages(signal, pageCount), (pageNumber) => {
+                    for (const listener of listeners) {
+                        listener(pageNumber);
+                    }
+                }),
+            });
+        }).then((result) => {
             const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, parseOutput(result.stdout), {abortEarly: true});
             if (!parsed.success) {
                 throw new Error('evb-pdf-search index returned an invalid coverage report');

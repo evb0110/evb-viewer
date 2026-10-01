@@ -58,6 +58,7 @@ export {
     findPdfSearchMatches,
     iteratePdfSearchMatches,
     mapAssembledSearchablePageTextRange,
+    normalizeSearchablePageText,
     normalizeSearchText,
     normalizeOptionalSearchPageCount,
     normalizeOptionalSearchRequestId,
