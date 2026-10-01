@@ -1,5 +1,7 @@
 import {
     mkdtemp,
+    readdir,
+    readlink,
     rm,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -23,6 +25,8 @@ const fake = vi.hoisted(() => ({
     pdfjsRelease: null as Promise<void> | null,
     indexArgs: [] as string[],
     indexLines: [] as string[],
+    indexCoverage: null as Record<string, unknown> | null,
+    indexFailure: null as Error | null,
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
@@ -52,6 +56,9 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
             exitCode: 0,
         };
     }
+    if (fake.indexFailure) {
+        throw fake.indexFailure;
+    }
     fake.indexArgs = args;
     let input = '';
     for await (const chunk of options.stdin ?? []) {
@@ -59,7 +66,7 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
     }
     fake.indexLines = input.split('\n').filter(Boolean);
     return {
-        stdout: JSON.stringify({
+        stdout: JSON.stringify(fake.indexCoverage ?? {
             pageCount: 3,
             pagesScanned: 1,
             pagesWritten: 1,
@@ -110,6 +117,8 @@ afterEach(() => {
     fake.pdfjsRelease = null;
     fake.indexArgs = [];
     fake.indexLines = [];
+    fake.indexCoverage = null;
+    fake.indexFailure = null;
 });
 
 describe('native search error mapping', () => {
@@ -187,7 +196,7 @@ describe('search index text budget', () => {
         ];
         const pulled: number[] = [];
         try {
-            const coverage = await buildSearchIndex({
+            await buildSearchIndex({
                 indexPath: join(directory, 'index'),
                 documentRevision: 'revision',
                 readPageCount: () => Promise.resolve(pageTexts.length),
@@ -205,7 +214,8 @@ describe('search index text budget', () => {
                 },
             });
 
-            expect(coverage.truncated).toBe(true);
+            // What the indexer makes of the report is its own contract
+            // (pdf-search a_page_over_the_budget_ends_the_index_as_truncated).
             expect(fake.indexLines.map(line => JSON.parse(line) as unknown)).toEqual([
                 {
                     pageNumber: 1,
@@ -230,6 +240,74 @@ describe('search index text budget', () => {
                 '--max-total-text-bytes',
                 String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
             ]);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    // A command can fail before it reads its input (build check, admission,
+    // spawn); the extracted text file must not stay open behind it.
+    it.runIf(process.platform === 'linux')('leaves no open input file when the indexer fails before reading it', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-input-'));
+        fake.indexFailure = new Error('evb-pdf-search failed to start');
+        try {
+            await expect(buildSearchIndex({
+                indexPath: join(directory, 'index'),
+                documentRevision: 'revision',
+                async* readPages() {
+                    yield {
+                        pageNumber: 1,
+                        text: 'page',
+                    };
+                },
+            })).rejects.toThrow('evb-pdf-search failed to start');
+            const openFiles = await Promise.all((await readdir('/proc/self/fd')).map(fd => readlink(`/proc/self/fd/${fd}`).catch(() => '')));
+            expect(openFiles.filter(target => target.startsWith(directory))).toEqual([]);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it.each([
+        [
+            'a negative page count',
+            {pageCount: -1},
+        ],
+        [
+            'a negative written page count',
+            {pagesWritten: -1},
+        ],
+        [
+            'page 0 among the pages without text',
+            {missingTextPageSample: [0]},
+        ],
+    ])('refuses a coverage report with %s', async (_label, malformed) => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-coverage-'));
+        fake.indexCoverage = {
+            pageCount: 2,
+            pagesScanned: 2,
+            pagesWritten: 1,
+            truncated: false,
+            missingTextPageSample: [2],
+            ...malformed,
+        };
+        try {
+            await expect(buildSearchIndex({
+                indexPath: join(directory, 'index'),
+                documentRevision: 'revision',
+                async* readPages() {
+                    yield {
+                        pageNumber: 1,
+                        text: 'page',
+                    };
+                },
+            })).rejects.toThrow('evb-pdf-search index returned an invalid coverage report');
         } finally {
             await rm(directory, {
                 recursive: true,

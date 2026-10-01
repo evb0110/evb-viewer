@@ -5,7 +5,7 @@ import {
 } from '@contracts/search';
 import * as v from 'valibot';
 
-const safeInteger = v.pipe(v.number(), v.safeInteger());
+const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
 /**
  * The text budget of one document's index, in UTF-8 bytes of normalized page
@@ -42,11 +42,11 @@ export function encodeSearchIndexInputLine(line: TSearchIndexInputLine) {
  * index covers. `truncated` means the index ends before the document does.
  */
 export const SEARCH_INDEX_COVERAGE_SCHEMA = v.looseObject({
-    pageCount: safeInteger,
-    pagesScanned: safeInteger,
-    pagesWritten: safeInteger,
+    pageCount: count,
+    pagesScanned: count,
+    pagesWritten: count,
     truncated: v.boolean(),
-    missingTextPageSample: v.array(safeInteger),
+    missingTextPageSample: v.array(v.pipe(count, v.minValue(1))),
 });
 
 export type ISearchIndexCoverage = v.InferOutput<typeof SEARCH_INDEX_COVERAGE_SCHEMA>;

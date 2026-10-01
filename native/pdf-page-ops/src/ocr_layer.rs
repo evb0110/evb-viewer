@@ -416,7 +416,9 @@ pub(crate) struct OcrPageTextVisibility {
 struct PageTextInspection<'a> {
     input_path: &'a Path,
     qpdf_path: Option<&'a Path>,
-    visited: HashSet<ObjectId>,
+    /// Forms read so far, with the rendering mode each draw passed in: the
+    /// same form drawn under another mode shows its text differently.
+    visited: HashSet<(ObjectId, i64)>,
     decoded_bytes: usize,
     painted: bool,
     uncertain: Option<&'static str>,
@@ -449,7 +451,7 @@ impl PageTextInspection<'_> {
         if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Form") {
             return Ok(());
         }
-        if !self.visited.insert(form_id) {
+        if !self.visited.insert((form_id, mode)) {
             return Ok(());
         }
         if depth >= MAX_OCR_VISIBILITY_FORM_DEPTH {

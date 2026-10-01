@@ -101,7 +101,7 @@ const builds = new Map<string, IIndexBuild>();
  * build and its progress. A build is not tied to the search that started it,
  * so a newer query reuses it. Closing the working copy or shutting down stops it.
  * The page text is extracted into a file beside the index before the indexer
- * starts.
+ * starts, and opened only as the indexer reads it, so a failed start leaves no open file.
  */
 export function buildSearchIndex(
     document: ISearchIndexedDocument,
@@ -147,7 +147,7 @@ export function buildSearchIndex(
                 ], {
                     commandLabel: 'evb-pdf-search(index)',
                     signal,
-                    stdin: createReadStream(inputPath, {encoding: 'utf8'}),
+                    stdin: (async function* readInput() { yield* createReadStream(inputPath, {encoding: 'utf8'}); })(),
                 });
             } finally {
                 await rm(inputPath, {force: true});

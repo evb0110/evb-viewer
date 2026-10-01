@@ -3489,8 +3489,12 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(wholeWord.firstGroupPage).toBe('1');
     });
 
-    // #928 F5: the page highlights what the desktop index found for a regex.
-    it('highlights a regex match that needs a Unicode word character', async () => {
+    // #928 F5: the page highlights what the desktop index found for a regex,
+    // including a class that holds \W (PR #938 review).
+    it.each([
+        String.raw`caf\w`,
+        String.raw`caf[^\W\d]`,
+    ])('highlights a regex match that needs a Unicode word character: %s', async (query) => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-unicode-regex-${Date.now()}`,
@@ -3515,7 +3519,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
         await (await session.page.waitForSelector(`${sidebar} .document-search-bar button[aria-label="Use regular expression"]`))!.click();
         await (await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true}))!.click();
-        await session.page.keyboard.type(String.raw`caf\w`);
+        await session.page.keyboard.type(query);
         await session.page.keyboard.press('Enter');
         const result = await session.page.waitForSelector(`${sidebar} .document-search-result`, {
             visible: true,

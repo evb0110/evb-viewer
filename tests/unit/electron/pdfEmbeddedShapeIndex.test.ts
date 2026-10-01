@@ -273,6 +273,36 @@ describe('PDF embedded shape index main session', () => {
         await releasePdfEmbeddedShapeIndex(context, session.sessionId);
     });
 
+    // The writer always states its chunk size, at least one 64-byte JSON envelope.
+    it.each([
+        [
+            'without a chunk size',
+            undefined,
+        ],
+        [
+            'with a chunk size below one envelope',
+            63,
+        ],
+    ])('refuses a sidecar header %s', async (_label, chunkBytes) => {
+        const [
+            header,
+            ...chunks
+        ] = sidecarText.split('\n');
+        sidecarText = [
+            JSON.stringify({
+                ...JSON.parse(header!) as Record<string, unknown>,
+                chunkBytes,
+            }),
+            ...chunks,
+        ].join('\n');
+
+        await expect(beginPdfEmbeddedShapeIndex(
+            context,
+            requireDocumentRef('/tmp/document.pdf'),
+            {expectedDocumentRevisionToken: revisionToken},
+        )).rejects.toThrow('unsupported header');
+    });
+
     it('invalidates and cleans a sidecar when the source changes after native indexing', async () => {
         mocks.assertWorkingCopyRevisionCurrent
             .mockResolvedValueOnce(undefined)
