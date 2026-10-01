@@ -135,6 +135,16 @@ describe('managed scratch temp cleanup', () => {
         await expect(readdir(mocks.appTempDir)).resolves.toEqual(['aaa-unrelated']);
     });
 
+    it('keeps a managed scope whose native child may still be alive', async () => {
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        let retainedPath = '';
+        await expect(usingManagedScratchScope('pdfExport-', mocks.appTempDir, async (scratchPath) => {
+            retainedPath = scratchPath;
+            throw markUnprovenNativeTermination(new Error('native child timed out'), 'kill was not confirmed');
+        })).rejects.toThrow('native child timed out');
+        expect(existsSync(retainedPath)).toBe(true);
+    });
+
     it('removes a managed scope after success and failure', async () => {
         let successfulPath = '';
         await usingManagedScratchScope('pdfExport-', mocks.appTempDir, async scratchPath => { successfulPath = scratchPath; expect(existsSync(scratchPath)).toBe(true); });

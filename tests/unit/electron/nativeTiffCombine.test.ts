@@ -34,6 +34,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 }));
 
 const { tryCombinePagesWithNativeTiffCombiner } = await import('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner');
+const {
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} = await import('@electron/utils/nativeTerminationProof');
 
 describe('native TIFF combine wrapper', () => {
     let tempDir = '';
@@ -102,6 +106,7 @@ describe('native TIFF combine wrapper', () => {
             maxStderrBytes: 8192,
             defaultCwdToCommandDir: true,
             prependCommandDirToPath: true,
+            onTerminationProof: expect.any(Function),
         });
         expect(mocks.atomicReplace).toHaveBeenCalledWith(`${outputPath}.tmp`, outputPath);
     });
@@ -117,6 +122,38 @@ describe('native TIFF combine wrapper', () => {
 
         await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
+    it('keeps the pages, inputs and output, and starts no fallback, while the native child may be alive', async () => {
+        const inputPaths = [join(tempDir, 'page-001.tif')];
+        const outputPath = join(tempDir, 'combined.tiff');
+        await writeFile(outputPath, 'existing destination');
+        let settleProof!: (proven: boolean) => void;
+        let inputsFile = '';
+        mocks.runNativeCommand.mockImplementationOnce(async (_binaryPath: string, args: string[], options: {onTerminationProof: (proof: Promise<boolean>) => void;}) => {
+            inputsFile = args[args.indexOf('--inputs-file') + 1]!;
+            await writeFile(args[args.indexOf('--output') + 1]!, 'partial');
+            options.onTerminationProof(new Promise(resolve => {
+                settleProof = resolve;
+            }));
+            throw markUnprovenNativeTermination(new Error('evb-pdf-image-combine timed out'), 'process tree survived its kill');
+        });
+
+        const error = await tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, undefined, 300)
+            .then(() => null, (reason: unknown) => reason);
+
+        // The caller sees the uncertainty instead of a fallback signal.
+        expect(getUnprovenNativeTerminationDetail(error)).toBe('process tree survived its kill');
+        await expect(readFile(inputsFile, 'utf8')).resolves.toBe(`${inputPaths[0]}\n`);
+        await expect(readFile(`${outputPath}.tmp`, 'utf8')).resolves.toBe('partial');
+        await expect(readFile(outputPath, 'utf8')).resolves.toBe('existing destination');
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+
+        settleProof(true);
+        await vi.waitFor(async () => {
+            await expect(readFile(inputsFile, 'utf8')).rejects.toThrow();
+            await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
+        });
     });
 
     it('rejects when native output is missing in enabled test mode', async () => {
