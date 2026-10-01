@@ -165,7 +165,8 @@ export async function removeManagedScratchTempDir(
  * Runs `run` in a fresh managed scratch directory and removes it afterwards,
  * unless `run` failed while a native child it started may still be alive: the
  * child may still read or write there, so the directory stays for the stale
- * sweep.
+ * sweep. A failed removal also leaves it to the sweep instead of replacing the
+ * outcome of `run`.
  */
 export async function usingManagedScratchScope<T>(
     prefix: TManagedScratchPrefix,
@@ -180,13 +181,12 @@ export async function usingManagedScratchScope<T>(
         unprovenTermination = getUnprovenNativeTerminationDetail(error);
         throw error;
     } finally {
-        if (unprovenTermination === undefined) {
-            await rm(scratchPath, {
-                force: true,
-                recursive: true,
-            });
-        } else {
-            logger.warn(`Keeping managed scratch "${scratchPath}" until a native child is proven gone: ${unprovenTermination}`);
+        const keepReason = unprovenTermination ?? await rm(scratchPath, {
+            force: true,
+            recursive: true,
+        }).then(() => undefined, (error: unknown) => `removal failed: ${getErrorMessage(error)}`);
+        if (keepReason !== undefined) {
+            logger.warn(`Keeping managed scratch "${scratchPath}" for the stale sweep: ${keepReason}`);
         }
     }
 }

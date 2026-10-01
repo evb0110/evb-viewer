@@ -12,6 +12,7 @@ import {
     rmSync,
 } from 'fs';
 import {
+    chmod,
     lstat,
     mkdir,
     readFile,
@@ -152,5 +153,29 @@ describe('managed scratch temp cleanup', () => {
         let failedPath = '';
         await expect(usingManagedScratchScope('qpdfArgs-', mocks.appTempDir, async scratchPath => { failedPath = scratchPath; throw new Error('scope failed'); })).rejects.toThrow('scope failed');
         expect(existsSync(failedPath)).toBe(false);
+    });
+
+    // A read-only root makes the scratch directory impossible to remove, as a
+    // file held open on Windows does. Windows and root ignore that mode.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('keeps the scope outcome and leaves the scratch to the sweep when removal fails', async () => {
+        const rootPath = join(mocks.appTempDir, 'locked-root');
+        const runLocked = async <T>(run: () => T) => {
+            let retainedPath = '';
+            try {
+                return await usingManagedScratchScope('djvu-export-', rootPath, async (scratchPath) => {
+                    retainedPath = scratchPath;
+                    await chmod(rootPath, 0o555);
+                    return run();
+                });
+            } finally {
+                await chmod(rootPath, 0o755);
+                expect(existsSync(retainedPath)).toBe(true);
+                expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining(retainedPath));
+            }
+        };
+        await expect(runLocked(() => 'converted')).resolves.toBe('converted');
+        await expect(runLocked(() => {
+            throw new Error('conversion failed');
+        })).rejects.toThrow('conversion failed');
     });
 });
