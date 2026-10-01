@@ -196,7 +196,7 @@ describe('search index text budget', () => {
         ];
         const pulled: number[] = [];
         try {
-            const coverage = await buildSearchIndex({
+            await buildSearchIndex({
                 indexPath: join(directory, 'index'),
                 documentRevision: 'revision',
                 readPageCount: () => Promise.resolve(pageTexts.length),
@@ -214,7 +214,8 @@ describe('search index text budget', () => {
                 },
             });
 
-            expect(coverage.truncated).toBe(true);
+            // What the indexer makes of the report is its own contract
+            // (pdf-search a_page_over_the_budget_ends_the_index_as_truncated).
             expect(fake.indexLines.map(line => JSON.parse(line) as unknown)).toEqual([
                 {
                     pageNumber: 1,
