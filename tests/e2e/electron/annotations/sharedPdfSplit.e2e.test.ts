@@ -1237,7 +1237,10 @@ describe('shared PDF split', () => {
         // chosen as soon as the tab names the PDF, before its first page paints.
         await splitActiveTabFromTabMenu(page, 'right', SETTLE_TIMEOUT_MS, async () => {
             await page.evaluate(async (path: string) => {
-                const target = window as IE2EWindow & {__allowRendererFileOpenForAutomation?: (value: string) => Promise<void>};
+                const target = window as typeof globalThis & IE2EWindow & {
+                    __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+                    __openFileDirect?: (value: string) => Promise<boolean>;
+                };
                 await target.__allowRendererFileOpenForAutomation?.(path);
                 void target.__openFileDirect!(path);
             }, pdfPath);
