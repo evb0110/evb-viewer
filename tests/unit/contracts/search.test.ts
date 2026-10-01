@@ -266,6 +266,20 @@ describe('collapseRepeatedPdfSearchPageText', () => {
     });
 });
 
+// The PDF.js text items of one line of a generated #937 fixture: forty words
+// of nine `a`s in Courier, split by PDF.js where its spacing changed.
+const RECORDED_PDFJS_LINE_ITEMS = [
+    'aaaaaaaaa',
+    ' ',
+    Array(6).fill('aaaaaaaaa').join(' '),
+    ' ',
+    ...Array.from({length: 21}, () => [
+        'aaaaaaaaa',
+        ' ',
+    ]).flat(),
+    Array(12).fill('aaaaaaaaa').join(' '),
+];
+
 describe('assembleSearchablePageText', () => {
     it('joins adjacent PDF.js items with stable separators and line breaks', () => {
         const assembled = assembleSearchablePageText([
@@ -297,6 +311,30 @@ describe('assembleSearchablePageText', () => {
             ],
         });
         expect(assembled.sourceOffsets).toHaveLength(17);
+    });
+
+    it('assembles a page of 400 long lines without exhausting the stack', () => {
+        const items = Array.from({length: 400}, () => RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
+            text,
+            separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? 'line' as const : 'none' as const,
+        }))).flat();
+
+        const assembled = assembleSearchablePageText(items);
+
+        expect(assembled.sourceOffsets).toHaveLength(assembled.text.length);
+    });
+
+    it('keeps identical lines at different heights as separate text', () => {
+        const items = Array.from({length: 400}, (_line, line) => RECORDED_PDFJS_LINE_ITEMS.map((text, index) => ({
+            text,
+            separatorAfter: index === RECORDED_PDFJS_LINE_ITEMS.length - 1 ? 'line' as const : 'none' as const,
+            origin: {
+                x: 10 + index * 5,
+                y: 3180 - line * 20,
+            },
+        }))).flat();
+
+        expect(findPdfSearchMatches(assembleSearchablePageText(items).text, 'aaaaaaaaa')).toHaveLength(400 * 40);
     });
 
     it('preserves source Unicode offsets while joining line hyphenation', () => {
