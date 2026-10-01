@@ -1661,10 +1661,12 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, point);
         // Rows render from pages the pdf.js worker prepares. Pausing that worker
         // keeps the rows a jump reveals as placeholders until the press is
-        // down, and resuming it lands their rasters while it is held. Every
-        // wait is bounded far inside the test timeout, and one idempotent
-        // restore runs from finally and from onTestFinished, so no path leaves
-        // the shared session's worker paused or its button down.
+        // down, and resuming it lands their rasters while it is held. An idle
+        // worker stops only when the next request reaches it, so the press
+        // waits for that stop. Every wait is bounded far inside the test
+        // timeout, and one idempotent restore runs from finally and from
+        // onTestFinished, so no path leaves the shared session's worker paused
+        // or its button down.
         const worker = page.workers().find(candidate => candidate.url().includes('pdf.worker'));
         expect(worker, 'the pdf.js worker serves this document').toBeDefined();
         const workerDebugger = worker!.client;
@@ -1683,9 +1685,11 @@ describe('Electron E2E - Viewer Smoke', () => {
         };
         onTestFinished(restore);
         await workerDebugger.send('Debugger.enable');
+        const workerPaused = new Promise<true>(resolve => workerDebugger.once('Debugger.paused', () => resolve(true)));
         await workerDebugger.send('Debugger.pause');
         try {
             await page.mouse.wheel({deltaY: 9_000});
+            expect(await bounded(workerPaused), 'the pdf.js worker stops at a request').toBe(true);
             await waitForFunctionInPage(page, ({
                 x, y,
             }: {
