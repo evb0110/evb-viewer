@@ -543,6 +543,24 @@ describe('createElectronApi', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
+    it('exposes the startup host environment without an IPC round trip', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        const hostEnvironment = {
+            platform: 'win32',
+            osScaleFactor: 2,
+        } as const;
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+
+        expect(createElectronApi(ipcRenderer as never, { getPathForFile: () => '' }, {hostEnvironment}).startupHostEnvironment)
+            .toBe(hostEnvironment);
+        expect(createElectronApi(ipcRenderer as never, { getPathForFile: () => '' }).startupHostEnvironment).toBeNull();
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
     it('decodes settings debug-log events before invoking callbacks', async () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
         const {
