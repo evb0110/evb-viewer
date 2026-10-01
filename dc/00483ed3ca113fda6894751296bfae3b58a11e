@@ -1,0 +1,22 @@
+tests/unit/electron/searchNativeErrorMapping.test.ts
+  s_bf66933ca7b2e8::t_b9b08122e863af 3-4,29,59-61,121,250-267
+electron/features/search/searchIndex.ts
+  s_bf66933ca7b2e8::t_bc0d5b33e6c261 150
+  s_bf66933ca7b2e8::t_5216df3998faf8 104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dc00483ed3ca113fda6894751296bfae3b58a11e",
+  "prompts": {},
+  "sessions": {
+    "s_bf66933ca7b2e8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1aee7247-4302-4293-8cf4-f448bf70b654",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
