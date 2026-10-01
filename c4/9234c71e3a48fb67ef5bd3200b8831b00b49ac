@@ -1,0 +1,28 @@
+tests/unit/electron/nativeTiffCombine.test.ts
+  s_7a7f3638474d75::t_0dfac0f4175123 46,171-174
+  s_7a7f3638474d75::t_6d2f30d148ccbd 1,27-30,45,163-170
+electron/image/tryCreatePdfFromInputPathsNative.ts
+  s_7a7f3638474d75::t_6d2f30d148ccbd 33,445
+electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner.ts
+  s_7a7f3638474d75::t_349a6a8f13bf96 12,141
+electron/native-tools/createNativeFallbackTestError.ts
+  s_7a7f3638474d75::t_349a6a8f13bf96 1,4-9,16-18
+electron/native-tools/runNativeToolCommand.ts
+  s_7a7f3638474d75::t_349a6a8f13bf96 45-53,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c49234c71e3a48fb67ef5bd3200b8831b00b49ac",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
