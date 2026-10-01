@@ -18,6 +18,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
+import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openPdfInApp,
@@ -41,9 +42,10 @@ import {
 } from './largePdfAnnotationSaveShared';
 
 // Behavior contract T4. Split Right from a tab shows the same oversized PDF in
-// a second view: one working copy, shared edits and one save, and closing one
-// view keeps the document. New Pane plus a separate open of the same path stays
-// an independent document with its own working copy.
+// a second view: one working copy, one PDF.js document (one parse, one worker),
+// shared edits and one save, and closing one view keeps the document. New Pane
+// plus a separate open of the same path stays an independent document with its
+// own working copy.
 
 const LIFECYCLE_TIMEOUT_MS = 360_000;
 const SPLIT_VIEW_TIMEOUT_MS = 60_000;
@@ -120,6 +122,17 @@ async function waitForPaneTab(page: Page, paneId: string, label: string, expecte
     }
 }
 
+/** PDF.js documents the app opened since the render trace was enabled, and the PDF.js workers alive now. */
+async function readPdfjsDocumentLoads(page: Page) {
+    const opened = await page.evaluate(() => (
+        (window as Window & {__getPdfRenderTrace?: () => Array<{event: string}>}).__getPdfRenderTrace?.() ?? []
+    ).filter(entry => entry.event === 'pdf-document-get-document-submit').length);
+    return {
+        opened,
+        workers: page.workers().filter(worker => /pdf\.worker/u.test(worker.url())).length,
+    };
+}
+
 async function clickToolbarSave(page: Page) {
     const target = await page.waitForFunction(() => {
         const button = Array.from(document.querySelectorAll<HTMLButtonElement>('#editor-global-toolbar-host button[aria-label]'))
@@ -174,6 +187,7 @@ lifecycleDescribe('Electron E2E - Large PDF split-pane lifecycle', () => {
         copyFileSync(requireFixturePath(), documentPath);
         onTestFinished(() => rmSync(documentPath, {force: true}));
 
+        await enablePdfDiagnosticSession(page, {render: true});
         await openPdfInApp(page, documentPath, LIFECYCLE_TIMEOUT_MS);
         await waitForActivePdfReady(session);
         const [sourcePane] = await paneIds(page);
@@ -197,13 +211,18 @@ lifecycleDescribe('Electron E2E - Large PDF split-pane lifecycle', () => {
         expect(await getActiveWorkspaceWorkingCopyPath(page), 'a linked view uses the source working copy').toBe(sourceWorkingCopy);
         expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({totalPages: 2});
 
-        // Both views of the oversized document stay resident side by side.
+        // Both views of the oversized document stay resident side by side,
+        // over the one PDF.js document the source view opened.
         for (const paneId of [
             leftPane!,
             rightPane!,
         ]) {
             await waitForPaneTab(page, paneId, 'each view keeps a rendered page', {rendersPage: true});
         }
+        expect(await readPdfjsDocumentLoads(page), 'a linked view opens no second PDF.js document').toEqual({
+            opened: 1,
+            workers: 1,
+        });
 
         // An edit in the linked view saves into the one oversized working copy.
         // Shared rendering, undo, the single save and closing one view are
