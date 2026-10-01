@@ -75,7 +75,6 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
 const browserSearchWorkerClientMock = vi.hoisted(() => ({
     canUseBrowserSearchWorker: vi.fn(() => false),
     createBrowserSearchWorkerRequest: vi.fn(),
-    createBrowserSearchWorkerPageStreamRequest: vi.fn(),
     cancelBrowserSearchWorkerRequest: vi.fn(async () => {}),
     BrowserSearchWorkerUnavailableError: class BrowserSearchWorkerUnavailableError extends Error {},
     BrowserSearchWorkerTimeoutError: class BrowserSearchWorkerTimeoutError extends Error {},
@@ -110,12 +109,6 @@ vi.mock('@app/platform/browser-api/browserSearchWorkerClient', () => ({
                 nextOptions: unknown,
             ) => unknown
         )(type, payload, options),
-    createBrowserSearchWorkerPageStreamRequest: (payload: unknown) =>
-        (
-            browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest as (
-                nextPayload: unknown,
-            ) => unknown
-        )(payload),
     cancelBrowserSearchWorkerRequest: (requestId: unknown) =>
         (
             browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest as (
@@ -148,7 +141,6 @@ describe('createBrowserSearchCapability', () => {
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReset();
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(false);
         browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReset();
-        browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest.mockReset();
         browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockReset();
         browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockResolvedValue(undefined);
         pdfjsModule.getDocument.mockReset();
@@ -1145,57 +1137,20 @@ describe('createBrowserSearchCapability', () => {
         ]);
     });
 
-    it('warms the text index through the backpressured worker page stream', async () => {
+    // The search worker only matches text. Warming reads the document through
+    // the same prepared PDF.js loader as a search, whether or not a worker is
+    // available, and persists what it read.
+    it('warms the text index from the current PDF bytes even when the worker is available', async () => {
         browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest.mockReturnValue({
-            requestId: 41,
-            pages: (async function* () {
-                yield {
-                    pageNumber: 1,
-                    pageCount: 2_646,
-                    text: 'alpha',
-                };
-                yield {
-                    pageNumber: 2,
-                    pageCount: 2_646,
-                    text: '',
-                };
-            })(),
-            promise: Promise.resolve({pageCount: 2_646}),
-        });
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
-
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
-        const { capability } = createBrowserSearchCapability();
-
-        await expect(capability.warmIndex('/tmp/worker-stream.pdf')).resolves.toBe(true);
-
-        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest)
-            .toHaveBeenCalledWith({pdfPath: '/tmp/worker-stream.pdf'});
-        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
-        const database = requireFakeIndexedDbFactory()
-            .getDatabase('evb-browser-search-cache');
-        const record = requirePersistedRecord(
-            database?.getStoreRecords('document-text').get('/tmp/worker-stream.pdf'),
-        );
-        expect(record.pageCount).toBe(2_646);
-        expect(record.pages).toEqual([{
-            pageNumber: 1,
-            text: 'alpha',
-        }]);
-    });
-
-    it('falls back to direct warm-index extraction when the browser search worker is unavailable', async () => {
-        const getPage = vi.fn(async () => ({
-            getTextContent: vi.fn(async () => ({items: [{str: 'foo'}]})),
+        pdfjsModule.GlobalWorkerOptions.workerSrc = undefined;
+        const pageTexts = [
+            'alpha',
+            '',
+        ];
+        const getPage = vi.fn(async (pageNumber: number) => ({
+            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
             cleanup: vi.fn(async () => {}),
         }));
-        const WorkerUnavailableError = browserSearchWorkerClientMock.BrowserSearchWorkerUnavailableError;
-
-        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest.mockImplementation(() => {
-            throw new WorkerUnavailableError('worker unavailable');
-        });
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
             1,
@@ -1203,7 +1158,7 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
         pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
-            numPages: 1,
+            numPages: pageTexts.length,
             getPage,
             destroy: vi.fn(async () => {}),
         }) });
@@ -1211,29 +1166,20 @@ describe('createBrowserSearchCapability', () => {
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
 
-        await expect(capability.warmIndex('/tmp/test.pdf')).resolves.toBe(true);
-        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest).toHaveBeenCalledTimes(1);
-        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(1);
-    });
+        await expect(capability.warmIndex('/tmp/warm.pdf')).resolves.toBe(true);
 
-    it('surfaces browser search worker request failures without direct extraction fallback', async () => {
-        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
-        browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest.mockImplementation(() => ({
-            pages: (async function* () {})(),
-            requestId: 17,
-            promise: new Promise((_resolve, reject) => {
-                queueMicrotask(() => reject(new Error('worker crashed after request start')));
-            }),
-        }));
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
-
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
-        const { capability } = createBrowserSearchCapability();
-
-        await expect(capability.warmIndex('/tmp/test.pdf')).rejects.toThrow('worker crashed after request start');
-        expect(browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest).toHaveBeenCalledTimes(1);
-        expect(browserDocumentStoreMock.readRange).not.toHaveBeenCalled();
-        expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
+        const database = requireFakeIndexedDbFactory()
+            .getDatabase('evb-browser-search-cache');
+        const record = requirePersistedRecord(
+            database?.getStoreRecords('document-text').get('/tmp/warm.pdf'),
+        );
+        expect(record.pageCount).toBe(2);
+        expect(record.pages).toEqual([{
+            pageNumber: 1,
+            text: 'alpha',
+        }]);
+        // The loader prepared the PDF.js runtime before opening the document.
+        expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBeTruthy();
     });
 
     it('cancels active direct browser extraction when search is canceled', async () => {

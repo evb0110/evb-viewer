@@ -5,7 +5,6 @@ import type { TPdfjsTextOps } from '@pdf-core/pdfjsTextGeometry';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
-import { BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT } from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
 import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
 
 interface ILoadedBrowserSearchDocument {
@@ -19,15 +18,7 @@ interface ILoadedBrowserSearchDocument {
     destroy: () => Promise<void>;
 }
 
-interface IExtractBrowserSearchDocumentTextOptions {
-    onPageExtracted?: (pageNumber: number, pageCount: number) => Promise<void> | void;
-    shouldContinue?: () => Promise<boolean> | boolean;
-}
-
-interface IExtractedBrowserSearchDocumentText {
-    pageCount: number;
-    pageTexts: string[];
-}
+interface IExtractBrowserSearchDocumentTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
 
 export interface IExtractedBrowserSearchPage extends IBrowserSearchPageData {pageNumber: number;}
 
@@ -58,7 +49,7 @@ async function loadBrowserSearchDocument(
 async function extractBrowserSearchDocumentPage(
     document: ILoadedBrowserSearchDocument,
     pageNumber: number,
-    options: Pick<IExtractBrowserSearchDocumentTextOptions, 'shouldContinue'> = {},
+    options: IExtractBrowserSearchDocumentTextOptions = {},
 ): Promise<IExtractedBrowserSearchPage> {
     await throwIfBrowserSearchCanceled(options.shouldContinue);
     const page = await document.pdfDocument.getPage(pageNumber);
@@ -75,36 +66,6 @@ async function extractBrowserSearchDocumentPage(
     };
 }
 
-export async function extractBrowserSearchDocumentText(
-    pdfPath: string,
-    options: IExtractBrowserSearchDocumentTextOptions = {},
-): Promise<IExtractedBrowserSearchDocumentText> {
-    const document = await loadBrowserSearchDocument(pdfPath);
-    try {
-        validateBrowserSearchPageCount(document.pageCount);
-        await throwIfBrowserSearchCanceled(options.shouldContinue);
-        if (document.pageCount > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT) {
-            throw new Error('ERR_BROWSER_SEARCH_STREAM_REQUIRED');
-        }
-
-        const pageTexts = new Array<string>(document.pageCount);
-        for (let pageNumber = 1; pageNumber <= document.pageCount; pageNumber += 1) {
-            const page = await extractBrowserSearchDocumentPage(document, pageNumber, options);
-            pageTexts[page.pageNumber - 1] = page.text;
-            await options.onPageExtracted?.(page.pageNumber, document.pageCount);
-            await yieldToBrowser();
-            await throwIfBrowserSearchCanceled(options.shouldContinue);
-        }
-
-        return {
-            pageCount: document.pageCount,
-            pageTexts,
-        };
-    } finally {
-        await document.destroy();
-    }
-}
-
 /**
  * Extracts one page record per iterator step. The next PDF page is not read
  * until the caller asks for the next record, which gives large searches
@@ -112,7 +73,7 @@ export async function extractBrowserSearchDocumentText(
  */
 export async function* streamBrowserSearchDocumentPages(
     pdfPath: string,
-    options: Pick<IExtractBrowserSearchDocumentTextOptions, 'shouldContinue'> = {},
+    options: IExtractBrowserSearchDocumentTextOptions = {},
 ): AsyncGenerator<IBrowserSearchDocumentPageRecord, void, void> {
     const document = await loadBrowserSearchDocument(pdfPath);
     try {
@@ -136,7 +97,7 @@ export async function* streamBrowserSearchDocumentPages(
 export async function iterateBrowserSearchDocumentPages(
     pdfPath: string,
     onPage: (page: IExtractedBrowserSearchPage, pageCount: number) => Promise<void> | void,
-    options: Pick<IExtractBrowserSearchDocumentTextOptions, 'shouldContinue'> = {},
+    options: IExtractBrowserSearchDocumentTextOptions = {},
 ) {
     let pageCount = 0;
     for await (const page of streamBrowserSearchDocumentPages(pdfPath, options)) {

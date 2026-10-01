@@ -81,35 +81,16 @@ class FakeWorker {
         }
 
         queueMicrotask(() => {
-            if (request.type === 'cancel') {
-                this.dispatchMessage({
-                    id: request.id,
-                    type: request.type,
-                    ok: true,
-                    data: { canceled: true },
-                });
-                return;
-            }
-
-            this.dispatchMessage({
-                id: request.id,
-                type: request.type,
-                ok: true,
-                progress: {
-                    processed: 1,
-                    total: 2,
-                },
-            });
             this.dispatchMessage({
                 id: request.id,
                 type: request.type,
                 ok: true,
                 data: {
-                    pageCount: 2,
-                    pageTexts: [
-                        'alpha',
-                        'beta',
-                    ],
+                    matches: [{
+                        startOffset: 0,
+                        endOffset: 5,
+                    }],
+                    truncated: false,
                 },
             });
         });
@@ -148,176 +129,18 @@ describe('browserSearchWorkerClient', () => {
         vi.stubGlobal('Worker', FakeWorker);
     });
 
-    it('returns extracted page text and forwards progress updates', async () => {
-        const onProgress = vi.fn();
-        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
-
-        const workerRequest = createBrowserSearchWorkerRequest(
-            'extractDocumentText',
-            { pdfPath: '/tmp/test.pdf' },
-            { onProgress },
-        );
-        const result = await workerRequest.promise;
-
-        expect(workerRequest.requestId).toBeGreaterThan(0);
-        expect(result).toEqual({
-            pageCount: 2,
-            pageTexts: [
-                'alpha',
-                'beta',
-            ],
-        });
-        expect(onProgress).toHaveBeenCalledWith({
-            processed: 1,
-            total: 2,
-        });
-    });
-
-    it('accepts the legacy array response at the 1,024-page boundary', async () => {
-        const pageTexts = new Array<string>(1_024).fill('alpha');
-        FakeWorker.responder = (worker, request) => {
-            queueMicrotask(() => {
-                worker.dispatchMessage({
-                    id: request.id,
-                    type: request.type,
-                    ok: true,
-                    data: {
-                        pageCount: 1_024,
-                        pageTexts,
-                    },
-                });
-            });
+    function pageMatchRequest(text: string, query = 'alpha') {
+        return {
+            text,
+            query,
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: false,
+            },
+            maxMatches: 2,
         };
-        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
-
-        const result = await runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/1024.pdf'});
-
-        expect(result.pageCount).toBe(1_024);
-        expect(result.pageTexts).toHaveLength(1_024);
-        expect(result.pageTexts[1_023]).toBe('alpha');
-    });
-
-    it('rejects the legacy array response at 1,025 pages before copying it', async () => {
-        FakeWorker.responder = (worker, request) => {
-            queueMicrotask(() => {
-                worker.dispatchMessage({
-                    id: request.id,
-                    type: request.type,
-                    ok: true,
-                    data: {
-                        pageCount: 1_025,
-                        pageTexts: ['alpha'],
-                    },
-                });
-            });
-        };
-        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
-
-        await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/1025.pdf'}))
-            .rejects.toThrow('Browser search worker returned an invalid result');
-    });
-
-    it('backpressures streamed worker pages and acknowledges only consumed records', async () => {
-        FakeWorker.responder = () => {};
-        const {createBrowserSearchWorkerPageStreamRequest} =
-            await import('@app/platform/browser-api/browserSearchWorkerClient');
-        const streamRequest = createBrowserSearchWorkerPageStreamRequest({pdfPath: '/tmp/stream.pdf'});
-        const worker = FakeWorker.lastInstance;
-        if (!worker) {
-            throw new Error('Expected a browser search worker');
-        }
-        const iterator = streamRequest.pages[Symbol.asyncIterator]();
-
-        worker.dispatchMessage({
-            id: streamRequest.requestId,
-            type: 'streamDocumentText',
-            ok: true,
-            page: {
-                pageNumber: 1,
-                pageCount: 2,
-                text: 'alpha',
-            },
-        });
-        expect(worker.postMessageCalls).toHaveLength(1);
-
-        await expect(iterator.next()).resolves.toEqual({
-            done: false,
-            value: {
-                pageNumber: 1,
-                pageCount: 2,
-                text: 'alpha',
-            },
-        });
-        expect(worker.postMessageCalls).toHaveLength(2);
-        expect(worker.postMessageCalls[1]).toMatchObject({
-            type: 'acknowledgePage',
-            payload: {requestId: streamRequest.requestId},
-        });
-
-        worker.dispatchMessage({
-            id: streamRequest.requestId,
-            type: 'streamDocumentText',
-            ok: true,
-            page: {
-                pageNumber: 2,
-                pageCount: 2,
-                text: 'beta',
-            },
-        });
-        expect(worker.postMessageCalls).toHaveLength(2);
-
-        await expect(iterator.next()).resolves.toEqual({
-            done: false,
-            value: {
-                pageNumber: 2,
-                pageCount: 2,
-                text: 'beta',
-            },
-        });
-        expect(worker.postMessageCalls).toHaveLength(3);
-        expect(worker.postMessageCalls[2]).toMatchObject({
-            type: 'acknowledgePage',
-            payload: {requestId: streamRequest.requestId},
-        });
-
-        worker.dispatchMessage({
-            id: streamRequest.requestId,
-            type: 'streamDocumentText',
-            ok: true,
-            data: {pageCount: 2},
-        });
-        await expect(streamRequest.promise).resolves.toEqual({pageCount: 2});
-        await expect(iterator.next()).resolves.toEqual({
-            done: true,
-            value: undefined,
-        });
-    });
-
-    it('cancels a pending page stream without buffering later pages', async () => {
-        FakeWorker.responder = () => {};
-        const {
-            cancelBrowserSearchWorkerRequest,
-            createBrowserSearchWorkerPageStreamRequest,
-        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
-        const streamRequest = createBrowserSearchWorkerPageStreamRequest({pdfPath: '/tmp/canceled-stream.pdf'});
-        const worker = FakeWorker.lastInstance;
-        if (!worker) {
-            throw new Error('Expected a browser search worker');
-        }
-        const nextPage = streamRequest.pages[Symbol.asyncIterator]().next();
-        const streamFailure = expect(streamRequest.promise)
-            .rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-
-        cancelBrowserSearchWorkerRequest(streamRequest.requestId);
-
-        await expect(nextPage).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-        await streamFailure;
-        expect(worker.postMessageCalls).toHaveLength(2);
-        expect(worker.postMessageCalls[1]).toMatchObject({
-            type: 'cancel',
-            payload: {requestId: streamRequest.requestId},
-        });
-    });
+    }
 
     it('rejects a matching-id success response with invalid result data', async () => {
         FakeWorker.responder = (worker, request) => {
@@ -327,25 +150,25 @@ describe('browserSearchWorkerClient', () => {
                     type: request.type,
                     ok: true,
                     data: {
-                        pageCount: 1,
-                        pageTexts: [123],
+                        matches: [{
+                            startOffset: 5,
+                            endOffset: 5,
+                        }],
+                        truncated: false,
                     },
                 });
             });
         };
-        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
-        await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/test.pdf'}))
+        await expect(createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('alpha')).promise)
             .rejects.toThrow('Browser search worker returned an invalid result');
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
         FakeWorker.responder = () => {};
         const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
-        const request = createBrowserSearchWorkerRequest(
-            'extractDocumentText',
-            {pdfPath: '/tmp/failing.pdf'},
-        );
+        const request = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('failing'));
         const worker = FakeWorker.lastInstance;
         if (!worker) {
             throw new Error('Expected a browser search worker');
@@ -368,27 +191,6 @@ describe('browserSearchWorkerClient', () => {
             local: expect.objectContaining({source: 'browser-search-worker-parent'}),
         }));
         expect(error.failure).toBe(failureReceipt);
-        expect({failure: error.failure}.failure).toBe(failureReceipt);
-    });
-
-    it('rejects a million-page legacy array response before copying it', async () => {
-        FakeWorker.responder = (worker, request) => {
-            queueMicrotask(() => {
-                worker.dispatchMessage({
-                    id: request.id,
-                    type: request.type,
-                    ok: true,
-                    data: {
-                        pageCount: 1_000_000,
-                        pageTexts: [],
-                    },
-                });
-            });
-        };
-        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
-
-        await expect(runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/million.pdf'}))
-            .rejects.toThrow('Browser search worker returned an invalid result');
     });
 
     it('returns worker page matches and preserves the regex-limit error type', async () => {
@@ -417,9 +219,9 @@ describe('browserSearchWorkerClient', () => {
                 });
             });
         };
-        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
-        await expect(runBrowserSearchWorkerRequest('matchPageText', {
+        await expect(createBrowserSearchWorkerRequest('matchPageText', {
             text: '😀 needle',
             query: 'needle',
             options: {
@@ -428,7 +230,7 @@ describe('browserSearchWorkerClient', () => {
                 useRegex: true,
             },
             maxMatches: 2,
-        })).resolves.toEqual({
+        }).promise).resolves.toEqual({
             matches: [{
                 startOffset: 3,
                 endOffset: 9,
@@ -436,7 +238,7 @@ describe('browserSearchWorkerClient', () => {
             truncated: false,
         });
 
-        const failedRequest = runBrowserSearchWorkerRequest('matchPageText', {
+        const failedRequest = createBrowserSearchWorkerRequest('matchPageText', {
             text: 'aaaa',
             query: '(a+)+$',
             options: {
@@ -445,7 +247,7 @@ describe('browserSearchWorkerClient', () => {
                 useRegex: true,
             },
             maxMatches: 2,
-        });
+        }).promise;
         await expect(failedRequest).rejects.toMatchObject({
             name: 'SearchRegexLimitError',
             code: 'SEARCH_REGEX_LIMIT',
@@ -472,7 +274,7 @@ describe('browserSearchWorkerClient', () => {
             timeoutMs: 25,
             resetWorkerOnTimeout: true,
         });
-        const siblingRequest = createBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/sibling.pdf'});
+        const siblingRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('sibling'));
 
         const matchFailure = expect(matchRequest.promise)
             .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
@@ -486,7 +288,7 @@ describe('browserSearchWorkerClient', () => {
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
-    it('rejects the active job and sends a request-scoped worker cancel', async () => {
+    it('rejects a cancelled job and keeps the worker without messaging it', async () => {
         FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const {
@@ -494,24 +296,31 @@ describe('browserSearchWorkerClient', () => {
             cancelBrowserSearchWorkerRequest,
         } = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
-        const workerRequest = createBrowserSearchWorkerRequest(
-            'extractDocumentText',
-            { pdfPath: '/tmp/pending.pdf' },
-        );
+        const workerRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('pending'));
         const rejection = expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-        const terminateCallsBeforeCancel = terminateSpy.mock.calls.length;
 
         cancelBrowserSearchWorkerRequest(workerRequest.requestId);
         await rejection;
         expect(failureReporter.capture).not.toHaveBeenCalled();
+        expect(FakeWorker.lastInstance?.postMessageCalls).toHaveLength(1);
+        expect(terminateSpy).not.toHaveBeenCalled();
+    });
 
-        const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
-        expect(postMessages).toHaveLength(2);
-        expect(postMessages[1]).toMatchObject({
-            type: 'cancel',
-            payload: {requestId: workerRequest.requestId},
-        });
-        expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeCancel);
+    it('terminates the worker when a cancel asks to reset it', async () => {
+        FakeWorker.responder = () => {};
+        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
+        const {
+            createBrowserSearchWorkerRequest,
+            cancelBrowserSearchWorkerRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        const workerRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('long regex'));
+        const rejection = expect(workerRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
+
+        cancelBrowserSearchWorkerRequest(workerRequest.requestId, {resetWorker: true});
+        await rejection;
+        expect(terminateSpy).toHaveBeenCalledOnce();
+        expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
     it('ignores a late result from a canceled request before resolving its replacement', async () => {
@@ -590,41 +399,27 @@ describe('browserSearchWorkerClient', () => {
             cancelBrowserSearchWorkerRequest,
         } = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
-        const canceledRequest = createBrowserSearchWorkerRequest(
-            'extractDocumentText',
-            { pdfPath: '/tmp/canceled.pdf' },
-        );
-        const otherRequest = createBrowserSearchWorkerRequest(
-            'extractDocumentText',
-            { pdfPath: '/tmp/other.pdf' },
-        );
+        const canceledRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('canceled'));
+        const otherRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
         const canceledRejection = expect(canceledRequest.promise).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
-        const terminateCallsBeforeCancel = terminateSpy.mock.calls.length;
 
         cancelBrowserSearchWorkerRequest(canceledRequest.requestId);
 
         await canceledRejection;
         FakeWorker.lastInstance?.dispatchMessage({
             id: otherRequest.requestId,
-            type: 'extractDocumentText',
+            type: 'matchPageText',
             ok: true,
             data: {
-                pageCount: 1,
-                pageTexts: ['other'],
+                matches: [],
+                truncated: false,
             },
         });
         await expect(otherRequest.promise).resolves.toEqual({
-            pageCount: 1,
-            pageTexts: ['other'],
+            matches: [],
+            truncated: false,
         });
-
-        const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
-        expect(postMessages).toHaveLength(3);
-        expect(postMessages[2]).toMatchObject({
-            type: 'cancel',
-            payload: {requestId: canceledRequest.requestId},
-        });
-        expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeCancel);
+        expect(terminateSpy).not.toHaveBeenCalled();
     });
 
     it('does not create a worker when canceling an unknown request', async () => {
@@ -640,9 +435,9 @@ describe('browserSearchWorkerClient', () => {
     it('terminates the idle worker after the TTL elapses', async () => {
         vi.useFakeTimers();
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
-        const {runBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
 
-        await runBrowserSearchWorkerRequest('extractDocumentText', {pdfPath: '/tmp/test.pdf'});
+        await createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('alpha')).promise;
         vi.runAllTicks();
         const terminateCallsBeforeIdleTtl = terminateSpy.mock.calls.length;
 
