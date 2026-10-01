@@ -1622,6 +1622,61 @@ describe('PdfDocumentSession range loading', () => {
         await vi.waitFor(() => expect(documentCleanup).toHaveBeenCalledOnce());
     });
 
+    it('reclaims nothing of an inactive document while a save runs', async () => {
+        const pageCleanup = vi.fn();
+        const documentCleanup = vi.fn();
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 1,
+                getPage: vi.fn(async () => ({
+                    cleanup: pageCleanup,
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
+                cleanup: documentCleanup,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        const active = ref(true);
+        const isAnySaving = ref(false);
+        const documentState = createPdfDocumentSession({isAnySaving});
+        const invalidation = vi.fn(async () => undefined);
+        documentState.attachView({isActive: computed(() => active.value)})
+            .subscribe(transition => transition.phase === 'invalidated'
+                ? invalidation()
+                : undefined);
+        // Lets the deactivation finish its queued cleanup step. The same
+        // flush must reclaim once the save is over, below, so it is long enough.
+        const settleDeactivation = async (deactivations: number) => {
+            active.value = false;
+            await nextTick();
+            await vi.waitFor(() => expect(invalidation).toHaveBeenCalledTimes(deactivations));
+            for (let turn = 0; turn < 20; turn += 1) {
+                await Promise.resolve();
+            }
+        };
+
+        await documentState.loadPdf(new Blob([Uint8Array.of(1)]));
+        await documentState.getPage(requirePageNumber(1, 1));
+        isAnySaving.value = true;
+        await settleDeactivation(1);
+
+        expect(pageCleanup).not.toHaveBeenCalled();
+        expect(documentCleanup).not.toHaveBeenCalled();
+
+        isAnySaving.value = false;
+        active.value = true;
+        await nextTick();
+        await documentState.getPage(requirePageNumber(1, 1));
+        await settleDeactivation(2);
+
+        expect(pageCleanup).toHaveBeenCalled();
+        expect(documentCleanup).toHaveBeenCalledOnce();
+    });
+
     it('does not let deferred inactive cleanup reclaim a reactivated or replaced document', async () => {
         const cancellation = Promise.withResolvers<undefined>();
         const firstCleanup = vi.fn();
