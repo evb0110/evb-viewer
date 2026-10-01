@@ -190,6 +190,7 @@
     "overrides": {
       "@bomb.sh/tab>cac": "6.7.14",
       "@hono/node-server": "2.1.1",
+      "serialize-javascript": "7.1.2",
       "@xmldom/xmldom": "^0.8.15",
       "ajv>fast-uri": "3.1.8",
       "qs": "^6.16.0",
