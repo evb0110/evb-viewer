@@ -1,0 +1,26 @@
+electron/utils/managedScratchTemp.ts
+  s_7a7f3638474d75::t_f2ef56ac4720f3 18,169-174,181,184-186,188-195
+tests/unit/electron/managedScratchTemp.test.ts
+  s_7a7f3638474d75::t_0f3935278e8991 138-147
+tests/unit/electron/nativeTiffCombine.test.ts
+  s_7a7f3638474d75::t_c08a1899ac83e5 109
+  s_7a7f3638474d75::t_0f3935278e8991 37-40,127-156
+electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner.ts
+  s_7a7f3638474d75::t_f2ef56ac4720f3 19,56-66,71-73,92-94,96-103,125-127,148,153-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "54bca634ffa4bae6d66f3226f0672052d6eb63d1",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
