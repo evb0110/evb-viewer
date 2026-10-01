@@ -4,9 +4,14 @@ import { fileURLToPath } from 'node:url';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
-    pdfSearchResultSchema,
 } from '@contracts/search';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isStaleSearchIndexAnswer,
+    SEARCH_INDEX_COVERAGE_SCHEMA,
+    SEARCH_INDEX_RESPONSE_SCHEMA,
+    type ISearchIndexCoverage,
+    type ISearchIndexResponse,
+} from '@contracts/searchIndexWire';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
@@ -18,18 +23,6 @@ import {
 import * as v from 'valibot';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const safeInteger = v.pipe(v.number(), v.safeInteger());
-
-const searchIndexCoverageSchema = v.looseObject({
-    pageCount: safeInteger,
-    pagesScanned: safeInteger,
-    pagesWritten: safeInteger,
-    truncated: v.boolean(),
-    missingTextPageSample: v.array(safeInteger),
-});
-
-export type ISearchIndexCoverage = v.InferOutput<typeof searchIndexCoverageSchema>;
 
 /**
  * A document whose text is indexed for search. The index file is a derived
@@ -51,24 +44,6 @@ export interface ISearchQueryOptions {
     pages?: readonly number[];
     limit?: number;
 }
-
-// Search replies also expose coverage.pageCount at the response top level.
-const searchIndexResponseSchema = v.pipe(v.object({
-    results: v.array(pdfSearchResultSchema),
-    truncated: v.boolean(),
-    coverage: searchIndexCoverageSchema,
-}), v.transform(({
-    results,
-    truncated,
-    coverage,
-}) => ({
-    results,
-    truncated,
-    pageCount: coverage.pageCount,
-    coverage,
-})));
-
-export type ISearchIndexResponse = v.InferOutput<typeof searchIndexResponseSchema>;
 
 /**
  * Names how page text is extracted. Changing extraction changes this, so
@@ -101,10 +76,7 @@ function resolvePdfSearchBinary() {
 
 function parseOutput(stdout: string) {
     const value: unknown = JSON.parse(stdout);
-    if (isRecord(value) && value.stale === true) {
-        return null;
-    }
-    return value;
+    return isStaleSearchIndexAnswer(value) ? null : value;
 }
 
 interface IIndexBuild {
@@ -163,7 +135,7 @@ export function buildSearchIndex(
                 }
             }),
         })).then((result) => {
-            const parsed = v.safeParse(searchIndexCoverageSchema, parseOutput(result.stdout), {abortEarly: true});
+            const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, parseOutput(result.stdout), {abortEarly: true});
             if (!parsed.success) {
                 throw new Error('evb-pdf-search index returned an invalid coverage report');
             }
@@ -261,7 +233,7 @@ export async function searchIndexedDocument(
         await awaitWithSignal(buildSearchIndex(document, context.onIndexProgress), context.signal);
         response = await runIndexQuery('search', args, context.signal);
     }
-    const parsed = v.safeParse(searchIndexResponseSchema, response, {abortEarly: true});
+    const parsed = v.safeParse(SEARCH_INDEX_RESPONSE_SCHEMA, response, {abortEarly: true});
     if (!parsed.success) {
         throw new Error('evb-pdf-search returned an invalid search response');
     }
@@ -282,7 +254,7 @@ export async function ensureSearchIndex(
         '--document-revision',
         indexRevision(document),
     ], context.signal);
-    const parsed = v.safeParse(searchIndexCoverageSchema, coverage, {abortEarly: true});
+    const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, coverage, {abortEarly: true});
     if (parsed.success) {
         return parsed.output;
     }
