@@ -64,6 +64,8 @@ describe('DjVu conversion scratch', () => {
     const quitRoot = join(suiteRoot, 'quit');
     const scratchEnv = (tempRoot: string) => ({
         TMPDIR: tempRoot,
+        TMP: tempRoot,
+        TEMP: tempRoot,
         EVB_E2E_SAVE_DIALOG_PATH: join(tempRoot, 'converted.pdf'),
         EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
     });
