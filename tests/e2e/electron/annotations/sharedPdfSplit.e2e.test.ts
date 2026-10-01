@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type {
     JSHandle,
@@ -7,6 +8,7 @@ import type {
 import {
     afterEach, describe, expect, it,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     createMultiPageTextFixturePdf,
     createOutlinePageLabelFixturePdf,
@@ -39,6 +41,7 @@ import {
     waitForAutomationEvent,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 
 // Issue #845, owner-approved design R5: Split shows one document in two views.
 // The views share annotations, undo, dirty state and save; each keeps its own
@@ -49,6 +52,7 @@ import {
 
 const TIMEOUT_MS = 240_000;
 const SETTLE_TIMEOUT_MS = 20_000;
+const PAINTED_FIRST_PAGE = '#pdf-viewer .page_container[data-page="1"] canvas';
 // Behavior contract R3: the anchor stays put within device-pixel rounding.
 const ANCHOR_TOLERANCE_PX = 1;
 
@@ -1216,5 +1220,52 @@ describe('shared PDF split', () => {
         await waitForPaneView(page, leftPane!, 'the left view keeps the edit and stays dirty', view => (
             containsAll(view.renderedTexts, [edit]) && view.tabDirty
         ));
+    }, TIMEOUT_MS);
+
+    // Issue #932: Split from the tab menu while the tab's PDF is still opening
+    // shows that PDF in the new pane once it opens, not an empty New Tab.
+    it('links the new view to a PDF that is still opening when the tab is split', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-opening-${stamp}.pdf`, 3);
+        const documentRef = requireDocumentRef(pdfPath);
+        const fileName = basename(pdfPath);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-opening-${stamp}`, {clean: true});
+        const {page} = session;
+        await page.waitForFunction(() => typeof window.__deferDocumentOpenForAutomation === 'function', {timeout: 60_000});
+        // The open is held before the working copy exists, as a slow disk holds
+        // it, so the tab stays in its opening state until the split is made.
+        expect(await page.evaluate(path => window.__deferDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
+        void page.evaluate(async (path: string) => {
+            const target = window as typeof globalThis & IE2EWindow & {
+                __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+                __openFileDirect?: (value: string) => Promise<boolean>;
+            };
+            await target.__allowRendererFileOpenForAutomation?.(path);
+            await target.__openFileDirect?.(path);
+        }, pdfPath).catch(() => undefined);
+        // The tab names the file and shows the page shape read from the source
+        // file; the rest of the open waits for the hold.
+        await page.waitForFunction((name: string) => (
+            document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
+            && Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
+            )).some(skeleton => skeleton.getBoundingClientRect().width > 0)
+        ), {timeout: SETTLE_TIMEOUT_MS}, fileName);
+
+        await splitActiveTabFromTabMenu(page, 'right', SETTLE_TIMEOUT_MS);
+        // The split was chosen before the source view painted a page.
+        expect(await page.$$eval(PAINTED_FIRST_PAGE, canvases => canvases.length)).toBe(0);
+        expect(await page.evaluate(path => window.__releaseDocumentOpenForAutomation?.(path) ?? false, documentRef)).toBe(true);
+
+        const [
+            leftPane,
+            rightPane,
+        ] = await paneIds(page);
+        const paintedPageSelector = (paneId: string) => `${paneSelector(paneId)} ${PAINTED_FIRST_PAGE}`;
+        await page.waitForSelector(paintedPageSelector(leftPane!), {timeout: 60_000});
+        await waitForPaneView(page, rightPane!, 'Split Right must show the PDF that was opening', view => (
+            !view.showsStart && view.tabLabel === fileName && view.centerPage === 1
+        ));
+        await page.waitForSelector(paintedPageSelector(rightPane!), {timeout: SETTLE_TIMEOUT_MS});
     }, TIMEOUT_MS);
 });
