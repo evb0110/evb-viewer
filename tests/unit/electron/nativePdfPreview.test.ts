@@ -133,6 +133,20 @@ describe('PDF page-shape store', () => {
         expect(read).toHaveBeenCalledTimes(1);
     });
 
+    it('evicts the file read longest ago, not the one answered most', async () => {
+        const hot = '/books/hot.pdf';
+        await answerPdfPageShape(hot, revision, async () => shapeAt(revision, 612));
+        for (let index = 0; index < 255; index += 1) {
+            await answerPdfPageShape(`/books/fill-${String(index)}.pdf`, revision, async () => shapeAt(revision, 612));
+        }
+        await answerPdfPageShape(hot, revision, async () => shapeAt(revision, 700));
+        await answerPdfPageShape('/books/one-more.pdf', revision, async () => shapeAt(revision, 612));
+        const reread = vi.fn(async () => shapeAt(revision, 800));
+
+        await expect(answerPdfPageShape(hot, revision, reread)).resolves.toMatchObject({width: 612});
+        expect(reread).not.toHaveBeenCalled();
+    });
+
     it.each([
         [
             'size',

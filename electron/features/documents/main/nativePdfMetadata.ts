@@ -506,6 +506,8 @@ export async function answerPdfPageShape(
 ): Promise<IPdfOpeningGeometry | null> {
     const known = pageShapes.get(path);
     if (known?.size === revision.size && known.modifiedAt === revision.modifiedAt) {
+        pageShapes.delete(path);
+        pageShapes.set(path, known);
         return known;
     }
     const shape = await read();
