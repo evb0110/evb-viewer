@@ -1130,9 +1130,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     function scheduleLoad(isReload = false) {
         // The lifecycle queue may still be waiting for an older load. Cancel
-        // its pre-submit work before the replacement joins that queue.
+        // its pre-submit work before the replacement joins that queue; only
+        // the latest scheduled load runs, so views mounting together open the
+        // document once.
         sourceLoader.cancelPendingOpen();
-        const activeScheduledLoadToken = scheduledLoadToken;
+        const activeScheduledLoadToken = ++scheduledLoadToken;
         runGuardedTask(() => enqueueLifecycleOperation(async () => {
             if (activeScheduledLoadToken !== scheduledLoadToken) {
                 return;
@@ -1829,7 +1831,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (views.value.size === 0) {
                 releaseDocument();
             } else if (!isAnyViewActive()) {
-                cleanupInactiveDocumentCaches(pdfDocument.value, residencyTransitionGeneration);
+                // Behind any deactivation of the remaining views still cancelling its work.
+                const document = pdfDocument.value;
+                const transitionGeneration = residencyTransitionGeneration;
+                runGuardedTask(() => enqueueLifecycleOperation(
+                    () => cleanupInactiveDocumentCaches(document, transitionGeneration),
+                ), {
+                    category: 'user-visible-operation',
+                    scope: 'pdf-viewer',
+                    message: 'Failed to reclaim PDF document caches',
+                });
             }
         }
 

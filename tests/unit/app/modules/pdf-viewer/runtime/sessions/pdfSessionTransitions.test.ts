@@ -906,3 +906,61 @@ describe('PdfDocumentSession linked views', () => {
         await vi.waitFor(() => expect(document.destroy).toHaveBeenCalledOnce());
     });
 });
+
+describe('PdfDocumentSession residency across views', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.stubGlobal('URL', {
+            ...URL,
+            createObjectURL: () => 'blob:pdf',
+            revokeObjectURL: () => undefined,
+        });
+    });
+
+    it('opens the PDF once when two views ask for it before it loads', async () => {
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(createDocumentProxy('shared')),
+            destroy: vi.fn(),
+        });
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        const left = session.attachView();
+        const right = session.attachView();
+
+        left.present();
+        right.present();
+        await vi.waitFor(() => expect(session.pdfDocument.value).not.toBeNull());
+        await left.waitForLoadSettled();
+        await right.waitForLoadSettled();
+
+        expect(pdfjsState.getDocument).toHaveBeenCalledOnce();
+        await session.dispose();
+    });
+
+    it('reclaims caches when the last active view leaves only after the other views have cancelled their work', async () => {
+        const document = createDocumentProxy('shared');
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve(document),
+            destroy: vi.fn(),
+        });
+        const cancellation = Promise.withResolvers<undefined>();
+        const rightActive = ref(true);
+        const session = createPdfDocumentSession({src: computed(() => new Blob(['pdf'], {type: 'application/pdf'}) as never)});
+        const left = session.attachView();
+        const invalidation = vi.fn(() => cancellation.promise);
+        session.attachView({isActive: computed(() => rightActive.value)})
+            .subscribe(transition => transition.phase === 'invalidated'
+                ? invalidation()
+                : undefined);
+        await session.load();
+
+        rightActive.value = false;
+        await vi.waitFor(() => expect(invalidation).toHaveBeenCalledOnce());
+        await left.dispose();
+        await Promise.resolve();
+        expect(document.cleanup).not.toHaveBeenCalled();
+
+        cancellation.resolve(undefined);
+        await vi.waitFor(() => expect(document.cleanup).toHaveBeenCalled());
+        await session.dispose();
+    });
+});
