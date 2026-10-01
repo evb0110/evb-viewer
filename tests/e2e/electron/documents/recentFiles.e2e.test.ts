@@ -664,7 +664,7 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens a Recent file read before to its page-shaped skeleton in the first frame, before the working copy is made', async () => {
+    it('opens a previously read Recent file to its page-shaped skeleton in the first frame, before the working copy is made', async () => {
         const session = sessionFixture.getSession();
 
         const fixturePath = await createScannedTextFixturePdf(

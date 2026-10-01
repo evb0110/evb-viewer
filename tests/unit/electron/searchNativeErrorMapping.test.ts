@@ -284,6 +284,21 @@ describe('search index text budget', () => {
             {pagesWritten: -1},
         ],
         [
+            'more pages written than scanned',
+            {pagesWritten: 3},
+        ],
+        [
+            'more pages scanned than the document has',
+            {pagesScanned: 3},
+        ],
+        [
+            'a page without text beyond the pages scanned',
+            {
+                pagesScanned: 1,
+                missingTextPageSample: [2],
+            },
+        ],
+        [
             'page 0 among the pages without text',
             {missingTextPageSample: [0]},
         ],

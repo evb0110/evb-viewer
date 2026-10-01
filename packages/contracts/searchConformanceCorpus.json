@@ -6,7 +6,7 @@
     "matching": "Default matching is Unicode-aware, case-insensitive literal matching. wholeWord adds letter/number/underscore boundaries. Regex cases use the guarded PDF search regex validator.",
     "excerpt": "Excerpts use a UTF-16 code unit context window. Only the before and after text collapse JavaScript whitespace runs to one space, then trim the outer edge nearest the excerpt boundary.",
     "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist.",
-    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b and \\B the boundaries of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator."
+    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b a boundary and \\B a non-boundary of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator."
   },
   "cases": [
     {

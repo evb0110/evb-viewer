@@ -1251,7 +1251,10 @@ describe('shared PDF split', () => {
                 document.querySelector('.editor-pane.is-active .tab.is-active[data-tab-id] .tab-label')?.textContent?.trim() === name
                 && Array.from(document.querySelectorAll<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
-                )).some(skeleton => skeleton.getBoundingClientRect().width > 0)
+                )).some((skeleton) => {
+                    const rect = skeleton.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
+                })
             ), {timeout: SETTLE_TIMEOUT_MS}, fileName).then(() => 'held', (error: unknown) => `no opening skeleton: ${String(error)}`),
             opened.then(result => `open settled while held: ${String(result)}`, (error: unknown) => `open failed: ${String(error)}`),
         ]);

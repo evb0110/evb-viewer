@@ -120,6 +120,20 @@ describe('progress event payload schemas', () => {
     });
 
     it.each([
+        [{processed: Infinity}],
+        [{total: -1}],
+        [{percent: 101}],
+        [{percent: -1}],
+        [{elapsedMs: Infinity}],
+        [{estimatedRemainingMs: Infinity}],
+    ])('rejects an image combiner progress line with %j', (bad) => {
+        expect(v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
+            ...combineLine,
+            ...bad,
+        }).success).toBe(false);
+    });
+
+    it.each([
         '90',
         true,
         {ms: 90},
