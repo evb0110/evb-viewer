@@ -17,7 +17,10 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {
     createHash,
     randomUUID,
@@ -282,7 +285,10 @@ export function parsePrivateDeployOptions(rawArgs = []) {
     };
 }
 
-export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {prebuilt = false} = {}) {
+export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {
+    appVersion,
+    prebuilt = false,
+} = {}) {
     const deployArgs = [...rawArgs];
     const hasArchive = deployArgs.some(arg => arg === '--archive' || arg.startsWith('--archive='));
     const hasYes = deployArgs.includes('--yes') || deployArgs.includes('-y');
@@ -293,19 +299,62 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {prebuilt = fal
         ...(hasYes ? [] : ['--yes']),
         ...(prebuilt || hasArchive ? [] : ['--archive=tgz']),
         ...(prebuilt ? ['--prebuilt'] : []),
+        ...(appVersion && !prebuilt ? [
+            '--build-env',
+            `EVB_APP_VERSION=${appVersion}`,
+        ] : []),
         ...deployArgs,
     ];
 }
 
-function getViewerBuildEnvironment(env, isProduction) {
+// The viewer deploys from main between releases, and only release builds stamp
+// package.json, so the deployed commit names its own version: the newest
+// release tag, plus the commit when the deploy is past that tag. The About page
+// and the Sentry release read it (EVB_APP_VERSION in nuxt.config.ts).
+export function resolveViewerAppVersion(projectRoot) {
+    let description;
+    try {
+        description = execFileSync('git', [
+            'describe',
+            '--tags',
+            '--match',
+            'v[0-9]*',
+            // Releases are vMAJOR.MINOR.PATCH (release.yml); skip any other v* tag.
+            '--exclude',
+            'v*-*',
+            '--long',
+            '--abbrev=12',
+            'HEAD',
+        ], {
+            cwd: projectRoot,
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        }).trim();
+    } catch (error) {
+        throw new Error('Cannot name the viewer version: no release tag reaches HEAD. Fetch tags and retry.', {cause: error});
+    }
+    const parts = description.match(/^v(?<version>\d+\.\d+\.\d+)-(?<commitsSinceTag>\d+)-g(?<commit>[0-9a-f]+)$/u)?.groups;
+    if (!parts) {
+        throw new Error(`Cannot name the viewer version from release tag description ${description}.`);
+    }
+    return parts.commitsSinceTag === '0' ? parts.version : `${parts.version}+${parts.commit}`;
+}
+
+function getViewerBuildEnvironment(env, isProduction, appVersion) {
     return {
         ...env,
+        EVB_APP_VERSION: appVersion,
         VERCEL: '1',
         VERCEL_ENV: isProduction ? 'production' : 'preview',
     };
 }
 
 function runViewerPrebuiltBuild({
+    appVersion,
     env,
     isProduction,
     projectRoot,
@@ -323,7 +372,7 @@ function runViewerPrebuiltBuild({
         'build',
     ], {
         cwd: projectRoot,
-        env: getViewerBuildEnvironment(env, isProduction),
+        env: getViewerBuildEnvironment(env, isProduction, appVersion),
         shell: false,
         stdio: 'inherit',
     });
@@ -634,8 +683,10 @@ export async function runPrivateVercelDeploy({
     }
     const prebuilt = explicitPrebuilt || reportsToSentry;
     const isProduction = deployArgs.includes('--prod');
+    const appVersion = deployTarget === 'viewer' ? resolveViewerAppVersion(projectRoot) : undefined;
     if (reportsToSentry) {
         runViewerPrebuiltBuild({
+            appVersion,
             env,
             isProduction,
             projectRoot,
@@ -647,7 +698,10 @@ export async function runPrivateVercelDeploy({
         prebuilt,
         projectRoot,
     });
-    const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs, {prebuilt});
+    const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs, {
+        appVersion,
+        prebuilt,
+    });
     let releaseProductionDeployLock = async () => undefined;
 
     try {

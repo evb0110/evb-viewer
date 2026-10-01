@@ -2,8 +2,6 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {readFileSync} from 'node:fs';
-import { resolve } from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -69,7 +67,6 @@ const NuxtLinkStub = defineComponent({
 });
 const IconStub = defineComponent({setup: () => () => h('span', {'aria-hidden': 'true'})});
 const activeUnmounts = new Set<() => void>();
-const projectRoot = process.cwd();
 
 function mountPage() {
     const host = document.createElement('div');
@@ -87,8 +84,11 @@ function mountPage() {
     return host;
 }
 
+const APP_VERSION = '1.2.3+0123456789ab';
+
 beforeEach(() => {
     vi.stubGlobal('useHead', vi.fn());
+    vi.stubGlobal('useRuntimeConfig', () => ({public: {appVersion: APP_VERSION}}));
 });
 
 afterEach(() => {
@@ -105,12 +105,11 @@ describe('About and Acknowledgements page', () => {
         const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);
         const host = mountPage();
-        const packageVersion = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as {version: string};
         const image = host.querySelector<HTMLImageElement>('.about-sentry-wordmark');
         const externalLinks = [...host.querySelectorAll<HTMLAnchorElement>('a[target="_blank"]')];
 
         expect(host.querySelector('h1')?.textContent).toBe('About EVB Viewer');
-        expect(host.textContent).toContain(`Version ${packageVersion.version}`);
+        expect(host.textContent).toContain(`Version ${APP_VERSION}`);
         expect(host.textContent).toContain('Thank you to Sentry for supporting EVB Viewer');
         expect(host.textContent).toContain('does not contact Sentry');
         expect(host.textContent).toContain('Error diagnostics are controlled separately');

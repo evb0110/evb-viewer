@@ -19,6 +19,11 @@ issue, or a report.
 - The hosted browser build loads `@sentry/browser` on the same consent, with
   `SENTRY_BROWSER_DSN` from the Vercel build environment. The web service sends
   no server-side reports.
+- Desktop events carry the release `evb-viewer-desktop@<tag version>`. Hosted
+  events carry `evb-viewer-web@<version>`, where `pnpm run deploy:web` names
+  the version after the newest release tag and appends the commit when the
+  deployed revision is past that tag (`0.1.471+003e344624b7`). The About page
+  shows the same version.
 - Every client uses the one scrubber in
   `packages/contracts/diagnostics/scrubSentryEvent.ts` as `beforeSend`. It keeps
   an allowlist of event fields, reduces frames to app-relative paths, removes

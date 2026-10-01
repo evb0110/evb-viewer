@@ -37,7 +37,7 @@
 ## Local Verification
 
 - `pnpm build`
-- `vercel build`
+- `EVB_APP_VERSION=<version> vercel build` (a hosted build refuses to start without the version that `pnpm run deploy:web` otherwise names from the release tag)
 - `pnpm run deploy:web:prod`
 
 ## Analytics
