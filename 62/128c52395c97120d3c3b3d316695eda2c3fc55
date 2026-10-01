@@ -1,0 +1,19 @@
+tests/e2e/electron/annotations/squigglyMarkup.e2e.test.ts
+  s_cd28651d225b77::t_bc051bfdc49f38 551-553
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "62128c52395c97120d3c3b3d316695eda2c3fc55",
+  "prompts": {},
+  "sessions": {
+    "s_cd28651d225b77": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7f4686de-fe3c-46d0-9545-57a9d5cfd12c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
