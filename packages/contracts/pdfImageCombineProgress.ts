@@ -6,11 +6,11 @@ import * as v from 'valibot';
  */
 export const PDF_IMAGE_COMBINE_PROGRESS_SCHEMA = v.pipe(v.object({
     type: v.literal('progress'),
-    processed: v.number(),
-    total: v.number(),
-    percent: v.number(),
-    elapsedMs: v.number(),
-    estimatedRemainingMs: v.optional(v.number()),
+    processed: v.pipe(v.number(), v.finite(), v.minValue(0)),
+    total: v.pipe(v.number(), v.finite(), v.minValue(0)),
+    percent: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(100)),
+    elapsedMs: v.pipe(v.number(), v.finite(), v.minValue(0)),
+    estimatedRemainingMs: v.optional(v.pipe(v.number(), v.finite(), v.minValue(0))),
 }), v.transform(({
     processed,
     total,
