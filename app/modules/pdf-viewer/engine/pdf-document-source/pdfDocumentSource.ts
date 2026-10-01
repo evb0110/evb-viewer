@@ -33,13 +33,11 @@ type TPdfSource = Blob | {
 export interface IPdfDocument {
     readonly numPages: number;
     readonly loadingTask: IPdfLoadingTask;
-    readonly annotationStorage: unknown;
     getPage(pageNumber: number): Promise<IPdfPage>;
     getPageLabels(): Promise<string[] | null>;
     getOutline(): Promise<unknown[] | null>;
     getDestination(destination: string): Promise<unknown[] | null>;
     getPageIndex(pageRef: IPdfRef): Promise<number>;
-    saveDocument(): Promise<Uint8Array>;
     cleanup(): Promise<void>;
 }
 
