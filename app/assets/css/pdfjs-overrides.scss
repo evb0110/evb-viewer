@@ -386,16 +386,3 @@
         mask-image: var(--editor-toolbar-highlight-image) !important;
     }
 }
-
-/* Lock cursor to resize direction during FreeText corner resize drag.
-   Without this, the cursor reverts when the pointer leaves the editor
-   (PDF.js disables pointer-events on the layer during resize). */
-html.pdf-resizing-nwse,
-html.pdf-resizing-nwse * {
-    cursor: nwse-resize !important;
-}
-
-html.pdf-resizing-nesw,
-html.pdf-resizing-nesw * {
-    cursor: nesw-resize !important;
-}

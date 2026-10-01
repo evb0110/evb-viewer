@@ -3531,6 +3531,41 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(highlighted, 'the match the results list shows is highlighted on the page').toBe(true);
     });
 
+    // #937: a page of thousands of text items gets its selectable text layer.
+    it('builds the text layer of a page with thousands of text items', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-dense-text-layer-${Date.now()}`,
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Courier);
+        const page = pdf.addPage([
+            2400,
+            3200,
+        ]);
+        for (let line = 0; line < 60; line += 1) {
+            page.drawText(`${'aaaaaaaaa '.repeat(40)}${line}`, {
+                font,
+                size: 6,
+                x: 10,
+                y: 3180 - line * 20,
+            });
+        }
+        const fixturePath = createFixturePath(`viewer-dense-text-layer-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        const openedAt = Date.now();
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        // The renderer drops a text layer that takes longer than its 15 s
+        // stage limit, so a layer that is never ready is the failure.
+        const ready = await waitForFunctionInPage(session.page, () => (
+            document.querySelector('.editor-pane.is-active .page_container[data-page="1"] .textLayer[data-pdf-text-layer-ready="true"]') !== null
+        ), {timeout: 20_000}).then(() => true, () => false);
+        console.info(`[iss937] dense text layer ready=${String(ready)} after ${String(Date.now() - openedAt)} ms`);
+        expect(ready, 'the dense page has a selectable text layer').toBe(true);
+    });
+
     it('finds text set in a non-embedded CJK font on a later page', async () => {
         let session = sessionFixture.getSession();
 
