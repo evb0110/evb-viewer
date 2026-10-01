@@ -1,4 +1,9 @@
-import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import {
+    mkdir,
+    rm,
+} from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -6,7 +11,6 @@ import {
     SEARCH_RESULT_LIMIT,
 } from '@contracts/search';
 import {
-    encodeSearchIndexInputLine,
     isStaleSearchIndexAnswer,
     SEARCH_INDEX_COVERAGE_SCHEMA,
     SEARCH_INDEX_RESPONSE_SCHEMA,
@@ -18,6 +22,7 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type { IPageText } from '@electron/features/search/pageText';
+import { writeSearchIndexInput } from '@electron/features/search/writeSearchIndexInput';
 import {
     getWorkingCopyDerivedPath,
     isWorkingCopyDocumentPath,
@@ -92,37 +97,11 @@ interface IIndexBuild {
 const builds = new Map<string, IIndexBuild>();
 
 /**
- * The index input of a page stream, within the index text budget. The first
- * page over it is reported instead of sent and ends the input, which stops
- * extraction there; the index then reports itself truncated at that page.
- */
-async function* toIndexInputLines(pages: AsyncIterable<IPageText>, onPage: (pageNumber: number) => void) {
-    let totalBytes = 0;
-    for await (const page of pages) {
-        const textBytes = Buffer.byteLength(page.text);
-        totalBytes += textBytes;
-        if (
-            textBytes > SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes
-            || totalBytes > SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes
-        ) {
-            yield encodeSearchIndexInputLine({
-                pageNumber: page.pageNumber,
-                overBudget: true,
-            });
-            return;
-        }
-        onPage(page.pageNumber);
-        yield encodeSearchIndexInputLine({
-            pageNumber: page.pageNumber,
-            text: page.text,
-        });
-    }
-}
-
-/**
  * Builds the document's index once per revision; concurrent callers share the
  * build and its progress. A build is not tied to the search that started it,
  * so a newer query reuses it. Closing the working copy or shutting down stops it.
+ * The page text is extracted into a file beside the index before the indexer
+ * starts.
  */
 export function buildSearchIndex(
     document: ISearchIndexedDocument,
@@ -144,29 +123,35 @@ export function buildSearchIndex(
         const listeners = new Set<(pagesScanned: number) => void>();
         const promise = mkdir(dirname(document.indexPath), {recursive: true}).then(async () => {
             const pageCount = await document.readPageCount?.(signal);
-            return runNativeToolCommand(resolvePdfSearchBinary(), [
-                'index',
-                '--out',
-                document.indexPath,
-                '--document-revision',
-                indexRevision(document),
-                ...(pageCount !== undefined && pageCount > 0 ? [
-                    '--page-count',
-                    String(pageCount),
-                ] : []),
-                '--max-page-text-bytes',
-                String(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes),
-                '--max-total-text-bytes',
-                String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
-            ], {
-                commandLabel: 'evb-pdf-search(index)',
-                signal,
-                stdin: toIndexInputLines(document.readPages(signal, pageCount), (pageNumber) => {
+            const inputPath = `${document.indexPath}.${randomUUID()}.input`;
+            try {
+                await writeSearchIndexInput(inputPath, document.readPages(signal, pageCount), (pageNumber) => {
                     for (const listener of listeners) {
                         listener(pageNumber);
                     }
-                }),
-            });
+                }, signal);
+                return await runNativeToolCommand(resolvePdfSearchBinary(), [
+                    'index',
+                    '--out',
+                    document.indexPath,
+                    '--document-revision',
+                    indexRevision(document),
+                    ...(pageCount !== undefined && pageCount > 0 ? [
+                        '--page-count',
+                        String(pageCount),
+                    ] : []),
+                    '--max-page-text-bytes',
+                    String(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes),
+                    '--max-total-text-bytes',
+                    String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
+                ], {
+                    commandLabel: 'evb-pdf-search(index)',
+                    signal,
+                    stdin: createReadStream(inputPath, {encoding: 'utf8'}),
+                });
+            } finally {
+                await rm(inputPath, {force: true});
+            }
         }).then((result) => {
             const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, parseOutput(result.stdout), {abortEarly: true});
             if (!parsed.success) {

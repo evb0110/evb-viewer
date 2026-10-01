@@ -53,9 +53,11 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         };
     }
     fake.indexArgs = args;
-    for await (const line of options.stdin ?? []) {
-        fake.indexLines.push(line);
+    let input = '';
+    for await (const chunk of options.stdin ?? []) {
+        input += chunk;
     }
+    fake.indexLines = input.split('\n').filter(Boolean);
     return {
         stdout: JSON.stringify({
             pageCount: 3,
