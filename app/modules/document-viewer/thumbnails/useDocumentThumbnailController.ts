@@ -117,6 +117,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     const outputScale = ref(resolveThumbnailOutputScale(window.devicePixelRatio));
     const viewportWritePort = createDocumentViewportWritePort();
     const itemChromeHeight = ref(DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT);
+    // Where a row's frame sits inside its slot, measured with the column width.
+    const slotFrameInset = shallowRef({
+        x: 0,
+        y: 0,
+    });
     /** Pages whose thumbnail failed RENDER_ATTEMPT_LIMIT times at the demanded width. */
     const renderErrors = shallowReactive(new Set<number>());
     /** Attempt bookkeeping; every page in renderErrors also has an entry here. */
@@ -405,6 +410,17 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         if (measuredWidth !== null) {
             const item = root?.querySelector<HTMLElement>('.document-thumbnail-list__item');
             updateLayoutGeometry(measuredWidth, item ? measureItemChromeHeight(item) ?? itemChromeHeight.value : itemChromeHeight.value);
+            // Whole device pixels: a subpixel phase makes the repeating slot
+            // pattern far slower for the compositor to have ready.
+            const frame = item?.querySelector<HTMLElement>('[data-document-thumbnail-frame]')?.getBoundingClientRect();
+            const row = item?.getBoundingClientRect();
+            const inset = frame && row ? {
+                x: Math.round((frame.left - row.left) * outputScale.value) / outputScale.value,
+                y: Math.round((frame.top - row.top) * outputScale.value) / outputScale.value,
+            } : null;
+            if (inset && (inset.x !== slotFrameInset.value.x || inset.y !== slotFrameInset.value.y)) {
+                slotFrameInset.value = inset;
+            }
         }
         if (resizeAnchorLifecycle.isActive()) {
             resizeAnchorLifecycle.preserve();
@@ -637,6 +653,35 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         return `${String(getActiveScrollSegment().height)}px`;
     });
 
+    /**
+     * Native momentum scrolls the rail on the compositor faster than it can
+     * raster the rows, and an unrastered area shows the bare rail. The slot
+     * pattern lies beneath the rows and moves by whole slots on the
+     * compositor, so it covers the viewport and lines up with the rows. A
+     * slot of slack on each side absorbs a step drawn a frame late. Its
+     * travel stays inside the content, so it never adds scroll range.
+     */
+    const slotPatternStyle = computed(() => {
+        void layoutRevision.value;
+        void viewportRevision.value;
+        const root = options.scrollRoot.value;
+        if (!root || !isVisible.value) {
+            return null;
+        }
+        const stride = layout.stride;
+        const cover = root.clientHeight + 3 * stride;
+        const steps = Math.floor((getActiveScrollSegment().height - cover + stride) / stride);
+        return steps < 1 ? null : {
+            '--document-thumbnail-slot-cover': `${String(cover)}px`,
+            '--document-thumbnail-slot-height': `${String(cssWidth.value * DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO)}px`,
+            '--document-thumbnail-slot-steps': String(steps),
+            '--document-thumbnail-slot-stride': `${String(stride)}px`,
+            '--document-thumbnail-slot-width': `${String(cssWidth.value)}px`,
+            '--document-thumbnail-slot-x': `${String(slotFrameInset.value.x)}px`,
+            '--document-thumbnail-slot-y': `${String(slotFrameInset.value.y)}px`,
+        };
+    });
+
     watch(
         () => virtualItems.value.map(item => item.pageNumber).join(','),
         async () => {
@@ -759,6 +804,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         handlePointerDown,
         handleScroll,
         handleWheel,
+        slotPatternStyle,
         userScrollSuppressed: viewportWritePort.userScrollSuppressed,
         outputScale,
         rasterWidth: computed(() => resolveThumbnailRasterWidth(cssWidth.value * outputScale.value)),
