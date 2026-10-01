@@ -1,0 +1,24 @@
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_7a7f3638474d75::t_e356bfaeb36c82 90-91,3380-3396,3400-3420
+  s_7a7f3638474d75::t_1faf0347eec9a8 3397-3399
+native/pdf-search/src/tests.rs
+  s_7a7f3638474d75::t_47fbf431d94755 182-221
+native/pdf-search/src/main.rs
+  s_7a7f3638474d75::t_ecae5ba98cf657 140-146,154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "72ec9fa77c290311040484528dc5617823952f14",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f3638474d75": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb1b21e7-749a-4308-96aa-7cf0d02aa4dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
