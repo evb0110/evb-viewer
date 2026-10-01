@@ -709,6 +709,9 @@ pub(crate) enum Operation {
     OcrTextLayer {
         instructions_file: PathBuf,
     },
+    OcrTextVisibility {
+        pages_file: PathBuf,
+    },
     Crop {
         pages_file: PathBuf,
         margins: CropMargins,

@@ -1266,3 +1266,290 @@ fn places_words_in_the_displayed_orientation_of_a_rotated_page() {
         let _ = fs::remove_file(file);
     }
 }
+
+/// One page whose resources hold a Form XObject `/Fm0` with `form_content`
+/// and an image `/Im0` the form and the page may both draw.
+fn save_ocr_page_with_form(path: &Path, contents: Vec<Vec<u8>>, form_content: &[u8]) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let image_id = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 1, "Height" => 1,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+        },
+        vec![0],
+    ));
+    let fonts = dictionary! { "F1" => helvetica() };
+    let form_id = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Resources" => dictionary! { "Font" => fonts.clone(), "XObject" => dictionary! { "Im0" => image_id } },
+        },
+        form_content.to_vec(),
+    ));
+    let content_ids = contents
+        .into_iter()
+        .map(|content| Object::Reference(document.add_object(Stream::new(dictionary! {}, content))))
+        .collect::<Vec<_>>();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Resources" => dictionary! {
+            "Font" => fonts,
+            "XObject" => dictionary! { "Fm0" => form_id, "Im0" => image_id },
+        },
+        "Contents" => content_ids,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! { "Type" => "Pages", "Kids" => vec![Object::Reference(page_id)], "Count" => 1 }
+            .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+fn run_ocr_text_visibility(input: &Path) -> serde_json::Value {
+    let pages = path("ocr-visibility-pages", "txt");
+    fs::write(&pages, "1\n").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["ocr-text-visibility", "--input"])
+        .arg(input)
+        .arg("--pages-file")
+        .arg(&pages)
+        .output()
+        .unwrap();
+    let _ = fs::remove_file(pages);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["format"], "evb-pdf-ocr-text-visibility");
+    report["pages"][0].clone()
+}
+
+fn visibility(
+    evb_ocr_layer: bool,
+    painted_text: bool,
+    hidden_text: bool,
+    uncertain: Option<&str>,
+    unsupported: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "pageNumber": 1,
+        "evbOcrLayer": evb_ocr_layer,
+        "paintedText": painted_text,
+        "hiddenText": hidden_text,
+        "uncertain": uncertain,
+        "unsupported": unsupported,
+    })
+}
+
+const CLIPPING: &str = "text clipping rendering modes cannot be replaced safely";
+const MIXED_OBJECT: &str = "hidden and visible text share one text object";
+const FORM_HIDDEN: &str = "hidden text inside a Form XObject is not removed by OCR replacement";
+
+#[test]
+fn reports_existing_page_text_the_way_a_reader_paints_it() {
+    let cases: [(&str, Vec<&[u8]>, serde_json::Value); 7] = [
+        (
+            "Q restores visible text after a hidden object",
+            vec![b"q BT /F1 12 Tf 3 Tr 10 90 Td (a) Tj ET Q BT /F1 12 Tf 10 30 Td (b) Tj ET"],
+            visibility(false, true, true, None, None),
+        ),
+        (
+            "a saved mode is restored in the next content stream",
+            vec![
+                b"q BT /F1 12 Tf 3 Tr 10 90 Td (a) Tj ET",
+                b"Q BT /F1 12 Tf 10 30 Td (b) Tj ET",
+            ],
+            visibility(false, true, true, None, None),
+        ),
+        (
+            "a comment is not hidden text",
+            vec![b"% BT 3 Tr (fake) Tj ET\nBT /F1 12 Tf 10 30 Td (real) Tj ET"],
+            visibility(false, true, false, None, None),
+        ),
+        (
+            "clip-only text paints nothing and cannot be replaced",
+            vec![b"BT /F1 12 Tf 7 Tr 10 30 Td (a) Tj ET"],
+            visibility(false, false, false, None, Some(CLIPPING)),
+        ),
+        (
+            "hidden and visible text in one text object",
+            vec![b"BT /F1 12 Tf 3 Tr 10 90 Td (a) Tj 0 Tr (b) Tj ET"],
+            visibility(false, true, true, None, Some(MIXED_OBJECT)),
+        ),
+        (
+            "an EVB layer beside page ink",
+            vec![
+                b"0 0 10 10 re f",
+                b"% EVB_VIEWER_OCR_LAYER_BEGIN\nq\nBT /F1 12 Tf 3 Tr (x) Tj ET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n",
+            ],
+            visibility(true, false, false, None, None),
+        ),
+        (
+            "a comment naming the marker is not an EVB layer",
+            vec![b"% copied from EVB_VIEWER_OCR_LAYER_BEGIN\nBT /F1 12 Tf 10 30 Td (visible) Tj ET"],
+            visibility(false, true, false, None, None),
+        ),
+    ];
+    for (label, contents, expected) in cases {
+        let input = path("ocr-visibility", "pdf");
+        save_ocr_page(
+            &input,
+            [0, 0, 200, 120],
+            None,
+            contents.into_iter().map(<[u8]>::to_vec).collect(),
+            dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+        );
+        assert_eq!(run_ocr_text_visibility(&input), expected, "{label}");
+        let _ = fs::remove_file(input);
+    }
+}
+
+#[test]
+fn reads_the_text_of_the_form_xobjects_a_page_draws() {
+    let cases: [(&str, &[u8], &[u8], serde_json::Value); 5] = [
+        (
+            "a scan wrapped in a form under a hidden layer is a replaceable layer",
+            b"q /Fm0 Do Q BT /F1 12 Tf 3 Tr 10 30 Td (layer) Tj ET",
+            b"q 200 0 0 120 0 0 cm /Im0 Do Q",
+            visibility(false, false, true, None, None),
+        ),
+        (
+            "visible text in a form is painted text",
+            b"q /Fm0 Do Q BT /F1 12 Tf 3 Tr 10 30 Td (layer) Tj ET",
+            b"BT /F1 12 Tf 10 90 Td (stamp) Tj ET",
+            visibility(false, true, true, None, None),
+        ),
+        (
+            "hidden text in a form stays when the page is replaced",
+            b"q /Fm0 Do Q",
+            b"BT /F1 12 Tf 3 Tr 10 90 Td (form layer) Tj ET",
+            visibility(false, false, false, Some(FORM_HIDDEN), None),
+        ),
+        (
+            "a form inherits the hidden mode of the content drawing it",
+            b"3 Tr /Fm0 Do",
+            b"BT /F1 12 Tf 10 90 Td (inherited) Tj ET",
+            visibility(false, false, false, Some(FORM_HIDDEN), None),
+        ),
+        (
+            "an earlier EVB layer drawn as a form is recognized without reading the form",
+            b"% EVB_VIEWER_OCR_LAYER_BEGIN\nq\n/Fm0 Do\nQ\n% EVB_VIEWER_OCR_LAYER_END",
+            b"BT /F1 12 Tf 3 Tr 10 90 Td (old layer) Tj ET",
+            visibility(true, false, false, None, None),
+        ),
+    ];
+    for (label, page_content, form_content, expected) in cases {
+        let input = path("ocr-visibility-form", "pdf");
+        save_ocr_page_with_form(&input, vec![page_content.to_vec()], form_content);
+        assert_eq!(run_ocr_text_visibility(&input), expected, "{label}");
+        let _ = fs::remove_file(input);
+    }
+}
+
+#[test]
+fn the_writer_refuses_exactly_the_pages_the_inspection_reports_unsupported() {
+    let source = path("ocr-agreement-source", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized words) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    for (content, unsupported) in [
+        (&b"BT /F1 12 Tf 7 Tr 10 30 Td (a) Tj ET"[..], Some(CLIPPING)),
+        (
+            b"BT /F1 12 Tf 3 Tr 10 90 Td (a) Tj 0 Tr (b) Tj ET",
+            Some(MIXED_OBJECT),
+        ),
+        (
+            b"q BT /F1 12 Tf 3 Tr 10 90 Td (Stale) Tj ET Q BT /F1 12 Tf 10 30 Td (Authored) Tj ET",
+            None,
+        ),
+    ] {
+        let input = path("ocr-agreement-input", "pdf");
+        let output = path("ocr-agreement-output", "pdf");
+        save_ocr_page(
+            &input,
+            [0, 0, 200, 120],
+            None,
+            vec![content.to_vec()],
+            dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+        );
+        let reported = run_ocr_text_visibility(&input)["unsupported"].clone();
+        let result = run_ocr_text_layer(&input, &output, &source);
+        match unsupported {
+            Some(reason) => {
+                assert_eq!(reported, reason);
+                assert!(!result.status.success());
+                assert!(
+                    String::from_utf8_lossy(&result.stderr).contains(reason),
+                    "{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+            None => {
+                assert_eq!(reported, serde_json::Value::Null);
+                assert!(
+                    result.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+                // The hidden object is removed and the visible one stays.
+                let text = pdftotext_all(&output, &[]);
+                assert!(
+                    text.contains("Authored") && !text.contains("Stale"),
+                    "{text}"
+                );
+            }
+        }
+        for file in [input, output] {
+            let _ = fs::remove_file(file);
+        }
+    }
+    let _ = fs::remove_file(source);
+}
+
+#[test]
+fn keeps_page_content_that_only_mentions_the_ocr_marker() {
+    let source = path("ocr-marker-source", "pdf");
+    let input = path("ocr-marker-input", "pdf");
+    let output = path("ocr-marker-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized words) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![b"% notes about EVB_VIEWER_OCR_LAYER_BEGIN\nBT /F1 12 Tf 10 90 Td (Authored heading) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Authored heading"), "{text}");
+    assert!(text.contains("Recognized words"), "{text}");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}

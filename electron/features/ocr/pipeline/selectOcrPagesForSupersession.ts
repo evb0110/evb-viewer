@@ -95,7 +95,9 @@ export async function selectOcrPagesForSupersession(input: {
     pages: readonly IOcrPdfPageRequest[];
     supersessionPolicy: TOcrTextSupersessionPolicy;
     pdftotextBinary?: string;
+    pdfPageOpsBinary?: string;
     qpdfBinary?: string;
+    tempDir: string;
     log: TWorkerLog;
     signal: AbortSignal;
 }) {
@@ -103,12 +105,14 @@ export async function selectOcrPagesForSupersession(input: {
     const warnings: string[] = [];
     const diagnostics: IOcrDiagnostic[] = [];
     const requestedPageNumbers = input.pages.map(page => page.pageNumber);
-    const visibilityAnalysis = await inspectPdfPageTextVisibility(
-        input.sourcePdfPath,
-        requestedPageNumbers,
-        input.qpdfBinary,
-        input.signal,
-    );
+    const visibilityAnalysis = await inspectPdfPageTextVisibility({
+        pdfPath: input.sourcePdfPath,
+        pageNumbers: requestedPageNumbers,
+        pdfPageOpsBinary: input.pdfPageOpsBinary,
+        qpdfBinary: input.qpdfBinary,
+        tempDir: input.tempDir,
+        signal: input.signal,
+    });
     if (visibilityAnalysis.status === 'degraded') {
         input.log('warn', visibilityAnalysis.message);
         warnings.push(visibilityAnalysis.message);
@@ -123,12 +127,30 @@ export async function selectOcrPagesForSupersession(input: {
     });
     warnings.push(...textProbe.warnings);
 
+    // The writer refuses a page whose text it cannot replace safely, and that
+    // refusal would fail the whole run after recognition; skip the page instead.
+    const skipUnsupportedPage = (pageNumber: number, reason: string) => {
+        const message = `Skipped page ${pageNumber}: its existing text cannot be replaced safely (${reason})`;
+        warnings.push(message);
+        diagnostics.push({
+            code: 'OCR_EXISTING_TEXT_SKIPPED',
+            severity: 'warning',
+            pageNumber: requirePageNumber(pageNumber),
+            message,
+        });
+    };
+
     for (const page of input.pages) {
         const pageVisibility = visibility.get(page.pageNumber);
+        const unsupported = pageVisibility?.unsupported ?? null;
         const extractedText = textProbe.texts.get(page.pageNumber) ?? TEXT_PROBE_UNAVAILABLE;
         if (extractedText === TEXT_PROBE_UNAVAILABLE) {
             const canReplaceWithoutTextProbe = input.supersessionPolicy === 'replace-all'
-                || input.supersessionPolicy === 'replace-evb' && pageVisibility?.hasEvbOcrLayer === true;
+                || input.supersessionPolicy === 'replace-evb' && pageVisibility?.evbOcrLayer === true;
+            if (canReplaceWithoutTextProbe && unsupported !== null) {
+                skipUnsupportedPage(page.pageNumber, unsupported);
+                continue;
+            }
             if (canReplaceWithoutTextProbe) {
                 const message = `Scheduled page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
                 input.log('warn', message);
@@ -146,18 +168,22 @@ export async function selectOcrPagesForSupersession(input: {
             });
             continue;
         }
-        const evidence = classifyOcrPageText({
+        const classification = classifyOcrPageText({
             extractedText,
             ...(pageVisibility === undefined ? {} : {visibility: pageVisibility}),
             languages: page.languages,
         });
-        if (shouldOcrClassifiedPage(evidence.classification, input.supersessionPolicy)) {
+        if (shouldOcrClassifiedPage(classification, input.supersessionPolicy)) {
+            if (unsupported !== null) {
+                skipUnsupportedPage(page.pageNumber, unsupported);
+                continue;
+            }
             pages.push(page);
             continue;
         }
         // Keeping a page's own text is what the policy asked for, so it is
         // information about the run, not a warning that it fell short.
-        const message = `Skipped page ${page.pageNumber}: classified ${evidence.classification} under ${input.supersessionPolicy} policy`;
+        const message = `Skipped page ${page.pageNumber}: classified ${classification} under ${input.supersessionPolicy} policy`;
         input.log('debug', message);
         diagnostics.push({
             code: 'OCR_EXISTING_TEXT_SKIPPED',

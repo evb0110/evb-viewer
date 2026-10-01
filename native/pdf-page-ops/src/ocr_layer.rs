@@ -6,12 +6,15 @@
 //! other producers' hidden text objects by their rendering mode), maps the
 //! Tesseract page into the target page view, and appends the text as an
 //! invisible, marked content stream.
+//!
+//! `ocr-text-visibility` reports, before OCR runs, what that removal would
+//! find on each page, so page selection and the writer read text one way.
 
 use super::*;
 use lopdf::content::{Content, Operation as ContentOperation};
+use serde::Serialize;
 use std::path::Path;
 
-pub(crate) const EVB_OCR_LAYER_MARKER: &[u8] = b"EVB_VIEWER_OCR_LAYER";
 const EVB_OCR_LAYER_BEGIN: &[u8] = b"% EVB_VIEWER_OCR_LAYER_BEGIN\n";
 const EVB_OCR_LAYER_END: &[u8] = b"\n% EVB_VIEWER_OCR_LAYER_END\n";
 const MAX_OCR_CONTENT_STREAM_BYTES: usize = 64 * 1024 * 1024;
@@ -169,53 +172,109 @@ fn unsupported_replacement(detail: &str) -> Box<dyn Error> {
     )
 }
 
-/// Indices of hidden (`3 Tr`) text-show operations. Fails when one text object
-/// mixes hidden and visible text, or clips with text, because removing part
-/// of it could change what the page paints.
-fn hidden_text_operations(operations: &[ContentOperation], mode: &mut i64) -> Result<Vec<usize>> {
-    let mut modes = Vec::new();
-    let mut hidden = Vec::new();
-    let (mut object_hidden, mut object_visible) = (false, false);
-    for (index, operation) in operations.iter().enumerate() {
-        match operation.operator.as_str() {
-            "q" => modes.push(*mode),
-            "Q" => *mode = modes.pop().unwrap_or(*mode),
-            "BT" => (object_hidden, object_visible) = (false, false),
-            "Tr" => {
-                *mode = operation
-                    .operands
-                    .first()
-                    .and_then(|value| object_to_f64(value).ok())
-                    .filter(|value| value.fract() == 0.0 && (0.0..=7.0).contains(value))
-                    .map(|value| value as i64)
-                    .ok_or("OCR page replacement found a malformed Tr operator")?;
-            }
-            operator if is_text_show(operator) => match *mode {
-                3 if object_visible => {
-                    return Err(unsupported_replacement(
-                        "hidden and visible text share one text object",
-                    ))
-                }
-                3 => {
-                    object_hidden = true;
-                    hidden.push(index);
-                }
-                4..=7 => {
-                    return Err(unsupported_replacement(
-                        "text clipping rendering modes cannot be replaced safely",
-                    ))
-                }
-                _ if object_hidden => {
-                    return Err(unsupported_replacement(
-                        "hidden and visible text share one text object",
-                    ))
-                }
-                _ => object_visible = true,
-            },
-            _ => {}
-        }
+/// EVB appends its OCR text as a content stream of its own between the marker
+/// comments; earlier versions drew a Form XObject inside the same frame. A
+/// comment that only names the marker, or a frame merged into other content,
+/// is not an EVB layer, so it is never removed as one.
+fn is_evb_ocr_layer_stream(bytes: &[u8]) -> bool {
+    fn is_marker_comment(line: Option<&[u8]>, marker: &[u8]) -> bool {
+        line.and_then(|line| line.strip_prefix(b"%"))
+            .is_some_and(|comment| comment.trim_ascii() == marker)
     }
-    Ok(hidden)
+    let is_line_end = |byte: &u8| matches!(byte, b'\n' | b'\r');
+    let framed = bytes.trim_ascii();
+    is_marker_comment(
+        framed.split(is_line_end).next(),
+        b"EVB_VIEWER_OCR_LAYER_BEGIN",
+    ) && is_marker_comment(
+        framed.rsplit(is_line_end).next(),
+        b"EVB_VIEWER_OCR_LAYER_END",
+    )
+}
+
+fn rendering_mode(operation: &ContentOperation) -> Option<i64> {
+    operation
+        .operands
+        .first()
+        .and_then(|value| object_to_f64(value).ok())
+        .filter(|value| value.fract() == 0.0 && (0.0..=7.0).contains(value))
+        .map(|value| value as i64)
+}
+
+/// One page's text read the way a PDF consumer paints it. The rendering mode
+/// is graphics state: `q` saves it and `Q` restores it, across the page's
+/// content streams as a consumer concatenates them. The writer removes text
+/// through this scan and the OCR eligibility inspection reports through it,
+/// so a page the inspection offers for replacement is one the writer accepts.
+#[derive(Default)]
+struct PageTextScan {
+    mode: i64,
+    saved_modes: Vec<i64>,
+    painted: bool,
+    hidden: bool,
+    /// Why removing this page's hidden text could change what it paints.
+    unsupported: Option<&'static str>,
+}
+
+impl PageTextScan {
+    /// Reads one content stream and returns the indices of its hidden
+    /// (`3 Tr`) text-show operations. `on_draw` receives each `Do` operand
+    /// with the rendering mode a Form XObject drawn there inherits.
+    fn scan_stream(
+        &mut self,
+        operations: &[ContentOperation],
+        mut on_draw: impl FnMut(&Object, i64),
+    ) -> Vec<usize> {
+        let mut hidden = Vec::new();
+        let (mut object_hidden, mut object_other) = (false, false);
+        for (index, operation) in operations.iter().enumerate() {
+            match operation.operator.as_str() {
+                "q" => self.saved_modes.push(self.mode),
+                "Q" => self.mode = self.saved_modes.pop().unwrap_or(self.mode),
+                "BT" => (object_hidden, object_other) = (false, false),
+                "Tr" => match rendering_mode(operation) {
+                    Some(mode) => self.mode = mode,
+                    None => self.refuse("a Tr operator is malformed"),
+                },
+                "Do" => {
+                    if let Some(name) = operation.operands.first() {
+                        on_draw(name, self.mode);
+                    }
+                }
+                operator if is_text_show(operator) => {
+                    if self.mode == 3 {
+                        hidden.push(index);
+                        self.hidden = true;
+                        object_hidden = true;
+                    } else {
+                        // Modes 4 to 6 paint and clip; mode 7 only clips.
+                        self.painted |= self.mode != 7;
+                        object_other = true;
+                    }
+                    if self.mode >= 4 {
+                        self.refuse("text clipping rendering modes cannot be replaced safely");
+                    }
+                    if object_hidden && object_other {
+                        // Removing part of a text object moves the text after it.
+                        self.refuse("hidden and visible text share one text object");
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !hidden.is_empty()
+            && operations
+                .iter()
+                .any(|operation| operation.operator == "BI")
+        {
+            self.refuse("hidden text shares a content stream with an inline image");
+        }
+        hidden
+    }
+
+    fn refuse(&mut self, reason: &'static str) {
+        self.unsupported.get_or_insert(reason);
+    }
 }
 
 fn read_content_stream(
@@ -260,17 +319,14 @@ fn strip_previous_ocr_text(
     let content_ids = incremental.new_document.get_page_contents(page_id);
     let mut kept = Vec::with_capacity(content_ids.len());
     let mut changed = false;
-    let mut mode = 0;
+    let mut scan = PageTextScan::default();
     for content_id in content_ids {
         let Some(bytes) = read_content_stream(incremental, input_path, qpdf_path, content_id)?
         else {
             kept.push(content_id);
             continue;
         };
-        if bytes
-            .windows(EVB_OCR_LAYER_MARKER.len())
-            .any(|window| window == EVB_OCR_LAYER_MARKER)
-        {
+        if is_evb_ocr_layer_stream(&bytes) {
             changed = true;
             continue;
         }
@@ -278,19 +334,13 @@ fn strip_previous_ocr_text(
             kept.push(content_id);
             continue;
         };
-        let hidden = hidden_text_operations(&content.operations, &mut mode)?;
+        let hidden = scan.scan_stream(&content.operations, |_, _| {});
+        if let Some(reason) = scan.unsupported {
+            return Err(unsupported_replacement(reason));
+        }
         if hidden.is_empty() {
             kept.push(content_id);
             continue;
-        }
-        if content
-            .operations
-            .iter()
-            .any(|operation| operation.operator == "BI")
-        {
-            return Err(unsupported_replacement(
-                "hidden text shares a content stream with an inline image",
-            ));
         }
         changed = true;
         let remaining = content
@@ -322,6 +372,222 @@ fn strip_previous_ocr_text(
             Object::Array(kept.into_iter().map(Object::Reference).collect()),
         );
     }
+    Ok(())
+}
+
+const OCR_TEXT_VISIBILITY_FORMAT: &str = "evb-pdf-ocr-text-visibility";
+const OCR_TEXT_VISIBILITY_SCHEMA_VERSION: u32 = 1;
+/// Form XObjects nest; deeper drawing is unusual and is reported as uncertain.
+const MAX_OCR_VISIBILITY_FORM_DEPTH: usize = 16;
+/// Decoded Form XObject content one page inspection reads before it stops
+/// and reports the rest of the page as uncertain.
+const MAX_OCR_VISIBILITY_FORM_BYTES: usize = MAX_OCR_CONTENT_STREAM_BYTES;
+
+/// `ocr-text-visibility` stdout; `@contracts/pdfOcrTextVisibility` decodes it.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrTextVisibilityReport {
+    format: String,
+    schema_version: u32,
+    pages: Vec<OcrPageTextVisibility>,
+}
+
+/// What OCR may replace on one page, in the writer's own terms.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrPageTextVisibility {
+    page_number: u32,
+    /// The page carries a layer EVB's OCR wrote, which the writer removes whole.
+    evb_ocr_layer: bool,
+    /// The page paints text, in its own content or in a Form XObject it draws.
+    painted_text: bool,
+    /// The page's own content shows hidden (`3 Tr`) text, which the writer removes.
+    hidden_text: bool,
+    /// Text the inspection could not read, or hidden text the writer keeps.
+    uncertain: Option<String>,
+    /// Why the writer refuses to replace this page's text.
+    unsupported: Option<String>,
+}
+
+/// What one page shows beyond the scan of its own content: text in the Form
+/// XObjects it draws, and content that could not be read. The writer leaves
+/// forms alone, so their text decides whether the page paints text, and
+/// hidden text in a form is text a replacement would keep beside the new layer.
+struct PageTextInspection<'a> {
+    input_path: &'a Path,
+    qpdf_path: Option<&'a Path>,
+    visited: HashSet<ObjectId>,
+    decoded_bytes: usize,
+    painted: bool,
+    uncertain: Option<&'static str>,
+}
+
+impl PageTextInspection<'_> {
+    fn doubt(&mut self, reason: &'static str) {
+        self.uncertain.get_or_insert(reason);
+    }
+
+    fn inspect(
+        &mut self,
+        incremental: &mut IncrementalDocument,
+        resources: &Dictionary,
+        name: &Object,
+        mode: i64,
+        depth: usize,
+    ) -> Result<()> {
+        let document = &incremental.previous_document;
+        let Some(form_id) = name.as_name().ok().and_then(|name| {
+            let xobjects = resources.get(b"XObject").ok()?;
+            let (_, xobjects) = document.dereference(xobjects).ok()?;
+            xobjects.as_dict().ok()?.get(name).ok()?.as_reference().ok()
+        }) else {
+            return Ok(());
+        };
+        let Ok(Object::Stream(stream)) = document.get_object(form_id) else {
+            return Ok(());
+        };
+        if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Form") {
+            return Ok(());
+        }
+        if !self.visited.insert(form_id) {
+            return Ok(());
+        }
+        if depth >= MAX_OCR_VISIBILITY_FORM_DEPTH {
+            self.doubt("Form XObjects are nested too deeply to inspect");
+            return Ok(());
+        }
+        // A form without its own resources uses those of the content drawing it.
+        let form_resources = stream
+            .dict
+            .get(b"Resources")
+            .ok()
+            .and_then(|object| document.dereference(object).ok())
+            .and_then(|(_, object)| object.as_dict().ok())
+            .unwrap_or(resources)
+            .clone();
+        let Some(bytes) =
+            read_content_stream(incremental, self.input_path, self.qpdf_path, form_id)?
+        else {
+            self.doubt("a Form XObject's content could not be read");
+            return Ok(());
+        };
+        self.decoded_bytes = self.decoded_bytes.saturating_add(bytes.len());
+        if self.decoded_bytes > MAX_OCR_VISIBILITY_FORM_BYTES {
+            self.doubt("the page's Form XObjects exceed the inspection budget");
+            return Ok(());
+        }
+        let Ok(content) = Content::decode(&bytes) else {
+            self.doubt("a Form XObject's content could not be parsed");
+            return Ok(());
+        };
+        // A form starts from the graphics state at its `Do` and cannot change
+        // the state of the content that draws it.
+        let mut scan = PageTextScan {
+            mode,
+            ..PageTextScan::default()
+        };
+        let mut draws = Vec::new();
+        scan.scan_stream(&content.operations, |name, mode| {
+            draws.push((name.clone(), mode))
+        });
+        self.painted |= scan.painted;
+        if scan.hidden {
+            self.doubt("hidden text inside a Form XObject is not removed by OCR replacement");
+        }
+        for (name, mode) in draws {
+            self.inspect(incremental, &form_resources, &name, mode, depth + 1)?;
+        }
+        Ok(())
+    }
+}
+
+fn inspect_page_text_visibility(
+    incremental: &mut IncrementalDocument,
+    inspection: &mut PageTextInspection,
+    page_number: u32,
+    page_id: ObjectId,
+) -> Result<OcrPageTextVisibility> {
+    let resources = page_resources(&incremental.previous_document, page_id)?;
+    let mut scan = PageTextScan::default();
+    let mut evb_ocr_layer = false;
+    for content_id in incremental.previous_document.get_page_contents(page_id) {
+        let Some(bytes) = read_content_stream(
+            incremental,
+            inspection.input_path,
+            inspection.qpdf_path,
+            content_id,
+        )?
+        else {
+            inspection.doubt("a page content stream could not be read");
+            continue;
+        };
+        if is_evb_ocr_layer_stream(&bytes) {
+            evb_ocr_layer = true;
+            continue;
+        }
+        let Ok(content) = Content::decode(&bytes) else {
+            inspection.doubt("a page content stream could not be parsed");
+            continue;
+        };
+        let mut draws = Vec::new();
+        scan.scan_stream(&content.operations, |name, mode| {
+            draws.push((name.clone(), mode))
+        });
+        for (name, mode) in draws {
+            inspection.inspect(incremental, &resources, &name, mode, 0)?;
+        }
+    }
+    Ok(OcrPageTextVisibility {
+        page_number,
+        evb_ocr_layer,
+        painted_text: scan.painted || inspection.painted,
+        hidden_text: scan.hidden,
+        uncertain: inspection.uncertain.map(str::to_string),
+        unsupported: scan.unsupported.map(str::to_string),
+    })
+}
+
+/// Reports, per requested page, the evidence OCR page selection needs about
+/// existing text, read with the scan the writer replaces text through.
+pub(crate) fn write_ocr_text_visibility(
+    input_path: &Path,
+    page_numbers: &[u32],
+    qpdf_path: Option<&Path>,
+    output: &mut impl Write,
+) -> Result<()> {
+    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
+    let resolver = PageTreeResolver::new(&incremental.previous_document)?;
+    let mut pages = Vec::with_capacity(page_numbers.len());
+    for &page_number in page_numbers {
+        let page_id = resolver.page_id(&incremental.previous_document, page_number)?;
+        let mut inspection = PageTextInspection {
+            input_path,
+            qpdf_path,
+            visited: HashSet::new(),
+            decoded_bytes: 0,
+            painted: false,
+            uncertain: None,
+        };
+        pages.push(inspect_page_text_visibility(
+            &mut incremental,
+            &mut inspection,
+            page_number,
+            page_id,
+        )?);
+    }
+    serde_json::to_writer(
+        output,
+        &OcrTextVisibilityReport {
+            format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
+            schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
+            pages,
+        },
+    )?;
     Ok(())
 }
 
@@ -459,15 +725,84 @@ mod tests {
     }
 
     #[test]
-    fn finds_hidden_text_and_rejects_mixed_text_objects() {
-        let hidden = Content::decode(b"q BT 3 Tr (a) Tj ET Q BT (b) Tj ET").unwrap();
-        let mut mode = 0;
-        assert_eq!(
-            hidden_text_operations(&hidden.operations, &mut mode).unwrap(),
-            vec![3]
-        );
+    fn restores_the_rendering_mode_and_refuses_mixed_text_objects() {
+        let mut scan = PageTextScan::default();
+        let restored = Content::decode(b"q BT 3 Tr (a) Tj ET Q BT (b) Tj ET").unwrap();
+        assert_eq!(scan.scan_stream(&restored.operations, |_, _| {}), vec![3]);
+        assert!(scan.painted && scan.hidden && scan.unsupported.is_none());
+
+        let mut scan = PageTextScan::default();
         let mixed = Content::decode(b"BT 3 Tr (a) Tj 0 Tr (b) Tj ET").unwrap();
-        let mut mode = 0;
-        assert!(hidden_text_operations(&mixed.operations, &mut mode).is_err());
+        scan.scan_stream(&mixed.operations, |_, _| {});
+        assert_eq!(
+            scan.unsupported,
+            Some("hidden and visible text share one text object")
+        );
+    }
+
+    #[test]
+    fn clip_only_text_is_neither_painted_nor_hidden_and_cannot_be_replaced() {
+        let mut scan = PageTextScan::default();
+        let clip = Content::decode(b"BT 7 Tr (a) Tj ET").unwrap();
+        assert!(scan.scan_stream(&clip.operations, |_, _| {}).is_empty());
+        assert!(!scan.painted && !scan.hidden);
+        assert_eq!(
+            scan.unsupported,
+            Some("text clipping rendering modes cannot be replaced safely")
+        );
+    }
+
+    #[test]
+    fn a_saved_mode_survives_the_end_of_a_content_stream() {
+        let mut scan = PageTextScan::default();
+        let first = Content::decode(b"q 3 Tr BT (a) Tj ET").unwrap();
+        let second = Content::decode(b"Q BT (b) Tj ET").unwrap();
+        scan.scan_stream(&first.operations, |_, _| {});
+        scan.scan_stream(&second.operations, |_, _| {});
+        assert!(scan.hidden && scan.painted);
+    }
+
+    #[test]
+    fn reports_the_mode_a_form_inherits_where_it_is_drawn() {
+        let mut scan = PageTextScan::default();
+        let content = Content::decode(b"q 3 Tr /Fm0 Do Q /Fm1 Do").unwrap();
+        let mut draws = Vec::new();
+        scan.scan_stream(&content.operations, |name, mode| {
+            draws.push((name.as_name().unwrap().to_vec(), mode))
+        });
+        assert_eq!(draws, vec![(b"Fm0".to_vec(), 3), (b"Fm1".to_vec(), 0)]);
+    }
+
+    #[test]
+    fn recognizes_only_a_whole_stream_framed_as_an_evb_layer() {
+        assert!(is_evb_ocr_layer_stream(
+            b"% EVB_VIEWER_OCR_LAYER_BEGIN\nq\nBT\n3 Tr\n<0054> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n"
+        ));
+        assert!(is_evb_ocr_layer_stream(
+            b"% EVB_VIEWER_OCR_LAYER_BEGIN\r\n/EvbOcrLayer Do\r\n% EVB_VIEWER_OCR_LAYER_END"
+        ));
+        for not_a_layer in [
+            &b"% copied from EVB_VIEWER_OCR_LAYER_BEGIN in a PDF comment"[..],
+            b"% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do",
+            b"BT 3 Tr (text) Tj ET\n% EVB_VIEWER_OCR_LAYER_END",
+            b"0 0 10 10 re f\n% EVB_VIEWER_OCR_LAYER_BEGIN\nBT 3 Tr (x) Tj ET\n% EVB_VIEWER_OCR_LAYER_END",
+        ] {
+            assert!(!is_evb_ocr_layer_stream(not_a_layer));
+        }
+    }
+
+    #[test]
+    fn text_visibility_report_matches_the_shared_protocol_fixture() {
+        let source = include_str!("../../protocol-fixtures/pdf-page-ops-ocr-text-visibility.json");
+        let report: OcrTextVisibilityReport = serde_json::from_str(source).unwrap();
+        assert_eq!(report.format, OCR_TEXT_VISIBILITY_FORMAT);
+        assert_eq!(report.schema_version, OCR_TEXT_VISIBILITY_SCHEMA_VERSION);
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::from_str::<serde_json::Value>(source).unwrap()
+        );
+        let with_unknown =
+            source.replacen("\"pageNumber\": 1,", "\"pageNumber\": 1, \"extra\": 1,", 1);
+        assert!(serde_json::from_str::<OcrTextVisibilityReport>(&with_unknown).is_err());
     }
 }

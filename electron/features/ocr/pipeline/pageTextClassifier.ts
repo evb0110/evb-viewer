@@ -1,3 +1,9 @@
+import {randomUUID} from 'node:crypto';
+import {
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import {join} from 'node:path';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
@@ -5,14 +11,14 @@ import type {
     TOcrPageTextClassification,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
+import {
+    decodePdfOcrTextVisibilityReport,
+    type IPdfOcrPageTextVisibility,
+} from '@contracts/pdfOcrTextVisibility';
 
-const TEXT_TOKEN_RE = /\bBT\b|\bET\b|(?:^|\s)([0-7])(?:\.0+)?\s+Tr\b|\b(Tj|TJ)\b|(?:^|\s)(['"])(?=\s|$)/gm;
-const EVB_OCR_LAYER_MARKER = 'EVB_VIEWER_OCR_LAYER';
-const EVB_OCR_LAYER_BLOCK_RE = /(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_BEGIN\s*\r?\n[\s\S]*?(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_END\s*(?=\r?\n|$)/m;
-const OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES = 16 * 1024 * 1024;
-const OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES = 4 * 1024 * 1024;
-const OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_TIMEOUT_MS = 2 * 60 * 1000;
+// A request batch holds at most a few thousand pages of fixed-size records.
+const OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES = 4 * 1024 * 1024;
 const OCR_TEXT_WORD_RE = /[\p{L}\p{N}]+/gu;
 const OCR_TEXT_SINGLE_CHARACTER_TOKEN_MAX_FRACTION = 0.6;
 const OCR_TEXT_MINIMUM_LONG_TOKEN_COUNT = 2;
@@ -83,20 +89,6 @@ function getLanguageScripts(languages: readonly string[]) {
     return scripts;
 }
 
-export interface IOcrPageTextEvidence {
-    classification: TOcrPageTextClassification;
-    extractedTextLength: number;
-    hasHiddenTextOperators: boolean;
-    hasVisibleTextOperators: boolean;
-}
-
-export interface IOcrPdfTextVisibility {
-    hasHiddenTextOperators: boolean;
-    hasVisibleTextOperators: boolean;
-    /** The page carries a text layer that EVB's OCR wrote. */
-    hasEvbOcrLayer: boolean;
-}
-
 function hasLanguageScript(text: string, languages: readonly string[] | undefined) {
     // Digits are script-neutral. A page containing only a page number, date,
     // or other numeric label is still valid selectable OCR regardless of the
@@ -151,248 +143,106 @@ function isLikelyUsableOcrText(
             || shortPhraseHasMeaningfulWord);
 }
 
-export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcrPdfTextVisibility {
-    let renderingMode = 0;
-    let inTextObject = false;
-    let hasHiddenTextOperators = false;
-    let hasVisibleTextOperators = false;
-    let hasEvbOcrLayer = false;
-
-    for (const source of streamSources) {
-        // EVB writes its OCR text between BEGIN and END marker comments in a
-        // page content stream, inline since pdf-page-ops writes the layer and
-        // as a Form XObject drawn with Do in PDFs OCRed by earlier versions.
-        if (source.includes(EVB_OCR_LAYER_MARKER) && EVB_OCR_LAYER_BLOCK_RE.test(source)) {
-            hasHiddenTextOperators = true;
-            hasEvbOcrLayer = true;
-        }
-        TEXT_TOKEN_RE.lastIndex = 0;
-        for (const match of source.matchAll(TEXT_TOKEN_RE)) {
-            const token = match[0].trim();
-            if (token === 'BT') {
-                inTextObject = true;
-            } else if (token === 'ET') {
-                inTextObject = false;
-            } else if (match[1] !== undefined) {
-                renderingMode = Number(match[1]);
-            } else if (inTextObject && (match[2] !== undefined || match[3] !== undefined)) {
-                if (renderingMode === 3) hasHiddenTextOperators = true;
-                else hasVisibleTextOperators = true;
-            }
-        }
-    }
-    return {
-        hasHiddenTextOperators,
-        hasVisibleTextOperators,
-        hasEvbOcrLayer,
-    };
-}
-
 export type TOcrPdfTextVisibilityAnalysis =
     | {
         status: 'available';
-        visibility: Map<number, IOcrPdfTextVisibility>;
+        visibility: Map<number, IPdfOcrPageTextVisibility>;
     }
     | {
         status: 'degraded';
-        reason: 'qpdf-unavailable' | 'qpdf-failed';
+        reason: 'native-tool-unavailable' | 'native-tool-failed';
         message: string;
-        visibility: Map<number, IOcrPdfTextVisibility>;
+        visibility: Map<number, IPdfOcrPageTextVisibility>;
     };
 
-interface IOcrQpdfPage {contentObjects: string[]}
-
-function abortIfRequested(signal?: AbortSignal) {
-    if (!signal?.aborted) {
-        return;
-    }
-    throw signal.reason instanceof Error ? signal.reason : new Error('OCR job aborted');
-}
-
-function parseQpdfPageMap(output: string, requestedPageNumbers: ReadonlySet<number>) {
-    const pages = new Map<number, IOcrQpdfPage>();
-    let currentPage: IOcrQpdfPage | null = null;
-    let readingContents = false;
-
-    for (const line of output.split(/\r?\n/u)) {
-        const pageMatch = /^page\s+(\d+):\s+(\d+)\s+(\d+)\s+R\s*$/u.exec(line);
-        if (pageMatch) {
-            const pageNumber = Number(pageMatch[1]);
-            currentPage = requestedPageNumbers.has(pageNumber)
-                ? {contentObjects: []}
-                : null;
-            if (currentPage) {
-                pages.set(pageNumber, currentPage);
-            }
-            readingContents = false;
-            continue;
-        }
-        if (currentPage === null) {
-            continue;
-        }
-        if (line.trim() === 'content:') {
-            readingContents = true;
-            continue;
-        }
-        if (!readingContents) {
-            continue;
-        }
-        const contentMatch = /^\s+(\d+)\s+(\d+)\s+R\s*$/u.exec(line);
-        if (contentMatch) {
-            const objectNumber = contentMatch[1] ?? '<missing>';
-            const generation = contentMatch[2] ?? '<missing>';
-            currentPage.contentObjects.push(`${objectNumber},${generation}`);
-            continue;
-        }
-        if (line.trim().length > 0 && !/^\s/u.test(line)) {
-            readingContents = false;
-        }
-    }
-
-    for (const pageNumber of requestedPageNumbers) {
-        if (!pages.has(pageNumber)) {
-            throw new Error(`qpdf did not report requested page ${pageNumber}`);
-        }
-    }
-    return pages;
-}
-
-async function inspectPdfPageTextVisibilityWithQpdf(
-    pdfPath: string,
-    pageNumbers: readonly number[],
-    qpdfBinary: string,
-    signal?: AbortSignal,
-): Promise<Map<number, IOcrPdfTextVisibility>> {
-    abortIfRequested(signal);
-    const requestedPageNumbers = new Set(pageNumbers);
-    if (requestedPageNumbers.size === 0) {
-        return new Map();
-    }
-    const pageMapResult = await runNativeToolCommand(qpdfBinary, [
-        '--show-pages',
-        '--',
-        pdfPath,
-    ], {
-        commandLabel: 'qpdf(ocr-text-visibility-pages)',
-        timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
-        maxStdoutBytes: OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES,
-        rejectOnStdoutTruncation: true,
-        ...(signal ? {signal} : {}),
-    });
-    const pageMap = parseQpdfPageMap(pageMapResult.stdout, requestedPageNumbers);
-    const evidence = new Map<number, IOcrPdfTextVisibility>();
-
-    for (const pageNumber of pageNumbers) {
-        abortIfRequested(signal);
-        if (evidence.has(pageNumber)) {
-            continue;
-        }
-        const page = pageMap.get(pageNumber);
-        if (!page) {
-            throw new Error(`qpdf did not report requested page ${pageNumber}`);
-        }
-        let remainingBytes = OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES;
-        const sources: string[] = [];
-        for (const objectReference of page.contentObjects) {
-            abortIfRequested(signal);
-            const byteLimit = Math.min(remainingBytes, OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES);
-            if (byteLimit <= 0) {
-                throw new RangeError(`OCR text-visibility page ${pageNumber} exceeds the ${OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES}-byte decoded budget`);
-            }
-            const streamResult = await runNativeToolCommand(qpdfBinary, [
-                '--filtered-stream-data',
-                `--show-object=${objectReference}`,
-                '--',
-                pdfPath,
-            ], {
-                commandLabel: 'qpdf(ocr-text-visibility-stream)',
-                timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
-                maxStdoutBytes: byteLimit,
-                rejectOnStdoutTruncation: true,
-                ...(signal ? {signal} : {}),
-            });
-            sources.push(streamResult.stdout);
-            remainingBytes -= Buffer.byteLength(streamResult.stdout, 'utf8');
-            const visibility = inspectPdfTextVisibility(sources);
-            if (visibility.hasHiddenTextOperators && visibility.hasVisibleTextOperators) {
-                break;
-            }
-        }
-        evidence.set(pageNumber, inspectPdfTextVisibility(sources));
-    }
-    return evidence;
-}
-
-export async function inspectPdfPageTextVisibility(
-    pdfPath: string,
-    pageNumbers: readonly number[],
-    qpdfBinary?: string,
-    signal?: AbortSignal,
-): Promise<TOcrPdfTextVisibilityAnalysis> {
-    if (qpdfBinary === undefined) {
+/**
+ * Reads the existing text of the requested pages with the scan the OCR writer
+ * replaces text through, in one pass over the document.
+ */
+export async function inspectPdfPageTextVisibility(input: {
+    pdfPath: string;
+    pageNumbers: readonly number[];
+    pdfPageOpsBinary?: string | undefined;
+    qpdfBinary?: string | undefined;
+    tempDir: string;
+    signal?: AbortSignal;
+}): Promise<TOcrPdfTextVisibilityAnalysis> {
+    if (input.pdfPageOpsBinary === undefined) {
         return {
             status: 'degraded',
-            reason: 'qpdf-unavailable',
-            message: 'qpdf is unavailable; hidden OCR layers could not be inspected',
+            reason: 'native-tool-unavailable',
+            message: 'evb-pdf-page-ops is unavailable; existing OCR layers could not be inspected',
             visibility: new Map(),
         };
     }
-    try {
+    if (input.pageNumbers.length === 0) {
         return {
             status: 'available',
-            visibility: await inspectPdfPageTextVisibilityWithQpdf(
-                pdfPath,
-                pageNumbers,
-                qpdfBinary,
-                signal,
-            ),
+            visibility: new Map(),
+        };
+    }
+    const pagesPath = join(input.tempDir, `ocr-text-visibility-${randomUUID()}.txt`);
+    try {
+        await writeFile(pagesPath, `${[...new Set(input.pageNumbers)].join('\n')}\n`);
+        const result = await runNativeToolCommand(input.pdfPageOpsBinary, [
+            'ocr-text-visibility',
+            '--input',
+            input.pdfPath,
+            '--pages-file',
+            pagesPath,
+            ...(input.qpdfBinary === undefined ? [] : [
+                '--qpdf',
+                input.qpdfBinary,
+            ]),
+        ], {
+            commandLabel: 'evb-pdf-page-ops(ocr-text-visibility)',
+            timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
+            maxStdoutBytes: OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES,
+            rejectOnStdoutTruncation: true,
+            ...(input.signal ? {signal: input.signal} : {}),
+        });
+        const report = decodePdfOcrTextVisibilityReport(JSON.parse(result.stdout));
+        return {
+            status: 'available',
+            visibility: new Map(report.pages.map(page => [
+                page.pageNumber,
+                page,
+            ])),
         };
     } catch (error) {
-        if (isAbortError(error) || signal?.aborted) {
+        if (isAbortError(error) || input.signal?.aborted) {
             throw error;
         }
         return {
             status: 'degraded',
-            reason: 'qpdf-failed',
-            message: `qpdf text-visibility inspection failed; hidden OCR layers could not be inspected: ${getErrorMessage(error)}`,
+            reason: 'native-tool-failed',
+            message: `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`,
             visibility: new Map(),
         };
+    } finally {
+        await rm(pagesPath, {force: true}).catch(() => undefined);
     }
 }
 
 export function classifyOcrPageText(input: {
     extractedText: string;
-    visibility?: IOcrPdfTextVisibility;
+    visibility?: IPdfOcrPageTextVisibility;
     languages?: readonly string[];
-}): IOcrPageTextEvidence {
-    const extractedTextLength = input.extractedText.trim().length;
-    const hasHiddenTextOperators = input.visibility?.hasHiddenTextOperators ?? false;
-    const hasVisibleTextOperators = input.visibility?.hasVisibleTextOperators ?? false;
-    const evidence = {
-        extractedTextLength,
-        hasHiddenTextOperators,
-        hasVisibleTextOperators,
-    };
-    if (input.visibility?.hasEvbOcrLayer) {
-        return {
-            ...evidence,
-            classification: isLikelyUsableOcrText(input.extractedText, input.languages)
-                ? 'evb-current-generation'
-                : 'foreign-hidden-ocr',
-        };
+}): TOcrPageTextClassification {
+    if (input.visibility?.evbOcrLayer) {
+        return isLikelyUsableOcrText(input.extractedText, input.languages)
+            ? 'evb-current-generation'
+            : 'foreign-hidden-ocr';
     }
-    if (extractedTextLength === 0) {
-        return {
-            ...evidence,
-            classification: 'no-text',
-        };
+    if (input.extractedText.trim().length === 0) {
+        return 'no-text';
     }
-    return {
-        ...evidence,
-        classification: hasHiddenTextOperators && !hasVisibleTextOperators
-            ? 'foreign-hidden-ocr'
-            : 'native-text',
-    };
+    // Only hidden text the writer removes, and nothing else, is a foreign layer
+    // OCR may replace; anything painted or unread is the document's own text.
+    const visibility = input.visibility;
+    return visibility?.hiddenText && !visibility.paintedText && visibility.uncertain === null
+        ? 'foreign-hidden-ocr'
+        : 'native-text';
 }
 
 export function shouldOcrClassifiedPage(

@@ -1,0 +1,22 @@
+{
+  "format": "evb-pdf-ocr-text-visibility",
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "pageNumber": 1,
+      "evbOcrLayer": false,
+      "paintedText": true,
+      "hiddenText": true,
+      "uncertain": null,
+      "unsupported": null
+    },
+    {
+      "pageNumber": 3,
+      "evbOcrLayer": true,
+      "paintedText": false,
+      "hiddenText": false,
+      "uncertain": "hidden text inside a Form XObject is not removed by OCR replacement",
+      "unsupported": "text clipping rendering modes cannot be replaced safely"
+    }
+  ]
+}
