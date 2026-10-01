@@ -522,6 +522,19 @@ export default defineNuxtConfig({
 
     vite: {
         ...(isolatedNuxtViteCacheDir ? {cacheDir: isolatedNuxtViteCacheDir} : {}),
+        $client: {
+            build: {
+                rollupOptions: {
+                    output: {
+                        // The Oxc mangler writes no `names` into source maps, so
+                        // Sentry can only name a frame's function after its
+                        // minified identifier. Keeping function and class names
+                        // lets symbolicated stacks show the original function.
+                        minify: {mangle: {keepNames: {function: true, class: true}}},
+                    },
+                },
+            },
+        },
         worker: {
             format: 'es',
             rolldownOptions: {

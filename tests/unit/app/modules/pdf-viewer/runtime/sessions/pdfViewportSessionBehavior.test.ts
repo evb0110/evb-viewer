@@ -19,7 +19,7 @@ import {
 import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 import type {
     IPdfDocumentTransition,
-    TPdfDocumentSession,
+    TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
@@ -126,7 +126,7 @@ function createDocumentFixture(pageCount = 100) {
     };
     // The fixture supplies the document-session methods used by the viewport
     // session while keeping the page-source work out of these behavior tests.
-    return fixture as typeof fixture & TPdfDocumentSession;
+    return fixture as typeof fixture & TPdfDocumentView;
 }
 
 function createChassisAuthority(surface: IDocumentOpenSurfaceSession) {

@@ -29,15 +29,8 @@ import {
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
 import { attachNativeWindowCloseHandshake } from '@electron/window/windowCloseHandshake';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
-import {
-    encodeHostResourceProfileArgument,
-    getHostResourceProfileSnapshot,
-} from '@electron/resources/hostResourceProfile';
-import {
-    captureMainFailure,
-    getMainDiagnosticsPreference,
-} from '@electron/features/diagnostics/public';
-import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
+import { captureMainFailure } from '@electron/features/diagnostics/public';
+import { createWindowStartupOptions } from '@electron/window/createWindowStartupOptions';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -510,9 +503,9 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const preloadPath = join(__dirname, 'preload.cjs');
     const keepAutomationRendererActive = config.automation.hideWindow || config.automation.noFocus;
 
+    const startupOptions = createWindowStartupOptions();
     const window = new BrowserWindow({
-        width: config.window.width,
-        height: config.window.height,
+        ...startupOptions.bounds,
         title: config.window.title,
         ...(windowIconPath ? { icon: windowIconPath } : {}),
         autoHideMenuBar: false,
@@ -524,20 +517,20 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             contextIsolation: true,
             sandbox: true,
             preload: preloadPath,
-            additionalArguments: [
-                encodeHostResourceProfileArgument(getHostResourceProfileSnapshot()),
-                encodeDiagnosticsPolicyArgument(getMainDiagnosticsPreference()),
-                ...(runtimeConfig.startupTrace ? ['--evb-startup-trace'] : []),
-                ...(runtimeConfig.automationUserDataDir
-                    && runtimeConfig.automationSessionName
-                    && runtimeConfig.automationEnableRendererFileOpenHelper
-                    ? ['--evb-renderer-file-open-helper']
-                    : []),
-            ],
+            additionalArguments: startupOptions.additionalArguments,
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });
     const windowWebContents = window.webContents;
+    if (config.automation.hideWindow && process.platform === 'win32') {
+        // On Windows the compositor of a never-shown window draws only for a
+        // pending copy, so CDP Page.captureScreenshot, which waits for a
+        // presented frame before it copies, never returns. A frame
+        // subscription keeps a copy pending for every new frame. It stays on
+        // the render widget it was taken on, so it follows each committed
+        // main-frame navigation to the page's current widget.
+        windowWebContents.on('did-navigate', () => windowWebContents.beginFrameSubscription(() => undefined));
+    }
 
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
     attachNativeWindowCloseHandshake(window, {

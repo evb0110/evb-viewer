@@ -35,7 +35,7 @@ import {
 import { parseDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfDocumentTransition,
-    TPdfDocumentSession,
+    TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {
     applyParsedHighlightTextToStore,
@@ -109,7 +109,7 @@ import {
     type ICanonicalAnnotationRecovery,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export interface ICreatePdfAnnotationSessionOptions {
-    document: TPdfDocumentSession;
+    document: TPdfDocumentView;
     viewport: TPdfViewportSession;
     rendering: TPdfRenderingSession;
     viewerContainer: Ref<HTMLElement | null>;

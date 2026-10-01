@@ -123,6 +123,21 @@ describe('useUiScale', () => {
         expect(uiScale.effectiveScale.value).toBe(0.85);
     });
 
+    it('starts from the desktop host environment before any IPC answers', () => {
+        Object.defineProperty(window, 'electronAPI', {
+            configurable: true,
+            value: {startupHostEnvironment: windowsSnapshot(2)},
+        });
+        try {
+            const uiScale = useUiScale();
+
+            expect(uiScale.effectiveScale.value).toBe(0.85);
+            expect(mocks.getEnvironment).not.toHaveBeenCalled();
+        } finally {
+            Reflect.deleteProperty(window, 'electronAPI');
+        }
+    });
+
     it('adopts the host snapshot the environment reports', async () => {
         const uiScale = useUiScale();
         mocks.getEnvironment.mockResolvedValue(windowsSnapshot(1.5));

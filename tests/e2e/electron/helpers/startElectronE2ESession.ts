@@ -101,13 +101,23 @@ function sanitizeArtifactLabel(label: string) {
         .slice(0, 80) || 'electron-e2e-failure';
 }
 
+// Windows scanners (Defender, indexer) briefly hold files after Electron exits;
+// Node retries EPERM/EBUSY with linear backoff, about 1.5 s in total.
+const sessionRemoveOptions = {
+    recursive: true,
+    force: true,
+    ...(process.platform === 'win32'
+        ? {
+            maxRetries: 5,
+            retryDelay: 100,
+        }
+        : {}),
+};
+
 function cleanupSessionArtifacts(sessionName: string) {
     assertE2ESessionName(sessionName);
     cleanupSessionFixtures(sessionName);
-    rmSync(sessionDir(sessionName), {
-        recursive: true,
-        force: true,
-    });
+    rmSync(sessionDir(sessionName), sessionRemoveOptions);
 }
 
 export function prunePreservedSessionArtifacts(sessionName: string) {
@@ -118,10 +128,7 @@ export function prunePreservedSessionArtifacts(sessionName: string) {
         'automation-electron-app-entry',
         'electron-user-data',
     ]) {
-        rmSync(join(sessionDir(sessionName), directoryName), {
-            recursive: true,
-            force: true,
-        });
+        rmSync(join(sessionDir(sessionName), directoryName), sessionRemoveOptions);
     }
 }
 

@@ -156,6 +156,13 @@ function isUiScalePreference(value: string): value is ISettingsData['uiScale'] {
     return UI_SCALE_PREFERENCES.has(value);
 }
 
+/** Carries the stored UI scale to a window's preload, so the first layout can use it. */
+export const UI_SCALE_PREFERENCE_ARGUMENT_PREFIX = '--evb-ui-scale-preference=';
+
+export function decodeUiScalePreference(value: unknown): ISettingsData['uiScale'] | null {
+    return isString(value) && isUiScalePreference(value) ? value : null;
+}
+
 function isTabMemoryPolicy(value: string): value is ISettingsData['tabMemoryPolicy'] {
     return TAB_MEMORY_POLICIES.has(value);
 }

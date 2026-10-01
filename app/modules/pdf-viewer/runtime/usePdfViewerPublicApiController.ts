@@ -6,7 +6,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { Ref } from 'vue';
 import type { Merge } from 'type-fest';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfAnnotationSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
@@ -43,7 +43,7 @@ type TPdfViewerPublicApiSource = Merge<
 
 interface IUsePdfViewerPublicApiControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    documentSession: TPdfDocumentSession;
+    documentSession: TPdfDocumentView;
     viewportSession: TPdfViewportSession;
     getUserViewportInteractionEpoch: () => number;
     cancelPendingSearchScroll: () => void;

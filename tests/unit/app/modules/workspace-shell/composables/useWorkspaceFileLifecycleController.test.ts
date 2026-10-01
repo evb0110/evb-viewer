@@ -120,10 +120,13 @@ const { useWorkspaceFileLifecycleController } =
     await import('@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController');
 
 function createController() {
-    return useWorkspaceFileLifecycleController({createViewerLifecycleHooks: (context) => {
-        const hooks = getWorkspaceViewerAdapter('djvu').createLifecycleHooks?.(context);
-        return hooks ? [hooks] : [];
-    }});
+    return useWorkspaceFileLifecycleController({
+        createViewerLifecycleHooks: (context) => {
+            const hooks = getWorkspaceViewerAdapter('djvu').createLifecycleHooks?.(context);
+            return hooks ? [hooks] : [];
+        },
+        runDocumentOpen: (_request, run) => run(),
+    });
 }
 
 function createDeferred() {

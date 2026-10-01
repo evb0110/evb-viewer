@@ -152,6 +152,29 @@ describe('useSettings', () => {
         expect(settings.value.locale).toBe('fr');
     });
 
+    it('starts from the UI scale main passed to the window before settings load', async () => {
+        vi.stubGlobal('window', {electronAPI: createElectronPlatformApiFixture({
+            settings: {
+                get: mockGet,
+                save: mockSave,
+            },
+            startupUiScalePreference: 'large',
+        })});
+        try {
+            const { useSettings } = await import('@app/composables/useSettings');
+            const {
+                isLoaded,
+                settings,
+            } = useSettings();
+
+            expect(isLoaded.value).toBe(false);
+            expect(settings.value.uiScale).toBe('large');
+            expect(mockGet).not.toHaveBeenCalled();
+        } finally {
+            Reflect.deleteProperty(globalThis, 'window');
+        }
+    });
+
     it('holds pre-hydration intent until recovery and persists only that field', async () => {
         const authoritativeSettings: ISettingsData = {
             version: 2,

@@ -846,6 +846,57 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupPreviousWorkingCopy).toHaveBeenCalledWith('/tmp/first-working.pdf', '/tmp/second-working.pdf');
     });
 
+    it('sizes the opening skeleton from the source while the open makes its working copy', async () => {
+        const originalPath = requireDocumentRef('/documents/dropped.pdf');
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: originalPath,
+            documentRevision: 'open-intent:1',
+            provisional: true,
+        });
+        const openResult = Promise.withResolvers<unknown>();
+        mocks.documentOpen.openDocumentDirect.mockReturnValue(openResult.promise);
+        const { openFlow } = createOpenFlowHarness({openSurface});
+
+        const opening = openFlow.openFileDirect(originalPath);
+
+        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
+            documentId: originalPath,
+            width: 612,
+            height: 792,
+        }));
+        expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledWith(originalPath);
+        openResult.resolve({
+            kind: 'pdf',
+            originalPath,
+            workingPath: requireDocumentRef('/tmp/dropped-working.pdf'),
+        });
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+        expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads no first-page geometry for an open that starts on another page', async () => {
+        // The native reader measures page 1; a restore at page 5 can size its
+        // skeleton only from PDF.js, so neither the source nor the working
+        // copy is read for it.
+        const originalPath = requireDocumentRef('/documents/restored.pdf');
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: originalPath,
+            documentRevision: 'open-intent:1',
+            provisional: true,
+        }, null, requirePageNumber(5));
+        mocks.documentOpen.openDocumentDirect.mockResolvedValue({
+            kind: 'pdf',
+            originalPath,
+            workingPath: requireDocumentRef('/tmp/restored-working.pdf'),
+        });
+        const { openFlow } = createOpenFlowHarness({openSurface});
+
+        await expect(openFlow.openFileDirect(originalPath)).resolves.toMatchObject({status: 'opened'});
+        expect(mocks.documentFiles.getPdfOpeningGeometry).not.toHaveBeenCalled();
+    });
+
     it('sizes the opening skeleton from native geometry on a constrained profile', async () => {
         mocks.performanceProfile.lowCpu = true;
         const originalPath = requireDocumentRef('/documents/constrained.pdf');

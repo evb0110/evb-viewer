@@ -8,6 +8,7 @@ import type {
     Rectangle,
 } from 'electron';
 import {
+    HOST_ENVIRONMENT_ARGUMENT_PREFIX,
     HOST_PLATFORM_FEATURE,
     type IHostEnvironmentSnapshot,
     type IHostZenModeState,
@@ -74,6 +75,20 @@ function snapshotHostEnvironmentForWindow(window: BrowserWindow | null): IHostEn
         platform: resolvePlatform(),
         osScaleFactor: readScaleFactorForWindow(window),
     };
+}
+
+// A window's arguments are fixed before it exists, so this reads the display
+// its creation bounds fall on; `getEnvironment` and the change event follow
+// the window afterwards.
+export function encodeHostEnvironmentArgument(windowBounds: Rectangle) {
+    const snapshot: IHostEnvironmentSnapshot = {
+        platform: resolvePlatform(),
+        osScaleFactor: screen.getDisplayMatching(windowBounds).scaleFactor,
+    };
+    const encodedSnapshot = Buffer
+        .from(JSON.stringify(snapshot), 'utf8')
+        .toString('base64url');
+    return `${HOST_ENVIRONMENT_ARGUMENT_PREFIX}${encodedSnapshot}`;
 }
 
 function isWindowInHostZenMode(window: BrowserWindow) {

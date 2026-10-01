@@ -90,10 +90,13 @@ export const usePdfOpeningGeometryLifecycle = (
         },
     );
 
+    // The opening presents the page its session requested, which a restore sets
+    // before the viewport shows any page; the viewport's own page is still 1.
+    const openingPage = computed(() => chassisAuthority?.openSurface.viewportSession.value.requestedPage ?? currentPage.value);
     watch(
         [
             documentId,
-            currentPage,
+            openingPage,
             numPages,
             pageMetricsVersion,
             acceptedSource,
@@ -117,7 +120,7 @@ export const usePdfOpeningGeometryLifecycle = (
                 metricSource: acceptedSource.value,
                 currentSource: src.value,
                 pageNumber: requirePageNumber(pageNumber, pageCount),
-                currentPage: requirePageNumber(currentPage.value, pageCount),
+                currentPage: requirePageNumber(openingPage.value, pageCount),
                 pageCount,
                 metric,
             });

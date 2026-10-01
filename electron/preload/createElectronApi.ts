@@ -13,7 +13,10 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import type {TRequestId} from '@contracts/shared';
+import type {
+    TRequestId,
+    TUiScalePreference,
+} from '@contracts/shared';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -37,7 +40,10 @@ import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
+import {
+    HOST_PLATFORM_FEATURE,
+    type IHostEnvironmentSnapshot,
+} from '@contracts/hostPlatformFeature';
 import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import {
@@ -159,7 +165,9 @@ function readSystemMemoryInfo() {
 
 interface ICreateElectronApiOptions {
     diagnosticsPolicy?: IPreloadDiagnosticsApi['startupPolicy'];
+    hostEnvironment?: IHostEnvironmentSnapshot | null;
     resourceProfile?: IHostResourceProfileSnapshot | null;
+    uiScalePreference?: TUiScalePreference | null;
     waitForDocumentOpenDirect?: (path: string) => Promise<void>;
 }
 
@@ -512,6 +520,8 @@ export function createElectronApi(
         },
 
         diagnostics: {startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'})},
+        startupHostEnvironment: options.hostEnvironment ?? null,
+        startupUiScalePreference: options.uiScalePreference ?? null,
 
         system: {
             ...systemIpc,

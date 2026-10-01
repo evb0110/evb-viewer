@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import {execFile} from 'node:child_process';
+import {mapAsync} from 'es-toolkit/array';
 import {
     mkdir,
     mkdtemp,
     readFile,
     rm,
 } from 'node:fs/promises';
+import {availableParallelism} from 'node:os';
 import {promisify} from 'node:util';
 import {
     basename,
@@ -178,22 +180,16 @@ async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = n
     const [
         inventory,
         render,
+        hiddenAnnotationRender,
     ] = await Promise.all([
         inspectPdf(inputPath),
         renderPage(inputPath, outputDirectory),
+        renderPage(inputPath, outputDirectory, {
+            hideAnnotations: true,
+            outputSuffix: '-annotations-hidden',
+        }),
     ]);
-    const hiddenAnnotationRender = await renderPage(inputPath, outputDirectory, {
-        hideAnnotations: true,
-        outputSuffix: '-annotations-hidden',
-    });
-    const visualChecks = [];
-    for (const kind of [
-        'text-box',
-        'highlight',
-        'note',
-        'stamp',
-        'shape',
-    ]) {
+    const checkKind = async kind => {
         const candidates = inventory.annotations.filter(annotation => annotation.kind === kind);
         const annotation = candidates.find(candidate => (
             candidate.rect
@@ -203,16 +199,21 @@ async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = n
         if (!annotation?.rect) {
             fail(`${basename(inputPath)} has no positioned ${kind} annotation`);
         }
-        const crop = await cropMean(render.pngPath, annotation.rect, render.page, render.image);
+        const [
+            crop,
+            hiddenCrop,
+        ] = await Promise.all([
+            cropMean(render.pngPath, annotation.rect, render.page, render.image),
+            cropMean(
+                hiddenAnnotationRender.pngPath,
+                annotation.rect,
+                hiddenAnnotationRender.page,
+                hiddenAnnotationRender.image,
+            ),
+        ]);
         if (!crop) {
             fail(`${basename(inputPath)} has a ${kind} rectangle too small to render`);
         }
-        const hiddenCrop = await cropMean(
-            hiddenAnnotationRender.pngPath,
-            annotation.rect,
-            hiddenAnnotationRender.page,
-            hiddenAnnotationRender.image,
-        );
         if (!hiddenCrop) {
             fail(`${basename(inputPath)} has a ${kind} rectangle too small for the hidden-annotation control`);
         }
@@ -226,7 +227,7 @@ async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = n
         if (requiresPaint && hiddenCrop.mean - crop.mean < MIN_PAINT_DELTA) {
             fail(`${basename(inputPath)} ${kind} paint delta is too small: normal=${crop.mean}, hidden=${hiddenCrop.mean}`);
         }
-        visualChecks.push({
+        return {
             blankAppearance: annotation.blankAppearance,
             crop,
             kind,
@@ -234,8 +235,15 @@ async function validateFile(inputPath, outputDirectory, expectedQpdfWarnings = n
             name: annotation.name,
             paintDelta: hiddenCrop.mean - crop.mean,
             subtype: annotation.subtype,
-        });
-    }
+        };
+    };
+    const visualChecks = await Promise.all([
+        'text-box',
+        'highlight',
+        'note',
+        'stamp',
+        'shape',
+    ].map(checkKind));
     return {
         bytes: (await readFile(inputPath)).length,
         file: inputPath,
@@ -300,16 +308,19 @@ export async function verifyInteropRendering({
             fail('corpus reported no scenarios');
         }
     }
-    const files = [];
-    for (const inputPath of paths) {
+    // Each input spawns about a dozen tools, so inputs run one per core.
+    const files = await mapAsync(paths, async (inputPath, index) => {
         const resolvedPath = resolve(inputPath);
         const entry = expectedEntries.get(resolvedPath);
-        files.push(await validateFile(
+        // Inputs run concurrently; same-named files from different directories must not share PNG paths.
+        const fileDirectory = join(outputDirectory, String(index));
+        await mkdir(fileDirectory, {recursive: true});
+        return validateFile(
             resolvedPath,
-            outputDirectory,
+            fileDirectory,
             entry?.qpdfWarningBaseline ?? null,
-        ));
-    }
+        );
+    }, {concurrency: availableParallelism()});
     const result = {
         artifactDirectory: outputDirectory,
         files,

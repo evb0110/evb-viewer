@@ -10,6 +10,7 @@ import {
     DEFAULT_SETTINGS,
     migrateSettings,
     sanitizeSettings,
+    UI_SCALE_PREFERENCE_ARGUMENT_PREFIX,
     UnsupportedSettingsSchemaError,
     type ISettingsRecoveryNotice,
 } from '@contracts/settings';
@@ -231,6 +232,18 @@ export async function loadSettings(): Promise<ISettingsData> {
         logger.info(`[startup] loadSettings file read complete (+${Date.now() - startedAt}ms)`);
     }
     return cloneSettings(withLatestConsent(parsed));
+}
+
+// Main loads settings before it creates the first window; until then the
+// renderer keeps its default and adopts the stored value from loadSettings.
+export function encodeUiScalePreferenceArgument() {
+    if (!settingsCache) {
+        return [];
+    }
+    const encodedPreference = Buffer
+        .from(JSON.stringify(settingsCache.uiScale), 'utf8')
+        .toString('base64url');
+    return [`${UI_SCALE_PREFERENCE_ARGUMENT_PREFIX}${encodedPreference}`];
 }
 
 export function resetSettingsCacheAfterUserDataPathChange() {

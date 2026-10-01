@@ -26,7 +26,6 @@ import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
-    reloadSrc?: TPdfSource | null | undefined;
     sourcePdfData?: Uint8Array | null | undefined;
     rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;
     isAnySaving?: boolean | undefined;

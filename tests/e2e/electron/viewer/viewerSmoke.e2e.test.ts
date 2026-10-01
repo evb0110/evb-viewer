@@ -26,6 +26,7 @@ import {
     mkdirSync,
 } from 'node:fs';
 import {
+    basename,
     dirname,
     join,
     resolve,
@@ -63,6 +64,7 @@ import {
     waitForViewerInteractive,
     triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import { openNewPane } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     describeToolbarPageIndicator,
     readToolbarPageIndicator,
@@ -1566,6 +1568,154 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect.soft(observed.downPage).toBeGreaterThan(0);
         expect.soft(observed.current, 'clicked row must become current within 1 s').toBe(observed.downPage);
         expect.soft(indicator.renderedPage, 'visible toolbar acknowledges clicked page').toBe(observed.downPage);
+    }, 120_000);
+
+    it('navigates when a pressed placeholder row receives its raster before release', async () => {
+        const {page} = sessionFixture.getSession();
+        await page.setViewport({
+            width: 1400,
+            height: 900,
+            deviceScaleFactor: 2,
+        });
+        const fixture = await createLargeScannedFixturePdf(`thumbs-press-swap-${Date.now()}.pdf`, 348, 0);
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        // Earlier cases leave other documents open with hidden rails; act only
+        // on the rail the active pane shows.
+        const readRail = () => page.evaluate(() => {
+            const rail = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-thumbnails')]
+                .find(element => element.getBoundingClientRect().width > 0);
+            const sash = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .sidebar-resizer')]
+                .find(element => element.getBoundingClientRect().height > 0);
+            const railBox = rail?.getBoundingClientRect();
+            const sashBox = sash?.getBoundingClientRect();
+            return railBox && sashBox
+                ? {
+                    rail: {
+                        x: railBox.x,
+                        y: railBox.y,
+                        width: railBox.width,
+                    },
+                    sash: {
+                        x: sashBox.x + sashBox.width / 2,
+                        y: sashBox.y + 200,
+                    },
+                }
+                : null;
+        });
+        const before = await readRail();
+        expect(before, 'the active pane shows its thumbnail rail').not.toBeNull();
+        await page.mouse.move(before!.sash.x, before!.sash.y);
+        await page.mouse.down();
+        await page.mouse.move(502, before!.sash.y, {steps: 20});
+        await page.mouse.up();
+        const widened = await readRail();
+        const point = {
+            x: widened!.rail.x + widened!.rail.width / 2,
+            y: widened!.rail.y + 200,
+        };
+        await page.mouse.move(point.x, point.y);
+        await waitForFunctionInPage(page, ({
+            x, y,
+        }: {
+            x: number;
+            y: number
+        }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-thumbnail-page]')?.querySelector('canvas')), {timeout: 20_000}, point);
+        await page.evaluate(({
+            x, y,
+        }: {
+            x: number;
+            y: number
+        }) => {
+            const rail = document.elementFromPoint(x, y)!.closest<HTMLElement>('.pdf-thumbnails')!;
+            const press = {
+                downPage: 0,
+                downHadRaster: true,
+                upPage: 0,
+                upHadRaster: false,
+            };
+            Object.assign(window, {__thumbsPressSwap: press});
+            const rowOf = (event: Event) => (event.target as Element).closest<HTMLElement>('[data-thumbnail-page]');
+            rail.addEventListener('pointerdown', event => {
+                const row = rowOf(event);
+                press.downPage = Number(row?.dataset.thumbnailPage);
+                press.downHadRaster = Boolean(row?.querySelector('canvas'));
+            }, {
+                capture: true,
+                once: true,
+            });
+            rail.addEventListener('pointerup', event => {
+                const row = rowOf(event);
+                press.upPage = Number(row?.dataset.thumbnailPage);
+                press.upHadRaster = Boolean(row?.querySelector('canvas'));
+            }, {
+                capture: true,
+                once: true,
+            });
+        }, point);
+        // Rows render from pages the pdf.js worker prepares. Pausing that worker
+        // keeps the rows a jump reveals as placeholders until the press is
+        // down, and resuming it lands their rasters while it is held. Every
+        // wait is bounded far inside the test timeout, and one idempotent
+        // restore runs from finally and from onTestFinished, so no path leaves
+        // the shared session's worker paused or its button down.
+        const worker = page.workers().find(candidate => candidate.url().includes('pdf.worker'));
+        expect(worker, 'the pdf.js worker serves this document').toBeDefined();
+        const workerDebugger = worker!.client;
+        let pressed = false;
+        let restored = false;
+        const bounded = (work: Promise<unknown>) => Promise.race([
+            work.catch(() => undefined),
+            new Promise(resolve => setTimeout(resolve, 5_000)),
+        ]);
+        const restore = async () => {
+            if (restored) return;
+            restored = true;
+            if (pressed) await bounded(page.mouse.up());
+            await bounded(workerDebugger.send('Debugger.resume'));
+            await bounded(workerDebugger.send('Debugger.disable'));
+        };
+        onTestFinished(restore);
+        await workerDebugger.send('Debugger.enable');
+        await workerDebugger.send('Debugger.pause');
+        try {
+            await page.mouse.wheel({deltaY: 9_000});
+            await waitForFunctionInPage(page, ({
+                x, y,
+            }: {
+                x: number;
+                y: number
+            }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-thumbnail-page]')?.querySelector('.document-thumbnail-list__placeholder')), {timeout: 10_000}, point);
+            await page.mouse.down();
+            pressed = true;
+            await workerDebugger.send('Debugger.resume');
+            // Hold the press until the row's raster replaces its placeholder.
+            await waitForFunctionInPage(page, () => {
+                const press = (window as Window & {__thumbsPressSwap?: {downPage: number}}).__thumbsPressSwap!;
+                return Boolean(document.querySelector(`.editor-pane.is-active .pdf-thumbnails [data-thumbnail-page="${String(press.downPage)}"] canvas`));
+            }, {timeout: 15_000});
+            pressed = false;
+            await page.mouse.up();
+        } finally {
+            await restore();
+        }
+        const press = await page.evaluate(() => (window as Window & {__thumbsPressSwap?: {
+            downPage: number;
+            downHadRaster: boolean;
+            upPage: number;
+            upHadRaster: boolean
+        }}).__thumbsPressSwap!);
+        expect(press.downHadRaster, 'the press lands on a placeholder').toBe(false);
+        expect(press.upHadRaster, 'the raster arrives before release').toBe(true);
+        expect(press.upPage).toBe(press.downPage);
+        const readCurrent = () => Number(document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-thumbnails .is-current')?.dataset.thumbnailPage);
+        await waitForFunctionInPage(page, (expected: number) => (
+            Number(document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-thumbnails .is-current')?.dataset.thumbnailPage) === expected
+        ), {timeout: 5_000}, press.downPage).catch(() => undefined);
+        expect(await page.evaluate(readCurrent), 'the pressed row becomes current').toBe(press.downPage);
+        expect((await readToolbarPageIndicator(page)).renderedPage, 'the toolbar follows the pressed row').toBe(press.downPage);
     }, 120_000);
 
     it('selects a bookmark on the first activation and follows later page navigation', async () => {
@@ -6398,9 +6548,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await waitForFunctionInPage(session.page, (selector) => (
             document.querySelector(selector) === null
         ), {timeout: 30_000}, progressSelector);
-        await waitForFunctionInPage(session.page, () => (
-            document.querySelector('.editor-pane.is-active .djvu-banner') === null
-        ), {timeout: 30_000});
+        // The PDF opens in a new tab; the DjVu tab behind it keeps converting
+        // and keeps its hidden convert prompt until it shows the result.
+        const shownBannerSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .djvu-banner';
+        await waitForFunctionInPage(session.page, (selector) => (
+            document.querySelector(selector) === null
+        ), {timeout: 30_000}, shownBannerSelector);
         const switchedDocument = await callWorkspaceCommand<Record<string, unknown>>(
             session.page,
             'getAutomationStateSnapshot',
@@ -6409,18 +6562,291 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
         );
         expect(await session.page.$(progressSelector)).toBeNull();
-        expect(await session.page.$('.editor-pane.is-active .djvu-banner')).toBeNull();
+        expect(await session.page.$(shownBannerSelector)).toBeNull();
         const switchedSnapshot = await getWorkspaceToolbarSnapshot(session.page);
         expect(switchedSnapshot?.hasPdf).toBe(true);
         expect(switchedSnapshot?.initialVisualReady).toBe(true);
 
     }, 120_000);
 
-    it('restores a valid focus target after native DjVu conversion completes', async () => {
-        const deadlineAt = performance.now() + 120_000;
+    it('keeps typing in the shown tab when a DjVu conversion finishes in a hidden tab', async () => {
+        const deadlineAt = performance.now() + 150_000;
         const remainingMs = () => Math.max(1, deadlineAt - performance.now());
         let session = sessionFixture.getSession();
-        const completionFixture = await copyDjvuFixtureForMutation(djvuFixture, 'completion');
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-hidden-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(destinationPath), {recursive: true});
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-hidden-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+        });
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const djvuTabId = await session.page.$eval(
+            '.editor-pane.is-active .tab.is-active[data-tab-id]',
+            tab => (tab as HTMLElement).dataset.tabId ?? '',
+        );
+        const initiator = await session.page.$('.djvu-banner button');
+        expect(initiator).not.toBeNull();
+        await initiator!.click();
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickEnabledDialogButton(session.page, 'Convert');
+        await session.page.waitForSelector('.app-progress-overlay[role="dialog"]', {
+            timeout: remainingMs(),
+            visible: true,
+        });
+
+        // The PDF takes a new tab; the conversion goes on in the DjVu tab.
+        await openPdfInApp(
+            session.page,
+            resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
+            30_000,
+        );
+        const searchSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] input[aria-label="Search document"]';
+        await session.page.keyboard.down('Control');
+        await session.page.keyboard.press('f');
+        await session.page.keyboard.up('Control');
+        await waitForFunctionInPage(session.page, (selector) => (
+            document.activeElement === document.querySelector(selector)
+        ), {timeout: 5_000}, searchSelector);
+
+        // Keep typing through the moment the hidden tab finishes and shows its PDF.
+        let typed = '';
+        let typing = true;
+        const typist = (async () => {
+            while (typing) {
+                const character = 'abcdefghij'[typed.length % 10]!;
+                await session.page.keyboard.type(character);
+                typed += character;
+            }
+        })();
+        try {
+            await expect.poll(() => existsSync(destinationPath), {timeout: remainingMs()}).toBe(true);
+            await waitForFunctionInPage(session.page, (args: {
+                tabId: string;
+                label: string
+            }) => (
+                document.querySelector(`.tab[data-tab-id="${CSS.escape(args.tabId)}"] .tab-label`)?.textContent?.trim() === args.label
+            ), {timeout: remainingMs()}, {
+                tabId: djvuTabId,
+                label: basename(destinationPath),
+            });
+            const typedAtCompletion = typed.length;
+            await expect.poll(() => typed.length, {timeout: remainingMs()}).toBeGreaterThan(typedAtCompletion + 100);
+        } finally {
+            typing = false;
+            await typist;
+        }
+        const search = await session.page.evaluate((selector) => {
+            const input = document.querySelector<HTMLInputElement>(selector);
+            return {
+                focused: document.activeElement === input,
+                value: input?.value ?? '',
+            };
+        }, searchSelector);
+        expect({
+            focused: search.focused,
+            lostKeystrokes: typed.length - search.value.length,
+        }).toEqual({
+            focused: true,
+            lostKeystrokes: 0,
+        });
+        expect(search.value).toBe(typed);
+    }, 150_000);
+
+    // Behavior contract T1: a conversion in the pane beside keeps its progress
+    // to its own pane and takes no clicks or keys from the pane in use.
+    it('keeps typing in the other pane while a DjVu conversion runs in a visible inactive pane', async () => {
+        const deadlineAt = performance.now() + 150_000;
+        const remainingMs = () => Math.max(1, deadlineAt - performance.now());
+        let session = sessionFixture.getSession();
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const destinationPath = resolve(
+            process.cwd(),
+            '.devkit',
+            'tmp',
+            `djvu-conversion-inactive-pane-${Date.now()}.pdf`,
+        );
+        mkdirSync(dirname(destinationPath), {recursive: true});
+        onTestFinished(() => rm(destinationPath, {force: true}));
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-conversion-inactive-pane-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+        });
+        await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
+            && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const djvuPaneId = await session.page.$eval(
+            '.editor-pane.is-active',
+            pane => (pane as HTMLElement).dataset.editorPaneId ?? '',
+        );
+        const initiator = await session.page.$('.djvu-banner button');
+        expect(initiator).not.toBeNull();
+        await initiator!.click();
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickEnabledDialogButton(session.page, 'Convert');
+        const progressSelector = `.editor-pane[data-editor-pane-id="${djvuPaneId}"] .app-progress-overlay`;
+        await session.page.waitForSelector(progressSelector, {
+            timeout: remainingMs(),
+            visible: true,
+        });
+
+        // The PDF opens in a new pane beside the converting one; both stay visible.
+        await openNewPane(session.page, 'right');
+        await openPdfInApp(
+            session.page,
+            resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'),
+            30_000,
+        );
+        const pdfPaneSelector = '.editor-pane.is-active';
+        expect(await session.page.$eval(pdfPaneSelector, pane => (pane as HTMLElement).dataset.editorPaneId)).not.toBe(djvuPaneId);
+        const viewerPoint = await session.page.$eval(`${pdfPaneSelector} .workspace-host[data-workspace-active="true"] .workspace-viewer-host`, (element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        await session.page.mouse.click(viewerPoint.x, viewerPoint.y);
+        const readFocus = () => session.page.evaluate((selector: string) => ({
+            inProgressOverlay: document.querySelector(selector)?.contains(document.activeElement) ?? false,
+            progressShown: (document.querySelector(selector)?.getClientRects().length ?? 0) > 0,
+        }), progressSelector);
+        const afterClick = await readFocus();
+        const searchSelector = `${pdfPaneSelector} .workspace-host[data-workspace-active="true"] input[aria-label="Search document"]`;
+        await session.page.keyboard.down('Control');
+        await session.page.keyboard.press('f');
+        await session.page.keyboard.up('Control');
+        await waitForFunctionInPage(session.page, (selector: string) => (
+            (document.querySelector(selector)?.getClientRects().length ?? 0) > 0
+        ), {timeout: 5_000}, searchSelector);
+        await session.page.click(searchSelector);
+        const searchClickFocused = await session.page.evaluate((selector: string) => (
+            document.activeElement === document.querySelector(selector)
+        ), searchSelector);
+        // Escape here belongs to the pane in use, not the conversion beside it.
+        const convertingAtEscape = (await readFocus()).progressShown;
+        await session.page.keyboard.press('Escape');
+
+        // Keep typing through the end of the conversion beside.
+        let typed = '';
+        let typing = true;
+        const typist = (async () => {
+            while (typing) {
+                const character = 'abcdefghij'[typed.length % 10]!;
+                await session.page.keyboard.type(character);
+                typed += character;
+            }
+        })();
+        let typedWhileConverting = false;
+        const readConversion = () => session.page.evaluate((args: {
+            paneId: string;
+            converted: boolean;
+        }) => {
+            if (args.converted) {
+                return 'converted';
+            }
+            return document.querySelector(`.editor-pane[data-editor-pane-id="${CSS.escape(args.paneId)}"] .djvu-banner`)?.getClientRects().length
+                ? 'cancelled'
+                : 'running';
+        }, {
+            paneId: djvuPaneId,
+            converted: existsSync(destinationPath),
+        });
+        let conversion = 'running';
+        try {
+            await expect.poll(async () => {
+                conversion = await readConversion();
+                return conversion;
+            }, {timeout: remainingMs()}).not.toBe('running');
+            typedWhileConverting = typed.length > 0;
+            if (conversion === 'converted') {
+                // The converted PDF takes the converting pane's tab; its progress
+                // stays there until that pane shows the PDF.
+                await waitForFunctionInPage(session.page, (args: {
+                    paneId: string;
+                    label: string;
+                }) => (
+                    document.querySelector(`.editor-pane[data-editor-pane-id="${CSS.escape(args.paneId)}"] .tab-label`)?.textContent?.trim() === args.label
+                ), {timeout: remainingMs()}, {
+                    paneId: djvuPaneId,
+                    label: basename(destinationPath),
+                });
+                const typedAtCompletion = typed.length;
+                await expect.poll(() => typed.length, {timeout: remainingMs()}).toBeGreaterThan(typedAtCompletion + 100);
+            }
+        } finally {
+            typing = false;
+            await typist;
+        }
+        const search = await session.page.evaluate((selector: string) => {
+            const input = document.querySelector<HTMLInputElement>(selector);
+            return {
+                focused: document.activeElement === input,
+                value: input?.value ?? '',
+            };
+        }, searchSelector);
+        expect({
+            afterClick,
+            conversion,
+            convertingAtEscape,
+            searchClickFocused,
+            typedWhileConverting,
+            focused: search.focused,
+            lostKeystrokes: typed.length - search.value.length,
+        }).toEqual({
+            afterClick: {
+                inProgressOverlay: false,
+                progressShown: true,
+            },
+            conversion: 'converted',
+            convertingAtEscape: true,
+            searchClickFocused: true,
+            typedWhileConverting: true,
+            focused: true,
+            lostKeystrokes: 0,
+        });
+        expect(search.value).toBe(typed);
+        await waitForFunctionInPage(session.page, (args: {
+            paneId: string;
+            progressSelector: string;
+        }) => (
+            document.querySelector(args.progressSelector) === null
+            && document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${CSS.escape(args.paneId)}"] [data-open-surface-phase]`)?.dataset.openSurfacePhase === 'ready'
+        ), {timeout: remainingMs()}, {
+            paneId: djvuPaneId,
+            progressSelector,
+        });
+    }, 150_000);
+
+    // Converts the DjVu from its banner and returns once the converted PDF
+    // shows its first page; focus must then sit on a live control there.
+    async function convertDjvuAndExpectLiveFocus(sourcePath: string, slug: string, options: {minimumPageCount: number}) {
+        const deadlineAt = performance.now() + 120_000;
+        const remainingMs = () => Math.max(1, deadlineAt - performance.now());
+        const completionFixture = await copyDjvuFixtureForMutation({
+            ...djvuFixture,
+            path: sourcePath,
+        }, slug);
         if (!completionFixture.path) {
             throw new Error(completionFixture.reason);
         }
@@ -6429,13 +6855,13 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             process.cwd(),
             '.devkit',
             'tmp',
-            `djvu-conversion-completion-${Date.now()}.pdf`,
+            `djvu-conversion-${slug}-${Date.now()}.pdf`,
         );
         mkdirSync(dirname(destinationPath), {recursive: true});
         onTestFinished(() => rm(destinationPath, {force: true}));
-        session = await sessionFixture.restart({
+        const session = await sessionFixture.restart({
             clean: true,
-            sessionName: () => `e2e-djvu-conversion-completion-${Date.now()}`,
+            sessionName: () => `e2e-djvu-conversion-${slug}-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
         });
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
@@ -6445,7 +6871,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
         ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
         const shownPageCount = Number((await readToolbarPageIndicator(session.page)).totalPagesText?.replace(/\D+/gu, ''));
-        expect(shownPageCount).toBeGreaterThan(1);
+        expect(shownPageCount).toBeGreaterThanOrEqual(options.minimumPageCount);
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
         await initiator!.click();
@@ -6488,11 +6914,37 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(convertedBytes.subarray(0, 5).toString()).toBe('%PDF-');
         // The converted PDF keeps every page the viewer showed for the DjVu.
         expect((await PDFDocument.load(convertedBytes, {updateMetadata: false})).getPageCount()).toBe(shownPageCount);
-        expect(await session.page.evaluate(() => (
-            document.activeElement instanceof HTMLElement
-            && document.activeElement !== document.body
-            && document.activeElement.isConnected
-        ))).toBe(true);
+        await waitForAnimationFrames(session.page, 2);
+        expect(await session.page.evaluate(() => {
+            const target = document.activeElement;
+            if (!(target instanceof HTMLElement) || target === document.body) {
+                return {focus: target?.tagName ?? null};
+            }
+            return {
+                focus: 'control',
+                connected: target.isConnected,
+                enabled: !target.matches(':disabled'),
+                reachable: target.closest('[inert], [aria-hidden="true"]') === null,
+                visible: target.getClientRects().length > 0,
+            };
+        })).toEqual({
+            focus: 'control',
+            connected: true,
+            enabled: true,
+            reachable: true,
+            visible: true,
+        });
+    }
+
+    it('restores a valid focus target after native DjVu conversion completes', async () => {
+        await convertDjvuAndExpectLiveFocus(djvuFixture.path!, 'completion', {minimumPageCount: 2});
+    }, 120_000);
+
+    // The overlay may return focus only once the converted PDF is shown: a
+    // control picked while the PDF still loads, such as Next Page with no
+    // page count yet, is disabled when its single page arrives (#924).
+    it('returns focus to a live control after converting a single-page DjVu', async () => {
+        await convertDjvuAndExpectLiveFocus(resolve('tests/fixtures/djvu/sources/layered.djvu'), 'single-page', {minimumPageCount: 1});
     }, 120_000);
 
     it('restores focus and presents the native error surface after DjVu conversion fails', async () => {

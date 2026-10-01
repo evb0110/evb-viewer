@@ -44,7 +44,9 @@ maps exist when they are uploaded; without a token it does nothing. Release
 builds pass `SENTRY_ORG` and the desktop `SENTRY_PROJECT` to the build step,
 and the later `Upload Sentry source maps` step runs
 `node scripts/upload-sentry-sourcemaps.mjs dist-electron` for the Electron
-bundles, which are built after the renderer. The preload bundle ships without
+bundles, which are built after the renderer. The renderer minifier keeps
+function and class names because its maps carry no `names`, and Sentry names a
+frame's function after the minified identifier. The preload bundle ships without
 a map: it runs no Sentry client, so its frames never appear in reports.
 
 A hosted build with `SENTRY_BROWSER_DSN` but no `SENTRY_AUTH_TOKEN` fails

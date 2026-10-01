@@ -52,7 +52,7 @@ afterEach(() => {
     }
 });
 
-function mountOverlay() {
+function mountOverlay({modal = true}: {modal?: boolean} = {}) {
     const host = document.createElement('div');
     document.body.append(host);
     const open = ref(false);
@@ -64,6 +64,7 @@ function mountOverlay() {
         }, 'Workspace action'),
         h(DjvuConversionOverlay, {
             isConverting: open.value,
+            modal,
             phase: 'converting',
             percent: 25,
             onCancel: () => {
@@ -126,6 +127,34 @@ describe('DjvuConversionOverlay', () => {
         expect(mounted.host.querySelector('.app-progress-overlay')).toBeNull();
         expect(workspaceAction.hasAttribute('inert')).toBe(false);
         expect(document.activeElement).toBe(workspaceAction);
+    });
+
+    it('presents a background workspace\'s conversion as a status that leaves the focus and the workspace alone', async () => {
+        const mounted = mountOverlay({modal: false});
+        const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
+        workspaceAction.focus();
+
+        mounted.open.value = true;
+        await nextTick();
+        await nextTick();
+
+        const overlay = mounted.host.querySelector<HTMLElement>('.app-progress-overlay')!;
+        expect(overlay.getAttribute('role')).toBe('status');
+        expect(overlay.getAttribute('aria-live')).toBe('polite');
+        expect(overlay.hasAttribute('aria-modal')).toBe(false);
+        expect(mounted.host.querySelector('.app-progress-overlay-percent')?.textContent).toContain('25%');
+        expect(workspaceAction.hasAttribute('inert')).toBe(false);
+        expect(document.activeElement).toBe(workspaceAction);
+
+        const outside = document.createElement('button');
+        outside.type = 'button';
+        document.body.append(outside);
+        try {
+            outside.focus();
+            expect(document.activeElement).toBe(outside);
+        } finally {
+            outside.remove();
+        }
     });
 
     it('focuses a visible fallback when the initiating control was replaced', async () => {

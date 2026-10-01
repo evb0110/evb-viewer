@@ -3,7 +3,7 @@ import type {IPdfTextPreviewItem} from '@app/modules/pdf-viewer/engine/annotatio
 import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import type {
     IPdfDocumentTransition,
-    TPdfDocumentSession,
+    TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
@@ -23,7 +23,7 @@ export async function deriveSelectedTextForParsedHighlights({
     transition,
     signal,
 }: {
-    documentSession: TPdfDocumentSession;
+    documentSession: TPdfDocumentView;
     result: IPdfAnnotationParseResult;
     transition: Pick<IPdfDocumentTransition, 'isCurrent'>;
     signal?: AbortSignal;
@@ -50,7 +50,7 @@ export async function deriveSelectedTextForParsedHighlights({
             stale = true;
             return false;
         }
-        let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
+        let lease: Awaited<ReturnType<TPdfDocumentView['leasePage']>> | null = null;
         try {
             lease = await documentSession.leasePage(pageIndexToPageNumber(requirePageIndex(pageIndex)), 'transient-background');
             if (signal?.aborted || !transition.isCurrent()) {

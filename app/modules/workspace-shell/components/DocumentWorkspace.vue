@@ -145,9 +145,9 @@
         </Teleport>
         <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader'" />
         <DjvuConversionOverlay
-            :is-converting="conversionState.isConverting"
-            :phase="conversionState.phase"
-            :percent="conversionState.percent"
+            v-bind="conversionState"
+            :is-converting="conversionState.isConverting && isRenderActive"
+            :modal="isActive"
             @cancel="handleDjvuCancel"
         />
         <WorkspaceSaveDialogHost
@@ -486,7 +486,7 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
-    openPath: path => fileOps.handleOpenFileDirectWithPersist(path),
+    openPath: file.openFileDirectWithViewerLifecycle,
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
     hasWorkingCopy: () => workingCopyPath.value !== null,
     goToPage: handleGoToPage,

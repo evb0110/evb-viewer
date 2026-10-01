@@ -6,7 +6,9 @@ import {
     type TPlatformApiFixtureOverrides,
 } from '@tests/helpers/createPlatformApiFixture';
 
-export type TElectronPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides & {diagnostics?: TDeepPartial<IDiagnosticsRendererCapability>;};
+export type TElectronPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides
+    & Partial<Pick<IElectronAPI, 'startupHostEnvironment' | 'startupUiScalePreference'>>
+    & {diagnostics?: TDeepPartial<IDiagnosticsRendererCapability>;};
 
 const DEFAULT_DIAGNOSTICS: IDiagnosticsRendererCapability = {startupPolicy: Object.freeze({mode: 'unknown'})};
 
@@ -15,7 +17,13 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
 ) {
     const diagnosticsOverrides = overrides.diagnostics;
     const platformOverrides = {...overrides};
-    Reflect.deleteProperty(platformOverrides, 'diagnostics');
+    for (const electronKey of [
+        'diagnostics',
+        'startupHostEnvironment',
+        'startupUiScalePreference',
+    ] as const) {
+        Reflect.deleteProperty(platformOverrides, electronKey);
+    }
     const platformApi = createPlatformApiFixture({
         backend: 'electron',
         overrides: platformOverrides,
@@ -29,6 +37,8 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
             ...DEFAULT_DIAGNOSTICS.startupPolicy,
             ...diagnosticsOverrides?.startupPolicy,
         }},
+        startupHostEnvironment: overrides.startupHostEnvironment ?? null,
+        startupUiScalePreference: overrides.startupUiScalePreference ?? null,
         updates: platformApi.updates,
     };
     return electronApi as IElectronAPI & TOverrides;

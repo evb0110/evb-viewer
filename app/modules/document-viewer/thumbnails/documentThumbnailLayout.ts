@@ -46,7 +46,7 @@ export class DocumentThumbnailLayout {
         ));
     }
 
-    private get stride() {
+    get stride() {
         return this.rowHeight + this.itemGap;
     }
 

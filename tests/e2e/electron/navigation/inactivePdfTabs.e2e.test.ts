@@ -30,6 +30,11 @@ import {
     expectSplitPaneCloseContinuity,
     runSplitPaneCloseContinuity,
 } from '@tests/e2e/electron/helpers/splitPaneCloseContinuity';
+import {
+    installCommittedSurfaceSampler,
+    markCommittedSurfaceInteractionCheckpoint,
+    stopCommittedSurfaceSampler,
+} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 
 interface IWorkspaceHostPressure {
     index: number;
@@ -433,5 +438,81 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             expectedPageNumber: 4,
         });
         expectSplitPaneCloseContinuity(continuity);
+    }, 120_000);
+
+    it('restores a cold PDF tab at its page through one page-shaped skeleton', async () => {
+        const session = await sessionFixture.restart({clean: true});
+        await setTabMemoryPolicyForE2E(session.page, 'aggressive');
+        const restoredPath = await createMultiPageTextFixturePdf(`cold-tab-restore-${Date.now()}.pdf`, 8);
+        const otherPath = await createMultiPageTextFixturePdf(`cold-tab-other-${Date.now()}.pdf`, 2);
+        await openPdfInApp(session.page, restoredPath);
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 5);
+        await openPdfInApp(session.page, otherPath);
+        await waitForPdfLoaded(session.page);
+        // The memory policy keeps no inactive viewer, so the first tab is cold:
+        // its workspace is unmounted and its document released.
+        await session.page.waitForFunction(() => document.querySelectorAll('.workspace-host').length === 1, {timeout: 30_000});
+
+        await installCommittedSurfaceSampler(session.page);
+        await markCommittedSurfaceInteractionCheckpoint(session.page, 'restore');
+        const tabPoint = await session.page.evaluate(() => {
+            const rect = document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')[0]?.getBoundingClientRect();
+            return rect ? {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            } : null;
+        });
+        expect(tabPoint).not.toBeNull();
+        await session.page.mouse.click(tabPoint!.x, tabPoint!.y);
+        await session.page.waitForFunction(() => document.querySelector(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="5"] canvas',
+        ) !== null, {timeout: 30_000});
+        await waitForPdfLoaded(session.page);
+        const trace = await stopCommittedSurfaceSampler(session.page);
+        const frames = trace.frames.filter(frame => frame.interactionCheckpoint === 'restore');
+        const details = JSON.stringify(frames.map(frame => ({
+            elapsedMs: frame.elapsedMs,
+            kind: frame.kind,
+            page: frame.pageNumber,
+            phase: frame.openSurfacePhase,
+            requestedPage: frame.openSurfaceDiagnostic?.viewportRequestedPage,
+            shellRect: frame.shellRect,
+        })));
+
+        expect(trace.errors ?? [], details).toEqual([]);
+        expect(await getToolbarCurrentPage(session.page)).toBe(5);
+        // The restore opens at the page the tab was left on: no frame of the
+        // opening asks for another page.
+        expect(frames.filter(frame => [
+            'pending',
+            'geometry-committed',
+            'canvas-committed',
+            'viewport-committed',
+        ].includes(frame.openSurfacePhase ?? '') && frame.openSurfaceDiagnostic?.viewportRequestedPage !== '5'), details).toEqual([]);
+        // One skeleton, page 5's, then page 5 in its place, never back to the
+        // bare viewer in between (behavior contract T5).
+        const firstShellIndex = frames.findIndex(frame => frame.kind === 'page-shell');
+        expect(firstShellIndex, details).toBeGreaterThan(0);
+        const opening = frames.slice(firstShellIndex);
+        const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
+        expect(firstCanvasIndex, details).toBeGreaterThan(0);
+        expect(opening.slice(0, firstCanvasIndex).every(frame => (
+            frame.kind === 'page-shell' && frame.pageNumber === 5
+        )), details).toBe(true);
+        expect(opening.slice(firstCanvasIndex).every(frame => (
+            frame.kind === 'committed-canvas' && frame.pageNumber === 5
+        )), details).toBe(true);
+        const canvasRect = opening.at(-1)!.shellRect!;
+        for (const shell of opening.slice(0, firstCanvasIndex)) {
+            for (const key of [
+                'height',
+                'left',
+                'top',
+                'width',
+            ] as const) {
+                expect(Math.abs(shell.shellRect![key] - canvasRect[key]), details).toBeLessThanOrEqual(0.5);
+            }
+        }
     }, 120_000);
 });

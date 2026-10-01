@@ -98,7 +98,6 @@ export async function renderPdfDocumentPageSource(options: {
     };
 }
 
-const PDF_THUMBNAIL_SOURCE_ID = 'pdf-thumbnails';
 const PDF_THUMBNAIL_MAX_PIXELS = 4 * 1024 * 1024;
 const PDF_THUMBNAIL_MAX_DIMENSION = 16_384;
 
@@ -116,6 +115,8 @@ interface IPreparedPdfThumbnail {
  */
 export async function renderPdfDocumentThumbnail(options: {
     scheduler: IPdfPageRasterScheduler;
+    /** The view's own thumbnail source on the scheduler its linked views share. */
+    sourceId: string;
     request: IDocumentPageRenderRequest;
     surfaceBudget: IWorkspaceSurfaceBudgetController;
     rotation: number | undefined;
@@ -123,6 +124,7 @@ export async function renderPdfDocumentThumbnail(options: {
 }): Promise<IDocumentRenderLease> {
     const {
         scheduler,
+        sourceId,
         request,
     } = options;
     const pageNumber = requirePageNumber(request.pageNumber);
@@ -133,12 +135,12 @@ export async function renderPdfDocumentThumbnail(options: {
     const cancel = () => scheduler.invalidate({
         pages: [pageNumber],
         reason: 'thumbnail-demand-cancelled',
-        sourceId: PDF_THUMBNAIL_SOURCE_ID,
+        sourceId,
     });
     request.signal.addEventListener('abort', cancel, {once: true});
     try {
         const outcome = await scheduler.request<IPreparedPdfThumbnail>({
-            sourceId: PDF_THUMBNAIL_SOURCE_ID,
+            sourceId,
             demand: {
                 pageNumber,
                 renderKey: `${String(pageNumber)}:${String(request.widthPx)}`,
@@ -150,7 +152,7 @@ export async function renderPdfDocumentThumbnail(options: {
                 consumerGeneration: 0,
             },
             target: {
-                id: 'pdf-thumbnail',
+                id: sourceId,
                 prepare(_demand, page) {
                     const rotation = options.rotation === undefined ? {} : {rotation: options.rotation};
                     const baseViewport = page.getViewport({
@@ -249,7 +251,7 @@ export async function renderPdfDocumentThumbnail(options: {
         // newer request for the same page.
         cancel();
         const reservation = {
-            scopeId: PDF_THUMBNAIL_SOURCE_ID,
+            scopeId: 'pdf-thumbnails',
             category: 'pdf-thumbnail-canvas',
             bytes: (lease as IDocumentRenderLease).bytes,
             priority: priority === 'visible' ? 100 : 20,

@@ -18,6 +18,8 @@ import { installStartupOverlayLifecycle } from '@electron/preload/installStartup
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
+import { readHostEnvironmentArgument } from '@electron/preload/readHostEnvironmentArgument';
+import { readUiScalePreferenceArgument } from '@electron/preload/readUiScalePreferenceArgument';
 import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
@@ -40,6 +42,8 @@ const deferredAutomationDocumentOpens = new Map<string, {
 }>();
 const electronApi = createElectronApi(ipcRenderer, webUtils, {
     diagnosticsPolicy: readDiagnosticsPolicyArgument(),
+    hostEnvironment: readHostEnvironmentArgument(),
+    uiScalePreference: readUiScalePreferenceArgument(),
     resourceProfile: readHostResourceProfileArgument(),
     waitForDocumentOpenDirect: path =>
         deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve(),

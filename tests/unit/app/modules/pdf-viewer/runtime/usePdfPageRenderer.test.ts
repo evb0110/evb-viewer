@@ -14,7 +14,7 @@ import {
 } from 'vue';
 import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { IUsePdfPageRendererOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
@@ -86,7 +86,7 @@ function createPage(): TPdfLeasedPage {
     return Object.assign(Object.create(null), page);
 }
 
-function createDocumentFixture(page: TPdfLeasedPage, release: () => void): TPdfDocumentSession {
+function createDocumentFixture(page: TPdfLeasedPage, release: () => void): TPdfDocumentView {
     const fixture = {
         pdfDocument: computed(() => createPdfDocumentProxy()),
         numPages: ref(1),

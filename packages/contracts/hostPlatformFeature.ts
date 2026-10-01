@@ -8,6 +8,8 @@ import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile'
 import * as v from 'valibot';
 
 const HOST_OS_SCALE_FACTOR_MAX = 8;
+/** Carries the window's host snapshot to its preload, so the first layout can use it. */
+export const HOST_ENVIRONMENT_ARGUMENT_PREFIX = '--evb-host-environment=';
 const hostEnvironmentSchema = v.object({
     platform: v.picklist([
         'darwin',
