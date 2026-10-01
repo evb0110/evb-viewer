@@ -636,13 +636,24 @@ describe('PdfPageRasterScheduler', () => {
             demand: createDemand(3, 'navigation-target'),
             target: {
                 id: 'viewport:left',
-                prepare: () => new Promise<null>(() => {}),
+                // Still preparing when its view leaves; it gives up on abort.
+                prepare: (_demand, _page, signal) => new Promise<null>((resolve) => {
+                    signal.addEventListener('abort', () => resolve(null), {once: true});
+                }),
                 start: () => createTask(),
                 commit: () => true,
                 discard: vi.fn(),
                 release: vi.fn(),
             },
         });
+
+        // A source ID nobody uses names no source, not every source.
+        await scheduler.releaseSource('');
+        expect(scheduler.snapshot().residentPages).toHaveLength(4);
+        await vi.waitFor(() => expect(scheduler.snapshot().inFlightPages).toEqual([expect.objectContaining({
+            pageNumber: 3,
+            sourceId: 'viewport:left',
+        })]));
 
         await scheduler.releaseSource('viewport:left');
 

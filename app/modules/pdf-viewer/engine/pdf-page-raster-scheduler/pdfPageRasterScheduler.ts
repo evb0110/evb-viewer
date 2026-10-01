@@ -855,11 +855,11 @@ export function createPdfPageRasterScheduler(
         }
         const pages = scope.pages ? new Set(scope.pages) : null;
         const matches = (sourceId: string, demand: IPdfRasterDemand) => (
-            (!scope.sourceId || sourceId === scope.sourceId)
+            (scope.sourceId === undefined || sourceId === scope.sourceId)
             && (!pages || pages.has(demand.pageNumber))
         );
         const invalidatesDocument = Boolean(scope.documentFence)
-            && !scope.sourceId
+            && scope.sourceId === undefined
             && !pages;
         if (invalidatesDocument) {
             accepting = false;
@@ -882,7 +882,7 @@ export function createPdfPageRasterScheduler(
             sourceId,
             keys,
         ] of demandKeysBySource) {
-            if (!scope.sourceId || sourceId === scope.sourceId) {
+            if (scope.sourceId === undefined || sourceId === scope.sourceId) {
                 for (const key of [...keys]) {
                     const work = getIndexedWork(key);
                     const resident = residents.get(key);
@@ -931,6 +931,7 @@ export function createPdfPageRasterScheduler(
             reason: 'source-released',
             sourceId,
         });
+        demandKeysBySource.delete(sourceId);
         await cancellation;
     }
 
