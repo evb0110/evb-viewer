@@ -23,6 +23,7 @@ const fake = vi.hoisted(() => ({
     pdfjsRelease: null as Promise<void> | null,
     indexArgs: [] as string[],
     indexLines: [] as string[],
+    indexCoverage: null as Record<string, unknown> | null,
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
@@ -59,7 +60,7 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
     }
     fake.indexLines = input.split('\n').filter(Boolean);
     return {
-        stdout: JSON.stringify({
+        stdout: JSON.stringify(fake.indexCoverage ?? {
             pageCount: 3,
             pagesScanned: 1,
             pagesWritten: 1,
@@ -110,6 +111,7 @@ afterEach(() => {
     fake.pdfjsRelease = null;
     fake.indexArgs = [];
     fake.indexLines = [];
+    fake.indexCoverage = null;
 });
 
 describe('native search error mapping', () => {
@@ -230,6 +232,48 @@ describe('search index text budget', () => {
                 '--max-total-text-bytes',
                 String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
             ]);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it.each([
+        [
+            'a negative page count',
+            {pageCount: -1},
+        ],
+        [
+            'a negative written page count',
+            {pagesWritten: -1},
+        ],
+        [
+            'page 0 among the pages without text',
+            {missingTextPageSample: [0]},
+        ],
+    ])('refuses a coverage report with %s', async (_label, malformed) => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-coverage-'));
+        fake.indexCoverage = {
+            pageCount: 2,
+            pagesScanned: 2,
+            pagesWritten: 1,
+            truncated: false,
+            missingTextPageSample: [2],
+            ...malformed,
+        };
+        try {
+            await expect(buildSearchIndex({
+                indexPath: join(directory, 'index'),
+                documentRevision: 'revision',
+                async* readPages() {
+                    yield {
+                        pageNumber: 1,
+                        text: 'page',
+                    };
+                },
+            })).rejects.toThrow('evb-pdf-search index returned an invalid coverage report');
         } finally {
             await rm(directory, {
                 recursive: true,
