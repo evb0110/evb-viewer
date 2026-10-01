@@ -13,7 +13,6 @@ import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotatio
 import type {
     IPdfNativeAnnotationIdentityBinding,
     IPdfNativeAnnotationDelete,
-    IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
     IPdfNativePlacedImageGeometryUpdate,
@@ -44,39 +43,37 @@ export type TPdfViewerAnnotationSaveRoute =
 
 export type TPdfViewerAnnotationSaveReason =
     | 'pending-embedded-annotation-operations'
-    | 'live-pdfjs-ids-covered-by-embedded-operations'
-    | 'unreplayable-live-pdfjs-annotation-ids'
-    | 'live-pdfjs-annotation-storage'
+    | 'changed-annotation-ids-covered-by-embedded-operations'
+    | 'unreplayable-changed-annotation-ids'
+    | 'changed-annotations-not-replayable'
     | 'editor-only-annotations-pending-materialization'
-    | 'saved-pdfjs-annotation-baseline-diverged'
-    | 'live-pdfjs-annotation-baseline-diverged'
-    | 'no-live-pdfjs-annotation-work';
+    | 'writer-save-forced'
+    | 'writer-save-forced-with-annotation-changes'
+    | 'no-annotation-work';
 
 export interface IPdfViewerAnnotationSavePlan {
     route: TPdfViewerAnnotationSaveRoute;
     expectedCost: 'small' | 'full-document';
     reason: TPdfViewerAnnotationSaveReason;
-    unreplayableLiveAnnotationIds: string[];
+    unreplayableAnnotationIds: string[];
 }
 
 /**
  * Annotation work the save captured from the canonical store's frontier:
- * the ids it changed and the changed notes and text boxes a native append
- * can replay.
+ * the ids of every changed annotation, and those of the changed notes and
+ * text boxes.
  */
-export interface IPdfLiveAnnotationChangeSummary {
+export interface IPdfFrontierAnnotationChanges {
     ids: Set<string>;
-    replayableEditorNoteIds: Set<string>;
-    nativeFreeTextEditors: Map<string, IPdfNativeFreeTextEditor>;
+    noteIds: Set<string>;
     hasChanges: boolean;
-    fingerprint: string;
 }
 
 export interface IPdfSaveCanonicalInputs {
     readonly comments: IAnnotationCommentSummary[];
     readonly pendingTexts: Map<string, string>;
     readonly pendingDeletes: IAnnotationCommentSummary[];
-    readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
+    readonly frontierChanges: IPdfFrontierAnnotationChanges;
     readonly replayableEmbeddedAnnotationIds: ReadonlySet<string>;
     /** Stable keys for changed, editor-owned canonical point notes. */
     readonly replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
@@ -87,11 +84,9 @@ export type TNativeSaveRouteRejection =
     | 'save-descriptors-unavailable'
     | 'not-save-mode'
     | 'native-save-capability-unavailable'
-    | 'saved-pdfjs-baseline-dirty-requires-materialization'
     | 'writer-save-required'
     | 'pending-texts-not-covered-by-native-mutations'
     | 'pending-deletes-not-covered-by-native-mutations'
-    | 'live-pdfjs-annotation-work-not-covered-by-native-mutations'
     | 'annotation-work-not-covered-by-native-mutations'
     | 'shape-payload-unavailable'
     | 'metadata-payload-unavailable'
@@ -153,7 +148,6 @@ export interface INativePdfMutationProjection {
     noteTextUpdates: IPdfNoteTextUpdate[];
     noteGeometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes: IPdfNativeFreeTextNote[];
-    freeTextEditors: IPdfNativeFreeTextEditor[];
     /** Canonical text-box mutations. Older projections may omit this field. */
     textBoxes?: IPdfNativeTextBoxMutation[];
     annotationDeletes: IPdfNativeAnnotationDelete[];

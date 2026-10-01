@@ -28,27 +28,6 @@ export type TAnnotationTool = TContractAnnotationTool;
 export type TAnnotationCommentsStatus = 'loading' | 'ready';
 
 /**
- * Automation-only progress counters for the annotation comment sync.
- *
- * A comment sync reads the PDF.js editor layer synchronously and then awaits
- * the parsed PDF snapshot, so nothing observable in the DOM or in the canonical
- * projection tells an automation client that the deferred pass has finished.
- * The ledger is quiescent — every requested sync has been fully serviced —
- * when `servicedSeq >= requestSeq`, `runningPasses === 0` and
- * `pendingDebounces === 0`.
- */
-export interface IAnnotationSyncAutomationActivity {
-    /** Debounce timers armed by a schedule call and not yet fired or cancelled. */
-    pendingDebounces: number;
-    /** Incremented once per requested sync, whether debounced or immediate. */
-    requestSeq: number;
-    /** Sync passes currently between their editor scan and their applied state. */
-    runningPasses: number;
-    /** Highest `requestSeq` a completed pass has covered. */
-    servicedSeq: number;
-}
-
-/**
  * Why a background annotation inventory stopped short of the whole document.
  *
  * `page-cap` and `record-cap` are deterministic: rescanning the same revision
@@ -95,9 +74,10 @@ type TEditorShapeOverrides =
     | 'y2';
 
 /**
- * Legacy shape DTO retained for the existing drawing tools and serializers.
- * Remove it with the adapter in annotationEntity.ts when #165 and #166 move
- * those consumers to IShapeEntity.
+ * Legacy shape DTO retained for the drawing tools in
+ * `app/modules/pdf-viewer/tools` and the native shape payload in
+ * `nativeShapeMutations.ts`. Remove it with the adapter in
+ * annotationEntity.ts once those consumers read IShapeEntity.
  */
 export interface IShapeAnnotation extends Omit<IPdfNativeShapeAnnotation, TEditorShapeOverrides> {
     id: string;
@@ -174,8 +154,8 @@ export interface IAnnotationEditorState {
     hasSelectedEditor: boolean;
     /** True while a newly created FreeText editor still needs save-time commit. */
     hasPendingFreeTextDraft?: boolean;
-    // Separate app-routed history flags keep toolbar undo responsive when
-    // PDF.js storage state events arrive after command registration.
+    // Availability of the app-owned annotation history, which owns
+    // annotation undo and redo.
     hasAppAnnotationUndoHistory?: boolean;
     hasAppAnnotationRedoHistory?: boolean;
 }

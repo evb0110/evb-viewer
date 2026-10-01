@@ -6,7 +6,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 type TPageAnnotationDeleteViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'deleteAnnotationComment'
-    | 'deleteAnnotationEditor'
     | 'deleteReopenedEditorAnnotation'
     | 'removeAnnotationFromDom'
     | 'removeAnnotationFromInternalCache'
@@ -75,22 +74,15 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
         comment: IAnnotationCommentSummary,
     ) {
         const deleteEditor = viewer.deleteReopenedEditorAnnotation;
-        if (deleteEditor) {
-            return {
-                deleted: await deleteEditor(comment) === true,
-                canonicalDeleteHandled: true,
-            };
-        }
-        const legacyDeleteEditor = viewer.deleteAnnotationEditor;
-        if (!legacyDeleteEditor) {
+        if (!deleteEditor) {
             return {
                 deleted: false,
                 canonicalDeleteHandled: false,
             };
         }
         return {
-            deleted: await legacyDeleteEditor(comment) === true,
-            canonicalDeleteHandled: false,
+            deleted: await deleteEditor(comment) === true,
+            canonicalDeleteHandled: true,
         };
     }
 

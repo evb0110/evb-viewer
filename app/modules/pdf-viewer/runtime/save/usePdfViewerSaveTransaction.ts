@@ -93,10 +93,10 @@ function logSaveRouteDecision(
         expectedCost: annotationPlan.expectedCost,
         reason: annotationPlan.reason,
         nativeRejection: decision.route === 'native-append' ? null : decision.nativeRejection,
-        liveAnnotationIds: Array.from(canonical.liveAnnotationChanges.ids),
-        replayableLiveEditorNoteIds: Array.from(canonical.liveAnnotationChanges.replayableEditorNoteIds),
+        changedAnnotationIds: Array.from(canonical.frontierChanges.ids),
+        changedNoteIds: Array.from(canonical.frontierChanges.noteIds),
         replayableAnnotationIds: Array.from(canonical.replayableEmbeddedAnnotationIds),
-        unreplayableLiveAnnotationIds: annotationPlan.unreplayableLiveAnnotationIds,
+        unreplayableAnnotationIds: annotationPlan.unreplayableAnnotationIds,
         pendingTexts: canonical.pendingTexts.size,
         pendingDeletes: canonical.pendingDeletes.length,
         forceWriterSave: request.forceWriterSave === true,
@@ -368,7 +368,6 @@ export const usePdfViewerSaveTransaction = (
             && (
                 nativeMutationProjection.noteTextUpdates.length > 0
                 || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
-                || nativeMutationProjection.freeTextEditors.length > 0
                 || nativeMutationProjection.annotationDeletes.length > 0
             )
         ) {

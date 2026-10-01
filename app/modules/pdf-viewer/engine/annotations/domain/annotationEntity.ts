@@ -154,8 +154,8 @@ export function toLegacyShapeStableKey(id: AnnotationId): string {
 
 /**
  * Temporary projection for the shape tools and serializers that still accept
- * IShapeAnnotation. Remove it when #165 and #166 move those consumers to the
- * flat IShapeEntity model and no viewer consumer accepts the legacy record.
+ * IShapeAnnotation. Remove it once those consumers read the flat IShapeEntity
+ * model and no viewer consumer accepts the legacy record.
  */
 export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation {
     const lineEndpoints = entity.tool === 'line' || entity.tool === 'arrow'
