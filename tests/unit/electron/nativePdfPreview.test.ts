@@ -8,9 +8,22 @@ import {requireEpochMs} from '@contracts/timestamps';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     answerPdfPageShape,
+    handlePdfOpeningGeometry,
     parsePdfOpeningGeometryMetadata,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
+
+const mocks = vi.hoisted(() => ({
+    resolveExistingReadablePdfPath: vi.fn(),
+    resolveOriginalBackedReadTransport: vi.fn(),
+    runNativeToolCommand: vi.fn(),
+}));
+
+vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: mocks.resolveExistingReadablePdfPath}));
+vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: mocks.resolveOriginalBackedReadTransport}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
+vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({pdfinfo: '/tools/pdfinfo'})}));
 
 describe('native PDF metadata parsing', () => {
     it('converts bounded native catalog page-label ranges to renderer ranges', () => {
@@ -145,5 +158,38 @@ describe('PDF page-shape store', () => {
         await expect(answerPdfPageShape(path, changed, reread)).resolves.toMatchObject({width: 842});
 
         expect(reread).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('PDF opening geometry of a working copy that reads its original', () => {
+    it('does not answer a changed original with the shape read before the change', async () => {
+        // Opening a file that is already open resolves to that open's lazy
+        // working copy, whose admission identity stays the same however the
+        // original changes; only the checked original backing can tell.
+        let originalChanged = false;
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/lazy-open.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 2_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(reader: (physicalPath: string) => Promise<T>) => {
+                if (originalChanged) {
+                    throw Object.assign(new Error('The original document changed after it was opened'), {code: 'SOURCE_BACKING_CHANGED'});
+                }
+                return reader('/books/open-twice.pdf');
+            },
+        });
+        mocks.runNativeToolCommand.mockResolvedValue({stdout: `
+Pages:           3
+Page    1 size:  612 x 792 pts (letter)
+Page    1 rot:   0
+`});
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/open-twice.pdf')).resolves.toMatchObject({width: 612});
+        originalChanged = true;
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/open-twice.pdf'))
+            .rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
     });
 });
