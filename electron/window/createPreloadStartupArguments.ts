@@ -6,6 +6,7 @@ import {
 import { getMainDiagnosticsPreference } from '@electron/features/diagnostics/public';
 import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
 import { encodeHostEnvironmentArgument } from '@electron/hostEnvironment';
+import { encodeUiScalePreferenceArgument } from '@electron/settings';
 
 /**
  * What a window's preload must know before the renderer's first layout, which
@@ -16,6 +17,7 @@ export function createPreloadStartupArguments() {
         encodeHostResourceProfileArgument(getHostResourceProfileSnapshot()),
         encodeDiagnosticsPolicyArgument(getMainDiagnosticsPreference()),
         encodeHostEnvironmentArgument(),
+        ...encodeUiScalePreferenceArgument(),
         ...(runtimeConfig.startupTrace ? ['--evb-startup-trace'] : []),
         ...(runtimeConfig.automationUserDataDir
             && runtimeConfig.automationSessionName

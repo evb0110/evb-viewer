@@ -15,6 +15,7 @@ import {
     parseBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {
     captureFailureForPresentation,
     setRendererDiagnosticsPreference,
@@ -91,6 +92,11 @@ export const useSettings = () => {
     }
     if (themeCookie.value != null) {
         fallbackSettings.theme = normalizeTheme(themeCookie.value);
+    }
+    // Main passes the stored UI scale to the window, so the first layout uses it.
+    const startupUiScalePreference = getRawElectronPlatformApi()?.startupUiScalePreference;
+    if (startupUiScalePreference) {
+        fallbackSettings.uiScale = startupUiScalePreference;
     }
     const initialSettings = parseBrowserSettingsPayload(null, fallbackSettings);
     const lastSavedSettings = useState<ISettingsData | null>(

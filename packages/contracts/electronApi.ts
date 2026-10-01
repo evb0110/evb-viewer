@@ -3,6 +3,7 @@ import type { IPlatformApi } from '@contracts/platformApi';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
 import type { IHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
+import type { TUiScalePreference } from '@contracts/shared';
 
 export type * from '@contracts/agent';
 export type * from '@contracts/pdfConformance';
@@ -30,5 +31,7 @@ export type IElectronAPI = IPlatformApi & {
     diagnostics: IDiagnosticsRendererCapability;
     /** The host main passed to this window at creation, readable before the first layout. */
     startupHostEnvironment: Readonly<IHostEnvironmentSnapshot> | null;
+    /** The stored UI scale preference at window creation, readable before settings load. */
+    startupUiScalePreference: TUiScalePreference | null;
     updates: IUpdatesCapability;
 };
