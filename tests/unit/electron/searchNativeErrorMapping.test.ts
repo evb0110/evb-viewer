@@ -1,9 +1,116 @@
+import {
+    mkdtemp,
+    rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {toSearchIpcError} from '@electron/features/search/main/searchErrors';
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import type * as TWorkerTaskModule from '@electron/utils/workerTask';
+import {SEARCH_INDEX_TEXT_BUDGET} from '@contracts/searchIndexWire';
+
+
+const fake = vi.hoisted(() => ({
+    pageTexts: new Map<number, string>(),
+    missingCjkDataPages: new Set<number>(),
+    pdfjsPages: [] as number[],
+    pdfjsRelease: null as Promise<void> | null,
+    indexArgs: [] as string[],
+    indexLines: [] as string[],
+}));
+
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeToolCommand(command: string, args: string[], options: {
+    stdin?: AsyncIterable<string>;
+    onStdout?: (chunk: string) => void;
+}) {
+    if (command === '/fake/pdfinfo') {
+        return {
+            stdout: `Pages: ${fake.pageTexts.size}\n`,
+            stderr: '',
+            exitCode: 0,
+        };
+    }
+    if (command === '/fake/pdftotext') {
+        const firstPage = Number(args[args.indexOf('-f') + 1]);
+        const lastPage = Number(args[args.indexOf('-l') + 1]);
+        let stderr = '';
+        for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
+            if (fake.missingCjkDataPages.has(pageNumber)) {
+                stderr += 'Syntax Error: Missing language pack for \'Adobe-Japan1\' mapping\n';
+            }
+            options.onStdout?.(`${fake.pageTexts.get(pageNumber) ?? ''}\f`);
+        }
+        return {
+            stdout: '',
+            stderr,
+            exitCode: 0,
+        };
+    }
+    fake.indexArgs = args;
+    let input = '';
+    for await (const chunk of options.stdin ?? []) {
+        input += chunk;
+    }
+    fake.indexLines = input.split('\n').filter(Boolean);
+    return {
+        stdout: JSON.stringify({
+            pageCount: 3,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        }),
+        stderr: '',
+        exitCode: 0,
+    };
+}}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
+    pdfinfo: '/fake/pdfinfo',
+    pdftotext: '/fake/pdftotext',
+})}));
+vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/fake/evb-pdf-search'}));
+vi.mock('@electron/utils/workerTask', async importOriginal => ({
+    ...await importOriginal<typeof TWorkerTaskModule>(),
+    resolveUnpackedWorkerPath: () => '/fake/pdf-text-worker.js',
+    async runResultWorkerTask(options: {
+        workerData: {
+            firstPage: number;
+            lastPage: number
+        };
+        onProgressMessage: (message: unknown) => boolean;
+    }) {
+        for (let pageNumber = options.workerData.firstPage; pageNumber <= options.workerData.lastPage; pageNumber += 1) {
+            fake.pdfjsPages.push(pageNumber);
+            options.onProgressMessage({
+                type: 'page',
+                page: {
+                    pageNumber,
+                    text: `pdfjs page ${pageNumber}`,
+                },
+            });
+            await fake.pdfjsRelease;
+        }
+        return undefined;
+    },
+}));
+
+const {streamPdfPageTexts} = await import('@electron/features/search/pdfPageTexts');
+const {buildSearchIndex} = await import('@electron/features/search/searchIndex');
+
+afterEach(() => {
+    fake.pageTexts = new Map();
+    fake.missingCjkDataPages = new Set();
+    fake.pdfjsPages = [];
+    fake.pdfjsRelease = null;
+    fake.indexArgs = [];
+    fake.indexLines = [];
+});
 
 describe('native search error mapping', () => {
     it.each([
@@ -43,5 +150,91 @@ describe('native search error mapping', () => {
             code: searchCode,
             retryable,
         });
+    });
+});
+
+describe('search index text budget', () => {
+    it('streams the PDF.js reading of a window Poppler lacks CJK data for', async () => {
+        fake.pageTexts.set(1, 'poppler 1');
+        fake.pageTexts.set(2, 'poppler 2');
+        fake.missingCjkDataPages.add(2);
+        let release!: () => void;
+        fake.pdfjsRelease = new Promise((resolve) => {
+            release = resolve;
+        });
+
+        const pages = streamPdfPageTexts('/doc.pdf')[Symbol.asyncIterator]();
+        // The first page arrives while the worker is still reading the window.
+        expect((await pages.next()).value).toEqual({
+            pageNumber: 1,
+            text: 'pdfjs page 1',
+        });
+        expect(fake.pdfjsPages).toEqual([1]);
+        release();
+        expect((await pages.next()).value).toEqual({
+            pageNumber: 2,
+            text: 'pdfjs page 2',
+        });
+        expect((await pages.next()).done).toBe(true);
+    });
+
+    it('reports the first page over the budget to the index and stops reading pages there', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-budget-'));
+        const pageTexts = [
+            'small page',
+            'x'.repeat(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes + 1),
+            'never read',
+        ];
+        const pulled: number[] = [];
+        try {
+            const coverage = await buildSearchIndex({
+                indexPath: join(directory, 'index'),
+                documentRevision: 'revision',
+                readPageCount: () => Promise.resolve(pageTexts.length),
+                async* readPages() {
+                    for (const [
+                        index,
+                        text,
+                    ] of pageTexts.entries()) {
+                        pulled.push(index + 1);
+                        yield {
+                            pageNumber: index + 1,
+                            text,
+                        };
+                    }
+                },
+            });
+
+            expect(coverage.truncated).toBe(true);
+            expect(fake.indexLines.map(line => JSON.parse(line) as unknown)).toEqual([
+                {
+                    pageNumber: 1,
+                    text: 'small page',
+                },
+                {
+                    pageNumber: 2,
+                    overBudget: true,
+                },
+            ]);
+            expect(pulled).toEqual([
+                1,
+                2,
+            ]);
+            expect(fake.indexArgs).toEqual(expect.arrayContaining([
+                '--page-count',
+                '3',
+            ]));
+            expect(fake.indexArgs.slice(fake.indexArgs.indexOf('--max-page-text-bytes'))).toEqual([
+                '--max-page-text-bytes',
+                String(SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes),
+                '--max-total-text-bytes',
+                String(SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes),
+            ]);
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

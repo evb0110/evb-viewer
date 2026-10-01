@@ -5,7 +5,11 @@ import {
 import {
     GlobalFonts, createCanvas,
 } from '@napi-rs/canvas';
-import {PDFDocument} from 'pdf-lib';
+import {
+    PDFDocument,
+    PDFName,
+    StandardFonts,
+} from 'pdf-lib';
 import type {
     ElementHandle,
     Page,
@@ -23,6 +27,7 @@ import {
     createScannedTextFixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {assertOcrPdfSemanticOutput} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
 import {
     openDocumentSidebarTab,
     openPdfInApp,
@@ -107,6 +112,47 @@ async function createScannedPagesFixturePdf(filename: string, pageCount: number)
     const filePath = createFixturePath(filename);
     await writeFile(filePath, await doc.save());
     return filePath;
+}
+
+/**
+ * Three pages whose existing text a PDF reader shows differently from what a
+ * line-oriented reading of the content stream suggests. Page 1 shows its
+ * heading after `Q` restores visible text from an earlier hidden object, page 2
+ * starts with a comment that only looks like hidden text, and page 3 is a scan
+ * under a hidden foreign OCR layer with no visible text.
+ */
+async function createExistingTextVisibilityFixturePdf(filename: string) {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const canvas = createCanvas(1224, 1584);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#111111';
+    context.font = '64px EvbOcrJourneySans';
+    context.fillText('Quiet meadow anchor', 120, 800);
+    const scan = await doc.embedPng(canvas.toBuffer('image/png'));
+    const pageContents = [
+        'q BT /F1 9 Tf 3 Tr 72 720 Td (stale hidden note) Tj ET Q\nBT /F1 36 Tf 72 400 Td (Harbor lantern signal) Tj ET',
+        '% BT 3 Tr (fake hidden words) Tj ET\nBT /F1 36 Tf 72 400 Td (Copper weather beacon) Tj ET',
+        'q 612 0 0 792 0 0 cm /Im0 Do Q\nBT /F1 32 Tf 3 Tr 60 392 Td (Qu1et rneadow anc) Tj ET',
+    ];
+    for (const content of pageContents) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.node.setFontDictionary(PDFName.of('F1'), font.ref);
+        page.node.setXObject(PDFName.of('Im0'), scan.ref);
+        page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.stream(content)));
+    }
+    const filePath = createFixturePath(filename);
+    await writeFile(filePath, await doc.save());
+    return filePath;
+}
+
+function countWord(text: string, word: string) {
+    return text.toLocaleLowerCase().split(word).length - 1;
 }
 
 async function installLateOcrCompletionControl(page: Page) {
@@ -205,6 +251,57 @@ describe('Electron E2E - OCR journey', () => {
         ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
         await page.click(`${ACTIVE_HOST} .document-search-result`);
         await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
+    }, 300_000);
+
+    // #928 F1: the pages OCR may replace are the pages whose existing text is
+    // only hidden, read the way a PDF reader paints them.
+    it('keeps visible native text and repairs only a hidden-only foreign OCR layer', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-existing-text-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createExistingTextVisibilityFixturePdf('ocr-existing-text-visibility.pdf');
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        const allPagesOption = await page.waitForFunction(() => (
+            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
+                .find(label => label.textContent?.trim() === 'All pages (3)' && label.checkVisibility())
+        ), {timeout: 30_000});
+        await (allPagesOption.asElement() as ElementHandle<HTMLElement>).click();
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete') === true
+        ), {timeout: OCR_TIMEOUT_MS});
+        // Preserving a page's own text is the outcome asked for, not a failure.
+        expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent ?? ''))
+            .toContain('OCR complete - PDF is now searchable');
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await saveViaVisibleToolbar(page, 90_000);
+
+        const savedPages = await extractTextWithPdfjs(sourcePath);
+        expect({
+            restoredVisibleHeading: countWord(savedPages[0]?.text ?? '', 'lantern'),
+            restoredPageHiddenNote: countWord(savedPages[0]?.text ?? '', 'stale hidden note'),
+            commentedPageHeading: countWord(savedPages[1]?.text ?? '', 'beacon'),
+            repairedScanWord: countWord(savedPages[2]?.text ?? '', 'meadow'),
+            repairedScanStaleWord: countWord(savedPages[2]?.text ?? '', 'rneadow'),
+        }, JSON.stringify(savedPages)).toEqual({
+            restoredVisibleHeading: 1,
+            restoredPageHiddenNote: 1,
+            commentedPageHeading: 1,
+            repairedScanWord: 1,
+            repairedScanStaleWord: 0,
+        });
     }, 300_000);
 
     it('acknowledges a real OCR result that arrives after the user cancels', async () => {

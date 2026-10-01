@@ -42,6 +42,15 @@ const expectedBuildIds = typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined'
     : __EVB_NATIVE_BUILD_IDS__;
 const verifiedBuilds = new Map<string, Promise<void>>();
 
+/**
+ * An EVB native binary built from other native sources than this development
+ * app. It is never a reason to fall back to another engine: the fix is to
+ * rebuild the binary, and a fallback would hide that.
+ */
+export class NativeToolBuildMismatchError extends Error {
+    override name = 'NativeToolBuildMismatchError';
+}
+
 export async function runNativeToolCommand(
     command: string,
     args: string[],
@@ -69,7 +78,7 @@ export function assertNativeToolBuild(command: string) {
         })).then((result) => {
             const actualBuildId = result.stdout.trim();
             if (actualBuildId !== expectedBuildId) {
-                throw new Error(
+                throw new NativeToolBuildMismatchError(
                     `${baseName} at ${command} was built from other native sources `
                     + `(binary build ${actualBuildId || '<empty>'}, app build ${expectedBuildId}). `
                     + `Rebuild it with pnpm run build:${baseName.slice('evb-'.length)}.`,

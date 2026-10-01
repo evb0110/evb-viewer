@@ -20,6 +20,7 @@ export {
     findPdfSearchMatches,
     iteratePdfSearchMatches,
     mapAssembledSearchablePageTextRange,
+    normalizeSearchablePageText,
     normalizeSearchText,
     SearchRegexLimitError,
     SearchTextBudgetError,

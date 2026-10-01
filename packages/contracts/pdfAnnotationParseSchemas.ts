@@ -4,7 +4,10 @@ import {
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
     PDF_ANNOTATION_SHAPE_TYPES,
 } from '@contracts/annotations';
-import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
+import {
+    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
+    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+} from '@contracts/pdfAnnotationParseTypes';
 import type {TPageIndex} from '@contracts/pageNumbers';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {parseDocumentRef} from '@contracts/documentRef';
@@ -315,3 +318,11 @@ export {
     pdfAnnotationParseResult,
     parsePdfAnnotationsArgs,
 };
+
+/** The first line of `evb-pdf-page-ops parse-annotations` JSONL output. */
+export const PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA = v.strictObject({
+    format: v.literal('evb-pdf-annotation-parse'),
+    schemaVersion: v.literal(1),
+    pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES)),
+});

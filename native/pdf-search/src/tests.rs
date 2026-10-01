@@ -64,6 +64,7 @@ fn build_index(page_count: u32, pages: &[(u32, &str)]) -> SearchIndex {
         &mut Cursor::new(index_input(pages)),
         Some(page_count),
         REVISION,
+        TextBudget::default(),
     )
     .expect("build index")
 }
@@ -179,12 +180,53 @@ fn written_index_reads_back_for_its_revision_only() {
     fs::remove_dir_all(&directory).expect("remove test directory");
 }
 
+fn index_bytes(index: &SearchIndex, name: &str) -> Vec<u8> {
+    let directory = std::env::temp_dir().join(format!("evb-pdf-search-{name}-{}", process::id()));
+    fs::create_dir_all(&directory).expect("create test directory");
+    let path = directory.join("document.pdf.evb-search-index");
+    write_index(index, REVISION, &path).expect("write index");
+    let bytes = fs::read(&path).expect("read index bytes");
+    fs::remove_dir_all(&directory).expect("remove test directory");
+    bytes
+}
+
+fn set_header_field(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+#[test]
+fn treats_a_header_claiming_an_impossible_record_table_as_stale() {
+    const PAGES_SCANNED: usize = 12;
+    const RECORD_COUNT: usize = 24;
+    let valid = index_bytes(
+        &build_index(4, &[(1, "first page"), (3, "third page")]),
+        "header",
+    );
+    assert!(parse_index(valid.clone(), REVISION).is_some());
+
+    // The header of a real index for this revision with no table behind it,
+    // claiming every record the count field can name.
+    let mut forged = valid[..HEADER_SIZE + REVISION.len()].to_vec();
+    set_header_field(&mut forged, RECORD_COUNT, u32::MAX);
+    assert!(parse_index(forged, REVISION).is_none());
+
+    // More records than pages scanned, with a table and text to match.
+    let mut more_records_than_pages = valid.clone();
+    set_header_field(&mut more_records_than_pages, PAGES_SCANNED, 1);
+    assert!(parse_index(more_records_than_pages, REVISION).is_none());
+
+    // A table whose text was cut off.
+    let truncated = valid[..valid.len() - 3].to_vec();
+    assert!(parse_index(truncated, REVISION).is_none());
+}
+
 #[test]
 fn page_count_defaults_to_the_pages_received() {
     let index = read_index_input(
         &mut Cursor::new(index_input(&[(1, "a"), (2, ""), (3, "")])),
         None,
         REVISION,
+        TextBudget::default(),
     )
     .expect("build index");
     assert_eq!(index.coverage().page_count, 3);
@@ -197,9 +239,87 @@ fn index_input_rejects_out_of_order_pages() {
         &mut Cursor::new(index_input(&[(2, "b"), (1, "a")])),
         Some(2),
         REVISION,
+        TextBudget::default(),
     )
     .expect_err("pages must increase");
     assert!(error.message.contains("out of order"));
+}
+
+#[test]
+fn a_page_over_the_budget_ends_the_index_as_truncated() {
+    let budget = TextBudget { page: 8, total: 10 };
+    let read = |input: &str| {
+        read_index_input(
+            &mut Cursor::new(input.to_string()),
+            Some(5),
+            REVISION,
+            budget,
+        )
+        .expect("build index")
+        .coverage()
+    };
+    let expected = |pages_scanned: u32, pages_written: u32| Coverage {
+        page_count: 5,
+        pages_scanned,
+        pages_written,
+        truncated: true,
+        missing_text_page_sample: (1..=pages_scanned)
+            .filter(|page| *page > pages_written)
+            .collect(),
+    };
+
+    // The producer reports the page it stopped at instead of sending its text.
+    assert_eq!(
+        read(&format!(
+            "{}{}",
+            index_input(&[(1, "first")]),
+            "{\"pageNumber\":2,\"overBudget\":true}\n"
+        )),
+        expected(1, 1),
+    );
+    // A page sent over the page budget, and one past the total, end it too.
+    assert_eq!(
+        read(&index_input(&[(1, "first"), (2, "nine char"), (3, "x")])),
+        expected(1, 1),
+    );
+    assert_eq!(
+        read(&index_input(&[(1, "first"), (2, "second"), (3, "x")])),
+        expected(1, 1),
+    );
+}
+
+#[test]
+fn an_input_page_needs_text_or_an_over_budget_report() {
+    for line in [
+        "{\"pageNumber\":1}\n",
+        "{\"pageNumber\":1,\"text\":\"a\",\"overBudget\":true}\n",
+        "{\"pageNumber\":1,\"overBudget\":false}\n",
+    ] {
+        let error = read_index_input(
+            &mut Cursor::new(line.to_string()),
+            None,
+            REVISION,
+            TextBudget::default(),
+        )
+        .expect_err("ambiguous page line");
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest, "{line}");
+    }
+}
+
+#[test]
+fn a_caller_budget_must_stay_within_the_ceilings() {
+    let budget = |raw: &str| {
+        CliArgs::parse(["--max-page-text-bytes".to_string(), raw.to_string()].into_iter())
+            .expect("parse")
+            .byte_budget("--max-page-text-bytes", MAX_PAGE_TEXT_BYTES)
+    };
+    assert_eq!(budget("8388608").expect("in range"), 8 * 1024 * 1024);
+    for refused in ["0", "33554433"] {
+        assert_eq!(
+            budget(refused).expect_err("out of range").code,
+            NativeErrorCode::TooLarge
+        );
+    }
 }
 
 #[test]

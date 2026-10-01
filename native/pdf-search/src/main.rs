@@ -1,9 +1,11 @@
 //! Document text search for EVB Viewer.
 //!
 //! `index` reads one JSON line per page (`{"pageNumber":1,"text":"..."}`) on
-//! stdin and writes the document's search index. `search` matches a query
-//! against it and `stat` reports its coverage. The index is a derived cache:
-//! a missing or unreadable file, another document revision, or another format
+//! stdin and writes the document's search index; a last line
+//! `{"pageNumber":n,"overBudget":true}` says the producer stopped at page n
+//! because its text is over the budget. `search` matches a query against the
+//! index and `stat` reports its coverage. The index is a derived cache: a
+//! missing or unreadable file, another document revision, or another format
 //! answers `{"stale":true}` so the caller rebuilds it from the document.
 
 use evb_native_support::{bounded_io::read_open_file_bounded, NativeError, NativeErrorCode};
@@ -28,9 +30,9 @@ const HEADER_SIZE: usize = 32;
 const RECORD_SIZE: usize = 8;
 const FLAG_TRUNCATED: u32 = 1;
 const MAX_INDEX_BYTES: usize = 320 * 1024 * 1024;
+/// Ceilings on the text budget a caller may ask `index` to hold.
 const MAX_PAGE_TEXT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TOTAL_TEXT_BYTES: usize = 256 * 1024 * 1024;
-const MAX_INPUT_LINE_BYTES: usize = 2 * MAX_PAGE_TEXT_BYTES;
 const MAX_DOCUMENT_REVISION_BYTES: usize = 8_192;
 const MAX_QUERY_UTF16_UNITS: usize = 2_048;
 const MAX_RESULT_LIMIT: usize = 500;
@@ -137,6 +139,13 @@ fn parse_index(data: Vec<u8>, expected_revision: &str) -> Option<SearchIndex> {
         return None;
     }
     let text_offset = records_offset.checked_add(record_count.checked_mul(RECORD_SIZE)?)?;
+    // Each record names a distinct scanned page and owns at least one text
+    // byte after the table, so a count the file cannot hold is refused before
+    // anything is reserved for it.
+    let text_len = data.len().checked_sub(text_offset)?;
+    if record_count > usize::try_from(pages_scanned).ok()? || record_count > text_len {
+        return None;
+    }
     let mut records = Vec::with_capacity(record_count);
     let mut offset = text_offset;
     let mut previous_page = 0u32;
@@ -144,7 +153,7 @@ fn parse_index(data: Vec<u8>, expected_revision: &str) -> Option<SearchIndex> {
         let record_offset = records_offset + index * RECORD_SIZE;
         let page_number = read_u32(&data, record_offset)?;
         let byte_len = usize::try_from(read_u32(&data, record_offset + 4)?).ok()?;
-        if page_number <= previous_page || page_number > page_count || byte_len == 0 {
+        if page_number <= previous_page || page_number > pages_scanned || byte_len == 0 {
             return None;
         }
         records.push(PageRecord {
@@ -182,19 +191,48 @@ fn load_index(path: &Path, expected_revision: &str) -> Result<Option<SearchIndex
     Ok(parse_index(data, expected_revision))
 }
 
+/// The text one index holds, in UTF-8 bytes: the caller's budget, within the
+/// ceilings above.
+#[derive(Debug, Clone, Copy)]
+struct TextBudget {
+    page: usize,
+    total: usize,
+}
+
+impl Default for TextBudget {
+    fn default() -> Self {
+        Self {
+            page: MAX_PAGE_TEXT_BYTES,
+            total: MAX_TOTAL_TEXT_BYTES,
+        }
+    }
+}
+
+impl TextBudget {
+    /// A page within the budget always fits a line: JSON escapes a byte into
+    /// at most six (`\u001f`), and the rest is the page number and field names.
+    fn max_input_line_bytes(self) -> usize {
+        self.page.saturating_mul(6).saturating_add(1024)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct IndexInputPage {
     page_number: u32,
-    text: String,
+    text: Option<String>,
+    #[serde(default)]
+    over_budget: bool,
 }
 
 /// Reads bounded JSON lines and builds the index in memory. Pages must arrive
-/// in increasing order; a page with no text is scanned but not stored.
+/// in increasing order; a page with no text is scanned but not stored. The
+/// first page over the budget, received or reported, ends what is stored.
 fn read_index_input(
     input: &mut impl BufRead,
     page_count: Option<u32>,
     revision: &str,
+    budget: TextBudget,
 ) -> Result<SearchIndex, NativeError> {
     let mut records = Vec::new();
     let mut data = Vec::new();
@@ -202,9 +240,10 @@ fn read_index_input(
     let mut pages_scanned = 0u32;
     let mut truncated = false;
     let mut line = Vec::new();
+    let max_line_bytes = budget.max_input_line_bytes();
     loop {
         line.clear();
-        let limit = u64::try_from(MAX_INPUT_LINE_BYTES + 1).unwrap_or(u64::MAX);
+        let limit = u64::try_from(max_line_bytes.saturating_add(1)).unwrap_or(u64::MAX);
         let read = input
             .by_ref()
             .take(limit)
@@ -213,7 +252,7 @@ fn read_index_input(
         if read == 0 {
             break;
         }
-        if line.len() > MAX_INPUT_LINE_BYTES {
+        if line.len() > max_line_bytes {
             return Err(too_large(
                 "Search index input line exceeds its admission ceiling",
             ));
@@ -231,11 +270,24 @@ fn read_index_input(
             )));
         }
         pages_seen = page.page_number;
+        let text = match (page.text, page.over_budget) {
+            (Some(text), false) => text,
+            (None, true) => {
+                truncated = true;
+                continue;
+            }
+            _ => {
+                return Err(invalid_request(format!(
+                    "Search index page {} needs either text or overBudget",
+                    page.page_number
+                )))
+            }
+        };
         if truncated {
             continue;
         }
-        let text_len = page.text.len();
-        if text_len > MAX_PAGE_TEXT_BYTES || data.len() + text_len > MAX_TOTAL_TEXT_BYTES {
+        let text_len = text.len();
+        if text_len > budget.page || data.len() + text_len > budget.total {
             truncated = true;
             continue;
         }
@@ -246,7 +298,7 @@ fn read_index_input(
                 offset: data.len(),
                 byte_len: text_len,
             });
-            data.extend_from_slice(page.text.as_bytes());
+            data.extend_from_slice(text.as_bytes());
         }
     }
     if revision.is_empty() || revision.len() > MAX_DOCUMENT_REVISION_BYTES {
@@ -655,7 +707,7 @@ fn search_index(
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>]\n  evb-pdf-search stat --index <path> --document-revision <token>"
+    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>] [--max-page-text-bytes <n>] [--max-total-text-bytes <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>]\n  evb-pdf-search stat --index <path> --document-revision <token>"
 }
 
 struct CliArgs {
@@ -707,6 +759,17 @@ impl CliArgs {
                 .parse()
                 .map_err(|_| invalid_request(format!("Invalid numeric value for {name}: {raw}"))),
         }
+    }
+
+    /// A byte budget no larger than `ceiling`, which is also the default.
+    fn byte_budget(&mut self, name: &str, ceiling: usize) -> Result<usize, NativeError> {
+        let budget = self.number(name, ceiling)?;
+        if budget == 0 || budget > ceiling {
+            return Err(too_large(format!(
+                "{name} must be between 1 and {ceiling} bytes"
+            )));
+        }
+        Ok(budget)
     }
 
     fn finish(self) -> Result<(), NativeError> {
@@ -785,8 +848,13 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
                     _ => Err(invalid_request(format!("Invalid --page-count: {raw}"))),
                 })
                 .transpose()?;
+            let ceiling = TextBudget::default();
+            let budget = TextBudget {
+                page: args.byte_budget("--max-page-text-bytes", ceiling.page)?,
+                total: args.byte_budget("--max-total-text-bytes", ceiling.total)?,
+            };
             args.finish()?;
-            let index = read_index_input(&mut io::stdin().lock(), page_count, &revision)?;
+            let index = read_index_input(&mut io::stdin().lock(), page_count, &revision, budget)?;
             write_index(&index, &revision, &out)?;
             print_json(&index.coverage())
         }

@@ -22,6 +22,8 @@ import {
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
 } from '@contracts/electronApiDocuments';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {PDF_EMBEDDED_SHAPE_INDEX_SIDECAR_HEADER_SCHEMA} from '@contracts/pdfEmbeddedShapeIndexSchemas';
+import * as v from 'valibot';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -61,8 +63,6 @@ import {
 
 const SHAPE_INDEX_DIRECTORY_PREFIX = 'pdf-embedded-shape-index-';
 const SHAPE_INDEX_FILE_NAME = 'index.jsonl';
-const SHAPE_INDEX_FORMAT = 'evb-pdf-embedded-shape-index';
-const SHAPE_INDEX_SCHEMA_VERSION = 1;
 const SHAPE_INDEX_DEFAULT_TTL_MS = 10 * 60 * 1_000;
 const SHAPE_INDEX_SWEEP_MAX_ENTRIES = 200;
 const SHAPE_INDEX_NATIVE_TIMEOUT_MS = 30 * 60 * 1_000;
@@ -99,27 +99,11 @@ function getOwnerId(context: IDocumentsSenderIdContext) {
 }
 
 function decodeHeader(value: unknown) {
-    if (!isRecord(value)) {
-        throw new Error('Embedded shape index sidecar is missing its JSONL header');
+    const header = v.safeParse(PDF_EMBEDDED_SHAPE_INDEX_SIDECAR_HEADER_SCHEMA, value, {abortEarly: true});
+    if (!header.success) {
+        throw new Error(`Embedded shape index sidecar has an unsupported header: ${v.summarize(header.issues)}`);
     }
-    if (
-        value.format !== SHAPE_INDEX_FORMAT
-        || value.schemaVersion !== SHAPE_INDEX_SCHEMA_VERSION
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 0
-    ) {
-        throw new Error('Embedded shape index sidecar has an unsupported header');
-    }
-    if (value.chunkBytes !== undefined && (
-        typeof value.chunkBytes !== 'number'
-        || !Number.isSafeInteger(value.chunkBytes)
-        || value.chunkBytes < 1
-        || value.chunkBytes > PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES
-    )) {
-        throw new Error('Embedded shape index sidecar header has an invalid chunk size');
-    }
-    return value.pageCount;
+    return header.output.pageCount;
 }
 
 function decodeSafeInteger(value: unknown, fieldName: string, min = 0) {

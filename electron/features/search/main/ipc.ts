@@ -17,7 +17,10 @@ import {
     type ISearchSenderContext,
 } from '@electron/features/search/main/searchService';
 import { getSearchIndexPath } from '@electron/features/search/searchIndex';
-import { streamPdfPageTexts } from '@electron/features/search/pdfPageTexts';
+import {
+    readPdfPageCount,
+    streamPdfPageTexts,
+} from '@electron/features/search/pdfPageTexts';
 
 export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number) {
     if (isWorkingCopyDocumentPath(pdfPath)) {
@@ -37,7 +40,11 @@ export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRe
         indexPath: getSearchIndexPath(pdfPath),
         documentRevision,
         ...(isWorkingCopyDocumentPath(pdfPath) ? {workingCopyPath: pdfPath} : {}),
-        readPages: (signal: AbortSignal) => streamPdfPageTexts(pdfPath, {signal}),
+        readPageCount: (signal: AbortSignal) => readPdfPageCount(pdfPath, signal),
+        readPages: (signal: AbortSignal, pageCount: number | undefined) => streamPdfPageTexts(pdfPath, {
+            signal,
+            ...(pageCount === undefined ? {} : {lastPage: pageCount}),
+        }),
     };
 }
 

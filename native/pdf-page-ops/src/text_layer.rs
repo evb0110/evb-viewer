@@ -99,7 +99,7 @@ fn page_fonts(document: &Document, page_id: ObjectId) -> Result<BTreeMap<Vec<u8>
     Ok(fonts)
 }
 
-fn page_resources(document: &Document, page_id: ObjectId) -> Result<Dictionary> {
+pub(crate) fn page_resources(document: &Document, page_id: ObjectId) -> Result<Dictionary> {
     // Incremental page dictionaries live in `new_document`, while their
     // preserved `/Parent` points into the base document. Resolve a direct
     // `/Resources` value before walking parents so materialized pages do not

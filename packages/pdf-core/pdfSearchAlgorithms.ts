@@ -23,6 +23,15 @@ function joinSearchLineHyphenation(text: string) {
     return text.replace(/\u00AD|-[\p{Zs}\t]*(?:\r\n?|\n)[\p{Zs}\t]*/gu, '');
 }
 
+/**
+ * The text `assembleSearchablePageText` produces for a page read as one item,
+ * without the per-character offset maps a caller that indexes only the text
+ * would otherwise build and discard.
+ */
+export function normalizeSearchablePageText(text: string) {
+    return collapseRepeatedPdfSearchPageText(joinSearchLineHyphenation(text));
+}
+
 export function assembleSearchablePageText(
     items: readonly ISearchablePageTextItem[],
 ): IAssembledSearchablePageText {
@@ -171,6 +180,78 @@ export class SearchRegexLimitError extends Error {
 }
 
 const SEARCH_WORD_CHARACTER_CLASS = '\\p{L}\\p{N}\\p{M}_\'’';
+// The regex dialect every shell searches with is the desktop matcher's
+// (Rust `regex`) default: Unicode \d, \w, \s and \b, and . for any
+// character but a line feed. JavaScript gives \d, \w and \b ASCII meanings
+// and keeps . from \r, \u2028 and \u2029, so a query is translated first.
+const UNICODE_REGEX_WORD = String.raw`\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}`;
+const UNICODE_REGEX_ESCAPES: Readonly<Record<string, readonly [outsideClass: string, insideClass: string | null]>> = {
+    d: [
+        String.raw`\p{Nd}`,
+        String.raw`\p{Nd}`,
+    ],
+    D: [
+        String.raw`\P{Nd}`,
+        String.raw`\P{Nd}`,
+    ],
+    s: [
+        String.raw`\p{White_Space}`,
+        String.raw`\p{White_Space}`,
+    ],
+    S: [
+        String.raw`\P{White_Space}`,
+        String.raw`\P{White_Space}`,
+    ],
+    w: [
+        `[${UNICODE_REGEX_WORD}]`,
+        UNICODE_REGEX_WORD,
+    ],
+    W: [
+        `[^${UNICODE_REGEX_WORD}]`,
+        null,
+    ],
+    b: [
+        `(?:(?<=[${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}]))`,
+        null,
+    ],
+    B: [
+        `(?:(?<=[${UNICODE_REGEX_WORD}])(?=[${UNICODE_REGEX_WORD}])|(?<![${UNICODE_REGEX_WORD}])(?![${UNICODE_REGEX_WORD}]))`,
+        null,
+    ],
+};
+
+function toUnicodeSearchRegex(pattern: string) {
+    let output = '';
+    let inClass = false;
+    for (let index = 0; index < pattern.length; index += 1) {
+        const char = pattern[index]!;
+        if (char === '\\' && index + 1 < pattern.length) {
+            index += 1;
+            const escape = pattern[index]!;
+            const unicode = UNICODE_REGEX_ESCAPES[escape];
+            if (unicode === undefined) {
+                output += char + escape;
+                continue;
+            }
+            const replacement = inClass ? unicode[1] : unicode[0];
+            if (replacement === null) {
+                throw new Error(`Invalid search regex: \\${escape} is not supported inside a character class`);
+            }
+            output += replacement;
+            continue;
+        }
+        if (inClass) {
+            inClass = char !== ']';
+        } else if (char === '[') {
+            inClass = true;
+        } else if (char === '.') {
+            output += '[^\\n]';
+            continue;
+        }
+        output += char;
+    }
+    return output;
+}
 const SEARCH_CJK_SCRIPT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 function applyWholeWordBoundary(pattern: string) {
@@ -184,7 +265,7 @@ export function buildPdfSearchRegex(
     if (options.useRegex) {
         assertSafePdfSearchRegex(query, options);
     }
-    const basePattern = options.useRegex ? query : escapeSearchRegex(query);
+    const basePattern = options.useRegex ? toUnicodeSearchRegex(query) : escapeSearchRegex(query);
     const useBoundary = options.wholeWord
         && (options.useRegex || !SEARCH_CJK_SCRIPT_PATTERN.test(query));
     const pattern = useBoundary
@@ -398,11 +479,9 @@ export function assertSafePdfSearchRegex(
     query: string,
     options: Pick<IResolvedSearchMatchOptions, 'matchCase' | 'wholeWord'>,
 ) {
-    const pattern = options.wholeWord
-        ? applyWholeWordBoundary(query)
-        : query;
     try {
-        new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
+        const unicodeQuery = toUnicodeSearchRegex(query);
+        new RegExp(options.wholeWord ? applyWholeWordBoundary(unicodeQuery) : unicodeQuery, options.matchCase ? 'gu' : 'giu');
     } catch (error) {
         throw new Error(`Invalid search regex: ${error instanceof Error ? getErrorMessage(error) : 'pattern could not be compiled'}`);
     }

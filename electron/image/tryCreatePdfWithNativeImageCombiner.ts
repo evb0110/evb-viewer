@@ -33,6 +33,10 @@ import {
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {
+    PDF_IMAGE_COMBINE_PROGRESS_SCHEMA,
+    type TPdfImageCombineProgress,
+} from '@contracts/pdfImageCombineProgress';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     decodeSerializableErrorEnvelope,
@@ -40,31 +44,6 @@ import {
 } from '@contracts/serializableError';
 import * as v from 'valibot';
 
-// The native record is reduced to its callback fields and normalizes missing estimates to null.
-const nativePdfImageCombineProgressSchema = v.pipe(v.object({
-    type: v.literal('progress'),
-    processed: v.number(),
-    total: v.number(),
-    percent: v.number(),
-    elapsedMs: v.number(),
-    estimatedRemainingMs: v.optional(v.unknown()),
-}), v.transform(({
-    processed,
-    total,
-    percent,
-    elapsedMs,
-    estimatedRemainingMs,
-}) => ({
-    processed,
-    total,
-    percent,
-    elapsedMs,
-    estimatedRemainingMs: typeof estimatedRemainingMs === 'number'
-        ? estimatedRemainingMs
-        : null,
-})));
-
-type INativePdfImageCombineProgress = v.InferOutput<typeof nativePdfImageCombineProgressSchema>;
 
 interface INativePdfImageCombineOptions {
     maxPages?: number;
@@ -74,7 +53,7 @@ interface INativePdfImageCombineOptions {
     maxOutputBytes?: number;
     /** Permit a validated output path to exceed the byte-returning cap. */
     outputMode?: 'memory' | 'file-backed';
-    onProgress?: (progress: INativePdfImageCombineProgress) => void;
+    onProgress?: (progress: TPdfImageCombineProgress) => void;
     signal?: AbortSignal;
     rotationDegrees?: readonly number[];
     onTerminationProof?: (proof: Promise<boolean>) => void;
@@ -141,8 +120,8 @@ export function isNativePdfImageCombineBitmapPath(inputPath: string) {
     return SUPPORTED_NATIVE_BITMAP_EXTENSIONS.has(extname(inputPath).toLowerCase());
 }
 
-function parseProgressPayload(value: unknown): INativePdfImageCombineProgress | null {
-    const parsed = v.safeParse(nativePdfImageCombineProgressSchema, value, {abortEarly: true});
+function parseProgressPayload(value: unknown): TPdfImageCombineProgress | null {
+    const parsed = v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, value, {abortEarly: true});
     return parsed.success ? parsed.output : null;
 }
 

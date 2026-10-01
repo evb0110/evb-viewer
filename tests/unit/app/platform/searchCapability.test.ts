@@ -367,7 +367,10 @@ describe('createBrowserSearchCapability', () => {
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
     });
 
-    it.each(searchConformanceCorpus.cases)('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
+    // Regex queries run in the search worker, which this harness has not; the
+    // worker matches with iteratePdfSearchMatches, which the contracts corpus
+    // test runs over every case.
+    it.each(searchConformanceCorpus.cases.filter(fixture => fixture.options?.useRegex !== true))('matches the shared conformance corpus case $id in the browser capability', async (fixture) => {
         const pdfPath = `browser://documents/test/${fixture.id}.pdf`;
         const getPage = vi.fn(async () => ({
             getTextContent: vi.fn(async () => ({items: [{str: fixture.text}]})),

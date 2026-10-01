@@ -15,6 +15,7 @@ import {
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     isErrnoException,
     isRecord,
@@ -165,19 +166,33 @@ export async function removeManagedScratchTempDir(
     return true;
 }
 
+/**
+ * Runs `run` in a fresh managed scratch directory and removes it afterwards,
+ * unless `run` failed while a native child it started may still be alive: the
+ * child may still read or write there, so the directory stays for the stale
+ * sweep.
+ */
 export async function usingManagedScratchScope<T>(
     prefix: TManagedScratchPrefix,
     rootPath: string,
     run: (scratchPath: string) => Promise<T>,
 ): Promise<T> {
     const scratchPath = await createManagedScratchTempDir(prefix, rootPath);
+    let unprovenTermination: string | undefined;
     try {
         return await run(scratchPath);
+    } catch (error) {
+        unprovenTermination = getUnprovenNativeTerminationDetail(error);
+        throw error;
     } finally {
-        await rm(scratchPath, {
-            force: true,
-            recursive: true,
-        });
+        if (unprovenTermination === undefined) {
+            await rm(scratchPath, {
+                force: true,
+                recursive: true,
+            });
+        } else {
+            logger.warn(`Keeping managed scratch "${scratchPath}" until a native child is proven gone: ${unprovenTermination}`);
+        }
     }
 }
 

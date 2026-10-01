@@ -8,7 +8,6 @@ export {
     ensureSearchIndex,
     getSearchIndexPath,
     searchIndexedDocument,
-    type ISearchIndexCoverage,
     type ISearchIndexedDocument,
 } from '@electron/features/search/searchIndex';
 export {

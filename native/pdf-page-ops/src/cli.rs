@@ -174,6 +174,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "ocr-text-layer" => Operation::OcrTextLayer {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
         },
+        "ocr-text-visibility" => Operation::OcrTextVisibility {
+            pages_file: pages_file.ok_or("Missing --pages-file value")?,
+        },
         "crop" => Operation::Crop {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
             margins: CropMargins {
@@ -229,6 +232,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let prints_result = matches!(
         operation,
         Operation::PageGeometry { .. }
+            | Operation::OcrTextVisibility { .. }
             | Operation::PdfConformance
             | Operation::AppendAdmission
             | Operation::ReadCatalog

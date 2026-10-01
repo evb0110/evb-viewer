@@ -9,13 +9,14 @@ import { join } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('nativeTiffCombine');
@@ -52,11 +53,24 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     const inputsPath = join(tempDir, 'inputs.txt');
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replacedOutput = false;
+    let terminationProof: Promise<boolean> | undefined;
+    let terminationUnproven = false;
+    const cleanup = async () => {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        }).catch(() => undefined);
+        if (!replacedOutput) {
+            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+        }
+    };
 
     try {
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
-        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi);
+        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi, (proof) => {
+            terminationProof = proof;
+        });
         if (!ok || !existsSync(tempOutputPath)) {
             const testFailure = createNativeFallbackTestError(
                 runtimeConfig.test.nativeTiffCombineEnabled,
@@ -75,13 +89,18 @@ export async function tryCombinePagesWithNativeTiffCombiner(
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
         return true;
+    } catch (error) {
+        terminationUnproven = getUnprovenNativeTerminationDetail(error) !== undefined;
+        throw error;
     } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
-        if (!replacedOutput) {
-            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+        if (terminationUnproven) {
+            // The child may still read the inputs and write the output; they
+            // go once its process tree is proven gone.
+            void terminationProof?.then(proven => (proven
+                ? cleanup()
+                : logger.warn(`Keeping native TIFF combine inputs "${tempDir}" and output "${tempOutputPath}" until the child is proven gone`)));
+        } else {
+            await cleanup();
         }
     }
 }
@@ -103,8 +122,9 @@ async function runNativeTiffCombine(
     binaryPath: string,
     outputPath: string,
     inputsPath: string,
-    signal?: AbortSignal,
-    dpi?: number,
+    signal: AbortSignal | undefined,
+    dpi: number | undefined,
+    onTerminationProof: (proof: Promise<boolean>) => void,
 ) {
     try {
         const args = [
@@ -118,17 +138,19 @@ async function runNativeTiffCombine(
         if (typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0) {
             args.push('--dpi', String(Math.round(dpi)));
         }
-        await runNativeCommand(binaryPath, args, {
+        await runNativeToolCommand(binaryPath, args, {
             timeoutMs: NATIVE_TIFF_COMBINE_TIMEOUT_MS,
             commandLabel: 'evb-pdf-image-combine(tiff)',
             maxStdoutBytes: 1024,
             maxStderrBytes: 8_192,
-            defaultCwdToCommandDir: true,
-            prependCommandDirToPath: true,
+            onTerminationProof,
             ...(signal ? { signal } : {}),
         });
         return true;
     } catch (error) {
+        // A child not proven gone may still hold the pages and the output, so
+        // no fallback starts beside it and the owner of the pages has to know.
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         const testFailure = createNativeFallbackTestError(
             runtimeConfig.test.nativeTiffCombineEnabled,
