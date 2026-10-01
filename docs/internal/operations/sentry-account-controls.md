@@ -112,6 +112,7 @@ Post-change desktop and browser test events contained no geography. This rule
 is required and must survive account-control reviews.
 
 The alert definitions, privacy incident response, credential rotation and
-emergency disablement are in `sentry-runbook.md`. `SENTRY_VERIFICATION_TOKEN`,
-`SENTRY_NITRO_DSN` and the GitHub copy of `SENTRY_BROWSER_DSN` are no longer read
-by anything in the repository; the owner may revoke them.
+emergency disablement are in `sentry-runbook.md`. `SENTRY_VERIFICATION_TOKEN`
+and the GitHub copy of `SENTRY_BROWSER_DSN` are no longer read by anything in
+the repository; the owner may revoke them. `SENTRY_NITRO_DSN` and the
+`EVB_SENTRY_NITRO_*` gates were removed from Vercel Preview on 2026-10-01.
