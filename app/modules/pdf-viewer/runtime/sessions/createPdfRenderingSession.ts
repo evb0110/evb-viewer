@@ -88,6 +88,11 @@ export interface ICreatePdfRenderingSessionOptions {
 export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOptions) => {
     const documentSession = options.document;
     const viewport = options.viewport;
+    // Linked views share one raster scheduler; each view's rasters and
+    // thumbnails are its own source and target there.
+    const rasterConsumerId = crypto.randomUUID();
+    const viewportRasterSourceId = `pdf-viewport:${rasterConsumerId}`;
+    const thumbnailRasterSourceId = `pdf-thumbnails:${rasterConsumerId}`;
     const renderedPageStateVersion = ref(0);
     const initialVisual = createPdfInitialVisualCommit({
         chassisAuthority: options.chassisAuthority,
@@ -264,7 +269,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && isViewportRasterDemanded(prepared.job.demand.pageNumber, prepared.job.demand.lane);
     }
     const viewportRasterTarget: IPdfRasterRenderTarget<IPreparedViewportRaster> = {
-        id: 'pdf-viewport',
+        id: viewportRasterSourceId,
         async prepare(demand, page, signal, captureSettlement) {
             const job = viewportRasterJobs.get(demand.renderKey);
             const target = getMountedRasterTarget(demand.pageNumber);
@@ -310,7 +315,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 ...(sourceMaxPixels === null ? {} : {sourceMaxPixels}),
                 onRenderStall: payload => handlePageRenderStall(payload),
                 pageRenderCoordination: {
-                    owner: 'pdf-viewport',
+                    owner: viewportRasterSourceId,
                     priority: 100,
                     signal,
                     shouldStart: shouldContinue,
@@ -603,7 +608,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 scheduler.invalidate({
                     pages: [job.demand.pageNumber],
                     reason: 'explicit-viewport-raster-repair',
-                    sourceId: 'pdf-viewport',
+                    sourceId: viewportRasterSourceId,
                 });
             }
         }
@@ -620,13 +625,13 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const navigationJobs = rasterJobs.filter(job => job.demand.lane === 'navigation-target');
         if (navigationJobs.length > 0) {
             await Promise.all(navigationJobs.map(job => scheduler.request({
-                sourceId: 'pdf-viewport',
+                sourceId: viewportRasterSourceId,
                 demand: job.demand,
                 target: viewportRasterTarget,
             })));
         } else {
             scheduler.setDemand({
-                sourceId: 'pdf-viewport',
+                sourceId: viewportRasterSourceId,
                 input: schedulableJobs.map(job => job.demand),
                 policy: {
                     expand: (input: readonly IPdfRasterDemand[]) => input,
@@ -701,7 +706,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     function cancelRasterDemand() {
         viewportRasterJobs.clear();
-        const cancellation = activeRasterScheduler?.cancelSource('pdf-viewport') ?? Promise.resolve();
+        const cancellation = activeRasterScheduler?.cancelSource(viewportRasterSourceId) ?? Promise.resolve();
         for (const pageNumber of viewportRasterWaiters.keys()) {
             resolveViewportRasterWaiters(pageNumber);
         }
@@ -854,7 +859,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             activeRasterScheduler?.invalidate({
                 pages: [pageNumber],
                 reason: 'viewport-page-released',
-                sourceId: 'pdf-viewport',
+                sourceId: viewportRasterSourceId,
             });
         }
         resolveViewportRasterWaiters(pageNumber);
@@ -876,7 +881,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         documentSession.evictPage(pageNumber);
         renderedPageStateVersion.value += 1;
     }
+    // Drops every page this view shows, with its rasters on the scheduler;
+    // another consumer of the scheduler keeps its own.
     async function cleanupRenderedPages() {
+        const release = activeRasterScheduler?.releaseSource(viewportRasterSourceId);
         bumpRenderVersion();
         preservedRevisionSwapCanvases.clear();
         new Set([
@@ -884,7 +892,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             ...pageRenderState.renderedPages,
             ...pageRenderState.renderingPages.keys(),
         ]).forEach(pageNumber => clearAuthoritativePage(pageNumber, false));
-        await pageRenderer.cleanupAllLayers();
+        await Promise.all([
+            release,
+            pageRenderer.cleanupAllLayers(),
+        ]);
         documentSession.cleanupPageCache();
     }
     function isPageVisualReady(pageNumber: TPageNumber) {
@@ -1188,6 +1199,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     return renderPdfDocumentThumbnail({
                         surfaceBudget: authority.surfaceBudget,
                         scheduler,
+                        sourceId: thumbnailRasterSourceId,
                         request,
                         rotation: documentSession.pageMetrics.value[request.pageNumber - 1]?.rotation,
                         hiddenAnnotationIds: pageRenderer.thumbnailHiddenAnnotationIds.value,
