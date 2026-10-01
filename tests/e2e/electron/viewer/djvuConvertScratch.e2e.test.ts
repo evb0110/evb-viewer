@@ -1,6 +1,6 @@
 import {
     existsSync,
-    mkdtempSync,
+    mkdirSync,
     readdirSync,
     rmSync,
 } from 'node:fs';
@@ -11,7 +11,8 @@ import {
     resolve,
 } from 'node:path';
 import {
-    afterEach,
+    afterAll,
+    beforeAll,
     describe,
     expect,
     it,
@@ -56,38 +57,38 @@ async function startConversion(session: IElectronE2ESession, tempRoot: string) {
 }
 
 describe('DjVu conversion scratch', () => {
+    // Each test's app gets its own temp root, so one test's leftovers cannot
+    // satisfy or fail the next. The fixture boots the first test's session.
+    const suiteRoot = join(tmpdir(), `evb-e2e-djvu-scratch-${Date.now()}`);
+    const cancelRoot = join(suiteRoot, 'cancel');
+    const quitRoot = join(suiteRoot, 'quit');
+    const scratchEnv = (tempRoot: string) => ({
+        TMPDIR: tempRoot,
+        EVB_E2E_SAVE_DIALOG_PATH: join(tempRoot, 'converted.pdf'),
+        EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
+    });
+    beforeAll(() => {
+        mkdirSync(cancelRoot, {recursive: true});
+        mkdirSync(quitRoot, {recursive: true});
+    });
     const sessions = createElectronE2ESessionFixture({
         sessionName: () => `e2e-djvu-convert-scratch-${Date.now()}`,
         restartBeforeEach: false,
+        extraEnv: scratchEnv(cancelRoot),
     });
-    let tempRoot = '';
 
     // The session's processes write to the temp root until they stop.
-    afterEach(async () => {
+    afterAll(async () => {
         await sessions.stop();
-        if (tempRoot) rmSync(tempRoot, {
+        rmSync(suiteRoot, {
             recursive: true,
             force: true,
         });
-        tempRoot = '';
     });
 
-    async function startSession() {
-        tempRoot = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-scratch-'));
-        return sessions.start({
-            clean: true,
-            sessionName: () => `e2e-djvu-convert-scratch-${Date.now()}`,
-            extraEnv: {
-                TMPDIR: tempRoot,
-                EVB_E2E_SAVE_DIALOG_PATH: join(tempRoot, 'converted.pdf'),
-                EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
-            },
-        });
-    }
-
     it('removes the export scratch when the conversion is canceled', async () => {
-        const session = await startSession();
-        await startConversion(session, tempRoot);
+        const session = sessions.getSession();
+        await startConversion(session, cancelRoot);
         await waitForFunctionInPage(session.page, () => {
             const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
                 .find(candidate => candidate.textContent?.trim() === 'Cancel' && !candidate.disabled);
@@ -95,15 +96,19 @@ describe('DjVu conversion scratch', () => {
             button.click();
             return true;
         }, {timeout: 30_000});
-        await expect.poll(() => listExportScratch(tempRoot), {timeout: 60_000}).toEqual([]);
+        await expect.poll(() => listExportScratch(cancelRoot), {timeout: 60_000}).toEqual([]);
     }, 300_000);
 
     it('removes the export scratch when the app quits during the conversion', async () => {
-        const session = await startSession();
-        await startConversion(session, tempRoot);
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-convert-scratch-${Date.now()}`,
+            extraEnv: scratchEnv(quitRoot),
+        });
+        await startConversion(session, quitRoot);
         // A graceful quit that keeps the profile's app temp, as an installed app
         // does; a plain session stop wipes it and would hide what the quit left.
         await stopSingleSession(session.name, {preserveWorkspaceCheckpoint: true});
-        expect(listExportScratch(tempRoot)).toEqual([]);
+        expect(listExportScratch(quitRoot)).toEqual([]);
     }, 300_000);
 });
