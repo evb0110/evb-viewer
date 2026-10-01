@@ -294,6 +294,8 @@ fn an_input_page_needs_text_or_an_over_budget_report() {
         "{\"pageNumber\":1}\n",
         "{\"pageNumber\":1,\"text\":\"a\",\"overBudget\":true}\n",
         "{\"pageNumber\":1,\"overBudget\":false}\n",
+        // The over-budget report is the producer's last line.
+        "{\"pageNumber\":1,\"overBudget\":true}\n{\"pageNumber\":2,\"text\":\"a\"}\n",
     ] {
         let error = read_index_input(
             &mut Cursor::new(line.to_string()),

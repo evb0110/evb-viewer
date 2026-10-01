@@ -227,7 +227,8 @@ struct IndexInputPage {
 
 /// Reads bounded JSON lines and builds the index in memory. Pages must arrive
 /// in increasing order; a page with no text is scanned but not stored. The
-/// first page over the budget, received or reported, ends what is stored.
+/// first page over the budget, received or reported, ends what is stored; a
+/// reported one is the producer's last line, so anything after it is refused.
 fn read_index_input(
     input: &mut impl BufRead,
     page_count: Option<u32>,
@@ -239,6 +240,7 @@ fn read_index_input(
     let mut pages_seen = 0u32;
     let mut pages_scanned = 0u32;
     let mut truncated = false;
+    let mut reported_over_budget = false;
     let mut line = Vec::new();
     let max_line_bytes = budget.max_input_line_bytes();
     loop {
@@ -263,6 +265,12 @@ fn read_index_input(
         let page: IndexInputPage = serde_json::from_slice(&line).map_err(|error| {
             invalid_request(format!("Invalid search index input page: {error}"))
         })?;
+        if reported_over_budget {
+            return Err(invalid_request(format!(
+                "Search index page {} follows the page reported over the budget",
+                page.page_number
+            )));
+        }
         if page.page_number <= pages_seen || page.page_number > page_count.unwrap_or(u32::MAX) {
             return Err(invalid_request(format!(
                 "Search index page {} is out of order or outside the document",
@@ -273,7 +281,7 @@ fn read_index_input(
         let text = match (page.text, page.over_budget) {
             (Some(text), false) => text,
             (None, true) => {
-                truncated = true;
+                (truncated, reported_over_budget) = (true, true);
                 continue;
             }
             _ => {
