@@ -18,6 +18,10 @@ import {
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {
+    didOpenDocument,
+    type TDocumentOpenOutcome,
+} from '@app/types/documentOpenOutcome';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
@@ -44,7 +48,8 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     readOpenFailure: () => IWorkspaceOpenFailure | null;
     toolbarSnapshot: TReadableRef<IWorkspaceToolbarSnapshot>;
     readViewState: () => ITabViewSessionState;
-    openPath: (path: TDocumentRef) => Promise<boolean>;
+    /** Opens a file without an open transaction of its own; the caller runs it in one. */
+    openPath: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
     closeFailedDocument: () => Promise<boolean>;
     hasWorkingCopy: () => boolean;
     goToPage: (page: number, options?: IScrollToPageOptions) => void;
@@ -195,7 +200,9 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     }
 
     // A tab that owns a document it has not loaded here (a restored session,
-    // a cold tab, a transferred tab) opens it when shown.
+    // a cold tab, a transferred tab) opens it when shown, at the page it was
+    // left on. This restore is the open's only transaction: a nested one
+    // would supersede it, and releasing it would reopen the surface at page 1.
     function openOwnedDocumentWhenShown() {
         const current = snapshot.value;
         const path = current.identity.originalPath;
@@ -215,7 +222,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                 originalPath: path,
                 isDjvu: current.identity.isDjvu,
             },
-        }, () => options.openPath(path));
+        }, async () => didOpenDocument(await options.openPath(path)));
     }
     // A view of a document that is already open (a split's second view, or a
     // view that remounted in another pane) has no open transaction of its own.

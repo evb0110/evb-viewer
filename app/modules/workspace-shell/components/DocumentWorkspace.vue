@@ -486,7 +486,7 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
-    openPath: path => fileOps.handleOpenFileDirectWithPersist(path),
+    openPath: file.openFileDirectWithViewerLifecycle,
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
     hasWorkingCopy: () => workingCopyPath.value !== null,
     goToPage: handleGoToPage,
