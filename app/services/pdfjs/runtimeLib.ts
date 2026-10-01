@@ -46,69 +46,6 @@ const DEFAULT_IMAGE_KIND = {
     RGBA_32BPP: 3,
 };
 
-const REQUIRED_ANNOTATION_EDITOR_UI_MANAGER_METHODS = [
-    'addCommands',
-    'addEditListeners',
-    'addToAnnotationStorage',
-    'delete',
-    'destroy',
-    'getEditors',
-    'getMode',
-    'onPageChanging',
-    'onScaleChanging',
-    'removeEditListeners',
-    'setSelected',
-    'updateParams',
-    'waitForEditorsRendered',
-] as const;
-
-const REQUIRED_RUNTIME_FUNCTION_EXPORTS = [
-    'AnnotationLayer',
-    'AnnotationEditorLayer',
-    'AnnotationEditorUIManager',
-    'DrawLayer',
-    'PDFDateString',
-    'TextLayer',
-] as const;
-
-const REQUIRED_ANNOTATION_EDITOR_TYPE_KEYS = [
-    'DISABLE',
-    'NONE',
-    'FREETEXT',
-    'HIGHLIGHT',
-    'STAMP',
-    'INK',
-    'POPUP',
-] as const;
-
-const REQUIRED_ANNOTATION_EDITOR_PARAMS_TYPE_KEYS = [
-    'RESIZE',
-    'CREATE',
-    'FREETEXT_SIZE',
-    'FREETEXT_COLOR',
-    'INK_COLOR',
-    'INK_THICKNESS',
-    'INK_OPACITY',
-    'HIGHLIGHT_COLOR',
-    'HIGHLIGHT_THICKNESS',
-    'HIGHLIGHT_FREE',
-    'HIGHLIGHT_SHOW_ALL',
-    'DRAW_STEP',
-] as const;
-
-const REQUIRED_ANNOTATION_MODE_KEYS = [
-    'DISABLE',
-    'ENABLE',
-    'ENABLE_FORMS',
-    'ENABLE_STORAGE',
-] as const;
-
-const REQUIRED_PIXELS_PER_INCH_KEYS = [
-    'CSS',
-    'PDF',
-    'PDF_TO_CSS_UNITS',
-] as const;
-
 let vendoredAssetVersionPromise: Promise<void> | null = null;
 
 function isRuntimeLike(value: unknown): value is TPdfjsRuntimeLike {
@@ -142,73 +79,6 @@ function getRuntimeObject(
 ) {
     const value = getRuntimeProperty(runtime, name);
     return isRuntimeLike(value) ? value : null;
-}
-
-function getRuntimeFunctionProbeFailures(
-    runtime: TPdfjsRuntimeLike,
-    names: readonly string[],
-) {
-    const failures: string[] = [];
-    for (const name of names) {
-        if (typeof getRuntimeProperty(runtime, name) !== 'function') {
-            failures.push(`${name} export is not a function`);
-        }
-    }
-    return failures;
-}
-
-function getRuntimeNumberMapProbeFailures(
-    runtime: TPdfjsRuntimeLike,
-    name: string,
-    keys: readonly string[],
-) {
-    const value = getRuntimeObject(runtime, name);
-    if (!value) {
-        return [`${name} export is not an object`];
-    }
-
-    return keys.flatMap((key) => {
-        const candidate = getRuntimeProperty(value, key);
-        return typeof candidate === 'number' && Number.isFinite(candidate)
-            ? []
-            : [`${name}.${key} is not a finite number`];
-    });
-}
-
-function hasPrototypeFunction(
-    value: unknown,
-    method: string,
-) {
-    if (!isRuntimeLike(value)) {
-        return false;
-    }
-    const prototype = getRuntimeProperty(value, 'prototype');
-    return isRuntimeLike(prototype) && typeof getRuntimeProperty(prototype, method) === 'function';
-}
-
-function getAnnotationEditorUiManagerProbeFailures(runtime: TPdfjsRuntimeLike) {
-    const failures: string[] = [];
-    const manager = getRuntimeProperty(runtime, 'AnnotationEditorUIManager');
-    if (typeof manager !== 'function') {
-        failures.push('AnnotationEditorUIManager export is not a constructor');
-        return failures;
-    }
-
-    for (const method of REQUIRED_ANNOTATION_EDITOR_UI_MANAGER_METHODS) {
-        if (!hasPrototypeFunction(manager, method)) {
-            failures.push(`AnnotationEditorUIManager.${method} is missing`);
-        }
-    }
-
-    return failures;
-}
-
-function getPdfDateStringProbeFailures(runtime: TPdfjsRuntimeLike) {
-    const value = getRuntimeProperty(runtime, 'PDFDateString');
-    if (!isRuntimeLike(value) || typeof getRuntimeProperty(value, 'toDateObject') !== 'function') {
-        return ['PDFDateString.toDateObject is missing'];
-    }
-    return [];
 }
 
 function hasWritableWorkerSrc(runtime: TPdfjsRuntimeLike) {
@@ -306,32 +176,6 @@ function assertPdfjsBrowserRuntimeCompatibility(runtime: unknown = pdfjsLib) {
         return;
     }
     throw new Error(`PDF.js browser runtime is incompatible with pdfjs-dist ${getRuntimeVersion(runtime)}: ${failures.join('; ')}`);
-}
-
-export function getPdfjsRuntimeProbeFailures(runtime: unknown = pdfjsLib) {
-    const browserFailures = getPdfjsBrowserRuntimeProbeFailures(runtime);
-    if (!isRuntimeLike(runtime)) {
-        return browserFailures;
-    }
-
-    return [
-        ...browserFailures,
-        ...getRuntimeFunctionProbeFailures(runtime, REQUIRED_RUNTIME_FUNCTION_EXPORTS),
-        ...getRuntimeNumberMapProbeFailures(runtime, 'AnnotationEditorType', REQUIRED_ANNOTATION_EDITOR_TYPE_KEYS),
-        ...getRuntimeNumberMapProbeFailures(runtime, 'AnnotationEditorParamsType', REQUIRED_ANNOTATION_EDITOR_PARAMS_TYPE_KEYS),
-        ...getRuntimeNumberMapProbeFailures(runtime, 'AnnotationMode', REQUIRED_ANNOTATION_MODE_KEYS),
-        ...getRuntimeNumberMapProbeFailures(runtime, 'PixelsPerInch', REQUIRED_PIXELS_PER_INCH_KEYS),
-        ...getAnnotationEditorUiManagerProbeFailures(runtime),
-        ...getPdfDateStringProbeFailures(runtime),
-    ];
-}
-
-export function assertPdfjsRuntimeCompatibility(runtime: unknown = pdfjsLib) {
-    const failures = getPdfjsRuntimeProbeFailures(runtime);
-    if (failures.length === 0) {
-        return;
-    }
-    throw new Error(`PDF.js app runtime is incompatible with pdfjs-dist ${getRuntimeVersion(runtime)}: ${failures.join('; ')}`);
 }
 
 export function configurePdfjsWorkerSrc(runtime: IPdfjsBrowserRuntime = pdfjsLib) {
