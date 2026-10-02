@@ -277,7 +277,7 @@ async function captureHandleSnapshot(handle: FileHandle): Promise<IOriginalPathS
     const after = await handle.stat({bigint: true});
     const beforeSnapshot = createSnapshot(before, sampleSha256);
     const afterSnapshot = createSnapshot(after, sampleSha256);
-    if (!snapshotsMatch(beforeSnapshot, afterSnapshot, {allowBackupMetadataChange: true})) {
+    if (!snapshotsMatch(beforeSnapshot, afterSnapshot)) {
         throw new OriginalPathSaveConflictError();
     }
     return afterSnapshot;
@@ -353,8 +353,8 @@ async function capturePathSnapshot(originalPath: string) {
         const namedAfter = await lstat(originalPath, {bigint: true});
         if (
             !namedAfter.isFile()
-            || !snapshotsMatch(snapshot, createSnapshot(namedBefore, snapshot.sampleSha256), {allowBackupMetadataChange: true})
-            || !snapshotsMatch(snapshot, createSnapshot(namedAfter, snapshot.sampleSha256), {allowBackupMetadataChange: true})
+            || !snapshotsMatch(snapshot, createSnapshot(namedBefore, snapshot.sampleSha256))
+            || !snapshotsMatch(snapshot, createSnapshot(namedAfter, snapshot.sampleSha256))
         ) {
             throw new OriginalPathSaveConflictError();
         }
@@ -416,7 +416,7 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
             ]);
             if (
                 !snapshotsMatch(this.snapshot, handleSnapshot, {allowBackupMetadataChange: true})
-                || !snapshotsMatch(handleSnapshot, pathSnapshot, {allowBackupMetadataChange: true})
+                || !snapshotsMatch(handleSnapshot, pathSnapshot)
             ) {
                 throw new OriginalPathSaveConflictError();
             }

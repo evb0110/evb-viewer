@@ -46,7 +46,7 @@ const toasterOptions = {
     max: 3,
     ui: {base: 'app-toast'},
 };
-const DIAGNOSTICS_CONSENT_TOAST_ID = 'diagnostics-consent';
+const DIAGNOSTICS_CONSENT_TOAST_PREFIX = 'diagnostics-consent:';
 
 // The <DevOnly> template block is stripped from production builds, but a static
 // import would still pull agentation-vue3 into the production entry chunk.
@@ -136,20 +136,29 @@ watch(runtimeErrorReports, (reports) => {
     if (reports.length === 0) {
         toldRuntimeReportCounts.clear();
     }
-});
+}, {immediate: true});
 
-// The first report the user may send asks once, beside its failure toast,
-// and stays until they answer or decide in Settings.
-watch(pendingDiagnosticConsentReport, (report, previous) => {
-    if (report?.id === previous?.id) {
-        return;
+// The first report the user may send asks beside its failure toast and
+// stays until they answer or decide in Settings; a newer toast that pushes it
+// out of the stack does not end the question, so it comes back.
+const consentToastId = (report: IRuntimeErrorReport) => `${DIAGNOSTICS_CONSENT_TOAST_PREFIX}${report.id}`;
+watch([
+    pendingDiagnosticConsentReport,
+    () => toast.toasts.value.map(entry => entry.id),
+], ([
+    report,
+    shownIds,
+], previous) => {
+    const previousReport = previous?.[0];
+    if (previousReport && previousReport.id !== report?.id) {
+        toast.remove(consentToastId(previousReport));
     }
-    toast.remove(DIAGNOSTICS_CONSENT_TOAST_ID);
-    if (!report) {
+    if (!report || shownIds.includes(consentToastId(report))) {
         return;
     }
     toast.add({
-        id: DIAGNOSTICS_CONSENT_TOAST_ID,
+        id: consentToastId(report),
+        close: false,
         color: 'info',
         icon: 'i-ph-info',
         title: t('errors.runtime.diagnosticsConsentTitle'),
