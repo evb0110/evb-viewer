@@ -215,6 +215,20 @@ diagnostics. An allowlist entry matches a narrow signature and states its reason
 known-good document in it or in a new tab works. Reopening the corrupt document
 need not succeed.
 
+**C4. A failure is told one way.** Something the user did that did not work,
+or that the app could not do for them, is told once in a toast in the bottom
+right: what failed, why, and for a defect an Error ID with Copy details and any
+Retry. An expected outcome, such as a file that is gone, is a warning toast
+with nothing to copy. No surface inserts a banner or an alert row for a
+failure, so nothing on screen moves when one is told. A region whose own
+content a failure took away (a page that did not render, a tab whose workspace
+crashed, a list that could not load) says so inside that region's box, the way
+an empty state does, and offers Retry there. A long job's status line, such as
+a save or a scan cleanup run, may keep showing that it failed. An error in the
+main process is told by the operation it failed, never again as a separate
+report; one with no operation to tell it stays in the logs. Added 2026-10-02 on
+the owner's request.
+
 ## Resolved contract questions
 
 The former R1, R3, A2, L2/R2 and L4 questions are settled by the statements

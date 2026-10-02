@@ -12,11 +12,9 @@ import {
     createDocumentSessionState,
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
-export interface IUsePdfFileOptions {failureSurface?: TWorkspaceFailureSurface | undefined;}
 
-export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
+export const usePdfFile = () => {
     const { t } = useTypedI18n();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -102,9 +100,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         ensureHistoryBaselineForMutation,
         incrementSessionVersion,
         loadEpoch,
-        ...(options.failureSurface?.reportOpenFailure
-            ? {reportOpenFailure: options.failureSurface.reportOpenFailure}
-            : {}),
         openEpoch,
         pushHistorySnapshot,
         resetHistory,

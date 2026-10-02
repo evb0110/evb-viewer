@@ -19,7 +19,10 @@ import {
 } from '@contracts/shared';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import {createFailureToastPresenter} from '@app/composables/useFailureToast';
+import {
+    createFailureToastPresenter,
+    type IFailureToastTarget,
+} from '@app/composables/useFailureToast';
 import {formatScanCleanupErrorByCode} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
@@ -258,17 +261,7 @@ export function resolveScanCleanupProcessedPages(
         .filter(pageNumber => pageNumber <= totalPages));
 }
 
-interface IScanCleanupToast {add: (options: {
-    color?: 'error' | 'info' | 'success';
-    title: string;
-    description?: string;
-    actions?: Array<{
-        label: string;
-        color?: 'neutral' | 'primary';
-        variant?: 'outline' | 'soft';
-        onClick: () => void;
-    }>;
-}) => unknown;}
+type IScanCleanupToast = IFailureToastTarget;
 
 export interface IScanCleanupCoordinatorDependencies {
     openGeneratedPdf: (path: string, signal: AbortSignal) => Promise<boolean>;

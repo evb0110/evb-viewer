@@ -6,6 +6,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -41,6 +42,8 @@ function checkpointTab(tabId: string, paneId: string, place: {
         ...place,
     };
 }
+
+vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 
 describe('restoreWorkspaceCheckpoint', () => {
     it('restores a hidden linked tab as a view of the document at its own page and zoom', async () => {

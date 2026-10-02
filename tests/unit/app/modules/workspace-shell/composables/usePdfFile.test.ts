@@ -87,8 +87,8 @@ const PDF_BYTES = Uint8Array.from([
     70,
 ]);
 
-function createFacade(options: Parameters<typeof usePdfFile>[0] = {}) {
-    return usePdfFile(options) as IPdfFileFacade & {
+function createFacade() {
+    return usePdfFile() as IPdfFileFacade & {
         optimizeWorkingCopy?: unknown;
         optimizeWorkingCopyAsCopy?: unknown;
         repairWorkingCopy?: unknown;

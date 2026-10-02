@@ -70,7 +70,18 @@ const folderEntryCollator = new Intl.Collator(undefined, {
     sensitivity: 'base',
 });
 
-function createDocumentOpenError(error: unknown) {
+// An expected refusal (a file that changed, is damaged, is gone or is too
+// large) is told by the renderer, so it is a warning here, not an error report.
+function createDocumentOpenError(error: unknown, failureMessage: string) {
+    const refused = error instanceof DocumentOpenRefusalError || error instanceof PdfDecryptTooLargeError;
+    if (refused) {
+        logger.warn(`${failureMessage}: ${getErrorMessage(error)}`);
+    } else {
+        logger.error(`${failureMessage}: ${getErrorMessage(error)}`, {
+            code: 'MAIN_DOCUMENT_OPEN_FAILED',
+            cause: error,
+        });
+    }
     if (error instanceof PdfDecryptTooLargeError) {
         return new Error(encodeSerializableErrorEnvelope({
             code: 'too-large',
@@ -182,13 +193,11 @@ function createOpenBatchProgressReporter(
 }
 
 async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebContents) {
-    const normalizedPath = filePath;
-    const recentFiles = await getRecentFiles();
-    if (!recentFiles.some(file => file.originalPath === normalizedPath)) {
+    if (!(await getRecentFiles()).some(file => file.originalPath === filePath)) {
         return null;
     }
-
-    return allowOpenPath(normalizedPath, owner);
+    // A Recent file that no longer resolves is gone, which the renderer names; it is not a refusal.
+    return allowOpenPath(filePath, owner) ?? Promise.reject(createDocumentOpenError(new DocumentOpenRefusalError('not-found', 'not-found', {fileName: basename(filePath)}), 'Recent file is gone'));
 }
 
 async function openDocumentsFromDialog(
@@ -211,11 +220,7 @@ async function openDocumentsFromDialog(
     try {
         return await openInputPaths(result.filePaths, {}, context.sender);
     } catch (err) {
-        logger.error(`${failureMessage}: ${getErrorMessage(err)}`, {
-            code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            cause: err,
-        });
-        throw createDocumentOpenError(err);
+        throw createDocumentOpenError(err, failureMessage);
     }
 }
 
@@ -254,11 +259,7 @@ export async function handleOpenPdfDirect(
         logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
-        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`, {
-            code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            cause: err,
-        });
-        throw createDocumentOpenError(err);
+        throw createDocumentOpenError(err, 'Failed to create working copy');
     }
 }
 
@@ -306,11 +307,7 @@ export async function handleOpenPdfDirectBatch(
             }
         }
     } catch (err) {
-        logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`, {
-            code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            cause: err,
-        });
-        throw createDocumentOpenError(err);
+        throw createDocumentOpenError(err, 'Failed to create working copy from batch');
     }
 }
 
@@ -348,11 +345,7 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
     try {
         sortedSupportedPaths = await collectSupportedFolderPaths(folderPath);
     } catch (err) {
-        logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`, {
-            code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            cause: err,
-        });
-        throw createDocumentOpenError(err);
+        throw createDocumentOpenError(err, 'Failed to read folder contents');
     }
 
     if (sortedSupportedPaths.length === 0) {
@@ -362,11 +355,7 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
     try {
         return await openInputPaths(sortedSupportedPaths, {}, context.sender);
     } catch (err) {
-        logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`, {
-            code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            cause: err,
-        });
-        throw createDocumentOpenError(err);
+        throw createDocumentOpenError(err, 'Failed to open folder contents');
     }
 }
 

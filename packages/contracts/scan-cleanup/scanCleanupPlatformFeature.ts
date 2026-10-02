@@ -177,7 +177,7 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             },
             main: {
                 method: 'getPendingCompletedOutputs',
-                context: 'none',
+                context: 'sender',
             },
             browser: {method: 'getPendingCompletedOutputs'},
             optionalWhenImplemented: true,

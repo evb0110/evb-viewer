@@ -27,6 +27,7 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import type { IFailureToastAction } from '@app/composables/useFailureToast';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
@@ -161,6 +162,11 @@ export interface ICloseFileFromUiOptions {
 export interface IWorkspaceOpenFailure {
     message: string;
     failure: FailureReceipt | null;
+    /** What failed, when it is not the open itself, such as a crashed workspace. */
+    title?: string;
+    /** Kept for Copy details instead of the message. */
+    technicalDetails?: string;
+    actions?: IFailureToastAction[];
     /** The file the open was for, when the failure itself names it. */
     fileName?: string | null;
 }

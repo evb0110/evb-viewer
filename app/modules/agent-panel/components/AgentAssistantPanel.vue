@@ -53,11 +53,6 @@
             </div>
         </header>
         <div class="agent-assistant-body">
-            <AppFailureAlert
-                v-if="assistantFailurePresentation"
-                :presentation="assistantFailurePresentation"
-                icon="i-ph-warning-circle"
-            />
             <section
                 v-if="panelView === 'checking'"
                 class="agent-assistant-placeholder"
@@ -671,7 +666,6 @@
 
 <script setup lang="ts">
 import type { IAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';

@@ -179,7 +179,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     const printDialogPageSelection = shallowRef<TPageSelection | null>(null);
     const isPreparingPrint = ref(false);
     const activePrintAction = ref<'default' | 'current-page' | null>(null);
-    const printError = ref<FailurePresentation | null>(null);
     const activePrintFrame = ref<HTMLIFrameElement | null>(null);
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
     const isPreparingCurrentPagePrint = computed(() => (
@@ -216,10 +215,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         return payload.viewMode !== 'single' || payload.orientation !== 'auto';
-    }
-
-    function resetPrintError() {
-        printError.value = null;
     }
 
     function clearBrowserPrintCleanupTimer() {
@@ -330,7 +325,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         closeDialogForSystemPrint = false;
         isPreparingPrint.value = true;
         activePrintAction.value = action;
-        resetPrintError();
         preparationFailureReceipt.value = undefined;
         if (!printDialogOpen.value) {
             schedulePreparingPrintToast();
@@ -404,11 +398,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             title: t('print.failed'),
             description: localizedError,
         };
-        if (reopenDialogOnError === false) {
-            presentFailureToast(presentation);
-        } else {
+        presentFailureToast(presentation);
+        if (reopenDialogOnError !== false) {
             printDialogOpen.value = true;
-            printError.value = presentation;
         }
     }
 
@@ -485,7 +477,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         closeDialogForSystemPrint = false;
         printDialogSelectedPages.value = normalizeSelectedPages();
         printDialogPageSelection.value = resolveCurrentPageSelection();
-        resetPrintError();
         printDialogOpen.value = true;
     }
 
@@ -550,7 +541,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             return;
         }
 
-        resetPrintError();
         await handlePrintDialogSubmit({
             pageNumbers: [currentPrintPage],
             viewMode: 'single',
@@ -566,14 +556,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         if (!isOpen) {
             if (closeDialogForSystemPrint) {
                 closeDialogForSystemPrint = false;
-                resetPrintError();
                 return;
             }
 
             if (isPreparingPrint.value) {
                 cancelActivePrintPreparation();
             }
-            resetPrintError();
         } else {
             closeDialogForSystemPrint = false;
         }
@@ -1213,7 +1201,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printDialogSelectedPages.value = [];
         isPreparingPrint.value = false;
         activePrintAction.value = null;
-        printError.value = null;
         closeDialogForSystemPrint = false;
     });
 
@@ -1234,7 +1221,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printDialogPageSelection,
         isPreparingPrint,
         isPreparingCurrentPagePrint,
-        printError,
         printStatus,
         supportsAdvancedPrintOptions,
         supportsFirstPageSinglePrintLayout,

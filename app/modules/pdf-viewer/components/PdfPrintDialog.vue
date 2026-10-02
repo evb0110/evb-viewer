@@ -93,12 +93,6 @@
                 <p class="m-0 min-h-5 text-xs text-muted">
                     {{ status || '\u00A0' }}
                 </p>
-
-                <AppFailureAlert
-                    v-if="error"
-                    :presentation="error"
-                    icon="i-ph-warning-circle"
-                />
             </div>
         </template>
 
@@ -132,9 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
-import type {FailurePresentation} from '@app/composables/useFailureToast';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     parsePrintPageRangeSelectionInput,
@@ -166,7 +158,6 @@ const {
     defaultViewMode: TPdfViewMode;
     isPreparing: boolean;
     status: string | null;
-    error: FailurePresentation | null;
     supportsAdvancedPrintOptions?: boolean;
     supportsFirstPageSinglePrintLayout?: boolean;
 }>();

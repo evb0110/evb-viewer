@@ -14,14 +14,15 @@ import {
  *
  * Before issue #91 each site invented its own reporting, so several failure
  * paths reported nothing at all. Callers hand this surface a typed reason; it
- * owns the localized copy and the toast.
+ * owns the localized copy and the toast. An open's failure is told by the
+ * tab's document session instead.
  *
  * Only saves keep durable state. A failed save outlives its toast because the
  * status bar has to keep presenting the document as unwritten; a rejected
  * annotation leaves nothing behind to present, so it is told once and dropped
  * rather than parked in a container nothing reads.
  */
-type TWorkspaceFailureDomain = 'save' | 'annotation' | 'open';
+type TWorkspaceFailureDomain = 'save' | 'annotation';
 
 export type TWorkspaceSaveFailureReason =
     | 'validation-rejected'
@@ -34,21 +35,12 @@ export type TWorkspaceSaveFailureReason =
     | 'working-copy-missing'
     | 'unexpected-error';
 
-type TWorkspaceOpenFailureReason = 'unsupported-encryption';
-
 export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const { presentFailureToast } = useFailureToast();
     const hasSaveFailureState = ref(false);
     const saveFailurePresentation = shallowRef<FailurePresentation | null>(null);
-
-    function describeOpenFailure(reason: TWorkspaceOpenFailureReason): string {
-        switch (reason) {
-            case 'unsupported-encryption':
-                return t('errors.file.unsupportedEncryption');
-        }
-    }
 
     // Only the operation reported last per domain, so a long session of failed
     // attempts cannot accumulate ids nothing will ever read again.
@@ -192,37 +184,6 @@ export const useWorkspaceFailureSurface = () => {
         return true;
     }
 
-    function reportOpenFailure(
-        operationId: string,
-        reason: TWorkspaceOpenFailureReason,
-        detail?: string | null,
-    ) {
-        const description = detail ?? describeOpenFailure(reason);
-        if (isDuplicateFailure({
-            domain: 'open',
-            operationId,
-        })) {
-            return false;
-        }
-        lastReportedOperationIds.set('open', operationId);
-        const receipt = BrowserLogger.error(
-            'workspace',
-            'Workspace open failed',
-            {
-                operationId,
-                reason,
-                detail: description,
-            },
-            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
-        );
-        presentFailureToast({
-            failure: receipt,
-            title: t('errors.file.open'),
-            description,
-        });
-        return true;
-    }
-
     function presentCopyFeedback(copied: boolean) {
         toast.add({
             color: copied ? 'success' : 'error',
@@ -239,7 +200,6 @@ export const useWorkspaceFailureSurface = () => {
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,
-        reportOpenFailure,
         presentCopyFeedback,
     };
 };

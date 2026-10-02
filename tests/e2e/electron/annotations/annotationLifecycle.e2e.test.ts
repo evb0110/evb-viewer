@@ -2042,7 +2042,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         catch (error) {
             console.log('[stamp lifecycle failure]', await page.evaluate((selector: string) => ({
                 title: document.title,
-                runtimeError: document.querySelector('.runtime-error-reports')?.textContent?.trim(),
+                runtimeError: document.querySelector('.app-toast-failure')?.textContent?.trim(),
                 stamps: Array.from(document.querySelectorAll(selector)).map(stamp => {
                     const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
                     return {

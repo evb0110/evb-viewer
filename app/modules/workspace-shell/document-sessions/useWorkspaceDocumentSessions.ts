@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { ITab } from '@app/types/tabs';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import type {
     IWorkspaceDocumentView,
     IWorkspaceDocumentViewSeed,
@@ -13,6 +14,7 @@ import {
     type IWorkspaceDocumentController,
     type TWorkspaceDocumentAssignment,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IWorkspaceRecordedFailure } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 
 /**
@@ -27,16 +29,51 @@ export const useWorkspaceDocumentSessions = (options: {
 }) => {
     const sessionsByTabId = shallowRef(new Map<string, IWorkspaceDocumentController>());
     const pendingAssignments = new Map<string, TWorkspaceDocumentAssignment>();
+    const { t } = useTypedI18n();
+    const {
+        presentFailureToast,
+        presentNoticeToast,
+    } = useFailureToast();
+
+    // Every tab's failed open is told here, once, whether the tab then shows
+    // Start, keeps its document or is removed. A failure without a receipt is
+    // an expected outcome, such as a file that is not a PDF.
+    function reportFailure(recorded: IWorkspaceRecordedFailure) {
+        const title = recorded.title ?? t('errors.file.open');
+        const description = recorded.fileName && !recorded.message.includes(recorded.fileName)
+            ? `${recorded.fileName}: ${recorded.message}`
+            : recorded.message;
+        if (recorded.failure) {
+            presentFailureToast({
+                failure: recorded.failure,
+                title,
+                description,
+                ...(recorded.technicalDetails ? {technicalDetails: recorded.technicalDetails} : {}),
+                ...(recorded.actions ? {actions: recorded.actions} : {}),
+            });
+            return;
+        }
+        presentNoticeToast({
+            tone: 'warning',
+            title,
+            description,
+        });
+    }
+
+    function createController(tabId: string, assignment?: TWorkspaceDocumentAssignment) {
+        return createWorkspaceDocumentController({
+            tabId,
+            assignment,
+            reportFailure,
+        });
+    }
 
     function ensureSession(tabId: string) {
         const existing = sessionsByTabId.value.get(tabId);
         if (existing) {
             return existing;
         }
-        const session = createWorkspaceDocumentController({
-            tabId,
-            assignment: pendingAssignments.get(tabId),
-        });
+        const session = createController(tabId, pendingAssignments.get(tabId));
         pendingAssignments.delete(tabId);
         sessionsByTabId.value.set(tabId, session);
         triggerRef(sessionsByTabId);
@@ -122,7 +159,7 @@ export const useWorkspaceDocumentSessions = (options: {
         if ((sessionsByTabId.value.get(tabId)?.views.value.size ?? 0) < 2) {
             return false;
         }
-        replaceSession(tabId, createWorkspaceDocumentController({tabId}));
+        replaceSession(tabId, createController(tabId));
         return true;
     }
 

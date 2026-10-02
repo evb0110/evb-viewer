@@ -892,6 +892,20 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.removeRecentFile(path);
                 await clearSearchCaches(path);
             },
+            // Gone means its stored bytes are gone, or were kept only for the
+            // session; storage that cannot answer keeps the entry.
+            async removeIfMissing(path) {
+                const {
+                    available,
+                    entry,
+                } = await browserDocumentStore.ensureEntryAvailability(path);
+                if (!available || (entry && entry.retention !== 'transient')) {
+                    return false;
+                }
+                const removed = await browserDocumentStore.removeRecentFile(path);
+                await clearSearchCaches(path);
+                return removed;
+            },
             async clear() {
                 await browserDocumentStore.clearRecentFiles();
                 await clearSearchCaches();

@@ -143,7 +143,6 @@
             :progress-percent="updatesDialog.phase === 'downloading' ? updatesDialog.percent : null"
             :available="updatesDialog.kind === 'available'"
             :ready="updatesDialog.kind === 'ready'"
-            :failure="updatesDialogBindings.updatesDialogFailurePresentation"
             @update:open="updatesDialog.open = $event"
             @defer="updatesDialogBindings.handleDeferUpdate"
             @download="updatesDialogBindings.handleDownloadUpdate"
@@ -153,8 +152,6 @@
     </div>
 </template>
 <script setup lang="ts">
-import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
-import { useFailureToast } from '@app/composables/useFailureToast';
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -252,27 +249,6 @@ const {
 } = editorPanesManager;
 ensureAtLeastOneTab();
 const { t } = useTypedI18n();
-const toast = useToast();
-const { presentFailureToast } = useFailureToast();
-
-// An open that failed in a tab that was then removed, such as a new tab for a
-// dropped file, has no Start page left to show why; tell the user once here.
-function reportOpenFailure(fileName: string | null, failure: IWorkspaceOpenFailure) {
-    const description = fileName ? `${fileName}: ${failure.message}` : failure.message;
-    if (failure.failure) {
-        presentFailureToast({
-            failure: failure.failure,
-            title: t('errors.file.open'),
-            description,
-        });
-        return;
-    }
-    toast.add({
-        color: 'neutral',
-        title: t('errors.file.open'),
-        description,
-    });
-}
 const {
     settings: appSettings,
     save: saveAppSettings,
@@ -655,7 +631,6 @@ const {
     moveTabToNewWindow,
     moveTabToWindow,
     mergeWindowInto,
-    reportOpenFailure,
 });
 useScanCleanupRunCoordinator(
     activeWorkspace,

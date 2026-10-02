@@ -1,13 +1,23 @@
+import {randomUUID} from 'node:crypto';
 import {
+    copyFileSync,
     existsSync,
+    mkdirSync,
     statSync,
+    writeFileSync,
 } from 'node:fs';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
+import {sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {waitForRendererReady} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     createLargeScannedFixturePdf,
     readPdfPageSnapshots,
@@ -238,4 +248,30 @@ describe('scan cleanup required page ops', () => {
             textSnippet: '',
         }]);
     }, 240_000);
+});
+
+describe('scan cleanup completed output recovery', () => {
+    it('opens a finished output that was never opened once the window reloads', async () => {
+        const session = sessionFixture.getSession();
+        const outputRoot = join(sessionDir(session.name), 'electron-user-data', 'scan-cleanup', 'output');
+        const outputPath = join(outputRoot, randomUUID(), 'recovered — cleaned.pdf');
+        mkdirSync(dirname(outputPath), {recursive: true});
+        copyFileSync(await createLargeScannedFixturePdf('scan-cleanup-recovered.pdf', 1, 0), outputPath);
+        writeFileSync(join(outputRoot, '.evb-scan-cleanup-completed-outputs.json'), JSON.stringify([{
+            version: 1,
+            outputPdfPath: outputPath,
+            completedAtMs: Date.now(),
+        }]));
+
+        await session.page.reload({waitUntil: 'domcontentloaded'});
+        await waitForRendererReady(session.page);
+        await waitForFunctionInPage(session.page, (path: string) => (
+            (window as IWorkspaceExposeProbeWindow).__evbTestApi
+                ?.readActiveWorkspaceStateValues?.(['originalPath'])
+                ?.originalPath === path
+        ), {timeout: 60_000}, outputPath);
+        await waitForPdfLoaded(session.page, 60_000);
+        expect(await session.page.evaluate(() => [...document.querySelectorAll('[role="tab"]')]
+            .filter(tab => tab.textContent?.includes('recovered — cleaned.pdf')).length)).toBe(1);
+    }, 120_000);
 });

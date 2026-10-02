@@ -27,7 +27,6 @@ import {
 import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
-import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
     createViewerLifecycleHooks?: (
@@ -35,7 +34,6 @@ interface IUseWorkspaceFileLifecycleControllerOptions {
     ) => IWorkspaceViewerLifecycleHooks[];
     /** The surface of the view that runs an open; read when the open runs. */
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
-    failureSurface?: TWorkspaceFailureSurface | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
 }
@@ -167,7 +165,7 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile({failureSurface: options.failureSurface});
+    } = usePdfFile();
 
     const {
         isDjvuMode,

@@ -23,6 +23,7 @@ import {
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -84,6 +85,10 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     // The source of the open has been accepted; from here the viewer decides.
     const acceptedTransactionId = ref<string | null>(null);
     let pendingPage: number | null = null;
+    // An open of a Recent file first asks whether it is gone; page commands
+    // sent meanwhile wait for the open as they do once it has claimed the tab.
+    let checkingOpenSource = false;
+    const recent = useRecentFiles();
 
     watch(() => {
         const djvuSource = options.isDjvuMode.value ? options.djvuSourcePath.value : null;
@@ -103,6 +108,14 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                 total: progress.total,
             })
             : null);
+    });
+
+    // A document that fails outside an open, such as a reload that did not
+    // load, is told when it fails; an open's failure is told when it ends.
+    watch(options.readOpenFailure, (failure) => {
+        if (failure && !activeOpen.value) {
+            session.reportFailure(failure);
+        }
     });
 
     watch(
@@ -165,6 +178,19 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     }
 
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+        // A gone Recent file is told before the open claims the tab; a tab its
+        // caller already claimed (a drop's new tab) and other files open at once.
+        const sourcePath = request.kind === 'open' && !activeOpen.value ? request.target?.originalPath : null;
+        if (sourcePath && recent.recentFiles.value.some(file => file.originalPath === sourcePath)) {
+            checkingOpenSource = true;
+            const gone = await recent.forgetRecentFileIfMissing(sourcePath).finally(() => {
+                checkingOpenSource = false;
+            });
+            if (gone) {
+                pendingPage = null;
+                return false;
+            }
+        }
         const hadDocument = identityHasDocument(snapshot.value.identity);
         let transactionId: string | null = null;
         let presented = false;
@@ -277,7 +303,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
 
     // While an open has not claimed a surface yet, a page command waits for it.
     function goToPage(page: number, scrollOptions?: IScrollToPageOptions) {
-        if (!isOpening.value) {
+        if (!isOpening.value && !checkingOpenSource) {
             options.goToPage(page, scrollOptions);
             return;
         }

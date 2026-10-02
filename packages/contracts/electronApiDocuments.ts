@@ -725,6 +725,8 @@ export interface IDocumentsFileCapability {
     recentFiles: {
         get: () => Promise<IRecentFile[]>;
         remove: (path: TDocumentRef) => Promise<void>;
+        /** Removes the entry when its file is gone; true when it did. */
+        removeIfMissing: (path: TDocumentRef) => Promise<boolean>;
         clear: () => Promise<void>;
     };
 

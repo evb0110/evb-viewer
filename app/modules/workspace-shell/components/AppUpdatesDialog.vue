@@ -13,15 +13,10 @@
 
         <template #body>
             <div class="flex flex-col gap-3">
-                <AppFailureAlert
-                    v-if="failure"
-                    :presentation="failure"
-                    icon="i-ph-warning-circle"
-                />
-                <p v-else class="text-sm text-muted">
+                <p class="text-sm text-muted">
                     {{ description }}
                 </p>
-                <AppProgressBar v-if="(phase === 'checking' || phase === 'downloading') && !ready && !failure" :value="progressPercent ?? null" />
+                <AppProgressBar v-if="(phase === 'checking' || phase === 'downloading') && !ready" :value="progressPercent ?? null" />
             </div>
         </template>
 
@@ -59,8 +54,6 @@
 
 <script setup lang="ts">
 import type { TAppUpdatePhase } from '@contracts/updatesPlatformFeature';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 
 defineProps<{
@@ -71,7 +64,6 @@ defineProps<{
     progressPercent?: number | null;
     available: boolean;
     ready: boolean;
-    failure: FailurePresentation | null;
 }>();
 
 const emit = defineEmits<{

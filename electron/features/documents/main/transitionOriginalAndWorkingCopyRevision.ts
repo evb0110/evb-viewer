@@ -74,7 +74,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             }
             backupCreated = true;
             await measureTransitionPhase('transition-rebase-original-witness', input.onPhase, async () =>
-                witness?.rebaseAfterBackup());
+                witness?.rebaseOnUnchangedContent());
             const event = await transitionWorkingCopyContentRevision(
                 input.workingCopyPath,
                 input.reason,
@@ -91,7 +91,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     await measureTransitionPhase(
                         'transition-rebase-original-witness-after-working-backup',
                         input.onPhase,
-                        async () => witness?.rebaseAfterBackup(),
+                        async () => witness?.rebaseOnUnchangedContent(),
                     );
                     shouldRestoreOriginal = true;
                     await measureTransitionPhase('transition-publish-original', input.onPhase, () =>

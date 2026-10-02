@@ -33,6 +33,7 @@ import type {
     IWorkspaceDocumentSnapshot,
     IWorkspaceDocumentTarget,
     IWorkspaceDocumentTransaction,
+    IWorkspaceRecordedFailure,
     TWorkspaceDocumentTransactionKind,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
 
@@ -90,6 +91,8 @@ export interface IWorkspaceDocumentController {
     commitDocument(document: IWorkspaceCommittedDocument): void;
     markPresented(): void;
     markFailed(failure: IWorkspaceOpenFailure | null): void;
+    /** Tells why the document failed outside an open, without changing its phase. */
+    reportFailure(failure: IWorkspaceOpenFailure): void;
     dismissFailure(): void;
     setDirty(dirty: boolean): void;
     getView(tabId: string): IWorkspaceDocumentView | null;
@@ -207,6 +210,8 @@ function createDocumentOperationLease(): IDocumentOperationLease {
 export function createWorkspaceDocumentController(options: {
     tabId: string;
     assignment?: TWorkspaceDocumentAssignment | null | undefined;
+    /** Tells the user why the document failed; the controller only records it. */
+    reportFailure?: ((failure: IWorkspaceRecordedFailure) => void) | undefined;
 }): IWorkspaceDocumentController {
     const tabId = options.tabId;
     nextSessionIndex += 1;
@@ -423,25 +428,34 @@ export function createWorkspaceDocumentController(options: {
         if (!transaction && !failure) {
             return;
         }
+        const recorded = failure
+            ? {
+                ...failure,
+                fileName: failure.fileName ?? (transaction
+                    ? transaction.target?.fileName ?? null
+                    : snapshot.value.identity.fileName),
+            }
+            : null;
         update({
-            phase: failure ? 'failed' : restingPhase(),
+            phase: recorded ? 'failed' : restingPhase(),
             activeTransaction: null,
             openingLabel: null,
-            failure: failure
-                ? {
-                    ...failure,
-                    fileName: failure.fileName ?? (transaction
-                        ? transaction.target?.fileName ?? null
-                        : snapshot.value.identity.fileName),
-                }
-                : null,
+            failure: recorded,
         }, true);
         if (transaction) {
             settle(transaction, false);
         }
-        if (failure) {
+        if (recorded) {
             settleMountWaiters(null);
+            options.reportFailure?.(recorded);
         }
+    }
+
+    function reportFailure(failure: IWorkspaceOpenFailure) {
+        options.reportFailure?.({
+            ...failure,
+            fileName: failure.fileName ?? snapshot.value.identity.fileName,
+        });
     }
 
     function dismissFailure() {
@@ -649,6 +663,7 @@ export function createWorkspaceDocumentController(options: {
         commitDocument,
         markPresented,
         markFailed,
+        reportFailure,
         dismissFailure,
         setDirty,
         getView: viewTabId => views.value.get(viewTabId) ?? null,

@@ -3,7 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import type { IUpdateDialogState } from '@app/composables/useAppUpdates';
 
 interface IUseAppShellUpdatesDialogOptions {
@@ -21,6 +21,10 @@ interface IUseAppShellUpdatesDialogOptions {
 export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptions) => {
     const { t } = useTypedI18n();
     const toast = useToast();
+    const {
+        presentFailureToast,
+        presentNoticeToast,
+    } = useFailureToast();
 
     // An offer found by the scheduled check must not take the window from the
     // reader, so it waits in a notice that opens the dialog on request.
@@ -119,16 +123,29 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
         }
     });
 
-    const updatesDialogFailurePresentation = computed<FailurePresentation | null>(() => {
-        const failure = options.updatesDialog.value.failure;
-        if (!failure) {
-            return null;
+    // A check the user asked for that fails ends the dialog and is told the
+    // way every failure is.
+    watch(() => options.updatesDialog.value.open && options.updatesDialog.value.phase === 'error', (failed) => {
+        if (!failed) {
+            return;
         }
-        return {
-            ...failure,
+        const failure = options.updatesDialog.value.failure;
+        const report = {
             title: updatesDialogTitle.value,
             description: updatesDialogDescription.value,
         };
+        options.closeUpdatesDialog();
+        if (failure) {
+            presentFailureToast({
+                ...failure,
+                ...report,
+            });
+        } else {
+            presentNoticeToast({
+                tone: 'warning',
+                ...report,
+            });
+        }
     });
 
     return {
@@ -147,7 +164,6 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
             void options.skipUpdateVersion();
         },
         updatesDialogDescription,
-        updatesDialogFailurePresentation,
         updatesDialogTitle,
     };
 };

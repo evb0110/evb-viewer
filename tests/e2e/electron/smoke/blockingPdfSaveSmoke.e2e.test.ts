@@ -458,7 +458,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(queueState.firstRowIndex).toBe('0');
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
-    it('returns an empty tab to Start with a visible error when a launch path cannot be opened', async () => {
+    it('returns an empty tab to Start and tells the failure when a launch path cannot be opened', async () => {
         const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-open-${process.pid}-${Date.now()}.pdf`);
         onTestFinished(() => rmSync(brokenPath, {force: true}));
         writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
@@ -469,12 +469,12 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         });
         const {page} = session;
 
-        await page.waitForSelector('[data-testid="start-open-failure"]', {
+        await page.waitForSelector('.app-toast-failure', {
             visible: true,
             timeout: 45_000,
         });
         const shownState = await page.evaluate(() => ({
-            alert: document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? '',
+            alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
             activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
             startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
         }));
@@ -501,12 +501,12 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
         await page.click('.start-open-panel .open-panel-cta');
 
-        await page.waitForSelector('[data-testid="start-open-failure"]', {
+        await page.waitForSelector('.app-toast-failure', {
             visible: true,
             timeout: 45_000,
         });
         const shownState = await page.evaluate(() => ({
-            alert: document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? '',
+            alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
             activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
             startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
         }));
@@ -654,16 +654,16 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             return watch.max;
         });
 
-        // Into an empty tab: the failure is told on Start, not retried in a new tab.
+        // Into an empty tab: the tab returns to Start and the failure is told in a toast, not retried in a new tab.
         await watchTabCount();
         await expect(openRoutedPathAndSettle(brokenIntoEmptyTab)).resolves.toBe(false);
-        await page.waitForSelector('[data-testid="start-open-failure"]', {
+        await page.waitForSelector('.app-toast-failure', {
             visible: true,
             timeout: 45_000,
         });
         expect(await readMaxTabCount()).toBe(1);
         expect(await page.evaluate(() => (
-            document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? ''
+            document.querySelector('.app-toast-failure')?.textContent ?? ''
         ))).toContain(basename(brokenIntoEmptyTab));
 
         // Beside an open document: the failed file's tab goes away and says why.
@@ -676,6 +676,81 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(await page.evaluate(() => (
             document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''
         ))).toBe(basename(documentPath));
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('drops a Recent file that is gone without claiming the tab or moving Start', async () => {
+        const goneFile = await createMultiPageTextFixturePdf(`blocking-recent-gone-${Date.now()}.pdf`, 1);
+        const goneName = basename(goneFile);
+        session = await startElectronE2ESession(`e2e-blocking-recent-gone-${Date.now()}`, {clean: true});
+        const {page} = session;
+        await openPdfInApp(page, goneFile);
+
+        // A new tab's Start lists the file; then the file is deleted on disk.
+        await page.click('.tab-new');
+        const rowSelector = `.workspace-host[data-workspace-active="true"] [data-recent-source="${goneFile}"] .recent-open`;
+        await page.waitForSelector(rowSelector, {
+            visible: true,
+            timeout: 20_000,
+        });
+        rmSync(goneFile, {force: true});
+
+        // Every frame and DOM change from the click on, as the user sees it.
+        await page.evaluate(() => {
+            const samples: Array<Record<string, unknown>> = [];
+            const sample = () => {
+                const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
+                const start = host?.querySelector<HTMLElement>('.workspace-host__start');
+                const startVisible = Boolean(start?.getClientRects().length);
+                samples.push({
+                    activeTab: document.querySelector('.tab[aria-selected="true"] .tab-label')?.textContent?.trim() ?? '',
+                    startVisible,
+                    panelTop: startVisible
+                        ? Math.round(host?.querySelector('.start-open-panel')?.getBoundingClientRect().top ?? -1)
+                        : null,
+                    alertRows: host?.querySelectorAll('.start-main [role="alert"]').length ?? 0,
+                    rawIpcText: document.body.innerText.includes('Error invoking remote method'),
+                });
+            };
+            const observer = new MutationObserver(sample);
+            observer.observe(document.body, {
+                subtree: true,
+                childList: true,
+                characterData: true,
+                attributes: true,
+            });
+            let sampling = true;
+            const everyFrame = () => {
+                if (sampling) {
+                    sample();
+                    requestAnimationFrame(everyFrame);
+                }
+            };
+            requestAnimationFrame(everyFrame);
+            Reflect.set(window, '__recentGoneSamples', () => {
+                sampling = false;
+                observer.disconnect();
+                sample();
+                return samples;
+            });
+            sample();
+        });
+        await page.click(rowSelector);
+
+        await page.waitForFunction((name: string) => [...document.querySelectorAll('.app-toast')]
+            .some(toast => toast.textContent?.includes(name)), {timeout: 20_000}, goneName);
+        await page.waitForFunction((selector: string) => document.querySelector(selector) === null, {timeout: 20_000}, rowSelector);
+        const samples = await page.evaluate(() => (Reflect.get(window, '__recentGoneSamples') as () => Array<{
+            activeTab: string;
+            startVisible: boolean;
+            panelTop: number | null;
+            alertRows: number;
+            rawIpcText: boolean;
+        }>)());
+
+        expect(samples.filter(entry => entry.activeTab !== 'New Tab'), 'the tab never names the missing file').toEqual([]);
+        expect(samples.filter(entry => !entry.startVisible), 'Start stays on screen').toEqual([]);
+        expect(new Set(samples.map(entry => entry.panelTop)), 'Start does not move').toEqual(new Set([samples[0]?.panelTop]));
+        expect(samples.filter(entry => entry.alertRows > 0 || entry.rawIpcText), 'no inserted error row or IPC text').toEqual([]);
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {

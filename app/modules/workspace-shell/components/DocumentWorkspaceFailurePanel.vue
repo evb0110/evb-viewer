@@ -5,7 +5,7 @@
                 {{ t('errors.workspace.loadTitle') }}
             </span>
             <p class="text-sm text-[var(--ui-text-muted)]">
-                {{ presentation ? formatFailurePresentationDescription(presentation) : description }}
+                {{ description }}
             </p>
             <div class="flex items-center gap-2">
                 <UButton color="neutral" variant="outline" :label="t('common.retry')" @click="emit('retry')" />
@@ -16,15 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    formatFailurePresentationDescription,
-    type FailurePresentation,
-} from '@app/composables/useFailureToast';
-
-defineProps<{
-    description: string;
-    presentation?: FailurePresentation | null;
-}>();
+defineProps<{description: string;}>();
 const emit = defineEmits<{
     close: [];
     retry: []

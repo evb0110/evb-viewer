@@ -15,14 +15,42 @@ import {
     h,
     nextTick,
     ref,
+    type VNode,
 } from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireEpochMs} from '@contracts/timestamps';
 
-const toastAdd = vi.fn();
+const toastAdd = vi.fn((_options: unknown) => undefined);
+const toastUpdate = vi.fn();
 
 function installUseToastStub() {
-    vi.stubGlobal('useToast', () => ({add: toastAdd}));
+    vi.stubGlobal('useToast', () => ({
+        add: toastAdd,
+        update: toastUpdate,
+    }));
+}
+
+interface IPresentedToast {
+    color: string;
+    title: string;
+    description: () => VNode;
+    actions: Array<{
+        label: string;
+        onClick: () => void;
+    }>;
+}
+
+function presentedToast(index = 0) {
+    return toastAdd.mock.calls[index]?.[0] as IPresentedToast;
+}
+
+function renderDescription(toast: IPresentedToast) {
+    const host = document.createElement('div');
+    const app = createApp({render: toast.description});
+    app.mount(host);
+    const text = [...host.querySelectorAll('span > span')].map(line => line.textContent);
+    app.unmount();
+    return text;
 }
 
 function createFailure(): FailureReceipt {
@@ -64,14 +92,15 @@ describe('useFailureToast', () => {
 
         presentFailureToast(presentation);
 
-        const toast = toastAdd.mock.calls[0]?.[0];
+        const toast = presentedToast();
         expect(toast).toMatchObject({
             color: 'error',
             title: 'Renderer failure',
-            description: 'The document could not be opened.\nError ID: 01234567',
         });
-        expect(toast.description).not.toContain(failure.eventId);
-        expect(toast.description).not.toContain('Sentry report received');
+        expect(renderDescription(toast)).toEqual([
+            'The document could not be opened.',
+            'errors.runtime.errorId: 01234567',
+        ]);
         expect(formatFailurePresentationCopy(presentation)).toBe([
             `Error ID: ${failure.eventId}`,
             'Renderer failure',
@@ -118,11 +147,14 @@ describe('useFailureToast', () => {
 
         useFailureToast().presentFailureToast(presentation);
 
-        expect(toastAdd.mock.calls[0]?.[0].description).toBe('The PDF viewer needs synchronized development dependencies.\nError ID: 01234567');
+        expect(renderDescription(presentedToast())).toEqual([
+            'The PDF viewer needs synchronized development dependencies.',
+            'errors.runtime.errorId: 01234567',
+        ]);
         expect(formatFailurePresentationCopy(presentation)).toContain(presentation.technicalDetails);
     });
 
-    it('preserves custom presentation actions for shared callers', async () => {
+    it('puts the caller\'s actions first and always keeps Copy details', async () => {
         const {useFailureToast} = await loadFailureToast();
         const {presentFailureToast} = useFailureToast();
         const actions = [{
@@ -136,7 +168,54 @@ describe('useFailureToast', () => {
             actions,
         });
 
-        expect(toastAdd.mock.calls[0]?.[0].actions).toBe(actions);
+        expect(presentedToast().actions.map(action => action.label)).toEqual([
+            'Details',
+            'errors.runtime.copy',
+        ]);
+    });
+
+    it('says Copied on the toast once the details are on the clipboard', async () => {
+        vi.stubGlobal('navigator', {clipboard: {writeText: vi.fn().mockResolvedValue(undefined)}});
+        const {useFailureToast} = await loadFailureToast();
+
+        useFailureToast().presentFailureToast({
+            failure: createFailure(),
+            title: 'Renderer failure',
+        });
+        presentedToast().actions.at(-1)?.onClick();
+
+        await vi.waitFor(() => expect(toastUpdate).toHaveBeenCalledOnce());
+        expect(toastUpdate.mock.calls[0]?.[0]).toBe('0123456789abcdef0123456789abcdef');
+        expect(toastUpdate.mock.calls[0]?.[1].actions.at(-1).label).toBe('errors.runtime.copied');
+    });
+
+    it('names the toast by its receipt so the toaster keeps one toast per failure', async () => {
+        const {useFailureToast} = await loadFailureToast();
+        const failure = createFailure();
+
+        useFailureToast().presentFailureToast({
+            failure,
+            title: 'Failed to open file',
+        });
+
+        expect(toastAdd.mock.calls[0]?.[0]).toMatchObject({id: failure.eventId});
+    });
+
+    it('presents an expected outcome as a notice with nothing to copy', async () => {
+        const {useFailureToast} = await loadFailureToast();
+
+        useFailureToast().presentNoticeToast({
+            tone: 'warning',
+            title: 'Recent file is no longer available',
+            description: 'gone.pdf was removed',
+        });
+
+        expect(toastAdd.mock.calls[0]?.[0]).toEqual({
+            color: 'warning',
+            icon: 'i-ph-warning',
+            title: 'Recent file is no longer available',
+            description: 'gone.pdf was removed',
+        });
     });
 
     it('does not create another toast when the presenter owner rerenders', async () => {

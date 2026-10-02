@@ -15,150 +15,6 @@
             @copy="handleCopyFatalRuntimeDetail"
         >
             <NuxtPage />
-            <div
-                v-if="runtimeErrorReports.length > 0"
-                class="runtime-error-reports fixed top-4 right-4 z-40"
-            >
-                <div
-                    class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
-                >
-                    <div class="flex items-start gap-3">
-                        <UIcon name="i-ph-warning-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-warning)]" />
-                        <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-2">
-                                <p class="truncate text-sm font-medium text-default">
-                                    {{ t('errors.runtime.reportReady') }}
-                                </p>
-                                <UBadge
-                                    color="neutral"
-                                    variant="soft"
-                                    size="sm"
-                                >
-                                    {{ runtimeErrorReportCount }}
-                                </UBadge>
-                            </div>
-                            <p class="mt-1 text-xs text-dimmed">
-                                {{ t('errors.runtime.reportDescription') }}
-                            </p>
-                            <div
-                                v-if="pendingDiagnosticConsentReport"
-                                class="mt-3 rounded-md border border-default bg-elevated p-3"
-                                role="group"
-                                :aria-label="t('errors.runtime.diagnosticsConsentTitle')"
-                            >
-                                <p class="text-xs font-medium text-default">
-                                    {{ t('errors.runtime.diagnosticsConsentTitle') }}
-                                </p>
-                                <p class="mt-1 text-xs text-dimmed">
-                                    {{ t('errors.runtime.diagnosticsConsentDescription') }}
-                                </p>
-                                <div class="mt-3 flex flex-wrap gap-2">
-                                    <UButton
-                                        data-runtime-error-action="grant-diagnostics"
-                                        color="primary"
-                                        size="xs"
-                                        :loading="diagnosticsConsentBusy === pendingDiagnosticConsentReport.id"
-                                        :disabled="diagnosticsConsentBusy !== null"
-                                        @click="grantDiagnosticsConsent(pendingDiagnosticConsentReport)"
-                                    >
-                                        {{ t('errors.runtime.diagnosticsConsentGrant') }}
-                                    </UButton>
-                                    <UButton
-                                        data-runtime-error-action="deny-diagnostics"
-                                        color="neutral"
-                                        variant="soft"
-                                        size="xs"
-                                        :disabled="diagnosticsConsentBusy !== null"
-                                        @click="denyDiagnosticsConsent(pendingDiagnosticConsentReport)"
-                                    >
-                                        {{ t('errors.runtime.diagnosticsConsentDeny') }}
-                                    </UButton>
-                                </div>
-                            </div>
-                            <div
-                                v-if="showRuntimeErrorDetails"
-                                class="runtime-error-report-details app-scrollbar app-scroll-region--balanced mt-3 space-y-3 overflow-y-auto"
-                            >
-                                <div
-                                    v-for="report in runtimeErrorReports"
-                                    :key="report.id"
-                                    :data-runtime-error-report-id="report.id"
-                                    class="rounded-md bg-elevated p-3"
-                                >
-                                    <div class="flex items-center gap-2">
-                                        <p class="min-w-0 flex-1 truncate text-xs font-medium text-default">
-                                            {{ report.title }}
-                                        </p>
-                                        <UBadge
-                                            v-if="report.count > 1"
-                                            color="neutral"
-                                            variant="soft"
-                                            size="sm"
-                                        >
-                                            {{ report.count }}
-                                        </UBadge>
-                                        <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
-                                            <UButton
-                                                color="neutral"
-                                                variant="ghost"
-                                                size="xs"
-                                                icon="i-ph-x"
-                                                :aria-label="t('errors.runtime.dismiss')"
-                                                @click="dismissRuntimeErrorReport(report.id)"
-                                            />
-                                        </AppTooltip>
-                                    </div>
-                                    <p class="mt-1 text-xs text-dimmed">
-                                        {{ report.source }}
-                                    </p>
-                                    <p v-if="report.failure" class="mt-1 text-xs text-dimmed">
-                                        <span class="font-medium text-default">Error ID</span>
-                                        <code class="ml-1 break-all">{{ getFailureErrorId(report.failure) }}</code>
-                                    </p>
-                                    <pre class="app-scrollbar app-scroll-region--balanced mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="flex shrink-0 gap-1">
-                            <AppTooltip :text="t('errors.runtime.copy')" :delay-duration="400">
-                                <UButton
-                                    color="neutral"
-                                    variant="ghost"
-                                    size="xs"
-                                    :icon="recentlyCopiedReports ? 'i-ph-check' : 'i-ph-copy'"
-                                    :class="[
-                                        'copy-report-button transition-transform duration-150 ease-out hover:scale-110 active:scale-90',
-                                        recentlyCopiedReports && 'copy-report-button--success',
-                                    ]"
-                                    :aria-label="t('errors.runtime.copy')"
-                                    @click="handleCopyReports"
-                                />
-                            </AppTooltip>
-                            <AppTooltip :text="t('errors.runtime.details')" :delay-duration="400">
-                                <UButton
-                                    data-runtime-error-action="details"
-                                    color="neutral"
-                                    variant="ghost"
-                                    size="xs"
-                                    :icon="showRuntimeErrorDetails ? 'i-ph-caret-down' : 'i-ph-caret-up'"
-                                    :aria-label="t('errors.runtime.details')"
-                                    @click="showRuntimeErrorDetails = !showRuntimeErrorDetails"
-                                />
-                            </AppTooltip>
-                            <AppTooltip :text="t('errors.runtime.dismiss')" :delay-duration="400">
-                                <UButton
-                                    color="neutral"
-                                    variant="ghost"
-                                    size="xs"
-                                    icon="i-ph-x"
-                                    :aria-label="t('errors.runtime.dismiss')"
-                                    @click="clearRuntimeErrorReports"
-                                />
-                            </AppTooltip>
-                        </div>
-                    </div>
-                </div>
-            </div>
             <DevOnly>
                 <ClientOnly>
                     <component :is="AgentationWidget" v-if="AgentationWidget" />
@@ -170,11 +26,10 @@
 
 <script setup lang="ts">
 import { useClipboard } from '@vueuse/core';
-import { sumBy } from 'es-toolkit/math';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
-import {getFailureErrorId} from '@app/composables/useFailureToast';
+import {useFailureToast} from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
@@ -184,19 +39,14 @@ import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browser
 import { waitForPreferredDesktopPlatformBridge } from '@app/utils/platform';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 
-// Nuxt UI stacks toasts upward from the bottom-right corner and keeps at most
-// this many on screen. The shell pins both numbers instead of inheriting the
-// library defaults, because the band the runtime diagnostic card has to stay out
-// of is derived from them in CSS. This constant is the single source of that
-// number: the toaster gets it as `max`, and `useHead` publishes it to the
-// stylesheet as `--app-toast-stack-max`, so the reserve cannot describe a stack
-// depth the toaster does not use.
-const APP_TOAST_STACK_MAX = 3;
+// Every failure and notice is a toast, stacked upward from the bottom-right
+// corner, at most three at a time.
 const toasterOptions = {
     position: 'bottom-right' as const,
-    max: APP_TOAST_STACK_MAX,
+    max: 3,
     ui: {base: 'app-toast'},
 };
+const DIAGNOSTICS_CONSENT_TOAST_PREFIX = 'diagnostics-consent:';
 
 // The <DevOnly> template block is stripped from production builds, but a static
 // import would still pull agentation-vue3 into the production entry chunk.
@@ -236,13 +86,12 @@ const {
 } = useFatalRuntimeError();
 const {
     reports: runtimeErrorReports,
-    dismissRuntimeErrorReport,
     clearRuntimeErrorReports,
     discardPendingDiagnostics,
     resendPendingDiagnosticOnce,
 } = useRuntimeErrorReports();
-const showRuntimeErrorDetails = ref(false);
 const diagnosticsConsentBusy = ref<string | null>(null);
+const {presentFailureToast} = useFailureToast();
 const route = useRoute();
 const colorMode = useColorMode();
 const localeHead = useLocaleHead({
@@ -257,7 +106,6 @@ const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'star
 const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind === 'startup'
     ? t('errors.runtime.startupDescription')
     : t('errors.runtime.description'));
-const runtimeErrorReportCount = computed(() => sumBy(runtimeErrorReports.value, report => report.count));
 const pendingDiagnosticConsentReport = computed(() => isLoaded.value
     && settings.value.clientDiagnosticsPreference === 'unknown'
     ? runtimeErrorReports.value.find(report => report.pendingDiagnostic?.isLive) ?? null
@@ -268,30 +116,72 @@ const {
     isSupported: isFatalDetailClipboardSupported,
 } = useClipboard({ copiedDuring: 1500 });
 let appReadyDispatched = false;
-const {
-    copied: recentlyCopiedReports,
-    copy: copyReportsToClipboard,
-    isSupported: isReportsClipboardSupported,
-} = useClipboard({ copiedDuring: 1500 });
 
-function formatRuntimeErrorReport(report: {
-    title: string;
-    source: string;
-    detail: string;
-    count: number;
-}) {
-    return [
-        report.title,
-        `${t('errors.runtime.source')}: ${report.source}`,
-        `${t('errors.runtime.count')}: ${report.count}`,
-        '',
-        report.detail,
-    ].join('\n');
-}
+// A runtime error is told like any other failure: once when it first
+// happens, and again (the toast pulses) each time it repeats.
+const toldRuntimeReportCounts = new Map<string, number>();
+watch(runtimeErrorReports, (reports) => {
+    for (const report of reports) {
+        if (!report.failure || toldRuntimeReportCounts.get(report.id) === report.count) {
+            continue;
+        }
+        toldRuntimeReportCounts.set(report.id, report.count);
+        presentFailureToast({
+            failure: report.failure,
+            title: report.title,
+            description: report.detail || t('errors.runtime.reportDescription'),
+            ...(report.technicalDetails ? {technicalDetails: report.technicalDetails} : {}),
+        });
+    }
+    if (reports.length === 0) {
+        toldRuntimeReportCounts.clear();
+    }
+}, {immediate: true});
 
-function formatRuntimeErrorReports() {
-    return runtimeErrorReports.value.map(formatRuntimeErrorReport).join('\n\n---\n\n');
-}
+// The first report the user may send asks beside its failure toast and
+// stays until they answer or decide in Settings; a newer toast that pushes it
+// out of the stack does not end the question, so it comes back.
+const consentToastId = (report: IRuntimeErrorReport) => `${DIAGNOSTICS_CONSENT_TOAST_PREFIX}${report.id}`;
+watch([
+    pendingDiagnosticConsentReport,
+    () => toast.toasts.value.map(entry => entry.id),
+], ([
+    report,
+    shownIds,
+], previous) => {
+    const previousReport = previous?.[0];
+    if (previousReport && previousReport.id !== report?.id) {
+        toast.remove(consentToastId(previousReport));
+    }
+    if (!report || shownIds.includes(consentToastId(report))) {
+        return;
+    }
+    toast.add({
+        id: consentToastId(report),
+        close: false,
+        color: 'info',
+        icon: 'i-ph-info',
+        title: t('errors.runtime.diagnosticsConsentTitle'),
+        description: t('errors.runtime.diagnosticsConsentDescription'),
+        duration: Number.POSITIVE_INFINITY,
+        progress: false,
+        actions: [
+            {
+                label: t('errors.runtime.diagnosticsConsentGrant'),
+                color: 'primary',
+                onClick: () => {
+                    void grantDiagnosticsConsent(report);
+                },
+            },
+            {
+                label: t('errors.runtime.diagnosticsConsentDeny'),
+                color: 'neutral',
+                variant: 'outline',
+                onClick: () => denyDiagnosticsConsent(report),
+            },
+        ],
+    });
+});
 
 async function copyText(
     value: string,
@@ -318,9 +208,6 @@ async function handleCopyFatalRuntimeDetail() {
     await copyText(detail, copyFatalDetailToClipboard, isFatalDetailClipboardSupported.value);
 }
 
-async function handleCopyReports() {
-    await copyText(formatRuntimeErrorReports(), copyReportsToClipboard, isReportsClipboardSupported.value);
-}
 
 async function grantDiagnosticsConsent(report: IRuntimeErrorReport) {
     const lease = report.pendingDiagnostic;
@@ -408,7 +295,6 @@ onBeforeUnmount(() => {
 
 watch(() => route.fullPath, () => {
     clearRuntimeErrorReports();
-    showRuntimeErrorDetails.value = false;
 }, {flush: 'sync'});
 
 colorMode.preference = settings.value.theme;
@@ -427,7 +313,7 @@ useHead(() => ({
         ...localeHead.value.htmlAttrs,
         dir: 'ltr',
         'data-platform': uiHostSnapshot.value.platform,
-        style: `--app-ui-scale: ${uiEffectiveScale.value}; --app-toast-stack-max: ${APP_TOAST_STACK_MAX};`,
+        style: `--app-ui-scale: ${uiEffectiveScale.value};`,
         class: settings.value.theme,
     },
     meta: localeHead.value.meta,
@@ -573,65 +459,3 @@ onMounted(async () => {
     }
 });
 </script>
-
-<style scoped>
-.copy-report-button {
-    transform-origin: center;
-}
-
-.runtime-error-reports {
-    width: min(var(--app-runtime-report-width), calc(100vw - var(--app-runtime-report-viewport-gutter)));
-}
-
-/* Anchored under the top edge, bounded so its lower edge stops above the tallest
-   toast stack Nuxt UI can render. A scan-cleanup failure toast and this card
-   report different things and must both stay readable.
-
-   `clamp()` rather than `min()`: on a window shorter than the reserve the
-   remaining viewport is negative, and the floor is what keeps the report on
-   screen there instead of collapsing it to nothing. */
-.runtime-error-reports-card {
-    max-height: clamp(
-        var(--app-runtime-report-min-height),
-        calc(100vh - var(--app-runtime-report-notification-reserve)),
-        var(--app-runtime-report-max-height)
-    );
-}
-
-.runtime-error-report-details {
-    max-height: clamp(
-        var(--app-runtime-report-min-height),
-        calc(100vh - var(--app-runtime-report-details-reserve)),
-        var(--app-runtime-report-details-max-height)
-    );
-}
-
-.copy-report-button--success {
-    color: var(--ui-success);
-    animation: copy-report-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-@keyframes copy-report-pop {
-    0% {
-        transform: scale(1);
-    }
-
-    45% {
-        transform: scale(1.28);
-    }
-
-    100% {
-        transform: scale(1);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .copy-report-button {
-        transition: none;
-    }
-
-    .copy-report-button--success {
-        animation: none;
-    }
-}
-</style>

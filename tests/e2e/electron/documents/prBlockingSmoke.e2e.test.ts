@@ -2937,7 +2937,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="7"] .page_canvas canvas',
             );
             const visibleErrors = Array.from(document.querySelectorAll<HTMLElement>(
-                '.pdf-error, .viewer-error, [data-error="true"], [data-testid="workspace-document-pdf-error"]',
+                '.pdf-error, .viewer-error, [data-error="true"], .app-toast-failure',
             )).filter(isVisible);
             return {
                 canvasHeight: canvas?.height ?? 0,

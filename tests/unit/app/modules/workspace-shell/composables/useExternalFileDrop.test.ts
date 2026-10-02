@@ -10,6 +10,7 @@ import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 type TCapturedListener = (event: DragEvent) => void;
 
@@ -257,7 +258,7 @@ describe('useExternalFileDrop', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.open',
-            description: expect.stringContaining('ingestion failed'),
+            description: toastDescriptionContaining('ingestion failed'),
         }));
         expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/b.pdf']);
     });

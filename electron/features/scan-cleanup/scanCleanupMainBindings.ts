@@ -54,7 +54,7 @@ const featureBindings = {
     // boundary behind it.
     getSettings: (_context, request) => settingsStore.get(request),
     updateSettings: (_context, request) => settingsStore.update(request),
-    getPendingCompletedOutputs: async () => [...await service.getPendingCompletedOutputs()],
+    getPendingCompletedOutputs: async context => [...await service.getPendingCompletedOutputs(context.sender)],
     acknowledgeCompletedOutputs: outputPaths => service.acknowledgeCompletedOutputs(outputPaths),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 

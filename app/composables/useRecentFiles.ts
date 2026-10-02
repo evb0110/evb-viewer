@@ -1,5 +1,6 @@
 import { getErrorMessage } from '@app/utils/error';
 import type { IRecentFile } from '@contracts/shared';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import {
     shouldPreferDesktopPlatform,
@@ -7,10 +8,14 @@ import {
 } from '@app/utils/platform';
 import {readBrowserRecentFilesSnapshot} from '@app/utils/recentFilesPersistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
-    getDocumentOpenCapability as getPlatformDocumentOpenCapability,
-    getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability,
-} from '@app/utils/platformDocuments';
+    getFailureReceipt,
+    type ExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
+import { getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability } from '@app/utils/platformDocuments';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
@@ -19,6 +24,10 @@ const ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES = 5;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
+    const {
+        presentFailureToast,
+        presentNoticeToast,
+    } = useFailureToast();
     const { isDesktopRuntime } = useRuntimeEnvironment();
     const route = useRoute();
     const initialCookieSnapshot = readBrowserRecentFilesSnapshot();
@@ -42,12 +51,6 @@ export const useRecentFiles = () => {
                 throw new Error('Electron API unavailable');
             }
         }
-    }
-
-    async function getDocumentOpenCapability() {
-        await waitForDocumentsCapabilityBridge();
-
-        return getPlatformDocumentOpenCapability();
     }
 
     async function getDocumentRecentFilesCapability() {
@@ -92,34 +95,70 @@ export const useRecentFiles = () => {
         await retryRecentFilesState();
     }
 
-    async function openRecentFile(file: IRecentFile) {
-        error.value = null;
-        try {
-            await (await getDocumentOpenCapability()).openDocumentDirect(file.originalPath);
-        } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.file.open');
-        }
+    // A failed edit of the list leaves the list as it was; only a failed load
+    // is the list's own state.
+    function reportEditFailure(title: string, editError: unknown) {
+        presentFailureToast({
+            failure: BrowserLogger.error(
+                'recent-files',
+                title,
+                editError,
+                getFailureReceipt(editError) ?? {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            ),
+            title,
+            ...(editError instanceof Error ? {description: getErrorMessage(editError)} : {}),
+        });
     }
 
     async function removeRecentFile(file: IRecentFile) {
-        error.value = null;
         try {
             await (await getDocumentRecentFilesCapability()).recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.remove');
+            reportEditFailure(t('errors.recent.remove'), e);
         }
     }
 
+    /**
+     * Asked before a Recent open claims its tab: a file that is gone leaves the
+     * list and is told as such, and the open does not start. Anything else,
+     * including a file that cannot be checked, goes on to open.
+     */
+    async function forgetRecentFileIfMissing(path: TDocumentRef) {
+        let removed = false;
+        try {
+            removed = await (await getDocumentRecentFilesCapability()).recentFiles.removeIfMissing(path);
+        } catch (checkError) {
+            BrowserLogger.warn('recent-files', 'Recent file availability check failed', checkError);
+        }
+        if (!removed) {
+            return false;
+        }
+        const fileName = recentFiles.value.find(file => file.originalPath === path)?.fileName
+            ?? getDocumentRefBaseName(path)
+            ?? path;
+        recentFiles.value = recentFiles.value.filter(file => file.originalPath !== path);
+        BrowserLogger.warn('recent-files', 'Recent file was gone and left the list', {
+            kind: 'expected',
+            code: 'handled-absence',
+        } satisfies ExpectedOutcome);
+        presentNoticeToast({
+            tone: 'warning',
+            title: t('errors.recent.notFoundTitle'),
+            description: t('errors.recent.notFoundDescription', {name: fileName}),
+        });
+        return true;
+    }
+
     async function clearRecentFiles() {
-        error.value = null;
         try {
             await (await getDocumentRecentFilesCapability()).recentFiles.clear();
             recentFiles.value = [];
+            error.value = null;
             isResolved.value = true;
             clearRetryTimer();
         } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.clear');
+            reportEditFailure(t('errors.recent.clear'), e);
         }
     }
 
@@ -131,8 +170,8 @@ export const useRecentFiles = () => {
         error,
         loadRecentFiles,
         retryRecentFiles,
-        openRecentFile,
         removeRecentFile,
+        forgetRecentFileIfMissing,
         clearRecentFiles,
     };
 };

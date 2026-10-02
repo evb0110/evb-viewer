@@ -19,6 +19,7 @@ import {
     type TPageMoveOperation,
 } from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 vi.mock('vue', async () => ({
     ...await vi.importActual('vue'),
@@ -164,7 +165,7 @@ describe('usePageDragDrop', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.open',
-            description: expect.stringContaining('page ingestion failed'),
+            description: toastDescriptionContaining('page ingestion failed'),
         }));
         expect(onExternalFileDrop).toHaveBeenCalledWith(3, ['/docs/b.png']);
     });

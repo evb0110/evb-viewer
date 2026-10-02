@@ -68,7 +68,6 @@ function mountDialog(supportsFirstPageSinglePrintLayout: boolean) {
         defaultViewMode: 'single',
         isPreparing: false,
         status: null,
-        error: null,
         supportsAdvancedPrintOptions: true,
         supportsFirstPageSinglePrintLayout,
         onSubmit: (payload: unknown) => submissions.push(payload),

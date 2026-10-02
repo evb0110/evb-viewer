@@ -80,10 +80,6 @@
         </WorkspaceToolbarHost>
         <WorkspaceDocumentAlerts
             :visible="surfaceMode === 'reader'"
-            :pdf-error="pdfError"
-            :pdf-failure-presentation="pdfFailurePresentation"
-            :show-djvu-conversion-ui="showDjvuConversionUi"
-            :djvu-error="djvuError"
             :show-djvu-banner="showDjvuConversionBanner"
             :djvu-converting="conversionState.isConverting"
             @convert="openConvertDialog"
@@ -277,12 +273,9 @@ const {
     docxExport,
 } = documentContext;
 const {
-    pdfError,
-    pdfFailurePresentation,
     workingCopyPath,
     documentRevisionToken,
     conversionState,
-    djvuError,
     openConvertDialog,
     djvuDismissBanner,
     handleDjvuCancel,

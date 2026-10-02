@@ -43,11 +43,6 @@
             :aria-busy="isRunning"
         >
             <fieldset class="scan-cleanup-options-rail app-scrollbar app-scroll-region--balanced" :disabled="isRunning">
-                <AppFailureAlert
-                    v-if="documentSettingsLoadFailure"
-                    role="alert"
-                    :presentation="documentSettingsLoadFailure"
-                />
                 <ScanCleanupSettingsPanel
                     :alignment-items="alignmentItems"
                     :apply-scope-items="applyScopeItems"
@@ -175,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -296,6 +291,22 @@ const {
     updateMargin: updateDocumentMargin,
     values: settings,
 } = workspaceSession.settings;
+const { presentFailureToast } = useFailureToast();
+let toldSettingsLoadFailure: typeof documentSettingsLoadFailure.value = null;
+// Settings that did not load are told once, with Retry, when this workspace
+// is the one on screen; the rail keeps its defaults meanwhile.
+watch([
+    documentSettingsLoadFailure,
+    () => workspaceActive.value,
+], ([
+    failure,
+    active,
+]) => {
+    if (failure && active && failure !== toldSettingsLoadFailure) {
+        toldSettingsLoadFailure = failure;
+        presentFailureToast(failure);
+    }
+}, {immediate: true});
 const {
     applyLeaderOverrides,
     currentPageOverride,

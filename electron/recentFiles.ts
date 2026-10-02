@@ -79,6 +79,8 @@ interface IFilteredRecentFiles<TFile extends IRecentFile> {
 
 interface IPathInspectionResult {
     status: 'exists' | 'missing' | 'unreadable' | 'unavailable';
+    /** Why a missing path is missing: no such file, or a parent that is not a directory. */
+    code?: 'ENOENT' | 'ENOTDIR';
     size?: number;
     modifiedAt?: TEpochMs;
 }
@@ -215,7 +217,10 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
                 continue;
             }
             if (code === 'ENOENT' || code === 'ENOTDIR') {
-                return {status: 'missing'};
+                return {
+                    status: 'missing',
+                    code,
+                };
             }
             const timedOut = error instanceof RecentFileStatTimeoutError;
             const unavailable = timedOut
@@ -605,6 +610,80 @@ export async function removeRecentFile(originalPath: string) {
         // Update cache
         recentFilesCache = cloneRecentFiles(data.files);
         cacheTimestamp = Date.now();
+    });
+}
+
+// The root of the removable or network volume a path lives on, if it lives
+// on one: a Windows drive or share, or a macOS /Volumes, Linux /media,
+// /run/media or /mnt mount point that is a parent of the path. A heuristic: a
+// volume mounted anywhere else counts as mounted, so its gone files leave
+// Recent like local ones.
+function getVolumeRoot(filePath: string) {
+    if (/^[a-zA-Z]:[\\/]/u.test(filePath) || filePath.startsWith('\\\\')) {
+        return win32.parse(filePath).root;
+    }
+    const [
+        , top,
+        second,
+        third,
+        fourth,
+    ] = filePath.split('/');
+    if (top === 'Volumes' || top === 'mnt') {
+        return second && third ? `/${top}/${second}` : null;
+    }
+    if (top === 'media') {
+        return second && third && fourth ? `/media/${second}/${third}` : null;
+    }
+    if (top === 'run' && second === 'media') {
+        return third && fourth && filePath.split('/').length > 5 ? `/run/media/${third}/${fourth}` : null;
+    }
+    return null;
+}
+
+// A POSIX mount point that is only an empty directory has its parent's
+// device; a mounted volume has its own.
+async function isVolumeMounted(filePath: string) {
+    const root = getVolumeRoot(filePath);
+    if (!root) {
+        return true;
+    }
+    try {
+        const rootStat = await statWithTimeout(root);
+        // A Windows drive or share answers only while it is there.
+        return !root.startsWith('/') || rootStat.dev !== (await statWithTimeout(dirname(root))).dev;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Removes a Recent entry whose file is gone: the path reports ENOENT twice
+ * while the volume it lives on is mounted. An unmounted volume, an unreadable
+ * file or a parent that is not a directory keeps the entry, as the list
+ * refresh does, until the user removes it.
+ */
+export async function removeRecentFileIfMissing(originalPath: string) {
+    if (!(await getRecentFiles()).some(file => file.originalPath === originalPath)) {
+        return false;
+    }
+    // The check and the removal run as one Recent operation, so a file that
+    // reappears or an entry added meanwhile is not lost.
+    return enqueueRecentFilesOperation(async () => {
+        const inspection = await inspectPath(originalPath);
+        if (inspection.code !== 'ENOENT' || !await isVolumeMounted(originalPath)) {
+            return false;
+        }
+        cacheTimestamp = 0;
+        const data = await loadRecentFilesData();
+        const files = data.files.filter(file => file.originalPath !== originalPath);
+        const removed = files.length !== data.files.length;
+        if (removed) {
+            data.files = files;
+            await saveRecentFilesData(data);
+        }
+        recentFilesCache = cloneRecentFiles(data.files);
+        cacheTimestamp = Date.now();
+        return removed;
     });
 }
 

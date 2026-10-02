@@ -2,8 +2,9 @@ import * as v from 'valibot';
 
 /**
  * Why the main process refused to open a document, in a form the renderer can
- * localize: the source file changed while its working copy was being made, or
- * a damaged PDF could not be rewritten into one an edit can extend.
+ * localize: the source file changed while its working copy was being made, a
+ * damaged PDF could not be rewritten into one an edit can extend, or the file
+ * is not there to open.
  * `fileName` is the base name of the file the user chose, which the renderer
  * may not know yet when a picker open is refused.
  */
@@ -11,6 +12,7 @@ export const DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA = v.object({
     code: v.picklist([
         'source-changed',
         'invalid-pdf',
+        'not-found',
     ]),
     message: v.string(),
     fileName: v.optional(v.string()),

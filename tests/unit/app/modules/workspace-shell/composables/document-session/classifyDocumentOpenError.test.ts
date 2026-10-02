@@ -45,6 +45,20 @@ describe('classifyDocumentOpenError', () => {
     });
 });
 
+describe('classifyDocumentOpenError for a file that is gone', () => {
+    it('names the file main refused to open because it is not there, never the IPC text', () => {
+        const refusal = {
+            code: 'not-found',
+            message: 'not-found',
+            fileName: 'gone.pdf',
+        };
+        const error = new Error(`Error invoking remote method 'dialog:openPdfDirect': Error: ${encodeSerializableErrorEnvelope(refusal)}`);
+        const t = ((key: string, parameters?: {name?: string}) => `${key}:${parameters?.name ?? ''}`) as TTranslateFn;
+
+        expect(classifyDocumentOpenError(error, null, t)).toBe('errors.file.openNotFound:gone.pdf');
+    });
+});
+
 describe('describeRefusedDocumentOpen', () => {
     const t = ((key: string) => key) as TTranslateFn;
 

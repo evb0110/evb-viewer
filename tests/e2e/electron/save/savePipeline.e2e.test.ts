@@ -835,7 +835,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             Reflect.get(window, '__refusedSaveAsNotifications') as string[]
         ))).filter(text => text.includes('Failed to save file'))).toHaveLength(1);
         expect(await session.page.evaluate(() => (
-            document.querySelector('[data-testid="workspace-document-pdf-error"]')?.textContent ?? null
+            document.querySelector('.app-toast-failure:not([data-state="closed"])')?.textContent?.includes('Failed to open file') ? 'open failure' : null
         ))).toBeNull();
         expect(existsSync(destinationPath)).toBe(process.platform === 'win32');
         if (process.platform === 'win32') {
@@ -1181,10 +1181,9 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await mkdir(settingsPath);
         try {
             await session.page.click(switchSelector);
-            await session.page.waitForSelector('.settings-save-error[role="alert"]', {
-                timeout: SAVE_TIMEOUT_MS,
-                visible: true,
-            });
+            // The failed save is told in the failure toast, with Retry.
+            await session.page.waitForFunction(() => [...document.querySelectorAll('.app-toast-failure')]
+                .some(toast => toast.textContent?.includes('Last save failed') && toast.textContent.includes('Retry')), {timeout: SAVE_TIMEOUT_MS});
             const checkedAfterFailure = await session.page.$eval(switchSelector, element => element.getAttribute('aria-checked'));
             expect(checkedAfterFailure).toBe('false');
         } finally {

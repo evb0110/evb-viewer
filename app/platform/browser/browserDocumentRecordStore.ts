@@ -495,7 +495,7 @@ export class BrowserDocumentRecordStore {
     }
 
     public async removeRecentFile(ref: string) {
-        await this.recentFilesStore.removeRecentFile(ref);
+        return this.recentFilesStore.removeRecentFile(ref);
     }
 
     public async clearRecentFiles() {

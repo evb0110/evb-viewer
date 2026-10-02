@@ -592,7 +592,7 @@ describe('recentFiles persistence', () => {
         expect(await recentFiles.getRecentFiles()).toEqual([]);
     });
 
-    it('removes a recent entry only through the explicit remove action', async () => {
+    it('keeps a deleted file listed through refreshes until it is removed', async () => {
         const filePath = writeFixture('deleted-after-load.pdf');
         const recentFiles = await loadRecentFilesModule();
         await recentFiles.addRecentFile(filePath);
@@ -608,6 +608,58 @@ describe('recentFiles persistence', () => {
         await recentFiles.removeRecentFile(filePath);
         expect(recentFiles.getRecentFilesSync()).toEqual([]);
         expect(await recentFiles.getRecentFiles()).toEqual([]);
+    });
+
+    it('removes an entry whose file is gone when asked, and only then', async () => {
+        const filePath = writeFixture('gone-on-open.pdf');
+        const recentFiles = await loadRecentFilesModule();
+        await recentFiles.addRecentFile(filePath);
+
+        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(false);
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
+
+        unlinkSync(filePath);
+
+        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(true);
+        expect(recentFiles.getRecentFilesSync()).toEqual([]);
+        expect(JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8')).files).toEqual([]);
+        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(false);
+    });
+
+    it('keeps an entry whose file cannot be checked or whose volume is not mounted', async () => {
+        const offlineVolumePath = '/Volumes/Offline Drive/Books/document.pdf';
+        const paths = [
+            join(userDataDir, 'not-a-directory', 'document.pdf'),
+            join(userDataDir, 'io-error.pdf'),
+            join(userDataDir, 'permission-denied.pdf'),
+            offlineVolumePath,
+        ];
+        writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+            version: 1,
+            files: paths.map((originalPath, index) => ({
+                originalPath,
+                fileName: originalPath.split('/').at(-1),
+                timestamp: index + 1,
+                fileSize: 9,
+            })),
+        }));
+        mocks.stat.mockImplementation((path: unknown) => {
+            const code = path === paths[0]
+                ? 'ENOTDIR'
+                : path === paths[1]
+                    ? 'EIO'
+                    : path === paths[2]
+                        ? 'EACCES'
+                        : 'ENOENT';
+            return Promise.reject(Object.assign(new Error(code), {code}));
+        });
+
+        const recentFiles = await loadRecentFilesModule();
+        for (const path of paths) {
+            await expect(recentFiles.removeRecentFileIfMissing(path)).resolves.toBe(false);
+        }
+        expect(recentFiles.getRecentFilesSync()).toEqual(paths);
+        expect(mocks.stat).toHaveBeenCalledWith('/Volumes/Offline Drive');
     });
 
     it('bootstraps the default interactive automation profile from canonical dev recents only once', async () => {

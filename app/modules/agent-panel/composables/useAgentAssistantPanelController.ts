@@ -150,6 +150,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const composerImages = ref<TAssistantComposerImage[]>([]);
     const composerError = ref('');
     const assistantFailurePresentation = shallowRef<FailurePresentation | null>(null);
+    // A refresh the user did not start that keeps failing is told once, until
+    // the assistant answers again.
+    let backgroundFailureTold = false;
     const composerInputRef = ref<HTMLTextAreaElement | null>(null);
     const state = ref<IAgentAssistantState | null>(null);
     const selectedProvider = ref<TAgentAssistantProviderId>(initialSelectedProvider);
@@ -447,8 +450,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             section: 'assistant',
             title: t('assistant.runtimeErrorTitle'),
         });
-        reportRuntimeError(presentation);
+        // The shell tells a reported failure in a toast. A background refresh
+        // that keeps failing is told once until the assistant answers again.
+        const alreadyTold = options.automatic === true && backgroundFailureTold;
+        backgroundFailureTold ||= options.automatic === true;
+        if (!alreadyTold) {
+            reportRuntimeError(presentation);
+        }
         if (options.target !== 'none') {
+            // Kept so the panel does not repeat the told failure inline.
             assistantFailurePresentation.value = presentation;
         }
         return { presentation };
@@ -613,6 +623,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             ?? providerDefaultEffort(adjustedState.status.providers, adjustedState.status.provider);
         selectedSpeedMode.value = resolveSelectedSpeedModeFromState(adjustedState, providerStatus);
         assistantFailurePresentation.value = null;
+        backgroundFailureTold = false;
         state.value = adjustedState;
         hasLoadedState.value = true;
         isSending.value = isActiveAssistantTurnPhase(adjustedState.status.turn.phase);
@@ -828,7 +839,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
 
-        runAssistantAction(refreshState(), createAssistantActionOptions('refresh', 'Failed to refresh assistant state after app focus'));
+        runAssistantAction(refreshState(), {
+            ...createAssistantActionOptions('refresh', 'Failed to refresh assistant state after app focus'),
+            automatic: true,
+        });
     }
     async function installCodex() {
         isInstalling.value = true;

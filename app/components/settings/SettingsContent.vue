@@ -1,24 +1,16 @@
 <template>
+    <!-- Settings that could not load leave the page empty; it says so in place. -->
     <div
         v-if="!isLoaded || settingsLoadFailed"
         class="settings-state"
         :role="settingsLoadFailed ? 'alert' : 'status'"
         aria-live="polite"
     >
-        <AppFailureAlert
-            v-if="settingsLoadFailed && settingsLoadFailurePresentation"
-            :presentation="settingsLoadFailurePresentation"
-            icon="i-ph-warning-circle"
+        <UIcon
+            :name="settingsLoadFailed ? 'i-ph-warning-circle' : 'i-ph-circle-notch'"
+            :class="['settings-state-icon', {'animate-spin': !settingsLoadFailed}]"
         />
-        <UAlert
-            v-else
-            color="neutral"
-            variant="soft"
-            icon="i-ph-warning-circle"
-            :description="settingsLoadFailed
-                ? `${t('errors.settings.load')}: ${settingsLoadError ?? t('errors.runtime.description')}`
-                : t('common.loading')"
-        />
+        <p>{{ settingsLoadFailed ? t('errors.settings.load') : t('common.loading') }}</p>
         <UButton
             v-if="settingsLoadFailed"
             color="neutral"
@@ -123,32 +115,6 @@
         </section>
     </div>
 
-    <div
-        v-if="settingsSaveStatus === 'failed' || settingsSaveError"
-        class="settings-save-error"
-        role="alert"
-        aria-live="assertive"
-    >
-        <AppFailureAlert
-            v-if="settingsSaveFailurePresentation"
-            :presentation="settingsSaveFailurePresentation"
-            icon="i-ph-warning"
-        />
-        <UAlert
-            v-else
-            color="warning"
-            variant="soft"
-            icon="i-ph-warning"
-            :description="settingsSaveError ? `${t('status.saveFailed')}: ${settingsSaveError}` : t('status.saveFailed')"
-        />
-        <UButton
-            color="neutral"
-            variant="outline"
-            :label="t('common.retry')"
-            :loading="settingsSaveStatus === 'saving'"
-            @click="retrySettingsSave"
-        />
-    </div>
 </template>
 
 <script setup lang="ts">
@@ -182,7 +148,6 @@ import {
 } from '@app/modules/agent-panel/utils/assistantFailure';
 import type { TAssistantFailureAction } from '@app/modules/agent-panel/utils/assistantFailure';
 import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
@@ -350,13 +315,42 @@ const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() 
     return {
         ...capture,
         title: t('status.saveFailed'),
-        description: settingsSaveError.value ?? t('status.saveFailed'),
+        ...(settingsSaveError.value ? {description: settingsSaveError.value} : {}),
     };
 });
 
 watch(isLoaded, (loaded) => {
     if (loaded) {
         settingsLoadFailed.value = false;
+    }
+});
+// Each failure is told once, with Retry for a save; a page that could not
+// load also says so in place of its content.
+watch(settingsLoadFailurePresentation, (presentation) => {
+    if (presentation) {
+        presentFailureToast(presentation);
+    }
+});
+// Every save that ends failed is told, a retried one too; its receipt keeps
+// it one toast while it is still showing.
+watch([
+    settingsSaveFailurePresentation,
+    settingsSaveStatus,
+], ([
+    presentation,
+    status,
+]) => {
+    if (presentation && status === 'failed') {
+        presentFailureToast({
+            ...presentation,
+            actions: [{
+                label: t('common.retry'),
+                color: 'primary',
+                onClick: () => {
+                    void retrySettingsSave();
+                },
+            }],
+        });
     }
 });
 let unsubscribeAssistantEvent: (() => void) | null = null;
@@ -899,12 +893,24 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.settings-state,
-.settings-save-error {
+.settings-state {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: var(--app-space-3xl);
     margin-block-end: var(--app-space-12xl);
+    color: var(--ui-text-muted);
+    text-align: center;
+}
+
+.settings-state p {
+    margin: 0;
+}
+
+.settings-state-icon {
+    width: var(--app-space-16xl);
+    height: var(--app-space-16xl);
+    color: var(--ui-text-dimmed);
 }
 
 .settings-grid {
