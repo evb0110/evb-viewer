@@ -15,8 +15,9 @@ import {
     h,
     nextTick,
 } from 'vue';
-import { decodeFailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type { IStartOpenFailure } from '@app/types/startSection';
+import type { IRecentFile } from '@contracts/shared';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
 import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -28,97 +29,77 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-interface IAlertAction {
-    label: string;
-    onClick: () => void;
+function recentFile(path: string): IRecentFile {
+    return {
+        originalPath: requireDocumentRef(path),
+        backend: 'electron',
+        fileName: path.split('/').at(-1) ?? path,
+        timestamp: requireEpochMs(1_790_000_000_000),
+        fileSize: 4,
+    };
 }
 
-async function mountStartWithOpenFailure(openFailure: IStartOpenFailure) {
+async function mountStart(props: {
+    recentFiles: IRecentFile[];
+    recentFilesError: string | null;
+}) {
     const host = document.createElement('div');
     document.body.append(host);
-    const onDismissOpenFailure = vi.fn();
+    const onRetryRecent = vi.fn();
     const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
-        recentFiles: [],
+        ...props,
         recentFilesResolved: true,
-        openFailure,
-        onDismissOpenFailure,
+        onRetryRecent,
     })}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     app.component('UButton', defineComponent({
         props: {label: String},
-        setup: props => () => h('button', props.label),
+        emits: ['click'],
+        setup: (props, {emit}) => () => h('button', {onClick: () => emit('click')}, props.label),
     }));
     app.component('UInput', defineComponent({setup: () => () => h('input')}));
-    app.component('UAlert', defineComponent({
-        props: {
-            title: String,
-            description: String,
-            actions: Array,
-        },
-        setup: props => () => h('div', {'data-alert': ''}, [
-            h('strong', props.title),
-            h('p', props.description),
-            ...((props.actions ?? []) as IAlertAction[]).map(action => h('button', {
-                'data-alert-action': action.label,
-                onClick: action.onClick,
-            }, action.label)),
-        ]),
-    }));
     app.component('AppTooltip', defineComponent({setup: (_, {slots}) => () => h('span', slots.default?.())}));
     app.component('UModal', defineComponent({setup: () => () => null}));
     app.mount(host);
     await nextTick();
-    const alert = host.querySelector<HTMLElement>('[data-testid="start-open-failure"]');
     return {
-        alert,
-        onDismissOpenFailure,
+        host,
+        onRetryRecent,
         unmount: () => app.unmount(),
     };
 }
 
-describe('PdfEmptyState open failure', () => {
-    it('names the file that failed and dismisses a message-only failure', async () => {
+describe('PdfEmptyState Recent list load failure', () => {
+    it('says so in the list box, where its rows would be, and retries from there', async () => {
         const {
-            alert,
-            onDismissOpenFailure,
+            host,
+            onRetryRecent,
             unmount,
-        } = await mountStartWithOpenFailure({
-            fileName: 'broken.pdf',
-            message: 'Invalid or non-existent file',
-            failure: null,
+        } = await mountStart({
+            recentFiles: [],
+            recentFilesError: 'storage unavailable',
         });
 
-        expect(alert?.textContent).toContain('errors.file.open');
-        expect(alert?.textContent).toContain('broken.pdf: Invalid or non-existent file');
-        expect(alert?.textContent).not.toContain('Error ID');
-        alert?.querySelector<HTMLButtonElement>('[data-alert-action="errors.runtime.dismiss"]')?.click();
-        expect(onDismissOpenFailure).toHaveBeenCalledOnce();
+        const box = host.querySelector<HTMLElement>('[data-testid="recent-load-error"]');
+        expect(box?.textContent).toContain('errors.recent.load');
+        expect(host.querySelector('[role="alert"]')).toBeNull();
+        expect(host.querySelector('.recent-empty:not([data-testid])')).toBeNull();
+        [...(box?.querySelectorAll('button') ?? [])].find(button => button.textContent === 'common.retry')?.click();
+        expect(onRetryRecent).toHaveBeenCalledOnce();
         unmount();
     });
 
-    it('shows the error ID and a copy action when the failure has a receipt', async () => {
-        const failure = decodeFailureReceipt({
-            eventId: '0123456789abcdef0123456789abcdef',
-            code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
-            occurredAt: 1_790_000_000_000,
-            severity: 'error',
-        });
-        expect(failure).not.toBeNull();
+    it('keeps showing the rows it has when a later load fails', async () => {
         const {
-            alert,
-            onDismissOpenFailure,
+            host,
             unmount,
-        } = await mountStartWithOpenFailure({
-            fileName: 'broken.pdf',
-            message: 'Invalid or non-existent file',
-            failure,
+        } = await mountStart({
+            recentFiles: [recentFile('/docs/kept.pdf')],
+            recentFilesError: 'storage unavailable',
         });
 
-        expect(alert?.textContent).toContain('broken.pdf: Invalid or non-existent file');
-        expect(alert?.textContent).toContain('Error ID: 01234567');
-        expect(alert?.querySelector('[data-alert-action="errors.runtime.copy"]')).not.toBeNull();
-        alert?.querySelector<HTMLButtonElement>('[data-alert-action="errors.runtime.dismiss"]')?.click();
-        expect(onDismissOpenFailure).toHaveBeenCalledOnce();
+        expect(host.querySelector('[data-testid="recent-load-error"]')).toBeNull();
+        expect(host.querySelector('[data-recent-source="/docs/kept.pdf"]')).not.toBeNull();
         unmount();
     });
 });

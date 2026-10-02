@@ -272,7 +272,6 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
                 '.pdf-loading-overlay',
                 '.pdf-error',
                 '.viewer-error',
-                '[data-testid="workspace-document-pdf-error"]',
                 '[data-loading="true"]',
                 '[data-error="true"]',
             ].join(','));
@@ -350,7 +349,6 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
             const blockingState = host.querySelector([
                 '.workspace-host__loading',
                 '.document-viewer-chassis__opening-page',
-                '[data-testid="workspace-document-djvu-error"]',
                 '[data-loading="true"]',
                 '[data-error="true"]',
             ].join(','));

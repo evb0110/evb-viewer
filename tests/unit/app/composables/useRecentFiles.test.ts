@@ -234,16 +234,6 @@ describe('useRecentFiles', () => {
         expect(isResolved.value).toBe(true);
     });
 
-    it('opens recent files through the split open capability', async () => {
-        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
-        const { openRecentFile } = useRecentFiles();
-
-        await openRecentFile(recentFile('/tmp/open-me.pdf'));
-
-        expect(electronOpenDocumentDirect).toHaveBeenCalledWith('/tmp/open-me.pdf');
-        expect(electronRecentFilesGet).not.toHaveBeenCalled();
-    });
-
     it('keeps Electron recent files unresolved and retries after a startup failure', async () => {
         vi.useFakeTimers();
         electronRecentFilesGet

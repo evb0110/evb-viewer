@@ -7,10 +7,10 @@ import {
 } from '@app/utils/platform';
 import {readBrowserRecentFilesSnapshot} from '@app/utils/recentFilesPersistence';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
-import {
-    getDocumentOpenCapability as getPlatformDocumentOpenCapability,
-    getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability,
-} from '@app/utils/platformDocuments';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability } from '@app/utils/platformDocuments';
 
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
@@ -19,6 +19,7 @@ const ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES = 5;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
     const { isDesktopRuntime } = useRuntimeEnvironment();
     const route = useRoute();
     const initialCookieSnapshot = readBrowserRecentFilesSnapshot();
@@ -42,12 +43,6 @@ export const useRecentFiles = () => {
                 throw new Error('Electron API unavailable');
             }
         }
-    }
-
-    async function getDocumentOpenCapability() {
-        await waitForDocumentsCapabilityBridge();
-
-        return getPlatformDocumentOpenCapability();
     }
 
     async function getDocumentRecentFilesCapability() {
@@ -92,34 +87,39 @@ export const useRecentFiles = () => {
         await retryRecentFilesState();
     }
 
-    async function openRecentFile(file: IRecentFile) {
-        error.value = null;
-        try {
-            await (await getDocumentOpenCapability()).openDocumentDirect(file.originalPath);
-        } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.file.open');
-        }
+    // A failed edit of the list leaves the list as it was; only a failed load
+    // is the list's own state.
+    function reportEditFailure(title: string, editError: unknown) {
+        presentFailureToast({
+            failure: BrowserLogger.error(
+                'recent-files',
+                title,
+                editError,
+                getFailureReceipt(editError) ?? {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            ),
+            title,
+            ...(editError instanceof Error ? {description: getErrorMessage(editError)} : {}),
+        });
     }
 
     async function removeRecentFile(file: IRecentFile) {
-        error.value = null;
         try {
             await (await getDocumentRecentFilesCapability()).recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.remove');
+            reportEditFailure(t('errors.recent.remove'), e);
         }
     }
 
     async function clearRecentFiles() {
-        error.value = null;
         try {
             await (await getDocumentRecentFilesCapability()).recentFiles.clear();
             recentFiles.value = [];
+            error.value = null;
             isResolved.value = true;
             clearRetryTimer();
         } catch (e) {
-            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.clear');
+            reportEditFailure(t('errors.recent.clear'), e);
         }
     }
 
@@ -131,7 +131,6 @@ export const useRecentFiles = () => {
         error,
         loadRecentFiles,
         retryRecentFiles,
-        openRecentFile,
         removeRecentFile,
         clearRecentFiles,
     };

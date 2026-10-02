@@ -53,12 +53,6 @@
                         />
                     </div>
                 </div>
-
-                <AppFailureAlert
-                    v-if="error"
-                    :presentation="error"
-                    icon="i-ph-warning-circle"
-                />
             </div>
         </template>
 
@@ -93,8 +87,6 @@
 </template>
 
 <script setup lang="ts">
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
-import type {FailurePresentation} from '@app/composables/useFailureToast';
 import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
 import type {
     IPdfOptimizeOptions,
@@ -105,13 +97,11 @@ import type {
 const open = defineModel<boolean>('open', { required: true });
 
 const {
-    error,
     isRunning,
     progress,
 } = defineProps<{
     isRunning: boolean;
     progress: IPdfOptimizeProgress | null;
-    error: FailurePresentation | null;
 }>();
 
 const emit = defineEmits<{submit: [payload: IPdfOptimizeOptions];}>();

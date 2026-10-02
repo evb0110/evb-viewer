@@ -5496,7 +5496,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                         '.runtime-error-reports',
                     )?.textContent?.trim() ?? '',
                     workspaceErrorText: document.querySelector<HTMLElement>(
-                        '.editor-pane.is-active [data-testid="workspace-document-djvu-error"]',
+                        '.app-toast-failure',
                     )?.textContent?.trim() ?? '',
                 };
             }, searchFixture.pageNumber);
@@ -5603,7 +5603,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                     );
                 }).length;
                 const banner = host.querySelector<HTMLElement>('.djvu-banner');
-                const error = host.querySelector<HTMLElement>('[data-testid="workspace-document-djvu-error"]');
+                const error = document.querySelector<HTMLElement>('.app-toast-failure');
                 const runtimeError = document.querySelector<HTMLElement>('.runtime-error-reports');
                 const currentPage = visiblePages.find((page) => {
                     const rect = page.getBoundingClientRect();
@@ -5898,7 +5898,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         const errorSurface = await session.page.evaluate(() => ({
             runtimeError: document.querySelector<HTMLElement>('.runtime-error-reports')?.textContent?.trim() ?? '',
             workspaceError: document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="workspace-document-djvu-error"]',
+                '.app-toast-failure',
             )?.textContent?.trim() ?? '',
         }));
         expect(errorSurface.workspaceError).toBe('');
@@ -6131,7 +6131,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             );
             const runtimeError = document.querySelector<HTMLElement>('.runtime-error-reports');
             const workspaceError = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="workspace-document-djvu-error"]',
+                '.app-toast-failure',
             );
             return page?.dataset.pageSourceVisual === 'fresh'
                 && image?.complete

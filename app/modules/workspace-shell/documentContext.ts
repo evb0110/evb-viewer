@@ -136,13 +136,12 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     function emitOpenInNewTab(result: TDocumentRef | TOpenFileResult) {
         commandView.value?.emitOpenInNewTab(result);
     }
-    // Every workspace failure that reaches the user goes through this one
-    // surface, so save, annotation, and open failures share one toast path.
+    // Save and annotation failures reach the user through this surface; an
+    // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
         createViewerLifecycleHooks: context => driver.createLifecycleHooks(context),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
-        failureSurface: failure,
         runDocumentOpen,
     });
     const {
@@ -342,10 +341,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         handleSaveAs: () => saveThroughDriver('save-as'),
         handleRepairSave: saveService.handleRepairSave,
         handleOptimizePdfForInteraction: saveService.handleOptimizePdfForInteraction,
-        optimizeDialog: useDocumentWorkspaceOptimizeDialog({
-            handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy,
-            getLastFailurePresentation: failure.getLastFailurePresentation,
-        }),
+        optimizeDialog: useDocumentWorkspaceOptimizeDialog({handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy}),
         createRecoverySnapshotBytes: saveService.createRecoverySnapshotBytes,
         ensureWorkingCopyFreshForRead,
     };

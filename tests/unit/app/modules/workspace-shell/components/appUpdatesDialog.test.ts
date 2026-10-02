@@ -87,7 +87,6 @@ describe('AppUpdatesDialog', () => {
             phase,
             available: false,
             ready,
-            failure: null,
             'onUpdate:open': close,
         });
         app.component('UModal', UModal);
@@ -121,7 +120,6 @@ describe('AppUpdatesDialog', () => {
             available: true,
             ready: false,
             phase: 'available',
-            failure: null,
             'onUpdate:open': events.close,
             onDefer: events.defer,
             onDownload: events.download,

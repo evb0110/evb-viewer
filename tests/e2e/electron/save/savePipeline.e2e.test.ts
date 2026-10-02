@@ -835,7 +835,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             Reflect.get(window, '__refusedSaveAsNotifications') as string[]
         ))).filter(text => text.includes('Failed to save file'))).toHaveLength(1);
         expect(await session.page.evaluate(() => (
-            document.querySelector('[data-testid="workspace-document-pdf-error"]')?.textContent ?? null
+            document.querySelector('.app-toast-failure:not([data-state="closed"])')?.textContent?.includes('Failed to open file') ? 'open failure' : null
         ))).toBeNull();
         expect(existsSync(destinationPath)).toBe(process.platform === 'win32');
         if (process.platform === 'win32') {

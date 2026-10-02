@@ -198,7 +198,7 @@ describe('no-raw-red-presentation rule', () => {
             valid: [
                 {
                     code: 'toast.add({color: \'error\', failure});',
-                    filename: 'app/components/AppFailureAlert.vue',
+                    filename: 'app/composables/useFailureToast.ts',
                 },
                 {
                     code: '<template><UAlert color="primary" /></template>',

@@ -77,7 +77,10 @@ import {
     getAssistantExpectedOutcome,
     type IAssistantActionErrorOptions,
 } from '@app/modules/agent-panel/utils/assistantFailure';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
+import {
+    useFailureToast,
+    type FailurePresentation,
+} from '@app/composables/useFailureToast';
 import {
     ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS,
     ASSISTANT_STATUS_HEARTBEAT_MS,
@@ -126,6 +129,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const widthVar = computed(() => (props.width != null ? `${props.width}px` : undefined));
     const { t }: { t: TTranslateFn } = useTypedI18n();
     const { reportRuntimeError } = useRuntimeErrorReports();
+    const { presentFailureToast } = useFailureToast();
     const assistantSelectionStorage = defaultWindow?.localStorage;
     const initialAssistantSelectionPreference = readAssistantSelectionPreference(assistantSelectionStorage);
     const initialSelectedProvider = initialAssistantSelectionPreference?.provider ?? 'codex';
@@ -449,7 +453,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
         reportRuntimeError(presentation);
         if (options.target !== 'none') {
+            // Told in a toast; kept so the panel does not repeat it inline.
             assistantFailurePresentation.value = presentation;
+            presentFailureToast(presentation);
         }
         return { presentation };
     }

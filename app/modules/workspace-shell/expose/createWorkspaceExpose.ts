@@ -408,10 +408,13 @@ export function createWorkspaceExpose(
         getToolbarSnapshot,
         getOpenFailure: () => {
             const message = file.pdfError.value ?? file.djvuError.value;
+            const presentation = file.pdfFailurePresentation.value;
             return message
                 ? {
-                    message: String(message),
-                    failure: file.pdfFailurePresentation.value?.failure ?? null,
+                    message: presentation?.description ?? String(message),
+                    failure: presentation?.failure ?? null,
+                    ...(presentation?.technicalDetails ? {technicalDetails: presentation.technicalDetails} : {}),
+                    ...(presentation?.actions ? {actions: presentation.actions} : {}),
                 }
                 : null;
         },

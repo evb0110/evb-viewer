@@ -4,23 +4,15 @@ import type {
 } from '@contracts/electronApiDocuments';
 import { createRequestId } from '@contracts/shared';
 import type { TRequestId } from '@contracts/shared';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
 import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
 
-interface IUseDocumentWorkspaceOptimizeDialogOptions {
-    handleOptimizePdfAsCopy: (options: IPdfOptimizeOptions, requestId: TRequestId) => Promise<boolean>;
-    getLastFailurePresentation: () => FailurePresentation | null;
-}
+interface IUseDocumentWorkspaceOptimizeDialogOptions {handleOptimizePdfAsCopy: (options: IPdfOptimizeOptions, requestId: TRequestId) => Promise<boolean>;}
 
-export const useDocumentWorkspaceOptimizeDialog = ({
-    getLastFailurePresentation,
-    handleOptimizePdfAsCopy,
-}: IUseDocumentWorkspaceOptimizeDialogOptions) => {
+export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IUseDocumentWorkspaceOptimizeDialogOptions) => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const optimizeDialogOpen = ref(false);
     const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
-    const optimizeDialogError = ref<FailurePresentation | null>(null);
     const optimizeRequestId = ref<TRequestId | null>(null);
     const isOptimizeDialogRunning = computed(() => optimizeRequestId.value !== null);
 
@@ -29,7 +21,6 @@ export const useDocumentWorkspaceOptimizeDialog = ({
     }
 
     function openOptimizePdfForInteractionDialog() {
-        optimizeDialogError.value = null;
         optimizeProgress.value = null;
         optimizeDialogOpen.value = true;
         return true;
@@ -42,7 +33,6 @@ export const useDocumentWorkspaceOptimizeDialog = ({
 
         optimizeDialogOpen.value = value;
         if (value) {
-            optimizeDialogError.value = null;
             optimizeProgress.value = null;
         }
     }
@@ -54,7 +44,6 @@ export const useDocumentWorkspaceOptimizeDialog = ({
 
         const requestId = createOptimizeRequestId();
         optimizeRequestId.value = requestId;
-        optimizeDialogError.value = null;
         optimizeProgress.value = {
             requestId,
             preset: options.preset,
@@ -72,7 +61,7 @@ export const useDocumentWorkspaceOptimizeDialog = ({
                 title: t('optimizePdf.successTitle'),
             });
         } else {
-            optimizeDialogError.value = getLastFailurePresentation();
+            // The save surface has told why; the dialog stays open for a retry.
             optimizeProgress.value = null;
         }
 
@@ -94,7 +83,6 @@ export const useDocumentWorkspaceOptimizeDialog = ({
         handleOptimizeDialogSubmit,
         isOptimizeDialogRunning,
         openOptimizePdfForInteractionDialog,
-        optimizeDialogError,
         optimizeDialogOpen,
         optimizeProgress,
     };

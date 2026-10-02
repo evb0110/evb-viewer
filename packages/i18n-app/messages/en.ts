@@ -1656,7 +1656,7 @@ export default {
         },
         'file': {
             'open': 'Failed to open file',
-            'openDescription': 'The file could not be opened. Technical details are available below.',
+            'openDescription': 'The file could not be opened. Copy details includes the technical reason.',
             'pdfjsAssetMismatch': 'The PDF viewer needs its development dependencies synchronized before this file can open.',
             'pdfjsAssetRepairAction': 'Copy repair command',
             'pdfjsAssetRepairCopied': 'Repair command copied',
@@ -1769,6 +1769,7 @@ export default {
             'startupDescription': 'The app could not finish starting. Reload to try again.',
             'reload': 'Reload App',
             'copy': 'Copy details',
+            'copied': 'Copied',
             'errorId': 'Error ID',
             'dismiss': 'Dismiss',
             'source': 'Source',

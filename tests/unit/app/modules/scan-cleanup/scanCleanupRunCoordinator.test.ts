@@ -16,6 +16,7 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
+import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 const diagnosticMocks = vi.hoisted(() => ({
@@ -766,7 +767,7 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: expect.stringContaining('scan-cleanup IPC codec failed\nError ID: 01234567'),
+                description: toastDescriptionContaining('scan-cleanup IPC codec failed\nError ID: 01234567'),
             }));
             expect(coordinator.scanCleanupRun.lastError?.failure).toEqual(diagnosticMocks.failure);
         } finally {
@@ -813,7 +814,7 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: expect.stringContaining('page 17 has invalid geometry\nError ID: 01234567'),
+                description: toastDescriptionContaining('page 17 has invalid geometry\nError ID: 01234567'),
             }));
         } finally {
             cleanup();

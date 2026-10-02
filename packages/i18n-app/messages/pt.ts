@@ -1667,7 +1667,7 @@ export default {
         },
         'file': {
             'open': 'Falha ao abrir ficheiro',
-            'openDescription': 'Não foi possível abrir o ficheiro. Os detalhes técnicos estão disponíveis abaixo.',
+            'openDescription': 'Não foi possível abrir o ficheiro. «Copiar detalhes» inclui o motivo técnico.',
             'pdfjsAssetMismatch': 'O visualizador de PDF precisa de sincronizar as dependências de desenvolvimento antes de abrir este ficheiro.',
             'pdfjsAssetRepairAction': 'Copiar comando de reparação',
             'pdfjsAssetRepairCopied': 'Comando de reparação copiado',
@@ -1780,6 +1780,7 @@ export default {
             'startupDescription': 'A aplicação não conseguiu concluir a inicialização. Recarregue-a e tente novamente.',
             'reload': 'Recarregar aplicação',
             'copy': 'Copiar detalhes',
+            'copied': 'Copiado',
             'errorId': 'ID do erro',
             'dismiss': 'Ignorar',
             'source': 'Origem',

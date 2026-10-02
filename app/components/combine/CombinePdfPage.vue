@@ -47,33 +47,6 @@
                     :disabled="queueMutationLocked"
                     @click="openFileInput"
                 />
-                <div
-                    v-if="files.length === 0 && (lastRejectedCount > 0 || combineError)"
-                    class="combine-dropzone-alerts"
-                >
-                    <UAlert
-                        v-if="lastRejectedCount > 0"
-                        color="warning"
-                        variant="soft"
-                        icon="i-ph-warning-circle"
-                        :description="t('combinePdf.unsupportedFiles', { count: lastRejectedCount })"
-                    />
-                    <AppFailureAlert
-                        v-if="combineError && combineFailure"
-                        :presentation="{
-                            failure: combineFailure,
-                            title: t('combinePdf.title'),
-                            description: combineError,
-                        }"
-                    />
-                    <UAlert
-                        v-else-if="combineError && combineErrorIsExpected"
-                        color="warning"
-                        variant="soft"
-                        icon="i-ph-warning-circle"
-                        :description="combineError"
-                    />
-                </div>
             </section>
 
             <section
@@ -116,30 +89,6 @@
                         @click="clearFiles"
                     />
                 </header>
-
-                <UAlert
-                    v-if="lastRejectedCount > 0"
-                    color="warning"
-                    variant="soft"
-                    icon="i-ph-warning-circle"
-                    :description="t('combinePdf.unsupportedFiles', { count: lastRejectedCount })"
-                />
-
-                <AppFailureAlert
-                    v-if="combineError && combineFailure"
-                    :presentation="{
-                        failure: combineFailure,
-                        title: t('combinePdf.title'),
-                        description: combineError,
-                    }"
-                />
-                <UAlert
-                    v-else-if="combineError && combineErrorIsExpected"
-                    color="warning"
-                    variant="soft"
-                    icon="i-ph-warning-circle"
-                    :description="combineError"
-                />
 
                 <p class="sr-only" role="status" aria-live="polite">{{ reorderAnnouncement }}</p>
 
@@ -197,8 +146,8 @@
 import { useEventListener } from '@vueuse/core';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import CombinePdfFileList from '@app/components/combine/CombinePdfFileList.vue';
 import type { ICombineFile } from '@app/modules/combine/combineFile';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
@@ -298,10 +247,48 @@ const queue = useCombinePdfQueue({
     toQueueItem: toCombineFile,
 });
 const {lastRejectedCount} = queue;
+const {
+    presentFailureToast,
+    presentNoticeToast,
+} = useFailureToast();
 function addFiles(fileList: FileList | File[]) {
     combineError.value = null;
     queue.addFiles(fileList);
+    if (lastRejectedCount.value > 0) {
+        presentNoticeToast({
+            tone: 'warning',
+            title: t('combinePdf.title'),
+            description: t('combinePdf.unsupportedFiles', { count: lastRejectedCount.value }),
+        });
+    }
 }
+
+// A combine, open or save that fails is told once, when it fails; the queue
+// stays as it was so the user can retry.
+watch([
+    combineError,
+    combineFailure,
+], ([
+    message,
+    failure,
+]) => {
+    if (!message) {
+        return;
+    }
+    if (failure) {
+        presentFailureToast({
+            failure,
+            title: t('combinePdf.title'),
+            description: message,
+        });
+    } else if (combineErrorIsExpected.value) {
+        presentNoticeToast({
+            tone: 'warning',
+            title: t('combinePdf.title'),
+            description: message,
+        });
+    }
+});
 
 function openFileInput() {
     if (queueMutationLocked.value) {
@@ -529,12 +516,6 @@ onBeforeUnmount(cancelCombine);
     color: var(--ui-text-muted);
     font-size: var(--app-combine-dropzone-copy-text-size);
     line-height: var(--app-line-height-body);
-}
-
-.combine-dropzone-alerts {
-    display: grid;
-    width: min(100%, var(--app-combine-dropzone-alert-width));
-    gap: var(--app-space-3xl);
 }
 
 .combine-workbench {

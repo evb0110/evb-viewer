@@ -1656,7 +1656,7 @@ export default {
         },
         'file': {
             'open': 'Impossibile aprire il file',
-            'openDescription': 'Impossibile aprire il file. I dettagli tecnici sono disponibili qui sotto.',
+            'openDescription': 'Impossibile aprire il file. «Copia dettagli» include il motivo tecnico.',
             'pdfjsAssetMismatch': 'Il visualizzatore PDF deve sincronizzare le dipendenze di sviluppo prima di aprire questo file.',
             'pdfjsAssetRepairAction': 'Copia comando di riparazione',
             'pdfjsAssetRepairCopied': 'Comando di riparazione copiato',
@@ -1769,6 +1769,7 @@ export default {
             'startupDescription': 'L’app non è riuscita a completare l’avvio. Ricaricala e riprova.',
             'reload': 'Ricarica app',
             'copy': 'Copia dettagli',
+            'copied': 'Copiato',
             'errorId': 'ID errore',
             'dismiss': 'Ignora',
             'source': 'Origine',

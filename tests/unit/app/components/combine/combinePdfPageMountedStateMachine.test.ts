@@ -59,6 +59,7 @@ const platformApi = createElectronPlatformApiFixture({
     documentWorkingCopy: {cleanupFile: mocks.cleanupFile},
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
 const ButtonStub = defineComponent({

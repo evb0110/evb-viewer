@@ -34,11 +34,8 @@ const ERROR_SURFACE_SELECTORS = [
     // report. A person reads "Error report ready" there.
     '.runtime-error-reports-card',
     '.app-toast',
-    '.app-failure-alert',
     '.pdf-error',
     '.viewer-error',
-    '[data-testid="workspace-document-pdf-error"]',
-    '[data-testid="workspace-document-djvu-error"]',
     '[data-error="true"]',
 ];
 

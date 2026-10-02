@@ -523,7 +523,6 @@ function isApplicationSource(repoPath) {
 
 function isSharedFailurePresenter(repoPath) {
     return repoPath === 'app/composables/useFailureToast.ts'
-        || repoPath === 'app/components/AppFailureAlert.vue'
         || repoPath === 'app/components/AppFatalRuntimeDialog.vue';
 }
 

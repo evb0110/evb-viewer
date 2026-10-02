@@ -458,7 +458,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(queueState.firstRowIndex).toBe('0');
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
-    it('returns an empty tab to Start with a visible error when a launch path cannot be opened', async () => {
+    it('returns an empty tab to Start and tells the failure when a launch path cannot be opened', async () => {
         const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-open-${process.pid}-${Date.now()}.pdf`);
         onTestFinished(() => rmSync(brokenPath, {force: true}));
         writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
@@ -469,12 +469,12 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         });
         const {page} = session;
 
-        await page.waitForSelector('[data-testid="start-open-failure"]', {
+        await page.waitForSelector('.app-toast-failure', {
             visible: true,
             timeout: 45_000,
         });
         const shownState = await page.evaluate(() => ({
-            alert: document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? '',
+            alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
             activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
             startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
         }));
@@ -501,12 +501,12 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
         await page.click('.start-open-panel .open-panel-cta');
 
-        await page.waitForSelector('[data-testid="start-open-failure"]', {
+        await page.waitForSelector('.app-toast-failure', {
             visible: true,
             timeout: 45_000,
         });
         const shownState = await page.evaluate(() => ({
-            alert: document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? '',
+            alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
             activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
             startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
         }));
@@ -654,16 +654,16 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             return watch.max;
         });
 
-        // Into an empty tab: the failure is told on Start, not retried in a new tab.
+        // Into an empty tab: the tab returns to Start and the failure is told in a toast, not retried in a new tab.
         await watchTabCount();
         await expect(openRoutedPathAndSettle(brokenIntoEmptyTab)).resolves.toBe(false);
-        await page.waitForSelector('[data-testid="start-open-failure"]', {
+        await page.waitForSelector('.app-toast-failure', {
             visible: true,
             timeout: 45_000,
         });
         expect(await readMaxTabCount()).toBe(1);
         expect(await page.evaluate(() => (
-            document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? ''
+            document.querySelector('.app-toast-failure')?.textContent ?? ''
         ))).toContain(basename(brokenIntoEmptyTab));
 
         // Beside an open document: the failed file's tab goes away and says why.

@@ -50,6 +50,7 @@ const platformApi = createElectronPlatformApiFixture({agent: {
 }});
 const assistantEvent = platformApi.agent.onAssistantEvent as typeof platformApi.agent.onAssistantEvent & IPlatformApiFixtureEventMethod<IAgentAssistantEvent>;
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     useTypedI18n: () => ({t: (key: string) => key}),

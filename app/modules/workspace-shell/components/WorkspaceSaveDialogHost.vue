@@ -22,7 +22,6 @@
             :supports-first-page-single-print-layout="print.supportsFirstPageSinglePrintLayout.value"
             :is-preparing="print.isPreparingPrint.value"
             :status="print.printStatus.value"
-            :error="print.printError.value"
             @submit="print.handlePrintDialogSubmit"
             @update:open="print.handlePrintDialogOpenChange"
         />
@@ -31,7 +30,6 @@
             :open="presentsDocumentDialogs && optimize.optimizeDialogOpen.value"
             :is-running="optimize.isOptimizeDialogRunning.value"
             :progress="optimize.optimizeProgress.value"
-            :error="optimize.optimizeDialogError.value"
             @submit="optimize.handleOptimizeDialogSubmit"
             @update:open="optimize.handleOptimizeDialogOpenChange"
         />

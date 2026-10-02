@@ -48,7 +48,6 @@ import ZoneEditorOverlay from '@app/modules/scan-cleanup/components/preview/Zone
 import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanupToolbar.vue';
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
 import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
@@ -378,6 +377,9 @@ function flattenMessages(prefix: string, messages: object): Record<string, strin
             : Object.entries(flattenMessages(`${prefix}.${key}`, value as object))
     )));
 }
+
+const toastAdd = vi.fn();
+vi.stubGlobal('useToast', () => ({add: toastAdd}));
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -783,7 +785,6 @@ function mount(component: Parameters<typeof createApp>[0]) {
     document.body.append(host);
     const app = createApp(component);
     app.component('AppTooltip', TooltipStub);
-    app.component('AppFailureAlert', AppFailureAlert);
     app.component('UAlert', defineComponent({
         props: {
             title: String,
@@ -1315,6 +1316,7 @@ function createWorkspaceEntrySession(overrides: Record<string, unknown> = {}) {
 }
 
 afterEach(() => {
+    toastAdd.mockClear();
     for (const unmount of activeUnmounts) unmount();
     document.body.innerHTML = '';
     localStorage.clear();
@@ -1423,7 +1425,7 @@ describe('Scan cleanup components', () => {
         expect(workspaceSessionOptions.value?.sourceSha256?.()).toBe(sourceSha256);
     });
 
-    it('renders a failed settings load and routes Retry to the document settings owner', async () => {
+    it('tells a failed settings load in a toast whose Retry reaches the document settings owner', async () => {
         const retry = vi.fn();
         const failure = {
             ...captureFailureForPresentation({
@@ -1444,9 +1446,14 @@ describe('Scan cleanup components', () => {
             sourcePath: null,
             totalPages: 3,
         })));
-        expect(harness.host.querySelector('[role="alert"]')?.textContent).toContain('Settings read failed');
-        Array.from(harness.host.querySelectorAll<HTMLButtonElement>('[role="alert"] button'))
-            .find(button => button.textContent === 'Retry')?.click();
+        expect(harness.host.textContent).not.toContain('Settings read failed');
+        expect(toastAdd).toHaveBeenCalledOnce();
+        const toast = toastAdd.mock.calls[0]?.[0] as {
+            title: string;
+            actions: IFailureToastAction[];
+        };
+        expect(toast.title).toBe('Settings read failed');
+        toast.actions.find(action => action.label === 'Retry')?.onClick();
         expect(retry).toHaveBeenCalledOnce();
         expect(harness.host.querySelector('fieldset')?.disabled).toBe(false);
     });

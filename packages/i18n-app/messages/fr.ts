@@ -1667,7 +1667,7 @@ export default {
         },
         'file': {
             'open': 'Échec de l’ouverture du fichier',
-            'openDescription': 'Le fichier n’a pas pu être ouvert. Les détails techniques sont disponibles ci-dessous.',
+            'openDescription': 'Le fichier n’a pas pu être ouvert. « Copier les détails » inclut la raison technique.',
             'pdfjsAssetMismatch': 'Le lecteur PDF doit synchroniser ses dépendances de développement avant d’ouvrir ce fichier.',
             'pdfjsAssetRepairAction': 'Copier la commande de réparation',
             'pdfjsAssetRepairCopied': 'Commande de réparation copiée',
@@ -1780,6 +1780,7 @@ export default {
             'startupDescription': 'L’application n’a pas pu terminer son démarrage. Rechargez-la puis réessayez.',
             'reload': 'Recharger l’application',
             'copy': 'Copier les détails',
+            'copied': 'Copié',
             'errorId': 'ID d’erreur',
             'dismiss': 'Ignorer',
             'source': 'Source',

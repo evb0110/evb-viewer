@@ -373,7 +373,7 @@ describe('browser document lifecycle UI', () => {
                 buffer: Buffer.from('%PDF-1.7\ncorrupt and truncated'),
             });
 
-            await page.getByTestId('workspace-document-pdf-error').waitFor({
+            await page.locator('.app-toast-failure').filter({hasText: 'Failed to open file'}).waitFor({
                 state: 'visible',
                 timeout: 30_000,
             });

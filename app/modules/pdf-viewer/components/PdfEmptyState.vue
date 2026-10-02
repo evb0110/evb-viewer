@@ -51,24 +51,6 @@
             </aside>
 
             <main class="start-main">
-                <AppFailureAlert
-                    v-if="openFailurePresentation"
-                    :presentation="openFailurePresentation"
-                    class="start-open-failure"
-                    data-testid="start-open-failure"
-                />
-                <UAlert
-                    v-else-if="openFailure"
-                    color="neutral"
-                    variant="soft"
-                    icon="i-ph-warning"
-                    class="start-open-failure"
-                    data-testid="start-open-failure"
-                    :title="t('errors.file.open')"
-                    :description="openFailureDescription"
-                    :actions="[openFailureDismissAction]"
-                />
-
                 <template v-if="activeSection === 'recent'">
                     <section class="start-open-panel" :aria-labelledby="openPanelButtonId">
                         <span class="open-panel-art" aria-hidden="true">
@@ -119,21 +101,6 @@
                                 />
                             </div>
                         </header>
-
-                        <div
-                            v-if="recentFilesResolved && recentFilesError"
-                            class="recent-load-error"
-                            role="alert"
-                        >
-                            <span>{{ t('errors.recent.load') }}: {{ recentFilesError }}</span>
-                            <UButton
-                                color="neutral"
-                                variant="soft"
-                                size="sm"
-                                :label="t('common.retry')"
-                                @click="emit('retry-recent')"
-                            />
-                        </div>
 
                         <div
                             v-if="shouldShowRecentTable"
@@ -262,7 +229,23 @@
                             </div>
                         </div>
 
-                        <div v-else-if="!recentFilesError" class="recent-empty">
+                        <!-- A list that could not load says so in its own box, where its rows would be. -->
+                        <div
+                            v-else-if="recentFilesError"
+                            class="recent-empty"
+                            data-testid="recent-load-error"
+                        >
+                            <UIcon name="i-ph-warning-circle" class="recent-empty-icon" />
+                            <p>{{ t('errors.recent.load') }}</p>
+                            <UButton
+                                color="neutral"
+                                variant="outline"
+                                size="sm"
+                                :label="t('common.retry')"
+                                @click="emit('retry-recent')"
+                            />
+                        </div>
+                        <div v-else class="recent-empty">
                             <UIcon
                                 :name="recentFiles.length === 0 ? 'i-ph-folder-open' : 'i-ph-magnifying-glass'"
                                 class="recent-empty-icon"
@@ -339,21 +322,13 @@
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
-import type {
-    FailurePresentation,
-    IFailureToastAction,
-} from '@app/composables/useFailureToast';
-import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import { useElementSize } from '@vueuse/core';
 import { formatRelativeTime } from '@app/utils/formatters';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
-import type {
-    IStartOpenFailure,
-    TStartSection,
-} from '@app/types/startSection';
+import type { TStartSection } from '@app/types/startSection';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
 import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
@@ -369,7 +344,6 @@ const {
     recentFiles,
     recentFilesResolved = true,
     recentFilesError = null,
-    openFailure = null,
     openBatchProgress = null,
     openInProgress = false,
     isRecentOpenReady = () => true,
@@ -380,7 +354,6 @@ const {
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
     recentFilesError?: string | null | undefined;
-    openFailure?: IStartOpenFailure | null | undefined;
     openBatchProgress?: IPdfOpenBatchProgress | null | undefined;
     openInProgress?: boolean | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
@@ -397,7 +370,6 @@ const emit = defineEmits<{
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
     'retry-recent': [];
-    'dismiss-open-failure': [];
 }>();
 const { t } = useTypedI18n();
 const recentSkeletonRows = 5;
@@ -413,25 +385,6 @@ const { width: rootWidth } = useElementSize(rootRef);
 const isRecentControlsCompact = computed(() => rootWidth.value > 0 && rootWidth.value <= 520);
 const recentClearLabelProps = computed(() => (
     isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
-));
-const openFailureDescription = computed(() => (
-    openFailure?.fileName ? `${openFailure.fileName}: ${openFailure.message}` : openFailure?.message ?? ''
-));
-const openFailureDismissAction: IFailureToastAction = {
-    label: t('errors.runtime.dismiss'),
-    color: 'neutral',
-    variant: 'outline',
-    onClick: () => emit('dismiss-open-failure'),
-};
-const openFailurePresentation = computed<FailurePresentation | null>(() => (
-    openFailure?.failure
-        ? {
-            failure: openFailure.failure,
-            title: t('errors.file.open'),
-            description: openFailureDescription.value,
-            actions: [openFailureDismissAction],
-        }
-        : null
 ));
 
 function displayRecentFileName(fileName: string) {
@@ -741,10 +694,6 @@ watch(() => openInProgress, (isOpening) => {
     min-height: 0;
 }
 
-.start-open-failure {
-    flex: none;
-}
-
 .start-tool-page {
     height: 100%;
     min-height: 0;
@@ -816,18 +765,6 @@ watch(() => openInProgress, (isOpening) => {
     flex-wrap: wrap;
     justify-content: space-between;
     padding: var(--app-start-recent-header-padding);
-}
-
-.recent-load-error {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--app-start-recent-header-gap);
-    flex: 0 0 auto;
-    padding: var(--app-start-recent-header-padding);
-    border-top: 1px solid var(--app-start-row-divider);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-secondary);
 }
 
 .recent-title {

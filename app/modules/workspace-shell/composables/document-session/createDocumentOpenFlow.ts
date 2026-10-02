@@ -88,11 +88,6 @@ interface ICreateDocumentOpenFlowDeps {
         },
     ) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
-    reportOpenFailure?: (
-        operationId: string,
-        reason: 'unsupported-encryption',
-        detail?: string | null,
-    ) => boolean;
     t: TTranslateFn;
 }
 
@@ -266,10 +261,9 @@ export function createDocumentOpenFlow(
         }
     }
 
-    function reportUnsupportedEncryption(openRequestId: number) {
+    function reportUnsupportedEncryption() {
         const message = deps.t('errors.file.unsupportedEncryption');
         state.error.value = message;
-        deps.reportOpenFailure?.(`open:${openRequestId}`, 'unsupported-encryption');
         return {
             status: 'failed',
             error: message,

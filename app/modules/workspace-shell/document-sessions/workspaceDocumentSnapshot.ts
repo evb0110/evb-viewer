@@ -1,7 +1,7 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
-import type { IStartOpenFailure } from '@app/types/startSection';
+import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
 
 /**
  * The tab's document lifecycle. `presented` means the tab owns a document the
@@ -42,6 +42,9 @@ export interface IWorkspaceDocumentTransaction {
     acceptDocumentWithoutVisual: boolean;
 }
 
+/** Why an open failed, with the file it tried to open. */
+export interface IWorkspaceRecordedFailure extends IWorkspaceOpenFailure {fileName: string | null;}
+
 export interface IWorkspaceDocumentSnapshot {
     sessionId: string;
     sessionRevision: number;
@@ -50,8 +53,8 @@ export interface IWorkspaceDocumentSnapshot {
     activeTransaction: IWorkspaceDocumentTransaction | null;
     /** Batch opens name the tab by their progress instead of a file. */
     openingLabel: string | null;
-    /** Why the last open failed, with the file it tried to open. */
-    failure: IStartOpenFailure | null;
+    /** Why the last open failed. */
+    failure: IWorkspaceRecordedFailure | null;
     dirty: boolean;
     /** A checkpoint working copy that must be recovered before the source file. */
     recoveryWorkingCopyPath: TDocumentRef | null;

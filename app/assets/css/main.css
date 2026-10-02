@@ -588,7 +588,6 @@
     --app-combine-dropzone-copy-gap: var(--app-space-md);
     --app-combine-dropzone-copy-title-size: var(--app-text-size-title-md);
     --app-combine-dropzone-copy-text-size: 0.86rem;
-    --app-combine-dropzone-alert-width: var(--app-content-width-sm);
     --app-combine-workbench-min-height: 28rem;
     --app-combine-workbench-gap: var(--app-space-11xl);
     --app-combine-workbench-padding: var(--app-space-12xl);
@@ -1099,6 +1098,23 @@
     );
     overflow-y: auto;
     overscroll-behavior: contain;
+}
+
+/* Toasts name files, and file names often have no break opportunity. */
+.app-toast [data-slot='description'] {
+    overflow-wrap: anywhere;
+}
+
+.app-toast-failure-description {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-xs);
+}
+
+.app-toast-error-id {
+    color: var(--ui-text-dimmed);
+    font-size: var(--app-text-size-caption);
+    font-variant-numeric: tabular-nums;
 }
 
 .app-panel-scroll {

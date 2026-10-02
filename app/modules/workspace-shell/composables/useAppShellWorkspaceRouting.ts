@@ -6,10 +6,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceOpenFailure,
-} from '@app/types/workspaceExpose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -45,8 +42,6 @@ interface IUseAppShellWorkspaceRoutingOptions {
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
     mergeWindowInto: (windowId: number) => Promise<void>;
-    /** Tells the user an open failed when no tab is left to show it. */
-    reportOpenFailure?: (fileName: string | null, failure: IWorkspaceOpenFailure) => void;
 }
 
 /** Decides which tab a document opens in and asks that tab's controller to open it. */
@@ -159,11 +154,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 failedTabId: tab.id,
                 restoredTabId: outgoingTabId,
             });
-            const failure = readFailure(tab.id);
             options.removeTabFromState(tab.id);
-            if (failure) {
-                options.reportOpenFailure?.(failure.fileName, failure);
-            }
         }
         return opened;
     }
@@ -257,9 +248,6 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             const failure = readFailure(tabId);
             if (tabId !== reusableTabId) {
                 options.removeTabFromState(tabId);
-                if (failure) {
-                    options.reportOpenFailure?.(failure.fileName, failure);
-                }
             }
             if (!failure) {
                 throw new Error('Startup tab was not available for external open');

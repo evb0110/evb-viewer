@@ -6,7 +6,7 @@
         :data-workspace-tab-id="tabId"
     >
         <DocumentWorkspace
-            v-if="!crashFailure"
+            v-if="crashDescription === null"
             :key="renderKey"
             :tab-id="tabId"
             :is-active="isActive"
@@ -24,8 +24,7 @@
         />
         <DocumentWorkspaceFailurePanel
             v-else
-            :description="crashFailure.description ?? ''"
-            :presentation="crashFailure"
+            :description="crashDescription"
             @close="emit('request-close-tab')"
             @retry="retry"
         />
@@ -37,7 +36,6 @@
                 :recent-files="recentFiles"
                 :recent-files-resolved="recentFilesResolved"
                 :recent-files-error="recentFilesError"
-                :open-failure="startOpenFailure"
                 :open-batch-progress="null"
                 :open-in-progress="isOpening"
                 :is-recent-open-ready="isRecentOpenReady"
@@ -53,7 +51,6 @@
                 @reveal-recent="revealRecentFile"
                 @clear-recent="clearRecentFiles"
                 @retry-recent="retryRecentFiles"
-                @dismiss-open-failure="documentSession.dismissFailure()"
             />
         </div>
     </div>
@@ -65,7 +62,6 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { FailurePresentation } from '@app/composables/useFailureToast';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import {
     describeDocumentTarget,
@@ -74,10 +70,9 @@ import {
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
 import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
-import {
-    identityHasDocument,
-    type IWorkspaceDocumentController,
-    type IWorkspaceOpenRequest,
+import type {
+    IWorkspaceDocumentController,
+    IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
@@ -124,7 +119,7 @@ const {
     removeRecentFile,
     clearRecentFiles,
 } = useRecentFiles();
-const crashFailure = shallowRef<FailurePresentation | null>(null);
+const crashDescription = ref<string | null>(null);
 const renderKey = ref(0);
 
 const snapshot = computed(() => documentSession.snapshot.value);
@@ -156,11 +151,6 @@ watch([
     immediate: true,
     flush: 'sync',
 });
-const startOpenFailure = computed(() => (
-    snapshot.value.phase === 'failed' && !identityHasDocument(snapshot.value.identity)
-        ? snapshot.value.failure
-        : null
-));
 
 function isRecentOpenReady(file: IRecentFile) {
     return snapshot.value.activeTransaction?.target?.originalPath !== file.originalPath;
@@ -242,24 +232,22 @@ async function revealRecentFile(file: IRecentFile) {
     }
 }
 
-// A crash inside one tab's workspace is isolated to that tab: it shows why and
-// offers a retry or close, and the other tabs keep working.
+// A crash inside one tab's workspace is isolated to that tab: the tab offers a
+// retry or close in place of the workspace, the toast reports it, and the
+// other tabs keep working.
 onErrorCaptured((error, instance, info) => {
     const failure = handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {tabId});
     documentSession.markFailed({
         message: getErrorMessage(error),
         failure,
-    });
-    crashFailure.value = {
-        failure,
         title: t('errors.workspace.loadTitle'),
-        description: t('errors.workspace.loadDescriptionWithMessage', {message: getErrorMessage(error)}),
-    };
+    });
+    crashDescription.value = t('errors.workspace.loadDescriptionWithMessage', {message: getErrorMessage(error)});
     return false;
 });
 
 function retry() {
-    crashFailure.value = null;
+    crashDescription.value = null;
     renderKey.value += 1;
 }
 

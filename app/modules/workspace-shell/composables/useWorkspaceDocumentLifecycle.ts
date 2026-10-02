@@ -105,6 +105,14 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             : null);
     });
 
+    // A document that fails outside an open, such as a reload that did not
+    // load, is told when it fails; an open's failure is told when it ends.
+    watch(options.readOpenFailure, (failure) => {
+        if (failure && !activeOpen.value) {
+            session.reportFailure(failure);
+        }
+    });
+
     watch(
         [
             acceptedTransactionId,

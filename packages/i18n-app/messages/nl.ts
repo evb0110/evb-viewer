@@ -1656,7 +1656,7 @@ export default {
         },
         'file': {
             'open': 'Kan bestand niet openen',
-            'openDescription': 'Het bestand kon niet worden geopend. Hieronder staan de technische details.',
+            'openDescription': 'Het bestand kon niet worden geopend. „Details kopiëren” bevat de technische oorzaak.',
             'pdfjsAssetMismatch': 'De PDF-viewer moet de ontwikkelafhankelijkheden synchroniseren voordat dit bestand kan worden geopend.',
             'pdfjsAssetRepairAction': 'Reparatieopdracht kopiëren',
             'pdfjsAssetRepairCopied': 'Reparatieopdracht gekopieerd',
@@ -1769,6 +1769,7 @@ export default {
             'startupDescription': 'De app kon niet volledig opstarten. Laad opnieuw en probeer het nog eens.',
             'reload': 'App opnieuw laden',
             'copy': 'Details kopiëren',
+            'copied': 'Gekopieerd',
             'errorId': 'Fout-ID',
             'dismiss': 'Sluiten',
             'source': 'Bron',

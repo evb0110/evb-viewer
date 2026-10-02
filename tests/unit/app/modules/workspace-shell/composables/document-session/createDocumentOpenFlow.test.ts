@@ -85,11 +85,7 @@ interface IResetHistoryTestOptions {
     isCurrent?: (() => boolean) | undefined;
 }
 
-function createOpenFlowHarness(options: {reportOpenFailure?: (
-    operationId: string,
-    reason: 'unsupported-encryption',
-    detail?: string | null,
-) => boolean;} = {}) {
+function createOpenFlowHarness() {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
@@ -101,7 +97,6 @@ function createOpenFlowHarness(options: {reportOpenFailure?: (
         loadEpoch: createEpochGuard(),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
-        ...(options.reportOpenFailure === undefined ? {} : {reportOpenFailure: options.reportOpenFailure}),
         resetHistory: vi.fn(async (_snapshot, options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
@@ -334,11 +329,10 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('reports unsupported encryption without opening a password prompt', async () => {
-        const reportOpenFailure = vi.fn(() => true);
         const {
             openFlow,
             state,
-        } = createOpenFlowHarness({reportOpenFailure});
+        } = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
         const protectedPath = requireDocumentRef('/documents/unsupported.pdf');
         mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
@@ -351,10 +345,6 @@ describe('createDocumentOpenFlow', () => {
             error: 'errors.file.unsupportedEncryption',
         });
         expect(prompt.open.value).toBe(false);
-        expect(reportOpenFailure).toHaveBeenCalledWith(
-            expect.stringMatching(/^open:\d+$/u),
-            'unsupported-encryption',
-        );
         expect(state.error.value).toBe('errors.file.unsupportedEncryption');
     });
 

@@ -32,6 +32,7 @@ import {
 import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { toastDescription } from '@tests/helpers/toastDescription';
 
 vi.mock('vue', async (importOriginal) => {
     const actual = await importOriginal<typeof TVueModule>();
@@ -495,8 +496,8 @@ describe('useDjvu', () => {
             expect(djvu.sourceError.value).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Windows converter failed\nError ID: 01234567',
-                actions: expect.arrayContaining([expect.objectContaining({label: 'Copy details'})]),
+                description: toastDescription('Windows converter failed\nError ID: 01234567'),
+                actions: expect.arrayContaining([expect.objectContaining({label: 'errors.runtime.copy'})]),
             }));
             expect(browserLoggerMock.error).toHaveBeenCalledWith(
                 'djvu',
@@ -528,7 +529,7 @@ describe('useDjvu', () => {
             expect(browserLoggerMock.error).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Native conversion failed\nError ID: 01234567',
+                description: toastDescription('Native conversion failed\nError ID: 01234567'),
             }));
         });
 
@@ -602,7 +603,7 @@ describe('useDjvu', () => {
             expect(browserLoggerMock.error).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Browser worker conversion failed\nError ID: 01234567',
+                description: toastDescription('Browser worker conversion failed\nError ID: 01234567'),
             }));
         });
 
@@ -630,7 +631,7 @@ describe('useDjvu', () => {
             );
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Failed to abort PDF output cleanup\nError ID: 01234567',
+                description: toastDescription('Failed to abort PDF output cleanup\nError ID: 01234567'),
             }));
         });
 
@@ -725,7 +726,7 @@ describe('useDjvu', () => {
             expect(djvu.sourceError.value).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Browser converter failed\nError ID: 01234567',
+                description: toastDescription('Browser converter failed\nError ID: 01234567'),
             }));
             expect(mockDocumentWorkingCopyCapability.cleanupFile)
                 .toHaveBeenCalledWith('browser://documents/output/out.pdf');

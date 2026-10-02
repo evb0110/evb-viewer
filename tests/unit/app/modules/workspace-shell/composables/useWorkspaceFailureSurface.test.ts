@@ -11,6 +11,7 @@ import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 const toastAddMock = vi.fn();
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
@@ -70,7 +71,7 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(capture).toHaveBeenCalledOnce();
         expect(surface.saveFailurePresentation.value?.failure).toBe(receipt);
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('Error ID: receipt')}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('Error ID: receipt')}));
     });
 
     it('shows one toast when a low-level failure and a service result share an operation', () => {
@@ -83,7 +84,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: expect.stringContaining('errors.save.validation'),
+            description: toastDescriptionContaining('errors.save.validation'),
         }));
         expect(surface.hasSaveFailure.value).toBe(true);
     });
@@ -102,7 +103,7 @@ describe('useWorkspaceFailureSurface', () => {
 
         surface.reportSaveFailure('save-1', 'unexpected-error', 'disk exploded');
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('disk exploded')}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('disk exploded')}));
     });
 
     it('drops the durable state when the save domain is cleared', () => {
@@ -131,7 +132,7 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(surface.reportSaveFailure('save-1', 'document-changed')).toBe(true);
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('errors.save.documentChanged')}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.save.documentChanged')}));
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 
@@ -201,7 +202,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.annotation.create',
-            description: expect.stringContaining('Error ID: annotati'),
+            description: toastDescriptionContaining('Error ID: annotati'),
         }));
     });
 });
