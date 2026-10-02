@@ -506,7 +506,7 @@ export interface IScanCleanupService {
     getState: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     subscribe: (sender: WebContents, jobId: string, owner: IScanCleanupOwnerContext) => TScanCleanupJobState | null;
     pruneGeneratedOutputs: () => Promise<number>;
-    getPendingCompletedOutputs: () => Promise<readonly TDocumentRef[]>;
+    getPendingCompletedOutputs: (sender: WebContents) => Promise<readonly TDocumentRef[]>;
     acknowledgeCompletedOutputs: (outputPaths: readonly TDocumentRef[]) => Promise<void>;
 }
 
@@ -1019,8 +1019,12 @@ export function createScanCleanupService(
             });
             return pruneOutputsInFlight;
         },
-        getPendingCompletedOutputs() {
-            return getPendingScanCleanupCompletedOutputs();
+        // The renderer that asks reopens these outputs, as it opens one that
+        // completes while it is listening.
+        async getPendingCompletedOutputs(sender) {
+            const outputPaths = await getPendingScanCleanupCompletedOutputs();
+            for (const outputPath of outputPaths) grantScanCleanupOutputAccess(outputPath, [sender]);
+            return outputPaths;
         },
         acknowledgeCompletedOutputs(outputPaths) {
             return acknowledgeScanCleanupCompletedOutputs(outputPaths);

@@ -1,3 +1,4 @@
+import { until } from '@vueuse/core';
 import type {
     ComputedRef,
     Ref,
@@ -34,12 +35,11 @@ export function resolveScanCleanupEntryViewState(
     };
 }
 
-export async function recoverScanCleanupWorkspaceForDocument(
+function findDocumentTabId(
     documentRef: string,
     documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
-    activateTab: (tabId: string) => void,
 ) {
-    const owner = Object.entries(documentSessionsByTabId).find(([
+    return Object.entries(documentSessionsByTabId).find(([
         ,
         session,
     ]) => {
@@ -47,14 +47,19 @@ export async function recoverScanCleanupWorkspaceForDocument(
         return identity.documentRef === documentRef
             || identity.workingCopyPath === documentRef
             || identity.originalPath === documentRef;
-    });
-    if (!owner) {
+    })?.[0] ?? null;
+}
+
+export async function recoverScanCleanupWorkspaceForDocument(
+    documentRef: string,
+    documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
+    activateTab: (tabId: string) => void,
+) {
+    const tabId = findDocumentTabId(documentRef, documentSessionsByTabId);
+    const session = tabId ? documentSessionsByTabId[tabId] : undefined;
+    if (!tabId || !session) {
         return false;
     }
-    const [
-        tabId,
-        session,
-    ] = owner;
     // A hidden cleanup tab is recoverable but not visibly open. Preserve its
     // cleanup session when it already owns the surface; otherwise enter with a
     // fresh selection, then make that tab visible for persisted error details.
@@ -152,7 +157,17 @@ export const useScanCleanupRunCoordinator = (
 ) => {
     const toast = useToast();
     const cleanup = installScanCleanupRunCoordinator({
-        openGeneratedPdf: (path, signal) => openScanCleanupGeneratedPdf(path, signal, handleOpenInNewTab),
+        // An output reopened after a reload may be back in its tab from the
+        // workspace checkpoint already; that tab is the output.
+        openGeneratedPdf: async (path, signal) => {
+            await until(isStartupOpenClaimPending).toBe(false);
+            const tabId = findDocumentTabId(path, documentSessionsByTabId.value);
+            if (tabId) {
+                activateTab(tabId);
+                return true;
+            }
+            return openScanCleanupGeneratedPdf(path, signal, handleOpenInNewTab);
+        },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(
             documentRef,
