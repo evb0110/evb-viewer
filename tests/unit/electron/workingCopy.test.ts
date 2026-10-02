@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    chmodSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -16,6 +17,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    statSync,
     symlinkSync,
     truncateSync,
     utimesSync,
@@ -267,6 +269,35 @@ describe('workingCopy', () => {
         expect(rewrittenWorkingPath).not.toBe('');
         expect(existsSync(dirname(rewrittenWorkingPath))).toBe(false);
         expect(getWorkingCopyBackingEntry(rewrittenWorkingPath, 7)).toBeNull();
+    });
+
+    // A download that the browser or messenger opens as soon as it lands gets
+    // its quarantine and last-used attributes while the open runs. That moves
+    // the file's ctime and nothing else.
+    it('opens a source whose metadata alone changed during the open, and baselines the current metadata', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        preventAutomaticWorkingCopyMaterialization();
+        const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'metadata-touched-during-open.pdf');
+        writeFileSync(originalPath, Buffer.alloc(64 * 1024, 51));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+        const ctimeBefore = statSync(originalPath, {bigint: true}).ctimeNs;
+        vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
+            writeFileSync(workingPath, Buffer.alloc(64 * 1024, 51));
+            chmodSync(originalPath, 0o600);
+            chmodSync(originalPath, 0o644);
+            return true;
+        });
+
+        const outcome = await createWorkingCopyWithOutcome(trustedOriginalPath!, 7);
+
+        const ctimeAfter = statSync(originalPath, {bigint: true}).ctimeNs;
+        expect(ctimeAfter).not.toBe(ctimeBefore);
+        expect(getWorkingCopyOriginalFileExpectation(outcome.workingPath, 7)?.ctimeNs).toBe(ctimeAfter.toString());
     });
 
     it('keeps the witnessed original as the save baseline when the source is replaced after its last check', async () => {

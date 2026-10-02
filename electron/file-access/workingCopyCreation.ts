@@ -242,8 +242,12 @@ async function createWorkingCopyWithOutcomeInternal(
             backingState = cloneOutcome === 'cloned' && !encrypted && !normalized ? 'cloned' : 'eager';
         }
 
+        // Only the content has to be the one that was copied. macOS writes
+        // extended attributes (macl, lastuseddate, quarantine) as it hands a
+        // file to an app, which moves ctime alone; the baseline takes them,
+        // and the witness's reads tolerate them too.
         await measureWorkingCopyPhase(phaseTimings, 'source-witness-check', async () =>
-            sourceWitness?.assertCurrent());
+            sourceWitness?.rebaseOnUnchangedContent());
         await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(
             workingPath,
             originalPath,
