@@ -120,6 +120,9 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     'agent.resetAssistantChat': createBrowserAssistantState(),
     'agent.submitWorkspaceSnapshot': {accepted: true},
     'agent.submitCommandResponse': {accepted: true},
+    // The contract's shapes, so a consumer reading them gets a list and a boolean.
+    'documentRecentFiles.recentFiles.get': [],
+    'documentRecentFiles.recentFiles.removeIfMissing': false,
     'search.run': {
         results: [],
         truncated: false,

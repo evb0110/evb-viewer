@@ -85,10 +85,10 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     // The source of the open has been accepted; from here the viewer decides.
     const acceptedTransactionId = ref<string | null>(null);
     let pendingPage: number | null = null;
-    // An open first asks whether its Recent file is gone; page commands sent
-    // meanwhile wait for the open as they do once it has claimed the tab.
+    // An open of a Recent file first asks whether it is gone; page commands
+    // sent meanwhile wait for the open as they do once it has claimed the tab.
     let checkingOpenSource = false;
-    const { forgetRecentFileIfMissing } = useRecentFiles();
+    const recent = useRecentFiles();
 
     watch(() => {
         const djvuSource = options.isDjvuMode.value ? options.djvuSourcePath.value : null;
@@ -178,12 +178,12 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     }
 
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
-        // A Recent file that is gone is told and leaves the list before the
-        // open claims the tab, so the tab, toolbar and title never show it.
-        const sourcePath = request.kind === 'open' ? request.target?.originalPath : null;
-        if (sourcePath) {
+        // A gone Recent file is told before the open claims the tab; a tab its
+        // caller already claimed (a drop's new tab) and other files open at once.
+        const sourcePath = request.kind === 'open' && !activeOpen.value ? request.target?.originalPath : null;
+        if (sourcePath && recent.recentFiles.value.some(file => file.originalPath === sourcePath)) {
             checkingOpenSource = true;
-            const gone = await forgetRecentFileIfMissing(sourcePath).finally(() => {
+            const gone = await recent.forgetRecentFileIfMissing(sourcePath).finally(() => {
                 checkingOpenSource = false;
             });
             if (gone) {
