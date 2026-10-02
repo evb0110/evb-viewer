@@ -615,8 +615,9 @@ export async function removeRecentFile(originalPath: string) {
 
 // The root of the removable or network volume a path lives on, if it lives
 // on one: a Windows drive or share, or a macOS /Volumes, Linux /media,
-// /run/media or /mnt mount point. A heuristic: a volume mounted anywhere else
-// counts as mounted, so its gone files leave Recent like local ones.
+// /run/media or /mnt mount point that is a parent of the path. A heuristic: a
+// volume mounted anywhere else counts as mounted, so its gone files leave
+// Recent like local ones.
 function getVolumeRoot(filePath: string) {
     if (/^[a-zA-Z]:[\\/]/u.test(filePath) || filePath.startsWith('\\\\')) {
         return win32.parse(filePath).root;
@@ -628,25 +629,28 @@ function getVolumeRoot(filePath: string) {
         fourth,
     ] = filePath.split('/');
     if (top === 'Volumes' || top === 'mnt') {
-        return second ? `/${top}/${second}` : null;
+        return second && third ? `/${top}/${second}` : null;
     }
     if (top === 'media') {
-        return second && third ? `/media/${second}/${third}` : null;
+        return second && third && fourth ? `/media/${second}/${third}` : null;
     }
     if (top === 'run' && second === 'media') {
-        return third && fourth ? `/run/media/${third}/${fourth}` : null;
+        return third && fourth && filePath.split('/').length > 5 ? `/run/media/${third}/${fourth}` : null;
     }
     return null;
 }
 
+// A POSIX mount point that is only an empty directory has its parent's
+// device; a mounted volume has its own.
 async function isVolumeMounted(filePath: string) {
     const root = getVolumeRoot(filePath);
     if (!root) {
         return true;
     }
     try {
-        await statWithTimeout(root);
-        return true;
+        const rootStat = await statWithTimeout(root);
+        // A Windows drive or share answers only while it is there.
+        return !root.startsWith('/') || rootStat.dev !== (await statWithTimeout(dirname(root))).dev;
     } catch {
         return false;
     }

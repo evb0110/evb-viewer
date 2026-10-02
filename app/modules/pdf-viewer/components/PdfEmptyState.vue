@@ -255,6 +255,22 @@
 
                         <footer v-if="shouldShowRecentTable" class="recent-footer">
                             <span class="recent-count">{{ recentItemsLabel }}</span>
+                            <!-- A refresh that failed while older rows still show says so here, in the list's own footer. -->
+                            <span
+                                v-if="recentFilesResolved && recentFilesError"
+                                class="recent-refresh-failed"
+                                data-testid="recent-refresh-error"
+                            >
+                                <UIcon name="i-ph-warning-circle" class="recent-refresh-failed-icon" />
+                                <span>{{ t('errors.recent.load') }}</span>
+                                <UButton
+                                    color="neutral"
+                                    variant="link"
+                                    size="xs"
+                                    :label="t('common.retry')"
+                                    @click="emit('retry-recent')"
+                                />
+                            </span>
                         </footer>
                     </section>
                 </template>
@@ -1123,6 +1139,20 @@ watch(() => openInProgress, (isOpening) => {
 .recent-count {
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-secondary);
+}
+
+.recent-refresh-failed {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-space-sm);
+    min-width: 0;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-secondary);
+}
+
+.recent-refresh-failed-icon {
+    flex: none;
+    color: var(--ui-warning);
 }
 
 @keyframes recent-skeleton-shimmer {

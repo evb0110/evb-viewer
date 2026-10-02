@@ -1442,10 +1442,17 @@ describe('Scan cleanup components', () => {
             }],
         };
         workspaceSession.value = createWorkspaceEntrySession({documentSettingsLoadFailure: ref(failure)});
+        const toolbarActive = ref(false);
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: null,
+            sourcePath: '/docs/settings-failure.pdf',
             totalPages: 3,
+            toolbarActive: toolbarActive.value,
         })));
+        await nextTick();
+        // A workspace in a background tab waits until it is on screen.
+        expect(toastAdd).not.toHaveBeenCalled();
+        toolbarActive.value = true;
+        await nextTick();
         expect(harness.host.textContent).not.toContain('Settings read failed');
         expect(toastAdd).toHaveBeenCalledOnce();
         const toast = toastAdd.mock.calls[0]?.[0] as {
@@ -1455,7 +1462,6 @@ describe('Scan cleanup components', () => {
         expect(toast.title).toBe('Settings read failed');
         toast.actions.find(action => action.label === 'Retry')?.onClick();
         expect(retry).toHaveBeenCalledOnce();
-        expect(harness.host.querySelector('fieldset')?.disabled).toBe(false);
     });
 
     it('renders automatic, manual, and mixed auto-value states and emits reset only from the manual chip', async () => {

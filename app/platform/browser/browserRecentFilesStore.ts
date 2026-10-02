@@ -274,6 +274,7 @@ export class BrowserRecentFilesStore {
         if (removed) {
             await this.repository.cleanupEvictedRecentRefs([ref]);
         }
+        return removed;
     }
 
     public async clearRecentFiles() {

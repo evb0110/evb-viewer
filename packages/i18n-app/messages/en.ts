@@ -1656,7 +1656,7 @@ export default {
         },
         'file': {
             'open': 'Failed to open file',
-            'openDescription': 'The file could not be opened. Copy details includes the technical reason.',
+            'openDescription': 'The file could not be opened. "Copy details" includes the technical reason.',
             'pdfjsAssetMismatch': 'The PDF viewer needs its development dependencies synchronized before this file can open.',
             'pdfjsAssetRepairAction': 'Copy repair command',
             'pdfjsAssetRepairCopied': 'Repair command copied',

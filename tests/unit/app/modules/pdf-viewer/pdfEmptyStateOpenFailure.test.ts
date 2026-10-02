@@ -89,9 +89,10 @@ describe('PdfEmptyState Recent list load failure', () => {
         unmount();
     });
 
-    it('keeps showing the rows it has when a later load fails', async () => {
+    it('keeps the rows it has when a later load fails and says so in the footer', async () => {
         const {
             host,
+            onRetryRecent,
             unmount,
         } = await mountStart({
             recentFiles: [recentFile('/docs/kept.pdf')],
@@ -100,6 +101,10 @@ describe('PdfEmptyState Recent list load failure', () => {
 
         expect(host.querySelector('[data-testid="recent-load-error"]')).toBeNull();
         expect(host.querySelector('[data-recent-source="/docs/kept.pdf"]')).not.toBeNull();
+        const footerNote = host.querySelector<HTMLElement>('.recent-footer [data-testid="recent-refresh-error"]');
+        expect(footerNote?.textContent).toContain('errors.recent.load');
+        footerNote?.querySelector('button')?.click();
+        expect(onRetryRecent).toHaveBeenCalledOnce();
         unmount();
     });
 });

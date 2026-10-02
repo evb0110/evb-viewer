@@ -154,6 +154,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const composerImages = ref<TAssistantComposerImage[]>([]);
     const composerError = ref('');
     const assistantFailurePresentation = shallowRef<FailurePresentation | null>(null);
+    // A refresh the user did not start that keeps failing is told once, until
+    // the assistant answers again.
+    let backgroundFailureTold = false;
     const composerInputRef = ref<HTMLTextAreaElement | null>(null);
     const state = ref<IAgentAssistantState | null>(null);
     const selectedProvider = ref<TAgentAssistantProviderId>(initialSelectedProvider);
@@ -455,7 +458,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (options.target !== 'none') {
             // Told in a toast; kept so the panel does not repeat it inline. A
             // background refresh that keeps failing does not tell it again.
-            const alreadyTold = options.automatic === true && assistantFailurePresentation.value !== null;
+            const alreadyTold = options.automatic === true && backgroundFailureTold;
+            backgroundFailureTold ||= options.automatic === true;
             assistantFailurePresentation.value = presentation;
             if (!alreadyTold) {
                 presentFailureToast(presentation);
@@ -623,6 +627,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             ?? providerDefaultEffort(adjustedState.status.providers, adjustedState.status.provider);
         selectedSpeedMode.value = resolveSelectedSpeedModeFromState(adjustedState, providerStatus);
         assistantFailurePresentation.value = null;
+        backgroundFailureTold = false;
         state.value = adjustedState;
         hasLoadedState.value = true;
         isSending.value = isActiveAssistantTurnPhase(adjustedState.status.turn.phase);

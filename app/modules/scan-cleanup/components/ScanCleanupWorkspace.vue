@@ -292,10 +292,16 @@ const {
     values: settings,
 } = workspaceSession.settings;
 const { presentFailureToast } = useFailureToast();
-// Settings that did not load are told once, with Retry; the rail keeps its
-// defaults meanwhile.
-watch(documentSettingsLoadFailure, (failure) => {
-    if (failure) {
+// Settings that did not load are told once, with Retry, when this workspace
+// is the one on screen; the rail keeps its defaults meanwhile.
+watch([
+    documentSettingsLoadFailure,
+    () => workspaceActive.value,
+], ([
+    failure,
+    active,
+]) => {
+    if (failure && active) {
         presentFailureToast(failure);
     }
 }, {immediate: true});

@@ -902,9 +902,9 @@ export function createBrowserDocumentsFileCapability(
                 if (!available || (entry && entry.retention !== 'transient')) {
                     return false;
                 }
-                await browserDocumentStore.removeRecentFile(path);
+                const removed = await browserDocumentStore.removeRecentFile(path);
                 await clearSearchCaches(path);
-                return true;
+                return removed;
             },
             async clear() {
                 await browserDocumentStore.clearRecentFiles();
