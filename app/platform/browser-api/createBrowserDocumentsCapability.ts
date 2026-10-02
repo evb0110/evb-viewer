@@ -215,6 +215,7 @@ export function createBrowserDocumentsCapability(
     } satisfies IDocumentsPdfCapability;
     const recentFiles = {
         get: fileCapability.recentFiles.get,
+        removeIfMissing: fileCapability.recentFiles.removeIfMissing,
         remove: async (path: TDocumentRef) => {
             await fileCapability.recentFiles.remove(path);
             return undefined;

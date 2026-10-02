@@ -191,6 +191,7 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
     'pdf:print:cancel': ['print-request-1'],
     'pdf:printPath': ['/tmp/fixture.pdf'],
     'recentFiles:remove': ['/tmp/fixture.pdf'],
+    'recentFiles:removeIfMissing': ['/tmp/fixture.pdf'],
     'window:setTitle': ['fixture.pdf'],
     'shell:showItemInFolder': ['/tmp/fixture.pdf'],
     'menu:setDocumentState': [true],

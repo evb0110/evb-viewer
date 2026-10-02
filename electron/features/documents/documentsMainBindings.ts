@@ -143,6 +143,7 @@ import {
     clearRecentFiles,
     getRecentFiles,
     removeRecentFile,
+    removeRecentFileIfMissing,
 } from '@electron/recentFiles';
 import {
     allowRevealPaths,
@@ -587,6 +588,14 @@ export const documentsMainBindings = {
         // Recent history owns reveal access; retained tabs keep their open grants.
         removeAllowedRevealPath(originalPath);
         updateRecentFilesMenu();
+    },
+    removeRecentFileIfMissing: async (originalPath) => {
+        const removed = await removeRecentFileIfMissing(originalPath);
+        if (removed) {
+            removeAllowedRevealPath(originalPath);
+            updateRecentFilesMenu();
+        }
+        return removed;
     },
     clearRecentFiles: async () => {
         const files = await getRecentFiles();

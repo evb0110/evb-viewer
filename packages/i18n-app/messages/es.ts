@@ -1670,7 +1670,7 @@ export default {
             'unsupportedEncryption': 'Este PDF usa un cifrado que EVB Viewer no puede abrir.',
             'encryptedTooLarge': 'Este PDF cifrado supera el límite de 512 MiB y no se puede abrir.',
             'changedWhileOpening': 'El archivo cambió mientras se abría. Vuelve a abrirlo.',
-            'invalid': 'Archivo no válido o inexistente',
+            'invalid': 'El archivo está dañado o no es un documento compatible.',
             'emptyPdf': 'El archivo PDF está vacío (0 bytes)',
             'noPages': 'El PDF no contiene páginas',
             'folderEmpty': 'No se encontraron documentos compatibles en la carpeta seleccionada',

@@ -28,6 +28,7 @@ const routePath = ref('/electron');
 const electronRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const electronRecentFilesRemove = vi.fn<(path: string) => Promise<void>>();
 const electronRecentFilesClear = vi.fn<() => Promise<void>>();
+const electronRecentFilesRemoveIfMissing = vi.fn<(path: string) => Promise<boolean>>();
 const electronOpenDocumentDirect = vi.fn<(path: string) => Promise<TOpenFileResult | null>>();
 const browserRecentFilesGet = vi.fn<() => Promise<IRecentFile[]>>();
 const toastAdd = vi.fn();
@@ -35,6 +36,7 @@ const browserStorage = new Map<string, string>();
 const electronRecentFiles = {
     get: electronRecentFilesGet,
     remove: electronRecentFilesRemove,
+    removeIfMissing: electronRecentFilesRemoveIfMissing,
     clear: electronRecentFilesClear,
 };
 const electronPlatformApi = createElectronPlatformApiFixture({
@@ -133,6 +135,7 @@ describe('useRecentFiles', () => {
         electronRecentFilesGet.mockResolvedValue([]);
         electronRecentFilesRemove.mockResolvedValue();
         electronRecentFilesClear.mockResolvedValue();
+        electronRecentFilesRemoveIfMissing.mockResolvedValue(false);
         electronOpenDocumentDirect.mockResolvedValue(null);
         browserRecentFilesGet.mockResolvedValue([]);
         installRecentFilesStubs();
@@ -232,6 +235,41 @@ describe('useRecentFiles', () => {
         expect(electronRecentFilesClear).toHaveBeenCalledOnce();
         expect(recentFiles.value).toEqual([]);
         expect(isResolved.value).toBe(true);
+    });
+
+    it('drops a Recent file that is gone and tells the user, before any open starts', async () => {
+        electronRecentFilesGet.mockResolvedValue([
+            recentFile('/docs/gone.pdf', 2),
+            recentFile('/docs/kept.pdf', 1),
+        ]);
+        electronRecentFilesRemoveIfMissing.mockImplementation(async path => path === '/docs/gone.pdf');
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+        const {
+            recentFiles,
+            loadRecentFiles,
+            forgetRecentFileIfMissing,
+        } = useRecentFiles();
+        await loadRecentFiles();
+
+        await expect(forgetRecentFileIfMissing(requireDocumentRef('/docs/kept.pdf'))).resolves.toBe(false);
+        expect(toastAdd).not.toHaveBeenCalled();
+        await expect(forgetRecentFileIfMissing(requireDocumentRef('/docs/gone.pdf'))).resolves.toBe(true);
+
+        expect(recentFiles.value.map(file => file.originalPath)).toEqual(['/docs/kept.pdf']);
+        expect(toastAdd).toHaveBeenCalledWith({
+            color: 'warning',
+            icon: 'i-ph-warning',
+            title: 'errors.recent.notFoundTitle',
+            description: 'errors.recent.notFoundDescription:{"name":"gone.pdf"}',
+        });
+    });
+
+    it('lets the open go on when it cannot tell whether a Recent file is gone', async () => {
+        electronRecentFilesRemoveIfMissing.mockRejectedValue(new Error('IPC sender is not trusted'));
+        const { useRecentFiles } = await import('@app/composables/useRecentFiles');
+
+        await expect(useRecentFiles().forgetRecentFileIfMissing(requireDocumentRef('/docs/any.pdf'))).resolves.toBe(false);
+        expect(toastAdd).not.toHaveBeenCalled();
     });
 
     it('keeps Electron recent files unresolved and retries after a startup failure', async () => {

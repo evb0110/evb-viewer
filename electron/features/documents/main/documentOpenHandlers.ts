@@ -182,13 +182,11 @@ function createOpenBatchProgressReporter(
 }
 
 async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebContents) {
-    const normalizedPath = filePath;
-    const recentFiles = await getRecentFiles();
-    if (!recentFiles.some(file => file.originalPath === normalizedPath)) {
+    if (!(await getRecentFiles()).some(file => file.originalPath === filePath)) {
         return null;
     }
-
-    return allowOpenPath(normalizedPath, owner);
+    // A Recent file that no longer resolves is gone, which the renderer names; it is not a refusal.
+    return allowOpenPath(filePath, owner) ?? Promise.reject(createDocumentOpenError(new DocumentOpenRefusalError('not-found', 'not-found', {fileName: basename(filePath)})));
 }
 
 async function openDocumentsFromDialog(

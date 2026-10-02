@@ -77,7 +77,6 @@ import type {
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
 import * as platformDocuments from '@app/utils/platformDocuments';
-import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import {
     readPdfPageShape,
@@ -117,6 +116,7 @@ const {
     loadRecentFiles,
     retryRecentFiles,
     removeRecentFile,
+    forgetRecentFileIfMissing,
     clearRecentFiles,
 } = useRecentFiles();
 const crashDescription = ref<string | null>(null);
@@ -180,13 +180,10 @@ async function openRecentFile(file: IRecentFile, pressed: boolean) {
         ? pressedRecentShape
         : readPdfPageShape(file.originalPath);
     pressedRecentShape = null;
-    if (isBrowserDocumentRef(file.originalPath)) {
-        try {
-            await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
-        } catch (error) {
-            recentFilesError.value = getErrorMessage(error);
-            return false;
-        }
+    // A file that is gone is told and leaves the list before the open claims
+    // the tab, so the tab, toolbar and window title never show it.
+    if (await forgetRecentFileIfMissing(file.originalPath)) {
+        return false;
     }
     return openInWorkspace({
         kind: 'open',

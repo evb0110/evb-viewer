@@ -1681,7 +1681,7 @@ export default {
             'unsupportedEncryption': 'Ce PDF utilise un chiffrement qu’EVB Viewer ne peut pas ouvrir.',
             'encryptedTooLarge': 'Ce PDF chiffré dépasse la limite de 512 Mio et ne peut pas être ouvert.',
             'changedWhileOpening': 'Le fichier a été modifié pendant son ouverture. Ouvrez-le à nouveau.',
-            'invalid': 'Fichier invalide ou inexistant',
+            'invalid': 'Le fichier est endommagé ou n’est pas un document pris en charge.',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
             'noPages': 'Le PDF ne contient aucune page',
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',

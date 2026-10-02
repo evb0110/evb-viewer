@@ -37,6 +37,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
         handleCloseTab: vi.fn(async (_tabId: string) => {}),
         handleFallbackToolbarOpenFile: vi.fn(async () => {}),
         openPathInAppropriateTab: vi.fn(async (_path: string) => true),
+        openRecentPath: vi.fn(async (_path: string) => true),
         openPathsInAppropriateTab: vi.fn(async (_paths: string[]) => {}),
         clearRecentFiles: vi.fn(async () => {}),
         loadRecentFiles: vi.fn(async () => {}),
@@ -261,11 +262,11 @@ describe('registerTabsMenuBindings', () => {
     });
 
     it('keeps the queue flowing after a failed document-open request', async () => {
-        const openPathInAppropriateTab = vi
+        const openRecentPath = vi
             .fn(async (_path: string) => true)
             .mockRejectedValueOnce(new Error('boom'))
             .mockResolvedValueOnce(true);
-        const deps = createDeps({ openPathInAppropriateTab });
+        const deps = createDeps({ openRecentPath });
         const menuApi = createMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
@@ -275,8 +276,8 @@ describe('registerTabsMenuBindings', () => {
         menuApi.emitRecentFile('/docs/second.pdf');
         await flushMicrotasks();
 
-        expect(openPathInAppropriateTab).toHaveBeenCalledTimes(2);
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(1, '/docs/first.pdf');
-        expect(openPathInAppropriateTab).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
+        expect(openRecentPath).toHaveBeenCalledTimes(2);
+        expect(openRecentPath).toHaveBeenNthCalledWith(1, '/docs/first.pdf');
+        expect(openRecentPath).toHaveBeenNthCalledWith(2, '/docs/second.pdf');
     });
 });

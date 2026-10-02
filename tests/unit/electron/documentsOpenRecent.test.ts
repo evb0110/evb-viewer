@@ -5,6 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
+import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 
 const mocks = vi.hoisted(() => {
     const allowedPathsByOwner = new Map<number, Set<string>>();
@@ -13,6 +15,7 @@ const mocks = vi.hoisted(() => {
     );
     return {
         allowedPathsByOwner,
+        missingPaths: new Set<string>(),
         getOwnerId,
         getRecentFiles: vi.fn(),
         logRejectedOpenPath: vi.fn(),
@@ -50,6 +53,9 @@ vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({
 }));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (filePath: string, owner?: number | { id?: number }) => {
+        if (mocks.missingPaths.has(filePath)) {
+            return null;
+        }
         const ownerId = mocks.getOwnerId(owner);
         const allowedPaths = mocks.allowedPathsByOwner.get(ownerId) ?? new Set<string>();
         allowedPaths.add(filePath);
@@ -78,6 +84,7 @@ describe('document direct-open recent authorization', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.allowedPathsByOwner.clear();
+        mocks.missingPaths.clear();
         mocks.getRecentFiles.mockResolvedValue([]);
         mocks.handlePdfOpeningGeometry.mockResolvedValue(null);
         mocks.openInputPaths.mockResolvedValue(null);
@@ -183,6 +190,26 @@ describe('document direct-open recent authorization', () => {
 
         expect(mocks.openInputPaths).not.toHaveBeenCalled();
         expect(mocks.logRejectedOpenPath).toHaveBeenCalledWith(unknownPath);
+    });
+
+    it('names a Recent file that is gone instead of refusing it', async () => {
+        const gonePath = '/tmp/moved-away/gone.pdf';
+        mocks.getRecentFiles.mockResolvedValue([{
+            originalPath: gonePath,
+            fileName: 'gone.pdf',
+        }]);
+        mocks.missingPaths.add(gonePath);
+        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+
+        const refusal = await handleOpenPdfDirect(createOpenContext(7), gonePath).catch((error: unknown) => error);
+
+        expect(refusal).toBeInstanceOf(Error);
+        expect(findSerializableErrorEnvelope(refusal, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)).toEqual({
+            code: 'not-found',
+            message: 'not-found',
+            fileName: 'gone.pdf',
+        });
+        expect(mocks.openInputPaths).not.toHaveBeenCalled();
     });
 
     it('starts folder and image dialogs in the Documents directory', async () => {

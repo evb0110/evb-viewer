@@ -678,6 +678,81 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         ))).toBe(basename(documentPath));
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
+    it('drops a Recent file that is gone without claiming the tab or moving Start', async () => {
+        const goneFile = await createMultiPageTextFixturePdf(`blocking-recent-gone-${Date.now()}.pdf`, 1);
+        const goneName = basename(goneFile);
+        session = await startElectronE2ESession(`e2e-blocking-recent-gone-${Date.now()}`, {clean: true});
+        const {page} = session;
+        await openPdfInApp(page, goneFile);
+
+        // A new tab's Start lists the file; then the file is deleted on disk.
+        await page.click('.tab-new');
+        const rowSelector = `.workspace-host[data-workspace-active="true"] [data-recent-source="${goneFile}"] .recent-open`;
+        await page.waitForSelector(rowSelector, {
+            visible: true,
+            timeout: 20_000,
+        });
+        rmSync(goneFile, {force: true});
+
+        // Every frame and DOM change from the click on, as the user sees it.
+        await page.evaluate(() => {
+            const samples: Array<Record<string, unknown>> = [];
+            const sample = () => {
+                const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
+                const start = host?.querySelector<HTMLElement>('.workspace-host__start');
+                const startVisible = Boolean(start?.getClientRects().length);
+                samples.push({
+                    activeTab: document.querySelector('.tab[aria-selected="true"] .tab-label')?.textContent?.trim() ?? '',
+                    startVisible,
+                    panelTop: startVisible
+                        ? Math.round(host?.querySelector('.start-open-panel')?.getBoundingClientRect().top ?? -1)
+                        : null,
+                    alertRows: host?.querySelectorAll('.start-main [role="alert"]').length ?? 0,
+                    rawIpcText: document.body.innerText.includes('Error invoking remote method'),
+                });
+            };
+            const observer = new MutationObserver(sample);
+            observer.observe(document.body, {
+                subtree: true,
+                childList: true,
+                characterData: true,
+                attributes: true,
+            });
+            let sampling = true;
+            const everyFrame = () => {
+                if (sampling) {
+                    sample();
+                    requestAnimationFrame(everyFrame);
+                }
+            };
+            requestAnimationFrame(everyFrame);
+            Reflect.set(window, '__recentGoneSamples', () => {
+                sampling = false;
+                observer.disconnect();
+                sample();
+                return samples;
+            });
+            sample();
+        });
+        await page.click(rowSelector);
+
+        await page.waitForFunction((name: string) => [...document.querySelectorAll('.app-toast')]
+            .some(toast => toast.textContent?.includes(name)), {timeout: 20_000}, goneName);
+        await page.waitForFunction((selector: string) => document.querySelector(selector) === null, {timeout: 20_000}, rowSelector);
+        const samples = await page.evaluate(() => (Reflect.get(window, '__recentGoneSamples') as () => Array<{
+            activeTab: string;
+            startVisible: boolean;
+            panelTop: number | null;
+            alertRows: number;
+            rawIpcText: boolean;
+        }>)());
+
+        expect(samples.filter(entry => entry.activeTab !== 'New Tab'), 'the tab never names the missing file').toEqual([]);
+        expect(samples.filter(entry => !entry.startVisible), 'Start stays on screen').toEqual([]);
+        expect(new Set(samples.map(entry => entry.panelTop)), 'Start does not move').toEqual(new Set([samples[0]?.panelTop]));
+        expect(samples.filter(entry => entry.alertRows > 0 || entry.rawIpcText), 'no inserted error row or IPC text').toEqual([]);
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
     it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
         const runOwner = `blocking-pressure-save-${Date.now()}`;
         const pdfPath = await createLargeScannedFixturePdf(

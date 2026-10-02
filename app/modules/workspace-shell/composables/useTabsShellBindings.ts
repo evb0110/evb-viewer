@@ -18,6 +18,7 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFatalRuntimeError } from '@app/composables/useFatalRuntimeError';
 import { useFailureToast } from '@app/composables/useFailureToast';
+import { useRecentFiles } from '@app/composables/useRecentFiles';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
@@ -62,7 +63,7 @@ const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortc
     redo: 'handleRedo',
 };
 
-interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
+interface IUseTabsShellBindingsOptions extends Omit<ITabsMenuBindingDeps, 'openRecentPath'> {
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     isStartupOpenClaimPending: Ref<boolean>;
@@ -78,6 +79,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const { t } = useTypedI18n();
     const { setFatalRuntimeError } = useFatalRuntimeError();
     const { presentFailureToast } = useFailureToast();
+    const { forgetRecentFileIfMissing } = useRecentFiles();
     const {
         tabs,
         workspaceRefs,
@@ -538,6 +540,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 handleCloseTab,
                 handleFallbackToolbarOpenFile,
                 openPathInAppropriateTab,
+                openRecentPath: async path => !await forgetRecentFileIfMissing(path) && openPathInAppropriateTab(path),
                 openPathsInAppropriateTab,
                 clearRecentFiles,
                 loadRecentFiles,

@@ -17,20 +17,16 @@ export function classifyDocumentOpenError(
         return t('errors.browser.filePickerSetupDenied');
     }
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
+    const rawMessage = error instanceof Error ? error.message : '';
+    const missing = openError ? openError.code === 'not-found' : /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage);
+    if (missing) {
+        return t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')});
+    }
     if (openError) {
         return t(openError.code === 'source-changed' ? 'errors.file.changedWhileOpening' : 'errors.file.invalid');
     }
     const nativeError = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
-    if (nativeError?.code === 'too-large') {
-        return t('errors.file.encryptedTooLarge');
-    }
-    const rawMessage = error instanceof Error ? error.message : '';
-    if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
-        const baseName = path ? getDocumentRefBaseName(path) : '';
-        const name = baseName && baseName.length > 0 ? baseName : path ? String(path) : '';
-        return t('errors.file.openNotFound', {name});
-    }
-    return rawMessage || t('errors.file.open');
+    return nativeError?.code === 'too-large' ? t('errors.file.encryptedTooLarge') : rawMessage || t('errors.file.open');
 }
 
 /**
