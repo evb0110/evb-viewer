@@ -1787,7 +1787,6 @@ export default {
             'diagnosticsConsentDescription': 'Seuls des diagnostics d’erreur nettoyés pour protéger la vie privée sont envoyés. Les documents, chemins, textes et informations de compte ne sont pas envoyés.',
             'diagnosticsConsentGrant': 'Envoyer le rapport',
             'diagnosticsConsentDeny': 'Ne pas envoyer',
-            'streamError': 'Erreur de l’application',
             'details': 'Détails techniques',
         },
     },

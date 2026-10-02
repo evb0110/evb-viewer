@@ -1776,7 +1776,6 @@ export default {
             'diagnosticsConsentDescription': 'Only privacy-sanitized error diagnostics are sent. Documents, paths, text, and account information are not sent.',
             'diagnosticsConsentGrant': 'Send error report',
             'diagnosticsConsentDeny': 'Do not send',
-            'streamError': 'Application error',
             'details': 'Technical details',
         },
     },

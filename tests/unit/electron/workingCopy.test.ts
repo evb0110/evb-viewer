@@ -288,7 +288,9 @@ describe('workingCopy', () => {
         const ctimeBefore = statSync(originalPath, {bigint: true}).ctimeNs;
         vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
             writeFileSync(workingPath, Buffer.alloc(64 * 1024, 51));
-            chmodSync(originalPath, 0o600);
+            // Read-only and back: a mode change on POSIX, an attribute change
+            // on Windows, and a new ctime on both.
+            chmodSync(originalPath, 0o444);
             chmodSync(originalPath, 0o644);
             return true;
         });

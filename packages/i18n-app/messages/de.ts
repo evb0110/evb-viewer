@@ -1776,7 +1776,6 @@ export default {
             'diagnosticsConsentDescription': 'Es werden nur datenschutzbereinigte Fehlerdiagnosen gesendet. Dokumente, Pfade, Text und Kontoinformationen werden nicht gesendet.',
             'diagnosticsConsentGrant': 'Fehlerbericht senden',
             'diagnosticsConsentDeny': 'Nicht senden',
-            'streamError': 'Anwendungsfehler',
             'details': 'Technische Details',
         },
     },

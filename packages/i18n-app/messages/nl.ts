@@ -1776,7 +1776,6 @@ export default {
             'diagnosticsConsentDescription': 'Alleen privacyvriendelijke foutdiagnostiek wordt verzonden. Documenten, paden, tekst en accountgegevens worden niet verzonden.',
             'diagnosticsConsentGrant': 'Foutrapport verzenden',
             'diagnosticsConsentDeny': 'Niet verzenden',
-            'streamError': 'Toepassingsfout',
             'details': 'Technische details',
         },
     },

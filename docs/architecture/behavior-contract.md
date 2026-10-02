@@ -224,8 +224,10 @@ failure, so nothing on screen moves when one is told. A region whose own
 content a failure took away (a page that did not render, a tab whose workspace
 crashed, a list that could not load) says so inside that region's box, the way
 an empty state does, and offers Retry there. A long job's status line, such as
-a save or a scan cleanup run, may keep showing that it failed. Added 2026-10-02
-on the owner's request.
+a save or a scan cleanup run, may keep showing that it failed. An error in the
+main process is told by the operation it failed, never again as a separate
+report; one with no operation to tell it stays in the logs. Added 2026-10-02 on
+the owner's request.
 
 ## Resolved contract questions
 

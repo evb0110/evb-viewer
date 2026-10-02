@@ -1776,7 +1776,6 @@ export default {
             'diagnosticsConsentDescription': 'Solo se envían diagnósticos de errores protegidos por privacidad. No se envían documentos, rutas, texto ni información de la cuenta.',
             'diagnosticsConsentGrant': 'Enviar informe de error',
             'diagnosticsConsentDeny': 'No enviar',
-            'streamError': 'Error de la aplicación',
             'details': 'Detalles técnicos',
         },
     },
