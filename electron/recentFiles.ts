@@ -614,7 +614,9 @@ export async function removeRecentFile(originalPath: string) {
 }
 
 // The root of the removable or network volume a path lives on, if it lives
-// on one: a Windows drive or share, or a macOS or Linux mount point.
+// on one: a Windows drive or share, or a macOS /Volumes, Linux /media,
+// /run/media or /mnt mount point. A heuristic: a volume mounted anywhere else
+// counts as mounted, so its gone files leave Recent like local ones.
 function getVolumeRoot(filePath: string) {
     if (/^[a-zA-Z]:[\\/]/u.test(filePath) || filePath.startsWith('\\\\')) {
         return win32.parse(filePath).root;
@@ -660,11 +662,13 @@ export async function removeRecentFileIfMissing(originalPath: string) {
     if (!(await getRecentFiles()).some(file => file.originalPath === originalPath)) {
         return false;
     }
-    const inspection = await inspectPath(originalPath);
-    if (inspection.code !== 'ENOENT' || !await isVolumeMounted(originalPath)) {
-        return false;
-    }
+    // The check and the removal run as one Recent operation, so a file that
+    // reappears or an entry added meanwhile is not lost.
     return enqueueRecentFilesOperation(async () => {
+        const inspection = await inspectPath(originalPath);
+        if (inspection.code !== 'ENOENT' || !await isVolumeMounted(originalPath)) {
+            return false;
+        }
         cacheTimestamp = 0;
         const data = await loadRecentFilesData();
         const files = data.files.filter(file => file.originalPath !== originalPath);

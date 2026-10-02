@@ -32,6 +32,8 @@ export interface IAssistantActionErrorOptions {
     title: string;
     target?: TAssistantActionErrorTarget;
     expected?: ExpectedOutcomeCode;
+    /** Not started by the user, such as a refresh when the window returns. */
+    automatic?: boolean;
 }
 
 export function createAssistantActionOptions(

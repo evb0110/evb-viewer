@@ -213,7 +213,6 @@ const {
     progress,
     combineError,
     combineFailure,
-    combineErrorIsExpected,
     pendingCombinedResult,
     queueMutationLocked,
     canCancel,
@@ -281,7 +280,7 @@ watch([
             title: t('combinePdf.title'),
             description: message,
         });
-    } else if (combineErrorIsExpected.value) {
+    } else {
         presentNoticeToast({
             tone: 'warning',
             title: t('combinePdf.title'),

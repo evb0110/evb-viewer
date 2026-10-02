@@ -453,9 +453,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
         reportRuntimeError(presentation);
         if (options.target !== 'none') {
-            // Told in a toast; kept so the panel does not repeat it inline.
+            // Told in a toast; kept so the panel does not repeat it inline. A
+            // background refresh that keeps failing does not tell it again.
+            const alreadyTold = options.automatic === true && assistantFailurePresentation.value !== null;
             assistantFailurePresentation.value = presentation;
-            presentFailureToast(presentation);
+            if (!alreadyTold) {
+                presentFailureToast(presentation);
+            }
         }
         return { presentation };
     }
@@ -834,7 +838,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
 
-        runAssistantAction(refreshState(), createAssistantActionOptions('refresh', 'Failed to refresh assistant state after app focus'));
+        runAssistantAction(refreshState(), {
+            ...createAssistantActionOptions('refresh', 'Failed to refresh assistant state after app focus'),
+            automatic: true,
+        });
     }
     async function installCodex() {
         isInstalling.value = true;
