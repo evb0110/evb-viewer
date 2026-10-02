@@ -161,6 +161,9 @@ export const useScanCleanupRunCoordinator = (
         // workspace checkpoint already; that tab is the output.
         openGeneratedPdf: async (path, signal) => {
             await until(isStartupOpenClaimPending).toBe(false);
+            if (signal.aborted) {
+                return false;
+            }
             const tabId = findDocumentTabId(path, documentSessionsByTabId.value);
             if (tabId) {
                 activateTab(tabId);
