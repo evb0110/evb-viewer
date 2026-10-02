@@ -1181,10 +1181,9 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await mkdir(settingsPath);
         try {
             await session.page.click(switchSelector);
-            await session.page.waitForSelector('.settings-save-error[role="alert"]', {
-                timeout: SAVE_TIMEOUT_MS,
-                visible: true,
-            });
+            // The failed save is told in the failure toast, with Retry.
+            await session.page.waitForFunction(() => [...document.querySelectorAll('.app-toast-failure')]
+                .some(toast => toast.textContent?.includes('Last save failed') && toast.textContent.includes('Retry')), {timeout: SAVE_TIMEOUT_MS});
             const checkedAfterFailure = await session.page.$eval(switchSelector, element => element.getAttribute('aria-checked'));
             expect(checkedAfterFailure).toBe('false');
         } finally {

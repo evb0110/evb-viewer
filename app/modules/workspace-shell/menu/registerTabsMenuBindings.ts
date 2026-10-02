@@ -186,8 +186,6 @@ export interface ITabsMenuBindingDeps {
     handleCloseTab: (tabId: string) => Promise<void>;
     handleFallbackToolbarOpenFile: () => Promise<void>;
     openPathInAppropriateTab: (path: TDocumentRef) => Promise<boolean>;
-    /** Opens a Recent file, or tells that it is gone without claiming a tab. */
-    openRecentPath: (path: TDocumentRef) => Promise<boolean>;
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
     clearRecentFiles: () => Promise<void>;
     loadRecentFiles: () => Promise<void>;
@@ -323,7 +321,7 @@ export function registerTabsMenuBindings(
         }),
         ...registerWorkspaceMenuActions(api, deps, runMenuAction),
         documentMenu?.onMenuOpenRecentFile?.((path) => {
-            enqueueDocumentOpenAction('open-recent-file', () => deps.openRecentPath(path));
+            enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
         }),
         documentMenu?.onMenuOpenExternalPaths?.((paths) => {
             enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));

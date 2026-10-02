@@ -116,7 +116,6 @@ const {
     loadRecentFiles,
     retryRecentFiles,
     removeRecentFile,
-    forgetRecentFileIfMissing,
     clearRecentFiles,
 } = useRecentFiles();
 const crashDescription = ref<string | null>(null);
@@ -180,11 +179,6 @@ async function openRecentFile(file: IRecentFile, pressed: boolean) {
         ? pressedRecentShape
         : readPdfPageShape(file.originalPath);
     pressedRecentShape = null;
-    // A file that is gone is told and leaves the list before the open claims
-    // the tab, so the tab, toolbar and window title never show it.
-    if (await forgetRecentFileIfMissing(file.originalPath)) {
-        return false;
-    }
     return openInWorkspace({
         kind: 'open',
         target: describeDocumentTarget(file.originalPath),

@@ -23,6 +23,7 @@ import {
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { useRecentFiles } from '@app/composables/useRecentFiles';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -84,6 +85,10 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     // The source of the open has been accepted; from here the viewer decides.
     const acceptedTransactionId = ref<string | null>(null);
     let pendingPage: number | null = null;
+    // An open first asks whether its Recent file is gone; page commands sent
+    // meanwhile wait for the open as they do once it has claimed the tab.
+    let checkingOpenSource = false;
+    const { forgetRecentFileIfMissing } = useRecentFiles();
 
     watch(() => {
         const djvuSource = options.isDjvuMode.value ? options.djvuSourcePath.value : null;
@@ -173,6 +178,19 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     }
 
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+        // A Recent file that is gone is told and leaves the list before the
+        // open claims the tab, so the tab, toolbar and title never show it.
+        const sourcePath = request.kind === 'open' ? request.target?.originalPath : null;
+        if (sourcePath) {
+            checkingOpenSource = true;
+            const gone = await forgetRecentFileIfMissing(sourcePath).finally(() => {
+                checkingOpenSource = false;
+            });
+            if (gone) {
+                pendingPage = null;
+                return false;
+            }
+        }
         const hadDocument = identityHasDocument(snapshot.value.identity);
         let transactionId: string | null = null;
         let presented = false;
@@ -285,7 +303,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
 
     // While an open has not claimed a surface yet, a page command waits for it.
     function goToPage(page: number, scrollOptions?: IScrollToPageOptions) {
-        if (!isOpening.value) {
+        if (!isOpening.value && !checkingOpenSource) {
             options.goToPage(page, scrollOptions);
             return;
         }
