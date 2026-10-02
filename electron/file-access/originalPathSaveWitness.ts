@@ -277,7 +277,7 @@ async function captureHandleSnapshot(handle: FileHandle): Promise<IOriginalPathS
     const after = await handle.stat({bigint: true});
     const beforeSnapshot = createSnapshot(before, sampleSha256);
     const afterSnapshot = createSnapshot(after, sampleSha256);
-    if (!snapshotsMatch(beforeSnapshot, afterSnapshot)) {
+    if (!snapshotsMatch(beforeSnapshot, afterSnapshot, {allowBackupMetadataChange: true})) {
         throw new OriginalPathSaveConflictError();
     }
     return afterSnapshot;
@@ -353,8 +353,8 @@ async function capturePathSnapshot(originalPath: string) {
         const namedAfter = await lstat(originalPath, {bigint: true});
         if (
             !namedAfter.isFile()
-            || !snapshotsMatch(snapshot, createSnapshot(namedBefore, snapshot.sampleSha256))
-            || !snapshotsMatch(snapshot, createSnapshot(namedAfter, snapshot.sampleSha256))
+            || !snapshotsMatch(snapshot, createSnapshot(namedBefore, snapshot.sampleSha256), {allowBackupMetadataChange: true})
+            || !snapshotsMatch(snapshot, createSnapshot(namedAfter, snapshot.sampleSha256), {allowBackupMetadataChange: true})
         ) {
             throw new OriginalPathSaveConflictError();
         }
@@ -416,7 +416,7 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
             ]);
             if (
                 !snapshotsMatch(this.snapshot, handleSnapshot, {allowBackupMetadataChange: true})
-                || !snapshotsMatch(handleSnapshot, pathSnapshot)
+                || !snapshotsMatch(handleSnapshot, pathSnapshot, {allowBackupMetadataChange: true})
             ) {
                 throw new OriginalPathSaveConflictError();
             }
@@ -494,7 +494,7 @@ async function captureRequiredPathSaveWitness(originalPath: string): Promise<IOr
     try {
         const snapshot = await captureHandleSnapshot(handle);
         const pathSnapshot = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(snapshot, pathSnapshot)) {
+        if (!snapshotsMatch(snapshot, pathSnapshot, {allowBackupMetadataChange: true})) {
             throw new OriginalPathSaveConflictError();
         }
         return new OriginalPathSaveWitness(originalPath, handle, snapshot);
