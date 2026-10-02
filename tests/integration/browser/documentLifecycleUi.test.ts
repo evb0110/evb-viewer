@@ -216,7 +216,7 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
             expect(await page.evaluate(() => 'electronAPI' in window)).toBe(false);
-            expect(await page.getByText('Error report ready').count()).toBe(0);
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
 
             const chooserPromise = page.waitForEvent('filechooser');
             await page.getByRole('button', {
@@ -258,7 +258,7 @@ describe('browser document lifecycle UI', () => {
                 }), visibilityState);
             }
 
-            expect(await page.getByText('Error report ready').count()).toBe(0);
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
             expect(consoleProblems).toEqual([]);
         } finally {
             await browser.close();

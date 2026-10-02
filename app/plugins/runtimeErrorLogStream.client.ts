@@ -46,9 +46,11 @@ export default defineNuxtPlugin((nuxtApp) => {
             ...(presentation.pendingDiagnostic === undefined
                 ? {}
                 : {pendingDiagnostic: presentation.pendingDiagnostic}),
+            // A main log line is for whoever reads the copied details, not
+            // for the toast.
             ...(presentation.description === undefined
                 ? {}
-                : {description: presentation.description}),
+                : {technicalDetails: presentation.description}),
             ...(presentation.actions === undefined
                 ? {}
                 : {actions: presentation.actions}),

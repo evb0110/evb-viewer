@@ -111,7 +111,7 @@ describe('a tab whose open fails', () => {
             color: 'error',
             title: 'errors.file.open',
         });
-        expect(readToastDescription(toast.description)).toBe('gone.pdf: The file was moved or deleted.\nError ID: 01234567');
+        expect(readToastDescription(toast.description)).toBe('gone.pdf: The file was moved or deleted.\nerrors.runtime.errorId: 01234567');
     });
 
     it('tells an expected outcome without a receipt as a warning with nothing to copy', async () => {

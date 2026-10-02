@@ -30,9 +30,7 @@ export interface IRendererErrorObserver {
 }
 
 const ERROR_SURFACE_SELECTORS = [
-    // The card the app shows in the top right when it files a runtime error
-    // report. A person reads "Error report ready" there.
-    '.runtime-error-reports-card',
+    // Every failure, a runtime error report included, is a toast.
     '.app-toast',
     '.pdf-error',
     '.viewer-error',
@@ -109,24 +107,16 @@ export interface IRuntimeErrorReportEntry {
 }
 
 /**
- * Expands the app's runtime error report card and reads the reports it holds.
- * Evidence only: call it when a report card is already on screen.
+ * Reads the failure toasts on screen, the way a person reads them. Evidence
+ * only: call it when a failure has already been told.
  */
 export async function readRuntimeErrorReportDetails(page: Page): Promise<IRuntimeErrorReportEntry[]> {
-    const detailsButton = await page.$('[data-runtime-error-action="details"]');
-    if (!detailsButton) {
-        return [];
-    }
-    if (!await page.$('.runtime-error-report-details')) {
-        await detailsButton.click();
-        await page.waitForSelector('.runtime-error-report-details', {timeout: 5_000}).catch(() => null);
-    }
     return page.evaluate(() => Array.from(
-        document.querySelectorAll<HTMLElement>('[data-runtime-error-report-id]'),
-    ).map(entry => ({
-        detail: entry.querySelector('pre')?.textContent?.trim().slice(0, 1_500) ?? '',
-        id: entry.dataset.runtimeErrorReportId ?? '',
-        title: entry.innerText.trim().slice(0, 300),
+        document.querySelectorAll<HTMLElement>('.app-toast-failure'),
+    ).map(toast => ({
+        detail: toast.querySelector('[data-slot="description"]')?.textContent?.trim().slice(0, 1_500) ?? '',
+        id: toast.querySelector('.app-toast-error-id')?.textContent?.trim() ?? '',
+        title: toast.querySelector('[data-slot="title"]')?.textContent?.trim().slice(0, 300) ?? '',
     })));
 }
 
@@ -139,10 +129,10 @@ export async function dismissRuntimeErrorReports(page: Page) {
     if (dismissed.length === 0) {
         return dismissed;
     }
-    for (const button of await page.$$('[data-runtime-error-report-id] button[aria-label]')) {
+    for (const button of await page.$$('.app-toast-failure [data-slot="close"]')) {
         await button.click().catch(() => undefined);
     }
-    await page.waitForSelector('.runtime-error-reports-card', {
+    await page.waitForSelector('.app-toast-failure', {
         hidden: true,
         timeout: 5_000,
     });

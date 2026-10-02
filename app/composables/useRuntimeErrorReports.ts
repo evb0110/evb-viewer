@@ -6,6 +6,8 @@ export interface IRuntimeErrorReport {
     id: string;
     title: string;
     detail: string;
+    /** Kept for Copy details, not shown. */
+    technicalDetails?: string | undefined;
     source: string;
     count: number;
     occurredAt: number;
@@ -148,6 +150,7 @@ export const useRuntimeErrorReports = () => {
             id: presentation.failure.eventId,
             title: presentation.title,
             detail: presentation.description ?? '',
+            technicalDetails: presentation.technicalDetails,
             source: presentation.failure.code,
             count: 1,
             occurredAt: Date.now(),

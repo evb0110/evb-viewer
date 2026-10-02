@@ -99,7 +99,7 @@ describe('useFailureToast', () => {
         });
         expect(renderDescription(toast)).toEqual([
             'The document could not be opened.',
-            'Error ID: 01234567',
+            'errors.runtime.errorId: 01234567',
         ]);
         expect(formatFailurePresentationCopy(presentation)).toBe([
             `Error ID: ${failure.eventId}`,
@@ -149,7 +149,7 @@ describe('useFailureToast', () => {
 
         expect(renderDescription(presentedToast())).toEqual([
             'The PDF viewer needs synchronized development dependencies.',
-            'Error ID: 01234567',
+            'errors.runtime.errorId: 01234567',
         ]);
         expect(formatFailurePresentationCopy(presentation)).toContain(presentation.technicalDetails);
     });

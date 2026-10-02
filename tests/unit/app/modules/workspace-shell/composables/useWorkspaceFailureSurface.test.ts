@@ -71,7 +71,7 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(capture).toHaveBeenCalledOnce();
         expect(surface.saveFailurePresentation.value?.failure).toBe(receipt);
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('Error ID: receipt')}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.runtime.errorId: receipt')}));
     });
 
     it('shows one toast when a low-level failure and a service result share an operation', () => {
@@ -202,7 +202,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.annotation.create',
-            description: toastDescriptionContaining('Error ID: annotati'),
+            description: toastDescriptionContaining('errors.runtime.errorId: annotati'),
         }));
     });
 });

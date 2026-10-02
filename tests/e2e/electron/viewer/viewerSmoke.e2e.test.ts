@@ -2018,7 +2018,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             expect(closeState.bodyHasCrash).toBe(false);
             expect(closeState.visibleWorkspaceFailure).toBe(false);
             await session.page.waitForFunction(() => (
-                !document.querySelector('.runtime-error-reports')
+                !document.querySelector('.app-toast-failure')
                 && !document.body.innerText.match(/RangeError|requirePageNumber|pageCount.?0|Internal Server Error/iu)
             ), {timeout: 5_000});
             expect(rendererFailures).toEqual([]);
@@ -5493,7 +5493,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                     } : null,
                     progressEvents,
                     runtimeErrorText: document.querySelector<HTMLElement>(
-                        '.runtime-error-reports',
+                        '.app-toast-failure',
                     )?.textContent?.trim() ?? '',
                     workspaceErrorText: document.querySelector<HTMLElement>(
                         '.app-toast-failure',
@@ -5604,7 +5604,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                 }).length;
                 const banner = host.querySelector<HTMLElement>('.djvu-banner');
                 const error = document.querySelector<HTMLElement>('.app-toast-failure');
-                const runtimeError = document.querySelector<HTMLElement>('.runtime-error-reports');
+                const runtimeError = document.querySelector<HTMLElement>('.app-toast-failure');
                 const currentPage = visiblePages.find((page) => {
                     const rect = page.getBoundingClientRect();
                     const viewportCenter = viewportRect.top + viewportRect.height / 2;
@@ -5896,7 +5896,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         )), thumbnailDetail).toBe(true);
 
         const errorSurface = await session.page.evaluate(() => ({
-            runtimeError: document.querySelector<HTMLElement>('.runtime-error-reports')?.textContent?.trim() ?? '',
+            runtimeError: document.querySelector<HTMLElement>('.app-toast-failure')?.textContent?.trim() ?? '',
             workspaceError: document.querySelector<HTMLElement>(
                 '.app-toast-failure',
             )?.textContent?.trim() ?? '',
@@ -6129,7 +6129,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             const image = page?.querySelector<HTMLImageElement>(
                 ':scope > [data-testid="document-page-source-image"]',
             );
-            const runtimeError = document.querySelector<HTMLElement>('.runtime-error-reports');
+            const runtimeError = document.querySelector<HTMLElement>('.app-toast-failure');
             const workspaceError = document.querySelector<HTMLElement>(
                 '.app-toast-failure',
             );

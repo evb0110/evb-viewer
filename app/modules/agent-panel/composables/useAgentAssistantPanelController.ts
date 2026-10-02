@@ -77,10 +77,7 @@ import {
     getAssistantExpectedOutcome,
     type IAssistantActionErrorOptions,
 } from '@app/modules/agent-panel/utils/assistantFailure';
-import {
-    useFailureToast,
-    type FailurePresentation,
-} from '@app/composables/useFailureToast';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
 import {
     ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS,
     ASSISTANT_STATUS_HEARTBEAT_MS,
@@ -129,7 +126,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const widthVar = computed(() => (props.width != null ? `${props.width}px` : undefined));
     const { t }: { t: TTranslateFn } = useTypedI18n();
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const { presentFailureToast } = useFailureToast();
     const assistantSelectionStorage = defaultWindow?.localStorage;
     const initialAssistantSelectionPreference = readAssistantSelectionPreference(assistantSelectionStorage);
     const initialSelectedProvider = initialAssistantSelectionPreference?.provider ?? 'codex';
@@ -454,16 +450,16 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             section: 'assistant',
             title: t('assistant.runtimeErrorTitle'),
         });
-        reportRuntimeError(presentation);
+        // The shell tells a reported failure in a toast. A background refresh
+        // that keeps failing is told once until the assistant answers again.
+        const alreadyTold = options.automatic === true && backgroundFailureTold;
+        backgroundFailureTold ||= options.automatic === true;
+        if (!alreadyTold) {
+            reportRuntimeError(presentation);
+        }
         if (options.target !== 'none') {
-            // Told in a toast; kept so the panel does not repeat it inline. A
-            // background refresh that keeps failing does not tell it again.
-            const alreadyTold = options.automatic === true && backgroundFailureTold;
-            backgroundFailureTold ||= options.automatic === true;
+            // Kept so the panel does not repeat the told failure inline.
             assistantFailurePresentation.value = presentation;
-            if (!alreadyTold) {
-                presentFailureToast(presentation);
-            }
         }
         return { presentation };
     }

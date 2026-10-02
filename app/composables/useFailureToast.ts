@@ -56,6 +56,7 @@ export interface IFailureToastTarget {
 interface IFailureToastLabels {
     copy: string;
     copied: string;
+    errorId: string;
 }
 
 const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
@@ -120,12 +121,12 @@ export async function copyFailurePresentation(presentation: FailurePresentation)
 }
 
 // The reason reads first; the Error ID is a quiet second line for support.
-function renderFailureDescription(presentation: FailurePresentation) {
+function renderFailureDescription(presentation: FailurePresentation, errorIdLabel: string) {
     return () => h('span', {class: 'app-toast-failure-description'}, [
         presentation.description
             ? h('span', {class: 'app-toast-failure-reason'}, presentation.description)
             : null,
-        h('span', {class: 'app-toast-error-id'}, `Error ID: ${getFailureErrorId(presentation.failure)}`),
+        h('span', {class: 'app-toast-error-id'}, `${errorIdLabel}: ${getFailureErrorId(presentation.failure)}`),
     ]);
 }
 
@@ -134,6 +135,7 @@ export function createFailureToastPresenter(
     labels: IFailureToastLabels = {
         copy: 'Copy details',
         copied: 'Copied',
+        errorId: 'Error ID',
     },
 ) {
     return function presentFailureToast(presentation: FailurePresentation) {
@@ -164,7 +166,7 @@ export function createFailureToastPresenter(
             icon: TOAST_ICONS.error,
             ui: {root: 'app-toast-failure'},
             title: presentation.title,
-            description: renderFailureDescription(presentation),
+            description: renderFailureDescription(presentation, labels.errorId),
             actions: actions(false),
             duration: presentation.persistent ? Number.POSITIVE_INFINITY : FAILURE_TOAST_DURATION_MS,
             ...(presentation.persistent ? {progress: false} : {}),
@@ -196,6 +198,7 @@ export const useFailureToast = () => {
     const presentFailureToast = createFailureToastPresenter(toast, {
         copy: t('errors.runtime.copy'),
         copied: t('errors.runtime.copied'),
+        errorId: t('errors.runtime.errorId'),
     });
     const presentNoticeToast = createNoticeToastPresenter(toast);
 

@@ -268,6 +268,7 @@ const {
     save,
     settingsSaveError,
     settingsSaveFailure,
+    settingsSaveStatus,
     updateSetting,
 } = useSettings();
 const {
@@ -330,8 +331,16 @@ watch(settingsLoadFailurePresentation, (presentation) => {
         presentFailureToast(presentation);
     }
 });
-watch(settingsSaveFailurePresentation, (presentation) => {
-    if (presentation) {
+// Every save that ends failed is told, a retried one too; its receipt keeps
+// it one toast while it is still showing.
+watch([
+    settingsSaveFailurePresentation,
+    settingsSaveStatus,
+], ([
+    presentation,
+    status,
+]) => {
+    if (presentation && status === 'failed') {
         presentFailureToast({
             ...presentation,
             actions: [{
