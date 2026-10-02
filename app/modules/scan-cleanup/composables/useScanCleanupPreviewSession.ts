@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
 import {
     SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA,
     resolveScanCleanupEffectiveOutputMode,
@@ -1260,10 +1261,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
             const normalizedMessage = caught instanceof Error
-                ? getErrorMessage(caught)
-                    .replace(/^Error invoking remote method '[^']+':\s*/u, '')
-                    .replace(/^(?:Error:\s*)+/u, '')
-                    .trim()
+                ? stripIpcInvocationPrefix(getErrorMessage(caught))
                 : '';
             if (detailRetriesRemaining <= 0 && !(caught instanceof Error && caught.name === 'AbortError')) {
                 detailDiagnostic.value = {

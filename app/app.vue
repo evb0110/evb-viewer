@@ -129,7 +129,7 @@ watch(runtimeErrorReports, (reports) => {
         presentFailureToast({
             failure: report.failure,
             title: report.title,
-            ...(report.detail ? {description: report.detail} : {}),
+            description: report.detail || t('errors.runtime.reportDescription'),
             ...(report.technicalDetails ? {technicalDetails: report.technicalDetails} : {}),
         });
     }

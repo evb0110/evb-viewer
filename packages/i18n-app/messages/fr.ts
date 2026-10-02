@@ -1781,6 +1781,7 @@ export default {
             'reload': 'Recharger l’application',
             'copy': 'Copier les détails',
             'copied': 'Copié',
+            'reportDescription': 'Les détails ont été collectés discrètement et peuvent être copiés pour le débogage.',
             'errorId': 'ID d’erreur',
             'diagnosticsConsentTitle': 'Envoyer ce rapport d’erreur ?',
             'diagnosticsConsentDescription': 'Seuls des diagnostics d’erreur nettoyés pour protéger la vie privée sont envoyés. Les documents, chemins, textes et informations de compte ne sont pas envoyés.',

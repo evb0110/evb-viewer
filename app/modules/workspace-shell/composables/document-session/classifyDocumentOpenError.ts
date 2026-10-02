@@ -7,6 +7,7 @@ import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {isBrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/public';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import {stripIpcInvocationPrefix} from '@app/utils/stripIpcInvocationPrefix';
 
 export function classifyDocumentOpenError(
     error: unknown,
@@ -17,13 +18,12 @@ export function classifyDocumentOpenError(
         return t('errors.browser.filePickerSetupDenied');
     }
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
-    const rawMessage = error instanceof Error ? error.message : '';
+    const rawMessage = error instanceof Error ? stripIpcInvocationPrefix(error.message) : '';
     const missing = openError ? openError.code === 'not-found' : /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage);
-    if (missing) {
-        return t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')});
-    }
-    if (openError) {
-        return t(openError.code === 'source-changed' ? 'errors.file.changedWhileOpening' : 'errors.file.invalid');
+    if (missing || openError) {
+        return missing
+            ? t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')})
+            : t(openError?.code === 'source-changed' ? 'errors.file.changedWhileOpening' : 'errors.file.invalid');
     }
     const nativeError = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
     return nativeError?.code === 'too-large' ? t('errors.file.encryptedTooLarge') : rawMessage || t('errors.file.open');

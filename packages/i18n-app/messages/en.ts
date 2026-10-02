@@ -1770,6 +1770,7 @@ export default {
             'reload': 'Reload App',
             'copy': 'Copy details',
             'copied': 'Copied',
+            'reportDescription': 'Details were collected quietly and can be copied for debugging.',
             'errorId': 'Error ID',
             'diagnosticsConsentTitle': 'Send this error report?',
             'diagnosticsConsentDescription': 'Only privacy-sanitized error diagnostics are sent. Documents, paths, text, and account information are not sent.',

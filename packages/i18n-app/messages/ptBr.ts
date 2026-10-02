@@ -1781,6 +1781,7 @@ export default {
             'reload': 'Recarregar aplicativo',
             'copy': 'Copiar detalhes',
             'copied': 'Copiado',
+            'reportDescription': 'Detalhes foram coletados silenciosamente e podem ser copiados para depuração.',
             'errorId': 'ID do erro',
             'diagnosticsConsentTitle': 'Enviar este relatório de erro?',
             'diagnosticsConsentDescription': 'Somente diagnósticos de erros protegidos por privacidade são enviados. Documentos, caminhos, texto e informações da conta não são enviados.',

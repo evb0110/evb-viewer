@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@app/utils/error';
+import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import {
     ocrErrorCodeMessageKeys,
@@ -7,14 +8,8 @@ import {
 import type { IOcrErrorEnvelope } from '@contracts/electronApiOcr';
 import type { TOcrErrorFallbackKey } from '@app/utils/ocr/ocrErrorMessageKeys';
 
-const REMOTE_METHOD_PREFIX_RE = /^Error invoking remote method '[^']+':\s*/u;
-const ERROR_PREFIX_RE = /^(?:Error:\s*)+/u;
-
 function normalizeOcrErrorMessage(message: string) {
-    return message
-        .replace(REMOTE_METHOD_PREFIX_RE, '')
-        .replace(ERROR_PREFIX_RE, '')
-        .trim();
+    return stripIpcInvocationPrefix(message);
 }
 
 function truncateOcrErrorDetails(message: string) {

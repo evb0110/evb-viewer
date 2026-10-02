@@ -1770,6 +1770,7 @@ export default {
             'reload': 'App opnieuw laden',
             'copy': 'Details kopiëren',
             'copied': 'Gekopieerd',
+            'reportDescription': 'De details zijn op de achtergrond verzameld en kunnen worden gekopieerd voor foutopsporing.',
             'errorId': 'Fout-ID',
             'diagnosticsConsentTitle': 'Dit foutrapport verzenden?',
             'diagnosticsConsentDescription': 'Alleen privacyvriendelijke foutdiagnostiek wordt verzonden. Documenten, paden, tekst en accountgegevens worden niet verzonden.',

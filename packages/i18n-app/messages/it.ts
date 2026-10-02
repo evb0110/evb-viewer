@@ -1770,6 +1770,7 @@ export default {
             'reload': 'Ricarica app',
             'copy': 'Copia dettagli',
             'copied': 'Copiato',
+            'reportDescription': 'I dettagli sono stati raccolti in modo discreto e possono essere copiati per il debug.',
             'errorId': 'ID errore',
             'diagnosticsConsentTitle': 'Inviare questo report di errore?',
             'diagnosticsConsentDescription': 'Vengono inviati solo dati diagnostici dell’errore protetti per la privacy. Documenti, percorsi, testo e informazioni sull’account non vengono inviati.',

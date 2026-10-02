@@ -1770,6 +1770,7 @@ export default {
             'reload': 'App neu laden',
             'copy': 'Details kopieren',
             'copied': 'Kopiert',
+            'reportDescription': 'Details wurden im Hintergrund gesammelt und können zum Debuggen kopiert werden.',
             'errorId': 'Fehler-ID',
             'diagnosticsConsentTitle': 'Diesen Fehlerbericht senden?',
             'diagnosticsConsentDescription': 'Es werden nur datenschutzbereinigte Fehlerdiagnosen gesendet. Dokumente, Pfade, Text und Kontoinformationen werden nicht gesendet.',
