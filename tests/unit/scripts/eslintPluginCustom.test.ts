@@ -227,13 +227,14 @@ describe('e2e-click-as-user rule', () => {
                 'await page.$eval(\'.done\', button => (button as HTMLButtonElement).click());',
                 'await waitForFunctionInPage(page, () => document.querySelector(\'.tab\')?.click() === undefined);',
                 'await evaluateInPage(page, async () => { const row = document.querySelector(\'.row\'); row?.click(); });',
-                'const probe = (index: number) => { tabs[index]?.click(); };',
             ].map(code => ({
                 code,
                 filename,
             })),
             invalid: [
                 'await handle.click();',
+                'handle.click();',
+                'const probe = (index: number) => { tabs[index]?.click(); };',
                 'await handle!.click({count: 3});',
                 'await page.click(\'.tab-close\');',
                 'await session.page.click(\'.tab\', {button: \'right\'});',

@@ -791,11 +791,9 @@ function isInsideInPageFunction(node) {
     return false;
 }
 
-// Puppeteer's ElementHandle.click() and page.click(selector) return a promise
-// and take options or a selector; the DOM's element.click() takes nothing and
-// returns nothing. Without type information the rule treats a click as
-// Puppeteer's when it has arguments or its result is used, and as in-page code
-// when it is a bare statement or sits in a function handed to the page.
+// Without type information the rule cannot tell Puppeteer's
+// ElementHandle.click() or page.click(selector) from the DOM's element.click(),
+// so it allows only clicks in a function handed to the page.
 const e2eClickAsUserRule = {
     meta: {
         type: 'problem',
@@ -817,9 +815,7 @@ const e2eClickAsUserRule = {
             ) {
                 return;
             }
-            const expression = node.parent?.type === 'ChainExpression' ? node.parent : node;
-            const isBareStatement = node.arguments.length === 0 && expression.parent?.type === 'ExpressionStatement';
-            if (isBareStatement || isInsideInPageFunction(node)) {
+            if (isInsideInPageFunction(node)) {
                 return;
             }
             context.report({
