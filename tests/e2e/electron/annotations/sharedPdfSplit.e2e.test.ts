@@ -497,7 +497,7 @@ describe('shared PDF split', () => {
             width - 60,
             height,
         ]);
-        const point = await page.evaluate(async (watch) => {
+        const pointReady = page.evaluate(async (watch) => {
             await watch.seen;
             await new Promise(requestAnimationFrame);
             const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
@@ -514,6 +514,11 @@ describe('shared PDF split', () => {
                 y,
             };
         }, resizeWatch);
+        // A failed resize never fires the event, so its error ends the wait.
+        const point = await Promise.race([
+            pointReady,
+            resizing.then(() => pointReady),
+        ]);
         await page.mouse.click(point.x, point.y);
         await resizing;
         await resizeWatch.dispose();
