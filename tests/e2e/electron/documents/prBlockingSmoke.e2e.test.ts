@@ -6,6 +6,10 @@ import {
     it,
 } from 'vitest';
 import type {CDPSession} from 'puppeteer-core';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {execFileSync} from 'node:child_process';
 import {
     requireDocumentRef,
@@ -696,13 +700,7 @@ async function waitForCommittedFitHeightGeometry(
 async function closeActiveDocumentToEmpty(
     page: Parameters<typeof installCommittedSurfaceSampler>[0],
 ) {
-    const closed = await evaluateInPage(page, () => {
-        const activeTab = document.querySelector<HTMLElement>('.tab-list .tab.is-active');
-        const closeButton = activeTab?.querySelector<HTMLButtonElement>('.tab-close') ?? null;
-        closeButton?.click();
-        return closeButton !== null;
-    });
-    expect(closed).toBe(true);
+    await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
     await waitForCommittedEmptyBaseline(page);
 }
 
@@ -710,21 +708,20 @@ async function openActionableRecentFile(
     page: Parameters<typeof installCommittedSurfaceSampler>[0],
     sourcePath: string,
 ) {
-    await waitForFunctionInPage(page, (targetSourcePath: string) => {
-        const row = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
-        )).find(candidate => (
-            candidate.dataset.recentOpenActionable === 'true'
-            && candidate.dataset.recentSource === targetSourcePath
-        ));
-        if (!row) {
-            return false;
-        }
+    const findRow = (targetSourcePath: string) => Array.from(document.querySelectorAll<HTMLElement>(
+        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
+    )).find(candidate => (
+        candidate.dataset.recentOpenActionable === 'true'
+        && candidate.dataset.recentSource === targetSourcePath
+    ));
+    // The checkpoint marks the interaction, so it is set once the row exists
+    // and before the click.
+    await (await page.waitForFunction(findRow, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, sourcePath)).dispose();
+    await page.evaluate(() => {
         (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
             .__committedSurfaceInteractionCheckpoint = 'recent-djvu-click';
-        row.click();
-        return true;
-    }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, sourcePath);
+    });
+    await clickFoundAsUser(page, findRow, sourcePath, {description: `recent row for ${sourcePath}`});
 }
 
 async function captureRepeatedLargePdfOpen(
@@ -1120,13 +1117,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
 
-        const inactiveTabId = await evaluateInPage(session.page, () => {
-            const activeTab = document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]');
-            const newTabButton = document.querySelector<HTMLButtonElement>('.tab-bar .tab-new');
-            newTabButton?.click();
-            return activeTab?.dataset.tabId ?? null;
-        });
+        const inactiveTabId = await evaluateInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]')?.dataset.tabId ?? null
+        ));
         expect(inactiveTabId).not.toBeNull();
+        await clickAsUser(session.page, '.tab-bar .tab-new');
         await waitForFunctionInPage(session.page, (tabId: string) => {
             const target = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'))
                 .find(tab => tab.dataset.tabId === tabId);
@@ -2081,9 +2076,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 {showSidebar: true},
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
-            await evaluateInPage(session.page, () => {
-                document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
-            });
+            await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
             await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
                 Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
                     .some(row => (
@@ -2091,14 +2084,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                         && row.dataset.recentSource === targetSourcePath
                     ))
             ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath);
-            await evaluateInPage(session.page, (targetSourcePath: string) => {
-                const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-                    .find(candidate => (
-                        candidate.dataset.recentOpenActionable === 'true'
-                        && candidate.dataset.recentSource === targetSourcePath
-                    ));
-                row?.click();
-            }, fixturePath);
+            await clickFoundAsUser(session.page, (targetSourcePath: string) => Array.from(
+                document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'),
+            ).find(candidate => (
+                candidate.dataset.recentOpenActionable === 'true'
+                && candidate.dataset.recentSource === targetSourcePath
+            )), fixturePath, {description: `recent row for ${fixturePath}`});
             await waitForActiveDocumentSource(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForWorkspaceHistorySettled(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);

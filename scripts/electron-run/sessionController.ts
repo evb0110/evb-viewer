@@ -18,6 +18,11 @@ import { safeJsonParse } from '@contracts/safeJsonParse';
 import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { attachPageDiagnostics } from '@scripts/electron-run/attachPageDiagnostics';
+import {
+    emulateAutomationFocus,
+    shouldEmulateAutomationFocus,
+} from '@scripts/electron-run/emulateAutomationFocus';
+import { resolveAutomationWindowEnv } from '@scripts/electron-run/electronRunLaunchConfig';
 import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
     closeActiveDevServerOutputTee,
@@ -553,6 +558,9 @@ export async function startControlledSession(forceClean = false, options: IStart
             return;
         }
         const diagnostics = attachPageDiagnostics(launch.page);
+        if (shouldEmulateAutomationFocus(resolveAutomationWindowEnv(process.env))) {
+            await emulateAutomationFocus(launch.browser, launch.page);
+        }
 
         sessionState = {
             browser: launch.browser,

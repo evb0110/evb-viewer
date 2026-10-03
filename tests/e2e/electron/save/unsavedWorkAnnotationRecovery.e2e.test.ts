@@ -1,6 +1,7 @@
 import {
     copyFileSync, readFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {tmpdir} from 'node:os';
 import {
     basename, join, resolve,
@@ -122,19 +123,16 @@ describe('checkpointed annotation recovery', () => {
                 otherPath,
             ],
         });
-        const clickTab = async (paneSelector: string, fileName: string) => {
-            const point = await session!.page.evaluate((selector: string, name: string) => {
-                const tab = Array.from(document.querySelectorAll<HTMLElement>(`${selector} .tab[data-tab-id]`))
-                    .find(candidate => candidate.querySelector('.tab-label')?.textContent?.includes(name));
-                const rect = tab?.getBoundingClientRect();
-                return rect ? {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                } : null;
-            }, paneSelector, fileName);
-            if (!point) throw new Error(`No ${fileName} tab in ${paneSelector}`);
-            await session!.page.mouse.click(point.x, point.y);
-        };
+        // The tab menu is still animating closed right after a split; a person
+        // clicks the tab once nothing covers it.
+        const clickTab = (paneSelector: string, fileName: string) => clickFoundAsUser(session!.page, (query: {
+            selector: string;
+            name: string;
+        }) => Array.from(document.querySelectorAll<HTMLElement>(`${query.selector} .tab[data-tab-id]`))
+            .find(candidate => candidate.querySelector('.tab-label')?.textContent?.includes(query.name)), {
+            selector: paneSelector,
+            name: fileName,
+        }, {description: `${fileName} tab in ${paneSelector}`});
         const paneIds = () => session!.page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
         try {
             await waitForPdfLoaded(session.page, 60_000);

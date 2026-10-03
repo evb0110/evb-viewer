@@ -1,6 +1,10 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
+import {
     describe,
     expect,
     it,
@@ -315,20 +319,17 @@ const WINDOW_RESIZE_ESSENTIAL_CONTROLS = [
     'Redo',
 ];
 
+const SIDEBAR_SEARCH_RUN_BUTTON = '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button:not(:disabled)';
+
 async function clickEnabledDialogButton(page: IElectronE2ESession['page'], label: string) {
-    // The dialog re-renders while its native conversion controls settle. Keep
-    // the enabled check and click in one page task so no stale DOM snapshot can
-    // separate them.
-    await waitForFunctionInPage(page, text => {
-        const button = Array.from(
-            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-        ).find(candidate => candidate.textContent?.trim() === text && !candidate.disabled);
-        if (!button) {
-            return false;
-        }
-        button.click();
-        return true;
-    }, {timeout: 30_000}, label);
+    // The dialog re-renders while its native conversion controls settle, so
+    // the button is found again in the same page task that measures it.
+    await clickFoundAsUser(page, (text: string) => Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ).find(candidate => candidate.textContent?.trim() === text && !candidate.disabled), label, {
+        description: `dialog button ${label}`,
+        timeoutMs: 30_000,
+    });
 }
 
 async function clickActiveTabCloseWithPointer(session: IElectronE2ESession) {
@@ -2369,20 +2370,11 @@ describe('Electron E2E - Viewer Smoke', () => {
         await clickVisibleToolbarButton(session.page, 'More tools');
         await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .some(item => (item.textContent ?? '').includes('Scan cleanup')), {timeout: 10_000});
-        const overflowEntry = await session.page.evaluate(() => {
-            const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(candidate => (candidate.textContent ?? '').includes('Scan cleanup'));
-            const hasScissorsIcon = item?.querySelector('.overflow-menu-scan-cleanup-icon') !== null;
-            item?.click();
-            return {
-                found: Boolean(item),
-                hasScissorsIcon,
-            };
-        });
-        expect(overflowEntry).toEqual({
-            found: true,
-            hasScissorsIcon: true,
-        });
+        expect(await session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(candidate => (candidate.textContent ?? '').includes('Scan cleanup'))
+            ?.querySelector('.overflow-menu-scan-cleanup-icon') != null), 'the overflow entry shows the scissors icon').toBe(true);
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(candidate => (candidate.textContent ?? '').includes('Scan cleanup')), null, {description: 'Scan cleanup overflow entry'});
         await session.page.waitForSelector('.scan-cleanup-surface', {
             timeout: 10_000,
             visible: true,
@@ -2477,15 +2469,9 @@ describe('Electron E2E - Viewer Smoke', () => {
             visible: true,
         });
         await dismissScanCleanupFirstRunGuidance(session.page);
-        await session.page.evaluate(() => {
-            const color = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'))
-                .find(button => button.getAttribute('aria-label') === 'Color'
-                    || (button.textContent ?? '').trim() === 'Color');
-            if (!color) {
-                throw new Error('Scan Cleanup color output control was not found');
-            }
-            color.click();
-        });
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'))
+            .find(button => button.getAttribute('aria-label') === 'Color'
+                || (button.textContent ?? '').trim() === 'Color'), null, {description: 'Scan Cleanup color output control'});
         await waitForFunctionInPage(session.page, () => Array.from(
             document.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
         ).some(button => button.getAttribute('aria-label') === 'Color'
@@ -3338,31 +3324,16 @@ describe('Electron E2E - Viewer Smoke', () => {
             placeholder: 'Search...',
         });
         await searchInput!.type('Page 3 sample text');
-        const searchStarted = await session.page.evaluate(() => {
-            const button = document.querySelector<HTMLButtonElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
-            );
-            if (!button || button.disabled) {
-                return false;
-            }
-            button.click();
-            return true;
-        });
-        expect(searchStarted).toBe(true);
+        await clickAsUser(session.page, SIDEBAR_SEARCH_RUN_BUTTON);
 
         await waitForFunctionInPage(session.page, () => (
             Array.from(document.querySelectorAll<HTMLElement>(
                 '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
             )).some(result => result.textContent?.includes('Page 3 sample text'))
         ), { timeout: 15_000 });
-        const clickedResult = await session.page.evaluate(() => {
-            const result = Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
-            )).find(candidate => candidate.textContent?.includes('Page 3 sample text'));
-            result?.click();
-            return Boolean(result);
-        });
-        expect(clickedResult).toBe(true);
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+        )).find(candidate => candidate.textContent?.includes('Page 3 sample text')), null, {description: 'the Page 3 search result'});
         await waitForToolbarCurrentPage(session.page, 3);
         await waitForFunctionInPage(session.page, () => {
             const viewer = document.querySelector<HTMLElement>(
@@ -3596,17 +3567,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expect(searchInput).not.toBeNull();
         await searchInput!.type(NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY);
-        const searchStarted = await session.page.evaluate(() => {
-            const button = document.querySelector<HTMLButtonElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
-            );
-            if (!button || button.disabled) {
-                return false;
-            }
-            button.click();
-            return true;
-        });
-        expect(searchStarted).toBe(true);
+        await clickAsUser(session.page, SIDEBAR_SEARCH_RUN_BUTTON);
 
         // The page's text is only readable through the CMap files shipped with
         // PDF.js. The Latin first page keeps the index from falling back to
@@ -3661,17 +3622,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expect(searchInput).not.toBeNull();
         await searchInput!.type('sample text');
-        const searchStarted = await session.page.evaluate(() => {
-            const button = document.querySelector<HTMLButtonElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
-            );
-            if (!button || button.disabled) {
-                return false;
-            }
-            button.click();
-            return true;
-        });
-        expect(searchStarted).toBe(true);
+        await clickAsUser(session.page, SIDEBAR_SEARCH_RUN_BUTTON);
 
         const expectedSearchResultCount = 12;
         await waitForFunctionInPage(session.page, (expectedCount: number) => {
@@ -5353,17 +5304,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             );
             expect(searchInput).not.toBeNull();
             await searchInput!.type(searchFixture.sentinel);
-            const searchStarted = await session.page.evaluate(() => {
-                const button = document.querySelector<HTMLButtonElement>(
-                    '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
-                );
-                if (!button || button.disabled) {
-                    return false;
-                }
-                button.click();
-                return true;
-            });
-            expect(searchStarted).toBe(true);
+            await clickAsUser(session.page, SIDEBAR_SEARCH_RUN_BUTTON);
 
             await waitForFunctionInPage(session.page, (
                 args: {
@@ -5436,14 +5377,13 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                 return Math.min(viewerRect.bottom, pageRect.bottom)
                     - Math.max(viewerRect.top, pageRect.top) > 8;
             }, {timeout: 30_000}, 1);
-            const clickedSecondResult = await session.page.evaluate(() => {
-                const results = Array.from(document.querySelectorAll<HTMLElement>(
-                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
-                ));
-                results[1]?.click();
-                return results.length === 2;
-            });
-            expect(clickedSecondResult).toBe(true);
+            expect(await session.page.$$eval(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+                results => results.length,
+            )).toBe(2);
+            await clickFoundAsUser(session.page, () => document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )[1], null, {description: 'the second search result'});
             await waitForToolbarCurrentPage(session.page, searchFixture.pageNumber, 30_000);
 
             await waitForFunctionInPage(session.page, (pageNumber: number) => {
@@ -6601,7 +6541,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
         const cancelInitiator = await session.page.$('.djvu-banner button');
         expect(cancelInitiator).not.toBeNull();
-        await cancelInitiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, cancelInitiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
 
@@ -6665,7 +6606,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
         const successfulInitiator = await session.page.$('.djvu-banner button');
         expect(successfulInitiator).not.toBeNull();
-        await successfulInitiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, successfulInitiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
         await session.page.waitForSelector(progressSelector, {
@@ -6733,7 +6675,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         );
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
-        await initiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, initiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
         await session.page.waitForSelector('.app-progress-overlay[role="dialog"]', {
@@ -6833,7 +6776,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         );
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
-        await initiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, initiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
         const progressSelector = `.editor-pane[data-editor-pane-id="${djvuPaneId}"] .app-progress-overlay`;
@@ -7009,7 +6953,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(shownPageCount).toBeGreaterThanOrEqual(options.minimumPageCount);
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
-        await initiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, initiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
 
         await clickEnabledDialogButton(session.page, 'Convert');
@@ -7125,7 +7070,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
         const failureInitiator = await session.page.$('.djvu-banner button');
         expect(failureInitiator).not.toBeNull();
-        await failureInitiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, failureInitiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await truncate(corruptFixturePath, 0);
         await waitForFunctionInPage(session.page, () => Array.from(

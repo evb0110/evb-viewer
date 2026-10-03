@@ -12,10 +12,12 @@ running app but no fabricated pre-existing failure.
    [hidden automation](hidden-electron-automation.md) and
    [session lifecycle](electron-session-lifecycle.md).
 2. The action under test uses the actual input path: trusted mouse, wheel,
-   keyboard and drag through the session's CDP endpoint. Backdoors
-   (`callWorkspaceCommand`, `__evbTestApi`, writing `scrollTop`, synthetic
-   `dispatchEvent`, native value setters) are permitted for setup only when they
-   preserve the preconditions of the report.
+   keyboard and drag through the session's CDP endpoint, with clicks through
+   `clickAsUser`. Backdoors (`callWorkspaceCommand`, `__evbTestApi`,
+   `element.click()`, writing `scrollTop`, synthetic `dispatchEvent`, native
+   value setters) are permitted for setup only when they preserve the
+   preconditions of the report. Paths page input cannot reach are listed in
+   [hidden automation](hidden-electron-automation.md#what-automation-cannot-do-as-a-person-does).
 3. Assert what the user perceives: rendered text, real layout rectangles, painted
    pixels, saved bytes read back, diagnostics. An internal snapshot may be
    compared with the screen. It never replaces the screen.

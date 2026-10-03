@@ -16,6 +16,7 @@ import {
     readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { revealForPointer } from '@tests/e2e/electron/helpers/userInput';
 
 const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Draw': 'draw',
@@ -100,54 +101,7 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
  * real wheel over that container, so one a user cannot scroll to still fails.
  */
 export async function revealAnnotationControl(page: Page, selector: string) {
-    const deadline = Date.now() + 20_000;
-    for (;;) {
-        const stepHandle = await page.waitForFunction((targetSelector: string) => {
-            for (const target of document.querySelectorAll<HTMLElement>(targetSelector)) {
-                const rect = target.getBoundingClientRect();
-                if (rect.width <= 0 || rect.height <= 0) continue;
-                const x = rect.left + rect.width / 2;
-                const y = rect.top + rect.height / 2;
-                const hit = document.elementFromPoint(x, y);
-                if (hit && target.contains(hit)) {
-                    return {
-                        x,
-                        y,
-                        deltaY: 0,
-                    };
-                }
-                for (let scroller = target.parentElement; scroller; scroller = scroller.parentElement) {
-                    const overflowY = getComputedStyle(scroller).overflowY;
-                    if ((overflowY !== 'auto' && overflowY !== 'scroll') || scroller.scrollHeight <= scroller.clientHeight) continue;
-                    const box = scroller.getBoundingClientRect();
-                    if (rect.top >= box.top && rect.bottom <= box.bottom) continue;
-                    return {
-                        x: box.left + box.width / 2,
-                        y: box.top + box.height / 2,
-                        deltaY: rect.bottom > box.bottom ? rect.bottom - box.bottom : rect.top - box.top,
-                    };
-                }
-            }
-            return false;
-        }, {timeout: Math.max(1, deadline - Date.now())}, selector);
-        const step = await stepHandle.jsonValue();
-        await stepHandle.dispose();
-        if (!step) throw new Error(`Annotation control is not hit-testable: ${selector}`);
-        if (step.deltaY === 0) {
-            return {
-                x: step.x,
-                y: step.y,
-            };
-        }
-        await page.mouse.move(step.x, step.y);
-        await page.mouse.wheel({deltaY: step.deltaY});
-        // The wheel may scroll smoothly; measure again only once the controls rest.
-        await page.waitForFunction((targetSelector: string) => new Promise<boolean>((resolve) => {
-            const read = () => [...document.querySelectorAll(targetSelector)].map(target => target.getBoundingClientRect().top).join();
-            const first = read();
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve(read() === first)));
-        }), {timeout: Math.max(1, deadline - Date.now())}, selector);
-    }
+    return revealForPointer(page, selector);
 }
 
 /** Click a visible, unobstructed control without a DOM click or command fallback. */

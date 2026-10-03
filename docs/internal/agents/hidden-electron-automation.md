@@ -43,6 +43,66 @@ copy is pending, so the main process keeps a frame subscription on them;
 without it `page.screenshot` never returns. Never show, move off-screen or
 fade a hidden window to get frames.
 
+Hidden macOS sessions render on the GPU, as the owner's app does. They used to
+pass `--disable-gpu`, which put them on a software path no person runs.
+
+## What an E2E renderer sees
+
+A hidden window is not a person's window, and each host used to differ from
+the next. Linux Xvfb gave a focused 900x672 page at scale 1. A Retina Mac gave
+an unfocused 900x668 page at scale 2, where `focus` and `blur` never fire and
+`:focus` never matches. `tests/e2e/electron/helpers/userEnvironment.ts` owns
+one state for every hidden E2E session on every host, and the session fails
+before its first test when the renderer cannot reach it:
+
+- The page has focus through CDP focus emulation, and so does every window
+  the app opens later. The session controller sets it for every hidden or
+  no-focus session, so `record` and agent reproductions get it too.
+  Main-process focus is not emulated, so `BrowserWindow.isFocused()` stays
+  false.
+- The content area is 900x672 through a real window resize, not emulation.
+- The scale is pinned at launch with `--force-device-scale-factor`, 1 by
+  default. A session that needs high-DPI rendering passes
+  `extraEnv: {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'}` rather than
+  emulating a scale with `page.setViewport`.
+- The reset between tests restores all of this. Viewport emulation survives a
+  renderer reload and a real resize stays until it is undone, so one test's
+  `page.setViewport` or `windowResize` used to become the next test's
+  starting state.
+
+The session log prints the state it reached as one `[E2E environment]` line.
+The visible-window fixture keeps the real window and its real focus.
+
+## What automation cannot do as a person does
+
+Click with `clickAsUser` or `clickFoundAsUser` from
+`tests/e2e/electron/helpers/userInput.ts`. They wheel the target into view,
+wait until it stops moving, refuse a point another element covers, and send
+trusted CDP input.
+`element.click()` inside the page skips hit testing, pointer events, hover and
+focus, so it reaches a button under a dialog. It is setup, never the action
+under test. The same holds for writing `scrollTop` and dispatching synthetic
+events.
+
+These paths stay outside trusted page input. Name the gap when a report
+depends on one:
+
+- Native menu accelerators. On macOS a CDP key event never reaches the
+  application menu's key equivalents, so Cmd+S, Cmd+W or Cmd+Z typed through
+  `page.keyboard` exercise only renderer handlers. Quit goes through
+  `terminate:` (see `unsavedWorkQuit`); other menu commands need their
+  automation hook as setup.
+- Main-process focus checks, such as Escape leaving zen mode, which requires
+  `window.isFocused()`.
+- Native open, save and print dialogs, which E2E answers through
+  `EVB_E2E_*_DIALOG_PATH` and `EVB_PRINT_DIALOG_TEST_MODE`. The visible-window
+  nightly lane covers macOS printing.
+- Trackpad phases. CDP wheel events carry no begin, end or momentum phase;
+  `startTrustedWheelFling` approximates the momentum tail.
+- Input queued behind a busy renderer. Puppeteer waits for each event to be
+  acknowledged before it sends the next, so a person's burst of clicks during
+  a long task arrives differently.
+
 ## Packaged runs
 
 Use the shared runner with an unused task-owned directory and a free CDP port:

@@ -1,4 +1,7 @@
-import type { Page } from 'puppeteer-core';
+import type {
+    ElementHandle,
+    Page,
+} from 'puppeteer-core';
 import {realpath} from 'node:fs/promises';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { delay } from 'es-toolkit/promise';
@@ -23,6 +26,10 @@ import {
     waitForToolbarPageIndicator,
 } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     readViewportPageObservation,
     waitForViewportQuiet,
@@ -627,264 +634,174 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
     }, {timeout: timeoutMs});
 }
 
-export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
-    const tryClickInlineButton = () => evaluateInPage(page, (args: {
-        label: string;
-        iconHints: string[];
-    }): 'clicked' | 'disabled' | 'not-found' => {
-        const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
-            const ariaLabel = element.getAttribute('aria-label')?.trim() ?? '';
-            if (ariaLabel === label || ariaLabel.startsWith(`${label} (`)) {
-                return true;
-            }
-            return iconHints.some(selector => Boolean(element.querySelector(selector)));
-        };
+interface IToolbarActionQuery {
+    label: string;
+    iconHints: string[];
+}
 
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'));
-        const candidates = buttons.filter((button) => {
-            if (!matchesToolbarAction(button, args.label, args.iconHints)) {
-                return false;
-            }
-            const rect = button.getBoundingClientRect();
-            const style = window.getComputedStyle(button);
-            return (
-                rect.width > 8
+interface IToolbarMenuSelectors {
+    menu: string;
+    item: string;
+    label: string;
+}
+
+const TOOLBAR_OVERFLOW_MENU: IToolbarMenuSelectors = {
+    menu: '.overflow-menu',
+    item: '.overflow-menu-item',
+    label: '.overflow-menu-label',
+};
+const TOOLBAR_APP_MENU: IToolbarMenuSelectors = {
+    menu: '.app-menu',
+    item: '.app-menu-item',
+    label: '.app-menu-label',
+};
+
+/**
+ * Self-contained page function: it runs in the page on every poll, so a
+ * toolbar that re-renders is searched again rather than through a stale node.
+ */
+function findEnabledInlineToolbarButton(args: IToolbarActionQuery & {markDisabled: boolean}) {
+    const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).filter((button) => {
+        const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
+        const matches = ariaLabel === args.label
+            || ariaLabel.startsWith(`${args.label} (`)
+            || args.iconHints.some(selector => Boolean(button.querySelector(selector)));
+        const rect = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return matches
+            && rect.width > 8
+            && rect.height > 8
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number(style.opacity || '1') > 0;
+    });
+    const enabled = candidates.find(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
+    if (enabled) {
+        return enabled;
+    }
+    // A status read tells a shown but disabled match apart from a missing one.
+    return args.markDisabled ? candidates[0] ?? null : null;
+}
+
+async function readInlineToolbarButtonStatus(page: Page, query: IToolbarActionQuery) {
+    const handle = await page.evaluateHandle(findEnabledInlineToolbarButton, {
+        ...query,
+        markDisabled: true,
+    });
+    const status = await page.evaluate((found: HTMLButtonElement | null) => {
+        if (!found) {
+            return 'not-found';
+        }
+        return found.disabled || found.getAttribute('aria-disabled') === 'true' ? 'disabled' : 'enabled';
+    }, handle);
+    await handle.dispose();
+    return status;
+}
+
+async function findToolbarMenuTrigger(page: Page) {
+    const handle = await page.evaluateHandle(() => {
+        const shown = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 8
+                && rect.height > 8
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0;
+        };
+        const overflow = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], .toolbar-icon-button'))
+            .find(candidate => shown(candidate) && (
+                candidate.classList.contains('toolbar-icon-button')
+                || Boolean(candidate.querySelector('.i-ph-dots-three'))
+            ));
+        if (overflow && !overflow.disabled) {
+            return overflow;
+        }
+        return Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Menu"]'))
+            .find(candidate => shown(candidate) && !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true')
+            ?? null;
+    });
+    const element = handle.asElement() as ElementHandle<HTMLButtonElement> | null;
+    if (!element) {
+        await handle.dispose();
+        return null;
+    }
+    const isAppMenu = await element.evaluate(button => button.getAttribute('aria-label') === 'Menu');
+    return {
+        element,
+        menu: isAppMenu ? TOOLBAR_APP_MENU : TOOLBAR_OVERFLOW_MENU,
+    };
+}
+
+async function clickToolbarActionInMenu(page: Page, query: IToolbarActionQuery, menu: IToolbarMenuSelectors) {
+    await page.waitForSelector(menu.menu, {timeout: 4_000});
+    await clickFoundAsUser(page, (args: IToolbarActionQuery & {menu: IToolbarMenuSelectors}) => (
+        Array.from(document.querySelectorAll<HTMLElement>(`${args.menu.menu} ${args.menu.item}`)).find((item) => {
+            const text = (item.querySelector(args.menu.label)?.textContent ?? '').trim();
+            const rect = item.getBoundingClientRect();
+            const style = window.getComputedStyle(item);
+            return (text === args.label || args.iconHints.some(selector => Boolean(item.querySelector(selector))))
+                && rect.width > 8
                 && rect.height > 8
                 && style.display !== 'none'
                 && style.visibility !== 'hidden'
                 && Number(style.opacity || '1') > 0
-            );
-        });
-        const target = candidates.find(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
-
-        if (!target) {
-            return candidates.length > 0 ? 'disabled' : 'not-found';
-        }
-
-        target.click();
-        return 'clicked';
+                && !item.hasAttribute('disabled')
+                && item.getAttribute('aria-disabled') !== 'true';
+        })
+    ), {
+        ...query,
+        menu,
     }, {
+        description: `toolbar action '${query.label}' in ${menu.menu}`,
+        timeoutMs: 4_000,
+    });
+    await page.waitForFunction((selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) {
+            return true;
+        }
+        const style = window.getComputedStyle(element);
+        return style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0;
+    }, {timeout: 4_000}, menu.menu);
+}
+
+/** Clicks a toolbar action with real input, through the overflow or app menu when it is not inline. */
+export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
+    const query = {
         label: ariaLabel,
         iconHints: getToolbarActionIconHints(ariaLabel),
-    });
-
-    let clicked = false;
-    const inlineButtonDeadline = Date.now() + 4_000;
-    while (Date.now() < inlineButtonDeadline) {
-        const result = await tryClickInlineButton();
-        if (result === 'clicked') {
-            clicked = true;
-            break;
-        }
-        if (result === 'not-found') {
-            break;
-        }
-
+    };
+    const deadline = Date.now() + 4_000;
+    let inline = await readInlineToolbarButtonStatus(page, query);
+    while (inline === 'disabled' && Date.now() < deadline) {
         await delay(50);
+        inline = await readInlineToolbarButtonStatus(page, query);
     }
-
-    if (!clicked) {
-        const finalInlineAttempt = await tryClickInlineButton();
-        if (finalInlineAttempt === 'clicked') {
-            return;
-        }
-        if (finalInlineAttempt === 'disabled') {
-            throw new Error(`Visible toolbar button stayed disabled: ${ariaLabel}`);
-        }
-
-        const overflowPoint = await evaluateInPage(page, () => {
-            const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], .toolbar-icon-button'))
-                .find((candidate) => {
-                    const element = candidate as HTMLElement;
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    if (
-                        rect.width <= 8
-                        || rect.height <= 8
-                        || style.display === 'none'
-                        || style.visibility === 'hidden'
-                        || Number(style.opacity || '1') === 0
-                    ) {
-                        return false;
-                    }
-                    return Boolean(
-                        element.classList.contains('toolbar-icon-button')
-                        || Boolean(element.querySelector('.i-ph-dots-three'))
-                        || Boolean(element.querySelector('.iconify.i-ph-dots-three')),
-                    );
-                });
-
-            if (!trigger || trigger.disabled) {
-                return null;
-            }
-            const rect = trigger.getBoundingClientRect();
-            return {
-                x: Math.round(rect.left + rect.width / 2),
-                y: Math.round(rect.top + rect.height / 2),
-            };
-        });
-
-        if (!overflowPoint) {
-            const appMenuPoint = await page.evaluate(() => {
-                const menuButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-                    .find((candidate) => {
-                        const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
-                        const rect = candidate.getBoundingClientRect();
-                        const style = window.getComputedStyle(candidate);
-                        return (
-                            ariaLabel === 'Menu'
-                            && rect.width > 8
-                            && rect.height > 8
-                            && style.display !== 'none'
-                            && style.visibility !== 'hidden'
-                            && Number(style.opacity || '1') > 0
-                            && !candidate.disabled
-                            && candidate.getAttribute('aria-disabled') !== 'true'
-                        );
-                    });
-                if (!menuButton) {
-                    return null;
-                }
-                const rect = menuButton.getBoundingClientRect();
-                return {
-                    x: Math.round(rect.left + rect.width / 2),
-                    y: Math.round(rect.top + rect.height / 2),
-                };
-            });
-
-            if (!appMenuPoint) {
-                throw new Error(`Visible toolbar button not found: ${ariaLabel}`);
-            }
-
-            await page.mouse.click(appMenuPoint.x, appMenuPoint.y);
-            await page.waitForSelector('.app-menu', { timeout: 4_000 });
-
-            const appMenuItemPoint = await page.evaluate((args: {
-                label: string;
-                iconHints: string[];
-            }) => {
-                const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
-                    const text = (element.querySelector('.app-menu-label')?.textContent ?? '').trim();
-                    if (text === label) {
-                        return true;
-                    }
-                    return iconHints.some(selector => Boolean(element.querySelector(selector)));
-                };
-
-                const items = Array.from(document.querySelectorAll<HTMLElement>('.app-menu .app-menu-item'));
-                const target = items.find((item) => {
-                    if (!matchesToolbarAction(item, args.label, args.iconHints)) {
-                        return false;
-                    }
-                    const rect = item.getBoundingClientRect();
-                    const style = window.getComputedStyle(item);
-                    return (
-                        rect.width > 8
-                        && rect.height > 8
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0
-                        && !item.hasAttribute('disabled')
-                        && item.getAttribute('aria-disabled') !== 'true'
-                    );
-                });
-                if (!target) {
-                    return null;
-                }
-                const rect = target.getBoundingClientRect();
-                return {
-                    x: Math.round(rect.left + rect.width / 2),
-                    y: Math.round(rect.top + rect.height / 2),
-                };
-            }, {
-                label: ariaLabel,
-                iconHints: getToolbarActionIconHints(ariaLabel),
-            });
-
-            if (!appMenuItemPoint) {
-                throw new Error(`Toolbar action not found in app menu: ${ariaLabel}`);
-            }
-
-            await page.mouse.click(appMenuItemPoint.x, appMenuItemPoint.y);
-            await page.waitForFunction(() => {
-                const menu = document.querySelector('.app-menu');
-                if (!menu) {
-                    return true;
-                }
-                const style = window.getComputedStyle(menu);
-                return (
-                    style.display === 'none'
-                    || style.visibility === 'hidden'
-                    || Number(style.opacity || '1') === 0
-                );
-            }, { timeout: 4_000 });
-            return;
-        }
-
-        await page.mouse.click(overflowPoint.x, overflowPoint.y);
-        await page.waitForSelector('.overflow-menu', { timeout: 4_000 });
-
-        const overflowItemPoint = await page.evaluate((args: {
-            label: string;
-            iconHints: string[];
-        }) => {
-            const matchesToolbarAction = (element: HTMLElement, label: string, iconHints: string[]) => {
-                const text = (element.querySelector('.overflow-menu-label')?.textContent ?? '').trim();
-                if (text === label) {
-                    return true;
-                }
-                return iconHints.some(selector => Boolean(element.querySelector(selector)));
-            };
-
-            const items = Array.from(document.querySelectorAll<HTMLElement>('.overflow-menu .overflow-menu-item'));
-            const target = items.find((item) => {
-                if (!matchesToolbarAction(item, args.label, args.iconHints)) {
-                    return false;
-                }
-                const rect = item.getBoundingClientRect();
-                const style = window.getComputedStyle(item);
-                return (
-                    rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && !item.hasAttribute('disabled')
-                    && item.getAttribute('aria-disabled') !== 'true'
-                );
-            });
-            if (!target) {
-                return null;
-            }
-            const rect = target.getBoundingClientRect();
-            return {
-                x: Math.round(rect.left + rect.width / 2),
-                y: Math.round(rect.top + rect.height / 2),
-            };
+    if (inline === 'disabled') {
+        throw new Error(`Visible toolbar button stayed disabled: ${ariaLabel}`);
+    }
+    if (inline === 'enabled') {
+        await clickFoundAsUser(page, findEnabledInlineToolbarButton, {
+            ...query,
+            markDisabled: false,
         }, {
-            label: ariaLabel,
-            iconHints: getToolbarActionIconHints(ariaLabel),
+            description: `toolbar button ${ariaLabel}`,
+            timeoutMs: 4_000,
         });
-
-        if (!overflowItemPoint) {
-            throw new Error(`Toolbar action not found in overflow menu: ${ariaLabel}`);
-        }
-        await page.mouse.click(overflowItemPoint.x, overflowItemPoint.y);
-        await page.waitForFunction(() => {
-            const menu = document.querySelector('.overflow-menu');
-            if (!menu) {
-                return true;
-            }
-            const style = window.getComputedStyle(menu);
-            return (
-                style.display === 'none'
-                || style.visibility === 'hidden'
-                || Number(style.opacity || '1') === 0
-            );
-        }, {timeout: 4_000});
         return;
     }
 
+    const trigger = await findToolbarMenuTrigger(page);
+    if (!trigger) {
+        throw new Error(`Visible toolbar button not found: ${ariaLabel}`);
+    }
+    try {
+        await clickAsUser(page, trigger.element, {timeoutMs: 4_000});
+    } finally {
+        await trigger.element.dispose();
+    }
+    await clickToolbarActionInMenu(page, query, trigger.menu);
 }
 
 export async function clickToolbarButtonWhenEnabled(

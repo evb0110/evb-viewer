@@ -1,5 +1,7 @@
 import {spawn} from 'node:child_process';
 import {PDFDocument} from 'pdf-lib';
+import { delay } from 'es-toolkit/promise';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {createHash} from 'node:crypto';
 import {
     chmodSync,
@@ -170,16 +172,22 @@ async function clickWindowDecision(
         ? new Promise<void>(resolve => session.page.once('close', () => resolve()))
         : null;
     await session.page.evaluate(() => window.electronAPI?.windowTabs.closeCurrentWindow());
-    await session.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')));
-    await session.page.evaluate((expectedLabel) => {
-        const button = Array.from(document.querySelectorAll('button')).find(candidate => (
-            (candidate.textContent ?? '').trim().includes(expectedLabel)
-        ));
-        if (!button) {
-            throw new Error(`Window close action was not found: ${expectedLabel}`);
+    try {
+        await clickFoundAsUser(session.page, (expectedLabel: string) => Array.from(document.querySelectorAll('[role="dialog"] button'))
+            .find(candidate => (candidate.textContent ?? '').trim().includes(expectedLabel)), label, {description: `window close action ${label}`});
+    } catch (error) {
+        // The action closes the window, which can end the page before the
+        // release of the click is acknowledged.
+        if (!closed) {
+            throw error;
         }
-        button.click();
-    }, label);
+        await Promise.race([
+            closed,
+            delay(5_000).then(() => {
+                throw error;
+            }),
+        ]);
+    }
     if (label === 'Cancel') {
         await session.page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
     }
@@ -988,13 +996,8 @@ describe('Project 8 recovered close decisions', () => {
         await expect(callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).resolves.toMatchObject({called: true});
         await session.page.click('.tab-list .tab[data-tab-id]:last-child', {button: 'right'});
         await session.page.waitForSelector('.tab-context-menu');
-        const movedToNewWindow = await session.page.evaluate(() => {
-            const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(candidate => (candidate.textContent ?? '').toLowerCase().includes('move tab to new window'));
-            item?.click();
-            return Boolean(item);
-        });
-        expect(movedToNewWindow, 'move tab to new window menu item').toBe(true);
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(candidate => (candidate.textContent ?? '').toLowerCase().includes('move tab to new window')), null, {description: 'Move Tab to New Window'});
 
         const appPages = async () => (await session!.browser.pages()).filter(page => (
             !page.isClosed()

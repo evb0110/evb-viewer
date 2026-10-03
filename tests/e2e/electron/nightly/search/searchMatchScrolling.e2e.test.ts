@@ -5,6 +5,10 @@ import {
     vi,
 } from 'vitest';
 import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
+import {
     createSearchMatchScrollFixturePdf,
     SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
     SEARCH_MATCH_SCROLL_FIXTURE_QUERY,
@@ -124,17 +128,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
         );
         expect(searchInput).not.toBeNull();
         await searchInput!.type(searchMatchScrollConfig.query);
-        const searchStarted = await session.page.evaluate(() => {
-            const button = document.querySelector<HTMLButtonElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
-            );
-            if (!button || button.disabled) {
-                return false;
-            }
-            button.click();
-            return true;
-        });
-        expect(searchStarted).toBe(true);
+        await clickAsUser(session.page, '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button:not(:disabled)');
 
         await waitForFunctionInPage(session.page, (expectedCount: number) => {
             const summary = document.querySelector<HTMLElement>(
@@ -224,17 +218,13 @@ describe('Electron E2E - PDF search match scrolling', () => {
             SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX,
         );
 
-        const openedTargetGroup = await session.page.evaluate((targetGroup: string) => {
-            const group = Array.from(document.querySelectorAll<HTMLButtonElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-group-toggle',
-            )).find(candidate => candidate.dataset.pageNumber === targetGroup);
-            if (!group || group.getAttribute('aria-expanded') !== 'false') {
-                return false;
-            }
-            group.click();
-            return true;
-        }, searchMatchScrollConfig.targetGroup);
-        expect(openedTargetGroup).toBe(true);
+        await clickFoundAsUser(session.page, (targetGroup: string) => Array.from(document.querySelectorAll<HTMLButtonElement>(
+            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-group-toggle',
+        )).find(candidate => candidate.dataset.pageNumber === targetGroup
+            && candidate.getAttribute('aria-expanded') === 'false'), searchMatchScrollConfig.targetGroup, {
+            description: `collapsed search result group ${searchMatchScrollConfig.targetGroup}`,
+            timeoutMs: 5_000,
+        });
 
         await waitForFunctionInPage(session.page, ({
             targetMatch,

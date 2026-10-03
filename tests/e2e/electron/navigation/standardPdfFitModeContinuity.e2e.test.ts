@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
+import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createBlankFixturePdf,
@@ -561,12 +562,7 @@ async function waitForNoWorkspaceOpening(session: IElectronE2ESession) {
 }
 
 async function activateWorkspaceTabById(session: IElectronE2ESession, tabId: string) {
-    const clicked = await evaluateInPage(session.page, (targetTabId: string) => {
-        const tab = document.querySelector<HTMLElement>(`.tab-list .tab[data-tab-id="${targetTabId}"]`);
-        tab?.click();
-        return tab !== null;
-    }, tabId);
-    expect(clicked, `tab '${tabId}' was not in the tab bar`).toBe(true);
+    await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${tabId}"]`, {timeoutMs: 5_000});
     await waitForFunctionInPage(session.page, (targetTabId: string) => (
         document.querySelector(
             `.workspace-host[data-workspace-tab-id="${targetTabId}"][data-workspace-active="true"]`,

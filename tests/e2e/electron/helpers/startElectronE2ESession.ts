@@ -16,6 +16,7 @@ import { projectRoot } from '@scripts/electron-run/projectRoot';
 import {
     buildElectronE2EAutomationEnv,
     buildVisibleWindowElectronE2EAutomationEnv,
+    resolveAutomationDeviceScaleFactor,
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { assertE2ESessionName } from '@scripts/electron-run/electronRunE2ESessionPrune';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
@@ -59,6 +60,10 @@ import {
     runElectronE2EProcessLaunchStage,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
+import {
+    establishUserEnvironment,
+    formatUserEnvironment,
+} from '@tests/e2e/electron/helpers/userEnvironment';
 
 const SESSION_READY_TIMEOUT_MS = E2E_SESSION_START_TIMEOUT_MS;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
@@ -349,6 +354,7 @@ export async function startElectronE2ESession(
         sessionName,
         options,
         buildElectronE2EAutomationEnv,
+        {userEnvironment: true},
     );
 }
 
@@ -362,7 +368,11 @@ async function startElectronE2ESessionWithAutomationEnv(
     sessionName: string,
     options: IElectronE2ESessionStartOptions | undefined,
     buildAutomationEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv,
-    seedProfile?: (userDataPath: string) => void,
+    launch: {
+        /** Hidden sessions get the canonical person's-window state; a visible window has its own. */
+        userEnvironment: boolean;
+        seedProfile?: (userDataPath: string) => void;
+    },
 ): Promise<IElectronE2ESession> {
     const scopedSessionName = assertE2ESessionName(createE2ERunScopedSessionName(sessionName, process.env));
     const clean = options?.clean ?? true;
@@ -382,7 +392,7 @@ async function startElectronE2ESessionWithAutomationEnv(
     }
 
     setCurrentSessionName(scopedSessionName);
-    seedProfile?.(electronUserDataPath(scopedSessionName));
+    launch.seedProfile?.(electronUserDataPath(scopedSessionName));
     const requestedEnv = {
         ...process.env,
         ...(options?.extraEnv ?? {}),
@@ -446,6 +456,36 @@ async function startElectronE2ESessionWithAutomationEnv(
     );
     await installPageEvaluationShims(page);
     await waitForRendererReady(page);
+    const deviceScaleFactor = resolveAutomationDeviceScaleFactor(startOptions.env) ?? 1;
+    if (launch.userEnvironment) {
+        try {
+            const environment = await establishUserEnvironment(page, deviceScaleFactor);
+            console.log(`[E2E environment] ${scopedSessionName} ${process.platform}: ${formatUserEnvironment(environment)}`);
+        } catch (error) {
+            // Each cleanup step runs even when the one before it fails, and
+            // every failure is reported with the environment error.
+            const cleanupErrors: unknown[] = [];
+            try {
+                await browser.disconnect();
+            } catch (disconnectError) {
+                cleanupErrors.push(disconnectError);
+            }
+            try {
+                await stopSingleSession(scopedSessionName);
+            } catch (stopError) {
+                cleanupErrors.push(stopError);
+            } finally {
+                releaseCurrentSessionName(scopedSessionName);
+            }
+            if (cleanupErrors.length > 0) {
+                throw new AggregateError([
+                    error,
+                    ...cleanupErrors,
+                ], 'The E2E renderer environment failed and its session could not be cleaned up');
+            }
+            throw error;
+        }
+    }
 
     const command = async <T = unknown>(
         nextCommand: TElectronRunCommand,
@@ -520,6 +560,9 @@ async function startElectronE2ESessionWithAutomationEnv(
                 await client.detach();
             }
             await restoreRendererAndResumeCheckpoint();
+            if (launch.userEnvironment) {
+                await establishUserEnvironment(page, deviceScaleFactor);
+            }
         } catch (error) {
             if (!checkpointResumed) {
                 try {
@@ -559,7 +602,10 @@ export async function startHostVisibleElectronE2ESession(
         sessionName,
         options,
         buildVisibleWindowElectronE2EAutomationEnv,
-        suppressDefaultViewerPrompt,
+        {
+            userEnvironment: false,
+            seedProfile: suppressDefaultViewerPrompt,
+        },
     );
 }
 

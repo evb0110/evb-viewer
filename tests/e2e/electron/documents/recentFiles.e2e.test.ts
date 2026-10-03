@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
     requireDocumentRef,
     type TDocumentRef,
@@ -313,15 +314,10 @@ async function waitForRecentFileRow(session: IElectronE2ESession, sourcePath: st
 async function clickRecentFile(session: IElectronE2ESession, sourcePath: string) {
     await waitForRecentFileRow(session, sourcePath);
 
-    const clicked = await evaluateInPage(session.page, (targetSourcePath: string) => {
-        const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-            .find(candidate => candidate.dataset.recentSource === targetSourcePath);
-        const openButton = row?.querySelector<HTMLButtonElement>('button.recent-open') ?? null;
-        openButton?.click();
-        return Boolean(openButton);
-    }, sourcePath);
-
-    expect(clicked).toBe(true);
+    await clickFoundAsUser(session.page, (targetSourcePath: string) => Array.from(
+        document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'),
+    ).find(candidate => candidate.dataset.recentSource === targetSourcePath)
+        ?.querySelector<HTMLButtonElement>('button.recent-open'), sourcePath, {description: `recent open button for ${sourcePath}`});
 }
 
 // The open is held before its working copy exists, so a skeleton now was sized

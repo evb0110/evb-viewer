@@ -75,16 +75,6 @@ export function shouldDisableAutomationSandbox(
     return platform === 'linux' && env.CI === 'true';
 }
 
-function shouldDisableMacOSAutomationGpu(
-    env: NodeJS.ProcessEnv = process.env,
-    platform = process.platform,
-) {
-    // Hidden macOS Electron sessions can lose their GPU process before CDP
-    // attaches. Keep visible automation and normal desktop launches on the
-    // hardware-rendered path.
-    return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1';
-}
-
 // With "Show scroll bars: automatically", macOS switches between overlay and
 // classic scroll bars as a mouse connects or sleeps, which changes every
 // viewport width by the scroll bar. Hidden sessions pin classic scroll bars,
@@ -99,6 +89,28 @@ function resolveMacOSAutomationScrollBarArgs(
             'Always',
         ]
         : [];
+}
+
+export const AUTOMATION_DEVICE_SCALE_FACTOR_ENV = 'EVB_AUTOMATION_DEVICE_SCALE_FACTOR';
+const E2E_DEFAULT_DEVICE_SCALE_FACTOR = '1';
+
+/**
+ * Without this switch a session inherits the scale of whatever display the
+ * host has: 2 on a Retina Mac, 1 under Xvfb and on hosted runners. The same
+ * test then paints a different canvas on each machine. E2E sessions pin one
+ * scale; a session that needs real high-DPI rendering asks for it natively
+ * instead of emulating it.
+ */
+export function resolveAutomationDeviceScaleFactor(env: NodeJS.ProcessEnv = process.env) {
+    const raw = env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV]?.trim();
+    if (!raw) {
+        return null;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0 || value > 4) {
+        throw new Error(`${AUTOMATION_DEVICE_SCALE_FACTOR_ENV} must be a number in (0, 4]; got ${raw}`);
+    }
+    return value;
 }
 
 const AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV = 'EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES';
@@ -156,8 +168,9 @@ export function buildElectronAutomationArgs(options: {
             '--no-sandbox',
         );
     }
-    if (shouldDisableMacOSAutomationGpu(options.env, options.platform)) {
-        args.unshift('--disable-gpu');
+    const deviceScaleFactor = resolveAutomationDeviceScaleFactor(options.env ?? {});
+    if (deviceScaleFactor !== null) {
+        args.unshift(`--force-device-scale-factor=${deviceScaleFactor}`);
     }
     if (forceNoReducedMotion) {
         args.unshift('--force-prefers-no-reduced-motion');
@@ -268,6 +281,8 @@ export function buildElectronE2EAutomationEnv(
     return {
         ...env,
         ...resolveElectronE2EHeadlessRunnerConfig(platform).environment,
+        // A blank value means no request, as it does for the launcher.
+        [AUTOMATION_DEVICE_SCALE_FACTOR_ENV]: env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV]?.trim() ? env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV] : E2E_DEFAULT_DEVICE_SCALE_FACTOR,
     } satisfies NodeJS.ProcessEnv;
 }
 
