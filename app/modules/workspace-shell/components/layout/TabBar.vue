@@ -72,9 +72,11 @@
         :ui="contextMenuUi"
         portal="body"
     >
-        <span
+        <button
+            type="button"
             class="tab-context-menu-anchor"
             :style="contextMenuAnchorStyle"
+            tabindex="-1"
             aria-hidden="true"
         />
     </UDropdownMenu>
@@ -189,7 +191,6 @@ const contextMenuContentOptions = {
     collisionPadding: 8,
     positionStrategy: 'fixed' as const,
     updatePositionStrategy: 'always' as const,
-    onCloseAutoFocus: returnFocusToTab,
 };
 const contextMenuUi = {
     content: 'tab-context-menu toolbar-menu-panel',
@@ -456,23 +457,6 @@ function handleTabFocus(tabId: string) {
     focusedTabId.value = tabId;
 }
 
-function focusTab(tabId: string) {
-    tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`)
-        ?.focus({preventScroll: true});
-}
-
-// The closed menu hands focus to its tab, never to the invisible anchor, and
-// only while nothing else has it: a control the person moved to keeps focus.
-function returnFocusToTab(event: Event) {
-    event.preventDefault();
-    const focused = document.activeElement;
-    const focusMoved = focused !== null && focused !== document.body
-        && !(event.target instanceof Node && event.target.contains(focused));
-    if (contextMenu.value.tabId && !focusMoved) {
-        focusTab(contextMenu.value.tabId);
-    }
-}
-
 function handleTabKeydown(event: KeyboardEvent, tabId: string) {
     const tabIndex = tabs.findIndex(tab => tab.id === tabId);
     if (tabIndex < 0) {
@@ -499,7 +483,8 @@ function handleTabKeydown(event: KeyboardEvent, tabId: string) {
         event.preventDefault();
         event.stopPropagation();
         focusedTabId.value = targetTab.id;
-        focusTab(targetTab.id);
+        tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(targetTab.id)}"]`)
+            ?.focus({preventScroll: true});
         return;
     }
 
