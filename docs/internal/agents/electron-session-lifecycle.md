@@ -60,5 +60,7 @@ requested size, compensating for the native frame, and fails when the window
 does not reach it. It works for a hidden window. `emulateViewport` only changes
 the metrics the renderer reports; the native window does not move, so it cannot
 reproduce a layout defect a person causes by dragging a window edge. A session
-keeps whatever size it was last given, so a test that resizes restores the
-original content area when it finishes.
+keeps whatever size it was last given. E2E sessions start at the canonical
+content area and the reset between tests returns to it, clearing viewport
+emulation too; see
+[hidden automation](hidden-electron-automation.md#what-an-e2e-renderer-sees).

@@ -1,5 +1,6 @@
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {existsSync} from 'node:fs';
 import {
     chmod,
@@ -683,14 +684,11 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             called: true,
             value: true,
         });
-        await session.page.waitForFunction(
-            () => Array.from(document.querySelectorAll('button'))
-                .some(button => button.textContent?.trim() === 'Save Optimized Copy'),
-            {timeout: SAVE_TIMEOUT_MS},
-        );
-        await session.page.evaluate(() => Array.from(document.querySelectorAll('button'))
-            .find(button => button.textContent?.trim() === 'Save Optimized Copy')
-            ?.click());
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll('button'))
+            .find(button => button.textContent?.trim() === 'Save Optimized Copy'), null, {
+            description: 'Save Optimized Copy',
+            timeoutMs: SAVE_TIMEOUT_MS,
+        });
 
         await expect.poll(() => existsSync(destinationPath), {timeout: SAVE_TIMEOUT_MS}).toBe(true);
         const destinationBytes = await readFile(destinationPath);

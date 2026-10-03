@@ -1,5 +1,6 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {rm} from 'node:fs/promises';
 import {
     existsSync, mkdtempSync,
@@ -60,15 +61,13 @@ describe('DjVu converted bookmark destinations', () => {
         await waitForFunctionInPage(session.page, () => (
             document.querySelector('[role="radio"][value="direct-1"]')?.getAttribute('aria-checked') === 'true'
         ), {timeout: 5_000});
-        await waitForFunctionInPage(session.page, () => {
-            const dialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-                .find(element => element.textContent?.includes('Convert DjVu to PDF'));
-            const button = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-                .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled);
-            if (!button) return false;
-            button.click();
-            return true;
-        }, {timeout: 30_000});
+        await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .find(element => element.textContent?.includes('Convert DjVu to PDF'))
+            ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+            .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
+            description: 'Convert in the DjVu conversion dialog',
+            timeoutMs: 30_000,
+        });
         await expect.poll(() => existsSync(outputPath), {timeout: 300_000}).toBe(true);
         const qpdf = getPdfNativeToolPaths().qpdf;
         const {stdout: outlineJson} = await execFileAsync(qpdf, [
@@ -108,7 +107,6 @@ describe('DjVu converted bookmark destinations', () => {
         await session.page.click('.tab-list .tab.is-active .tab-close');
         await openPdfInApp(session.page, outputPath, 120_000);
         await waitForPdfLoaded(session.page, 120_000);
-        await session.page.evaluate(() => document.querySelector<HTMLElement>('.document-bookmarks-toolbar__actions button')?.click());
         await openDocumentSidebarTab(session.page, 'Bookmarks');
         for (const [
             title,

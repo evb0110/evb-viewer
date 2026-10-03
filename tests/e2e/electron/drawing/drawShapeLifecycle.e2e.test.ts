@@ -141,38 +141,6 @@ async function waitForShapeSidebarCount(page: Page, expectedCount: number) {
     }, { timeout: 20_000 }, expectedCount);
 }
 
-async function clickEnabledToolbarAction(page: Page, label: string) {
-    const clicked = await evaluateInPage(page, (targetLabel: string) => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(candidate => (
-                candidate.getAttribute('aria-label')?.trim() === targetLabel
-                && !candidate.disabled
-                && candidate.getAttribute('aria-disabled') !== 'true'
-            ));
-        button?.click();
-        return Boolean(button);
-    }, label);
-
-    if (!clicked) {
-        const state = await evaluateInPage(page, () => {
-            const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-                .map(button => ({
-                    label: button.getAttribute('aria-label')?.trim() ?? '',
-                    disabled: button.disabled || button.getAttribute('aria-disabled') === 'true',
-                    className: button.className,
-                }))
-                .filter(button => button.label === 'Undo' || button.label === 'Redo');
-
-            return { buttons };
-        });
-        const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page);
-        throw new Error(`Enabled toolbar action not found: ${label}. State: ${JSON.stringify({
-            ...state,
-            toolbarSnapshot,
-        })}`);
-    }
-}
-
 async function waitForAnnotationSubtypeCountOnDisk(
     filePath: string,
     subtype: string,
@@ -2422,11 +2390,11 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         const annotationSummary = await waitForLineCountOnDisk(fixturePath, 1);
         expect(annotationSummary.bySubtype.Line ?? 0).toBe(1);
 
-        await clickEnabledToolbarAction(page, 'Undo');
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
         await waitForShapeCount(page, 0);
         await waitForShapeSidebarCount(page, 0);
 
-        await clickEnabledToolbarAction(page, 'Redo');
+        await clickToolbarButtonWhenEnabled(page, 'Redo');
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
     });

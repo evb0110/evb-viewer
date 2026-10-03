@@ -48,6 +48,7 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
@@ -491,49 +492,24 @@ async function collectRapidNavigationFrameSamples(session: IElectronE2ESession, 
 }
 
 async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
-    await session.page.waitForFunction((targetLabel: string) => {
-        return Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .some((candidate) => {
-                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
-                    && !candidate.disabled
-                    && candidate.getAttribute('aria-disabled') !== 'true'
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                );
-            });
-    }, { timeout: 12_000 }, label);
-
-    const clicked = await session.page.evaluate((targetLabel: string) => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .find((candidate) => {
-                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
-                    && !candidate.disabled
-                    && candidate.getAttribute('aria-disabled') !== 'true'
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                );
-            });
-        button?.click();
-        return Boolean(button);
-    }, label);
-
-    if (!clicked) {
-        throw new Error(`Unable to find enabled page navigation button: ${label}`);
-    }
+    await clickFoundAsUser(session.page, (targetLabel: string) => Array.from(
+        document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'),
+    ).find((candidate) => {
+        const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+        const rect = candidate.getBoundingClientRect();
+        const style = window.getComputedStyle(candidate);
+        return (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
+            && !candidate.disabled
+            && candidate.getAttribute('aria-disabled') !== 'true'
+            && rect.width > 8
+            && rect.height > 8
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number(style.opacity || '1') > 0;
+    }), label, {
+        description: `page navigation button ${label}`,
+        timeoutMs: 12_000,
+    });
 }
 
 async function clickVisibleButtonByAriaLabel(
@@ -1394,6 +1370,9 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const firstRecoveryCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
         const firstRecoveryState = await collectPagedState();
 
+        // The toolbar click left the pointer on the toolbar; a person scrolls
+        // with it back over the document.
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
         for (let packet = 0; packet < 24; packet += 1) {
             await session.page.mouse.wheel({deltaY: 180});
             await delay(40);

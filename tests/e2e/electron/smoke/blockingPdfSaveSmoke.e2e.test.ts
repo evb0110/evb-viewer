@@ -30,6 +30,7 @@ import {
     waitForActiveDocumentSource,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    clickVisibleToolbarButton,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     createFreeTextAnnotation,
@@ -131,58 +132,6 @@ async function waitForAnnotationChange(page: Page) {
     }
 
     throw new Error(`Canonical text-box editor did not produce annotation changes: ${JSON.stringify(dirtyState)}`);
-}
-
-async function clickVisibleSaveToolbarButton(page: Page) {
-    const clicked = await page.evaluate(() => {
-        const isVisible = (candidate: HTMLElement) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
-            );
-        };
-
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(candidate => (
-                candidate.getAttribute('aria-label')?.trim() === 'Save'
-                && !candidate.disabled
-                && candidate.getAttribute('aria-disabled') !== 'true'
-                && isVisible(candidate)
-            ));
-        button?.click();
-        return Boolean(button);
-    });
-
-    if (!clicked) {
-        throw new Error(`Visible enabled Save toolbar button not found: ${JSON.stringify(await getWorkspaceToolbarSnapshot(page))}`);
-    }
-}
-
-async function clickVisibleToolbarButton(page: Page, label: string) {
-    const clicked = await page.evaluate((buttonLabel) => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .find(candidate => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return candidate.getAttribute('aria-label')?.trim() === buttonLabel
-                    && !candidate.disabled
-                    && candidate.getAttribute('aria-disabled') !== 'true'
-                    && rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        button?.click();
-        return Boolean(button);
-    }, label);
-    if (!clicked) {
-        throw new Error(`Visible enabled ${label} toolbar button not found`);
-    }
 }
 
 async function readOpenSurfaceState(page: Page) {
@@ -303,7 +252,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             path: pdfPath,
             timeoutMs: SAVE_TIMEOUT_MS,
         });
-        await clickVisibleSaveToolbarButton(page);
+        await clickVisibleToolbarButton(page, 'Save');
         await saveCommitted;
 
         const afterHash = hashFile(pdfPath);

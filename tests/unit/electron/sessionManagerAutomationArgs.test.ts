@@ -140,7 +140,7 @@ describe('sessionManager automation launch args', () => {
         ]);
     });
 
-    it('disables GPU only for hidden macOS automation launches', () => {
+    it('keeps hidden macOS automation on the hardware-rendered path users have', () => {
         const hiddenMacArgs = buildElectronAutomationArgs({
             cdpPort: 9222,
             automationUserDataDir: '/tmp/evb-user-data',
@@ -152,33 +152,21 @@ describe('sessionManager automation launch args', () => {
             },
             platform: 'darwin',
         });
-        expect(hiddenMacArgs).toContain('--disable-gpu');
+        expect(hiddenMacArgs).not.toContain('--disable-gpu');
+    });
 
-        const visibleMacArgs = buildElectronAutomationArgs({
+    it('forces the requested device scale factor and rejects nonsense', () => {
+        const args = (env: NodeJS.ProcessEnv) => buildElectronAutomationArgs({
             cdpPort: 9222,
             automationUserDataDir: '/tmp/evb-user-data',
             mainJs: '/tmp/main.js',
-            env: {
-                EVB_AUTOMATION_HIDE_WINDOW: '0',
-                EVB_AUTOMATION_NO_FOCUS: '0',
-                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
-            },
+            env,
             platform: 'darwin',
         });
-        expect(visibleMacArgs).not.toContain('--disable-gpu');
-
-        const hiddenLinuxArgs = buildElectronAutomationArgs({
-            cdpPort: 9222,
-            automationUserDataDir: '/tmp/evb-user-data',
-            mainJs: '/tmp/main.js',
-            env: {
-                EVB_AUTOMATION_HIDE_WINDOW: '1',
-                EVB_AUTOMATION_NO_FOCUS: '1',
-                EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
-            },
-            platform: 'linux',
-        });
-        expect(hiddenLinuxArgs).not.toContain('--disable-gpu');
+        expect(args({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'})[0]).toBe('--force-device-scale-factor=2');
+        expect(args({}).some(arg => arg.startsWith('--force-device-scale-factor'))).toBe(false);
+        expect(() => args({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: 'retina'})).toThrow(/EVB_AUTOMATION_DEVICE_SCALE_FACTOR/);
+        expect(() => args({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '0'})).toThrow(/EVB_AUTOMATION_DEVICE_SCALE_FACTOR/);
     });
 
     it('pins classic scroll bars for hidden macOS automation between the entry script and open paths', () => {
@@ -195,7 +183,6 @@ describe('sessionManager automation launch args', () => {
             env: hiddenEnv,
             platform: 'darwin',
         })).toEqual([
-            '--disable-gpu',
             '--remote-debugging-port=9222',
             '--user-data-dir=/tmp/evb-user-data',
             '--disable-http-cache',
@@ -464,6 +451,7 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+            EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '1',
             EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
         });
     });
@@ -480,8 +468,16 @@ describe('sessionManager automation launch args', () => {
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_HIDE_WINDOW: '0',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
+            EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '1',
             EVB_E2E_LARGE_PDF_WINDOW_MODE: 'visible',
         });
+    });
+
+    it('lets one E2E session ask for native high-DPI rendering', () => {
+        expect(buildElectronE2EAutomationEnv({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'}, 'darwin')
+            .EVB_AUTOMATION_DEVICE_SCALE_FACTOR).toBe('2');
+        expect(buildElectronE2EAutomationEnv({EVB_AUTOMATION_DEVICE_SCALE_FACTOR: ' '}, 'darwin')
+            .EVB_AUTOMATION_DEVICE_SCALE_FACTOR).toBe('1');
     });
 
     it('resolves host-isolated Linux and hidden macOS runner policies', () => {

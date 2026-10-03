@@ -1,6 +1,7 @@
 import {
     afterAll, describe, expect, it, onTestFinished,
 } from 'vitest';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
     constants, copyFileSync, createReadStream, mkdtempSync, realpathSync, rmSync, statSync,
 } from 'node:fs';
@@ -331,30 +332,15 @@ async function clickSidebarDeleteForText(page: Page, expectedText: string) {
         }
         return false;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, expectedText);
-    const result = await page.evaluate((text: string) => {
+    await clickFoundAsUser(page, (text: string) => {
         const normalize = (value: unknown) => typeof value === 'string'
             ? value.replace(/[\u200B\uFEFF]/gu, '').trim()
             : '';
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const expected = normalize(text);
-        const item = Array.from(host?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [])
-            .find(candidate => normalize(candidate.querySelector('.note-item-text')?.textContent ?? '').includes(expected));
-        const button = item?.querySelector<HTMLButtonElement>('.note-item-delete') ?? null;
-        if (!item || !button) {
-            return {
-                clicked: false,
-                itemText: item?.textContent ?? null,
-            };
-        }
-        button.click();
-        return {
-            clicked: true,
-            itemText: item.textContent ?? null,
-        };
-    }, expectedText);
-    if (!result.clicked) {
-        throw new Error(`Sidebar delete control was unavailable for ordinary FreeText: ${JSON.stringify(result)}`);
-    }
+        return Array.from(globalThis.__evbE2E.getActiveWorkspaceHost()?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [])
+            .find(candidate => normalize(candidate.querySelector('.note-item-text')?.textContent ?? '').includes(expected))
+            ?.querySelector<HTMLButtonElement>('.note-item-delete');
+    }, expectedText, {description: `sidebar delete control for ordinary FreeText ${JSON.stringify(expectedText)}`});
 }
 
 async function waitForOrdinaryFreeTextState(
@@ -563,23 +549,13 @@ async function tryCreatePageNoteViaContextMenu(page: Page) {
     }
 
     await page.mouse.click(point.x, point.y, { button: 'right' });
-    const created = await page.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-context-menu .pdf-context-menu__action',
-        ));
-        const button = buttons.find(candidate =>
-            (candidate.textContent ?? '').trim() === 'Add note here',
-        );
-        if (!button || button.disabled) {
-            return false;
-        }
-        button.click();
-        return true;
-    });
-
-    if (!created) {
+    const findAddNote = () => Array.from(document.querySelectorAll<HTMLButtonElement>(
+        '.annotation-context-menu .pdf-context-menu__action',
+    )).find(candidate => (candidate.textContent ?? '').trim() === 'Add note here' && !candidate.disabled);
+    if (!await page.evaluate(findAddNote)) {
         return null;
     }
+    await clickFoundAsUser(page, findAddNote, null, {description: 'Add note here'});
 
     await page.waitForSelector('textarea.note-window__textarea', { timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS });
     return {

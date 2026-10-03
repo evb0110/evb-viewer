@@ -5,6 +5,7 @@ import {
     rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
+import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
     basename,
     join,
@@ -24,7 +25,6 @@ import {
     openDjvuInApp,
     waitForDjvuLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 
 // Thousands of sparse pages keep the conversion running long enough to end it midway.
 const sourcePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-cancellation-5010-pages.djvu');
@@ -42,15 +42,13 @@ async function startConversion(session: IElectronE2ESession, tempRoot: string) {
     await openDjvuInApp(session.page, sourcePath, 120_000);
     await waitForDjvuLoaded(session.page, 120_000);
     await session.page.click('[data-focus-restore="djvu-convert"]');
-    await waitForFunctionInPage(session.page, () => {
-        const dialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-            .find(element => element.textContent?.includes('Convert DjVu to PDF'));
-        const button = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-            .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled);
-        if (!button) return false;
-        button.click();
-        return true;
-    }, {timeout: 60_000});
+    await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+        .find(element => element.textContent?.includes('Convert DjVu to PDF'))
+        ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+        .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
+        description: 'Convert in the DjVu conversion dialog',
+        timeoutMs: 60_000,
+    });
     // The compact manifest marks a conversion past setup, with native page work running.
     await expect.poll(() => listExportScratch(tempRoot)
         .some(entry => existsSync(join(tempRoot, entry, 'compact-manifest.jsonl'))), {timeout: 120_000}).toBe(true);
@@ -91,13 +89,11 @@ describe('DjVu conversion scratch', () => {
     it('removes the export scratch when the conversion is canceled', async () => {
         const session = sessions.getSession();
         await startConversion(session, cancelRoot);
-        await waitForFunctionInPage(session.page, () => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-                .find(candidate => candidate.textContent?.trim() === 'Cancel' && !candidate.disabled);
-            if (!button) return false;
-            button.click();
-            return true;
-        }, {timeout: 30_000});
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+            .find(candidate => candidate.textContent?.trim() === 'Cancel' && !candidate.disabled), null, {
+            description: 'Cancel of the running DjVu conversion',
+            timeoutMs: 30_000,
+        });
         await expect.poll(() => listExportScratch(cancelRoot), {timeout: 60_000}).toEqual([]);
     }, 300_000);
 

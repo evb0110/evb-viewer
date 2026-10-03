@@ -3,23 +3,21 @@ import type {Page} from 'puppeteer-core';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForTabCount} from '@tests/e2e/electron/helpers/waitForTabCount';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 
 export async function createNewWorkspaceTab(session: IElectronE2ESession) {
     const nextCount = await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length + 1);
-    const clicked = await session.page.evaluate(() => {
-        const button = document.querySelector<HTMLButtonElement>('.tab-bar .tab-new');
-        button?.click();
-        return Boolean(button);
-    });
-    expect(clicked).toBe(true);
+    await clickAsUser(session.page, '.tab-bar .tab-new');
     await waitForTabCount(session.page, nextCount);
 }
 
 export async function activateWorkspaceTab(session: IElectronE2ESession, tabIndex: number) {
-    await session.page.evaluate((index: number) => {
-        const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
-        tabs[index]?.click();
-    }, tabIndex);
+    await clickFoundAsUser(session.page, (index: number) => (
+        document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')[index]
+    ), tabIndex, {description: `workspace tab ${tabIndex}`});
 }
 
 const SPLIT_MENU_LABELS = {
@@ -27,46 +25,16 @@ const SPLIT_MENU_LABELS = {
     down: 'Split Down',
 } as const;
 
-async function clickPoint(page: Page, point: {
-    x: number;
-    y: number;
-} | null, description: string, button: 'left' | 'right' = 'left') {
-    if (!point) {
-        throw new Error(`${description} has no visible box`);
-    }
-    await page.mouse.click(point.x, point.y, {button});
-}
-
-function readCenter(selector: string) {
-    const rect = document.querySelector(selector)?.getBoundingClientRect();
-    return rect && rect.width > 0 && rect.height > 0
-        ? {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        }
-        : null;
-}
-
 /** Split Right or Split Down from the active tab's context menu, with trusted clicks. */
 export async function splitActiveTabFromTabMenu(page: Page, direction: 'right' | 'down', timeoutMs = 20_000) {
     const paneCount = await page.$$eval('.editor-pane', panes => panes.length);
-    const tabSelector = '.editor-pane.is-active .tab.is-active[data-tab-id]';
-    await clickPoint(page, await page.evaluate(readCenter, tabSelector), tabSelector, 'right');
+    await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', {button: 'right'});
     const label = SPLIT_MENU_LABELS[direction];
-    const item = await page.waitForFunction((text: string) => {
-        const menuItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(candidate => candidate.textContent?.trim() === text && candidate.getBoundingClientRect().width > 0);
-        const rect = menuItem?.getBoundingClientRect();
-        return rect
-            ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            }
-            : null;
-    }, {timeout: timeoutMs}, label);
-    const point = await item.jsonValue();
-    await item.dispose();
-    await clickPoint(page, point, label);
+    await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find(candidate => candidate.textContent?.trim() === text && candidate.getBoundingClientRect().width > 0), label, {
+        description: label,
+        timeoutMs,
+    });
     await page.waitForFunction((count: number) => document.querySelectorAll('.editor-pane').length === count + 1, {timeout: timeoutMs}, paneCount);
 }
 
@@ -91,8 +59,7 @@ export async function openNewPane(page: Page, direction: 'right' | 'down', timeo
 
 /** Activates a pane by clicking its active tab, as a person does. */
 export async function activatePaneByTab(page: Page, paneId: string, timeoutMs = 20_000) {
-    const selector = `.editor-pane[data-editor-pane-id="${paneId}"] .tab.is-active[data-tab-id]`;
-    await clickPoint(page, await page.evaluate(readCenter, selector), selector);
+    await clickAsUser(page, `.editor-pane[data-editor-pane-id="${paneId}"] .tab.is-active[data-tab-id]`, {timeoutMs});
     await page.waitForFunction((id: string) => (
         document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === id
     ), {timeout: timeoutMs}, paneId);
