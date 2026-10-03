@@ -9,8 +9,8 @@ import type {
 // hover that precedes a real click, so it reaches buttons hidden under a
 // dialog or scrolled out of their panel. These helpers find the point a
 // person would aim at, bring it into view with the wheel the way a person
-// would, refuse a point another element covers, and click it with trusted
-// CDP input.
+// would, wait until it stops moving, refuse a point another element covers,
+// and click it with trusted CDP input.
 
 interface IFoundTarget<TArg> {
     /** Self-contained page function; it runs in the page on every poll, so a re-rendered target is found again. */
@@ -98,13 +98,17 @@ function describeObstruction(target: Element | string | null | undefined) {
     }).join('; ');
 }
 
-function readTargetTops(target: Element | string | null | undefined) {
+/** Resolves truthy once the target's box is the same on two consecutive frames. */
+function readTargetAtRest(target: Element | string | null | undefined) {
     return new Promise<string>((resolve) => {
         const read = () => (typeof target === 'string'
             ? Array.from(document.querySelectorAll(target))
             : target ? [target] : [])
-            .map(element => element.getBoundingClientRect().top)
-            .join();
+            .map((element) => {
+                const rect = element.getBoundingClientRect();
+                return `${rect.left},${rect.top},${rect.width},${rect.height}`;
+            })
+            .join(';');
         const first = read();
         requestAnimationFrame(() => requestAnimationFrame(() => resolve(read() === first ? 'rest' : '')));
     });
@@ -152,10 +156,19 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
     for (;;) {
         const step = await waitForPointerStep(page, target, deadline);
         if (step.deltaY === 0) {
-            return {
-                x: step.x,
-                y: step.y,
-            };
+            // A person aims once the target stops moving: a menu that is
+            // still scaling in, or a panel sliding into place, is not
+            // clicked mid-animation.
+            await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
+            const settled = await waitForPointerStep(page, target, deadline);
+            if (settled.deltaY === 0) {
+                return {
+                    x: settled.x,
+                    y: settled.y,
+                };
+            }
+            previous = null;
+            continue;
         }
         // The aim point is the centre of the scroller the step selected, so the
         // same point needing the same distance again means that scroller did
@@ -171,7 +184,7 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
         await page.mouse.move(step.x, step.y);
         await page.mouse.wheel({deltaY: step.deltaY});
         // The wheel may scroll smoothly; measure again only once the target rests.
-        await (await waitForTargetProbe(page, target, readTargetTops, deadline)).dispose();
+        await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
     }
 }
 

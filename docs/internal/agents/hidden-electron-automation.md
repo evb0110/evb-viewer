@@ -77,7 +77,8 @@ The visible-window fixture keeps the real window and its real focus.
 
 Click with `clickAsUser` or `clickFoundAsUser` from
 `tests/e2e/electron/helpers/userInput.ts`. They wheel the target into view,
-refuse a point another element covers, and send trusted CDP input.
+wait until it stops moving, refuse a point another element covers, and send
+trusted CDP input.
 `element.click()` inside the page skips hit testing, pointer events, hover and
 focus, so it reaches a button under a dialog. It is setup, never the action
 under test. The same holds for writing `scrollTop` and dispatching synthetic
