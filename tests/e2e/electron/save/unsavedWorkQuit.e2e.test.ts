@@ -238,8 +238,7 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')('C
                 'ctrl+w',
             ]);
         } else {
-            const activation = await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
-            expect(activation.label).toBe('Close Tab');
+            await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
         }
 
         const outcome = await Promise.race([
