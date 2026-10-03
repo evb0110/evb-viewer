@@ -2337,7 +2337,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expect(thumbnailRows).toBeGreaterThan(0);
 
-        await session.page.$eval('.scan-cleanup-toolbar-done', button => (button as HTMLButtonElement).click());
+        await clickAsUser(session.page, '.scan-cleanup-toolbar-done');
         await session.page.waitForSelector('.scan-cleanup-surface', {
             hidden: true,
             timeout: 10_000,

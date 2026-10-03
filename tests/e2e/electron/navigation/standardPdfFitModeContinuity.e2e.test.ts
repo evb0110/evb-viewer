@@ -4,7 +4,10 @@ import {
     it,
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createBlankFixturePdf,
@@ -949,68 +952,12 @@ async function readMixedGeometry(session: IElectronE2ESession): Promise<IMixedGe
 }
 
 async function clickFitWidthWithTrustedInput(session: IElectronE2ESession) {
-    const displayPoint = await evaluateInPage(session.page, () => {
-        const display = Array.from(document.querySelectorAll<HTMLElement>(
-            '.zoom-controls-display',
-        )).find((element) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        });
-        if (!display) {
-            return null;
-        }
-        const rect = display.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + (rect.width / 2)),
-            y: Math.round(rect.top + (rect.height / 2)),
-        };
+    await clickAsUser(session.page, '.zoom-controls-display');
+    await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
+        .find(button => /Fit Width/iu.test(button.textContent ?? '') && button.checkVisibility()), null, {
+        description: 'Fit Width in the zoom menu',
+        timeoutMs: SETTLE_TIMEOUT_MS,
     });
-    if (!displayPoint) {
-        throw new Error('Visible zoom display was not found before Fit Width input');
-    }
-
-    await session.page.mouse.click(displayPoint.x, displayPoint.y);
-    await waitForFunctionInPage(session.page, () => Array.from(
-        document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'),
-    ).some((button) => {
-        const rect = button.getBoundingClientRect();
-        const style = window.getComputedStyle(button);
-        return /Fit Width/iu.test(button.textContent ?? '')
-            && rect.width > 0
-            && rect.height > 0
-            && style.display !== 'none'
-            && style.visibility !== 'hidden';
-    }), {timeout: SETTLE_TIMEOUT_MS});
-
-    const fitPoint = await evaluateInPage(session.page, () => {
-        const fitButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
-            .find((button) => {
-                const rect = button.getBoundingClientRect();
-                const style = window.getComputedStyle(button);
-                return /Fit Width/iu.test(button.textContent ?? '')
-                    && rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        if (!fitButton) {
-            return null;
-        }
-        const rect = fitButton.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + (rect.width / 2)),
-            y: Math.round(rect.top + (rect.height / 2)),
-        };
-    });
-    if (!fitPoint) {
-        throw new Error('Visible Fit Width option was not found after opening the zoom menu');
-    }
-
-    await session.page.mouse.click(fitPoint.x, fitPoint.y);
     await waitForFunctionInPage(session.page, () => (
         (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
             .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'

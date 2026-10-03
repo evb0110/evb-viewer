@@ -11,7 +11,10 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
@@ -449,61 +452,14 @@ async function chooseDjvuFitMode(
     mode: 'fit-width' | 'fit-height',
 ) {
     const label = mode === 'fit-width' ? 'Fit Width' : 'Fit Height';
-    const displayPoint = await session.page.evaluate(() => {
-        const display = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
-            .find(element => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        if (!display) {
-            return null;
-        }
-        const rect = display.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    });
-    if (!displayPoint) {
-        throw new Error(`Visible zoom display was not found before ${label}`);
-    }
-
-    await session.page.mouse.click(displayPoint.x, displayPoint.y);
+    await clickAsUser(session.page, '.zoom-controls-display');
     await session.page.waitForSelector('.zoom-dropdown', {
         timeout: DJVU_E2E_TIMEOUT_MS,
         visible: true,
     });
-
-    const fitPoint = await session.page.evaluate((targetLabel: string) => {
-        const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.zoom-dropdown .zoom-toggle-btn',
-        )).find(candidate => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return candidate.textContent?.trim() === targetLabel
-                && rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        });
-        if (!button) {
-            return null;
-        }
-        const rect = button.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    }, label);
-    if (!fitPoint) {
-        throw new Error(`Visible ${label} option was not found after opening the zoom menu`);
-    }
-
-    await session.page.mouse.click(fitPoint.x, fitPoint.y);
+    await clickFoundAsUser(session.page, (targetLabel: string) => Array.from(document.querySelectorAll<HTMLButtonElement>(
+        '.zoom-dropdown .zoom-toggle-btn',
+    )).find(candidate => candidate.textContent?.trim() === targetLabel && candidate.checkVisibility()), label, {description: `${label} in the zoom menu`});
     await waitForWorkspaceToolbarSnapshot(
         session.page,
         {zoomMode: mode},
@@ -648,29 +604,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterFitHeight.pageHeight, JSON.stringify(afterFitHeight)).toBeCloseTo(beforeFitHeight.pageHeight, 0);
         expect(afterFitHeight.pageWidth, JSON.stringify(afterFitHeight)).toBeCloseTo(beforeFitHeight.pageWidth, 0);
 
-        const customZoomDisplayPoint = await session.page.evaluate(() => {
-            const display = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
-                .find(element => {
-                    const rect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return rect.width > 0
-                        && rect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden';
-                });
-            if (!display) {
-                return null;
-            }
-            const rect = display.getBoundingClientRect();
-            return {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            };
-        });
-        if (!customZoomDisplayPoint) {
-            throw new Error('Visible zoom display was not found before custom zoom-out');
-        }
-        await session.page.mouse.click(customZoomDisplayPoint.x, customZoomDisplayPoint.y);
+        await clickAsUser(session.page, '.zoom-controls-display');
         const customZoomInput = await session.page.waitForSelector('.zoom-chip-custom-input', {visible: true});
         if (!customZoomInput) {
             throw new Error('Custom zoom input was not found before zoom-out');

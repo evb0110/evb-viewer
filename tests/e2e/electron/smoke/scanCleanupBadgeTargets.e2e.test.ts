@@ -11,6 +11,10 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-badge-targets-${Date.now()}`});
 
@@ -55,31 +59,11 @@ describe('scan cleanup badge targets', () => {
                         && element.getAttribute('aria-disabled') !== 'true';
                 })
             ), {timeout: 20_000}, selector);
-            const elements = await session.page.$$(selector);
-            const target = (await Promise.all(elements.map(async element => ({
-                element,
-                rect: await element.boundingBox(),
-                visible: await element.isVisible(),
-            })))).find(candidate => candidate.visible && candidate.rect && candidate.rect.width > 1 && candidate.rect.height > 1);
-            expect(target, `visible target ${selector}`).toBeTruthy();
-            await target!.element.evaluate(element => element.scrollIntoView({block: 'center'}));
-            const rect = await target!.element.boundingBox();
-            expect(rect).toBeTruthy();
-            await session.page.mouse.click(rect!.x + rect!.width / 2, rect!.y + rect!.height / 2);
+            await clickAsUser(session.page, selector);
         };
-        const clickLabel = async (text: string) => {
-            const labels = await session.page.$$('label');
-            const target = (await Promise.all(labels.map(async element => ({
-                element,
-                text: await element.evaluate(node => node.textContent?.trim() ?? ''),
-                visible: await element.isVisible(),
-            })))).find(candidate => candidate.text === text && candidate.visible);
-            expect(target, `label ${text}`).toBeTruthy();
-            await target!.element.evaluate(element => element.scrollIntoView({block: 'center'}));
-            const rect = await target!.element.boundingBox();
-            expect(rect).toBeTruthy();
-            await session.page.mouse.click(rect!.x + rect!.width / 2, rect!.y + rect!.height / 2);
-        };
+        const clickLabel = (text: string) => clickFoundAsUser(session.page, (labelText: string) => Array.from(
+            document.querySelectorAll<HTMLLabelElement>('label'),
+        ).find(element => element.textContent?.trim() === labelText && element.checkVisibility()), text, {description: `label ${text}`});
         const setThicknessToOne = async () => {
             const selector = '.editor-pane.is-active [role="slider"][aria-label="Text thickness"]';
             await clickVisible(selector);
@@ -134,8 +118,7 @@ describe('scan cleanup badge targets', () => {
             const guideButton = await session.page.$$('button');
             for (const button of guideButton) {
                 if (await button.isVisible() && await button.evaluate(element => element.innerText.trim() === 'Got it')) {
-                    const rect = await button.boundingBox();
-                    if (rect) await session.page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                    await clickAsUser(session.page, button);
                     return;
                 }
             }
@@ -171,38 +154,10 @@ describe('scan cleanup badge targets', () => {
                 throw new Error(`Expected three configured badges; observed ${JSON.stringify(state)}`, {cause: error});
             }
         };
-        const clickRemoveThickness = async () => {
-            const badge = await session.page.$('#editor-global-toolbar-host .scan-cleanup-settings-badge');
-            const target = await session.page.$('#editor-global-toolbar-host .scan-cleanup-settings-badge button[aria-label^="Remove Text thickness:"]');
-            expect(badge).toBeTruthy();
-            expect(target).toBeTruthy();
-            const rect = await target!.boundingBox();
-            expect(rect).toBeTruthy();
-            await target!.evaluate(element => element.scrollIntoView({
-                block: 'nearest',
-                inline: 'nearest',
-            }));
-            const visibleRect = await target!.boundingBox();
-            expect(visibleRect).toBeTruthy();
-            const hit = await session.page.evaluate((point) => {
-                const element = document.elementFromPoint(point.x, point.y);
-                return {
-                    label: element?.closest('button')?.getAttribute('aria-label') ?? null,
-                    rect: element?.getBoundingClientRect().toJSON() ?? null,
-                    targetLabel: document.querySelector<HTMLButtonElement>(
-                        '#editor-global-toolbar-host .scan-cleanup-settings-badge button[aria-label^="Remove Text thickness:"]',
-                    )?.getAttribute('aria-label') ?? null,
-                };
-            }, {
-                x: visibleRect!.x + visibleRect!.width / 2,
-                y: visibleRect!.y + visibleRect!.height / 2,
-            });
-            console.log('badge-remove-hit', JSON.stringify(hit));
-            await session.page.mouse.click(
-                visibleRect!.x + visibleRect!.width / 2,
-                visibleRect!.y + visibleRect!.height / 2,
-            );
-        };
+        const clickRemoveThickness = () => clickAsUser(
+            session.page,
+            '#editor-global-toolbar-host .scan-cleanup-settings-badge button[aria-label^="Remove Text thickness:"]',
+        );
 
         await session.command('windowResize', [
             1280,

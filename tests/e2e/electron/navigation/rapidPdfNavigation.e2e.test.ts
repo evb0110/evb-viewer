@@ -25,7 +25,10 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    clickVisibleToolbarButton,
+    openPdfInApp,
+} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -48,7 +51,11 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+    revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
@@ -517,45 +524,26 @@ async function clickVisibleButtonByAriaLabel(
     selector: string,
     label: string,
 ) {
-    await session.page.waitForFunction((targetSelector: string, targetLabel: string) => {
-        return Array.from(document.querySelectorAll<HTMLButtonElement>(targetSelector))
-            .some((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return candidate.getAttribute('aria-label') === targetLabel
-                    && !candidate.disabled
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-    }, {timeout: 15_000}, selector, label);
-
-    const point = await session.page.evaluate((targetSelector: string, targetLabel: string) => {
-        const candidate = Array.from(document.querySelectorAll<HTMLButtonElement>(targetSelector))
-            .find((button) => {
-                const rect = button.getBoundingClientRect();
-                const style = window.getComputedStyle(button);
-                return button.getAttribute('aria-label') === targetLabel
-                    && !button.disabled
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden';
-            });
-        if (!candidate) {
-            return null;
-        }
-        const rect = candidate.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    }, selector, label);
-    if (!point) {
-        throw new Error(`Unable to find visible ${label} button`);
-    }
-    await session.page.mouse.click(point.x, point.y);
+    await clickFoundAsUser(session.page, (query: {
+        selector: string;
+        label: string;
+    }) => Array.from(document.querySelectorAll<HTMLButtonElement>(query.selector))
+        .find((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return candidate.getAttribute('aria-label') === query.label
+                && !candidate.disabled
+                && rect.width > 8
+                && rect.height > 8
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        }), {
+        selector,
+        label,
+    }, {
+        description: `visible ${label} button`,
+        timeoutMs: 15_000,
+    });
 }
 
 async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
@@ -781,67 +769,8 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
         return;
     }
 
-    const displayPoint = await session.page.evaluate(() => {
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
-        };
-
-        const display = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-display'))
-            .find(isVisibleElement);
-        if (!display) {
-            return null;
-        }
-
-        const rect = display.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    });
-
-    if (!displayPoint) {
-        throw new Error(`Unable to find the visible page control for page ${pageNumber}`);
-    }
-
-    await session.page.mouse.click(displayPoint.x, displayPoint.y);
-    await session.page.waitForFunction(() => {
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
-        };
-
-        return Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
-            .some(isVisibleElement);
-    }, { timeout: 15_000 });
-
-    const inputPoint = await session.page.evaluate(() => {
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
-        };
-
-        const input = Array.from(document.querySelectorAll<HTMLInputElement>('.page-controls-inline-input'))
-            .find(isVisibleElement);
-        if (!input) {
-            return null;
-        }
-
-        const rect = input.getBoundingClientRect();
-        return {
-            x: Math.round(rect.left + rect.width / 2),
-            y: Math.round(rect.top + rect.height / 2),
-        };
-    });
-
-    if (!inputPoint) {
-        throw new Error(`Unable to find the visible page input for page ${pageNumber}`);
-    }
-
-    await session.page.mouse.click(inputPoint.x, inputPoint.y, { count: 3 });
+    await clickAsUser(session.page, '.page-controls-display');
+    await clickAsUser(session.page, '.page-controls-inline-input', {count: 3});
     await session.page.keyboard.type(String(pageNumber));
     await session.page.keyboard.press('Enter');
 
@@ -2778,20 +2707,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 height: 1000,
             });
             await setFitWidthAndWaitForPage(session, 200);
-            const nextButton = await session.page.evaluate(() => {
-                const rect = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-                    .filter(candidate => (candidate.getAttribute('aria-label')?.trim() ?? '').startsWith('Next Page'))
-                    .map(candidate => candidate.getBoundingClientRect())
-                    .find(candidate => candidate.width > 8 && candidate.height > 8);
-                return rect ? {
-                    x: rect.left + (rect.width / 2),
-                    y: rect.top + (rect.height / 2),
-                } : null;
-            });
-            expect(nextButton).not.toBeNull();
-            if (!nextButton) {
-                return;
-            }
+            const nextButton = await revealForPointer(session.page, '.page-controls button[aria-label^="Next Page"]');
 
             await session.page.evaluate(() => {
                 const probe: IBarePageProbe = {
@@ -2829,6 +2745,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             // Scanned pages render slower than a reader clicks; throttling
             // keeps each target still loading when the next click lands.
             stopThrottle = await throttleRendererMainThread(session, 4);
+            // A reader's burst repeats the point aimed at once; re-aiming each
+            // click would slow the burst the throttle is timing.
             for (let click = 0; click < 10; click += 1) {
                 await session.page.mouse.click(nextButton.x, nextButton.y);
                 await delay(90);
@@ -2962,22 +2880,8 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
 
         const readSidebarOpen = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
             .some(element => element.getBoundingClientRect().width > 10));
-        const readToggleCenter = () => page.evaluate(() => {
-            const toggle = [...document.querySelectorAll<HTMLButtonElement>('button')]
-                .find(button => /toggle sidebar/iu.test(button.getAttribute('aria-label') ?? '') && button.getBoundingClientRect().width > 0);
-            if (!toggle) {
-                return null;
-            }
-            const rect = toggle.getBoundingClientRect();
-            return {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            };
-        });
         if (await readSidebarOpen()) {
-            const toggle = await readToggleCenter();
-            expect(toggle).not.toBeNull();
-            await page.mouse.click(toggle!.x, toggle!.y);
+            await clickVisibleToolbarButton(page, 'Toggle Sidebar');
             await page.waitForFunction(() => ![...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
                 .some(element => element.getBoundingClientRect().width > 10), {timeout: 10_000});
             await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
@@ -3067,9 +2971,7 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             window.requestAnimationFrame(hunt);
         }, SIDEBAR_TARGET_PAGE);
 
-        const toggle = await readToggleCenter();
-        expect(toggle).not.toBeNull();
-        await page.mouse.click(toggle!.x, toggle!.y);
+        await clickVisibleToolbarButton(page, 'Toggle Sidebar');
         const thumbnailHandle = await page.waitForFunction(() => (
             (window as ISidebarNavigationProbeWindow).__sidebarThumbnailPoint ?? null
         ), {
@@ -3085,6 +2987,8 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             const frames = (window as ISidebarNavigationProbeWindow).__sidebarNavigationFrames ?? [];
             return frames.at(-1)?.ms ?? 0;
         });
+        // The point was hit-tested while the pane was still narrowing; clicking
+        // the moving thumbnail there is the input under test.
         await page.mouse.click(thumbnail!.x, thumbnail!.y);
         await page.waitForFunction((target) => {
             const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
@@ -3164,21 +3068,7 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
         await waitForVisibleMountedPdfCanvases(page, 30_000);
         const readSidebarOpen = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
             .some(element => element.getBoundingClientRect().width > 10));
-        const clickSidebarToggle = async () => {
-            const toggle = await page.evaluate(() => {
-                const button = [...document.querySelectorAll<HTMLButtonElement>('button')]
-                    .find(candidate => /toggle sidebar/iu.test(candidate.getAttribute('aria-label') ?? '') && candidate.getBoundingClientRect().width > 0);
-                const rect = button?.getBoundingClientRect();
-                return rect
-                    ? {
-                        x: rect.left + rect.width / 2,
-                        y: rect.top + rect.height / 2,
-                    }
-                    : null;
-            });
-            expect(toggle).not.toBeNull();
-            await page.mouse.click(toggle!.x, toggle!.y);
-        };
+        const clickSidebarToggle = () => clickVisibleToolbarButton(page, 'Toggle Sidebar');
         const waitForLayoutAtRest = async () => {
             await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
                 ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
@@ -3214,19 +3104,8 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
 
         // A deliberate toolbar navigation, with the sidebar opened while the
         // viewer is still guarding that navigation's arrival.
-        const pageField = await page.evaluate(() => {
-            const button = [...document.querySelectorAll<HTMLButtonElement>('button')]
-                .find(candidate => /^\d+\/200$/u.test(candidate.textContent?.trim() ?? '') && candidate.getBoundingClientRect().width > 0);
-            const rect = button?.getBoundingClientRect();
-            return rect
-                ? {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                }
-                : null;
-        });
-        expect(pageField).not.toBeNull();
-        await page.mouse.click(pageField!.x, pageField!.y);
+        await clickFoundAsUser(page, () => [...document.querySelectorAll<HTMLButtonElement>('button')]
+            .find(candidate => /^\d+\/200$/u.test(candidate.textContent?.trim() ?? '') && candidate.getBoundingClientRect().width > 0), null, {description: 'page number field'});
         const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
         await page.keyboard.down(selectAllModifier);
         await page.keyboard.press('a');

@@ -16,7 +16,10 @@ import {
     onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {readPdfPageSnapshots} from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
@@ -31,35 +34,19 @@ import {
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-copied-spread-${Date.now()}`});
 
-async function clickVisible(session: ReturnType<typeof sessionFixture.getSession>, selector: string) {
-    const candidates = await session.page.$$(selector);
-    for (const element of candidates) {
-        if (!await element.isVisible()) continue;
-        await element.evaluate(node => node.scrollIntoView({block: 'center'}));
-        const rect = await element.boundingBox();
-        if (!rect || rect.width < 2 || rect.height < 2) continue;
-        await session.page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
-        return;
-    }
-    throw new Error(`No visible target for ${selector}`);
-}
-
 async function clickText(
     session: ReturnType<typeof sessionFixture.getSession>,
     selector: string,
     text: string,
 ) {
-    for (const element of await session.page.$$(selector)) {
-        if (!await element.isVisible()) continue;
-        if (await element.evaluate((node, expected) => node.textContent?.trim() === expected, text)) {
-            await element.evaluate(node => node.scrollIntoView({block: 'center'}));
-            const rect = await element.boundingBox();
-            expect(rect).toBeTruthy();
-            await session.page.mouse.click(rect!.x + rect!.width / 2, rect!.y + rect!.height / 2);
-            return;
-        }
-    }
-    throw new Error(`No visible ${selector} with text ${text}`);
+    await clickFoundAsUser(session.page, (query: {
+        selector: string;
+        text: string;
+    }) => Array.from(document.querySelectorAll<HTMLElement>(query.selector))
+        .find(element => element.textContent?.trim() === query.text && element.checkVisibility()), {
+        selector,
+        text,
+    }, {description: `${selector} with text ${text}`});
 }
 
 describe('scan cleanup copied spread evidence', () => {
@@ -83,7 +70,7 @@ describe('scan cleanup copied spread evidence', () => {
         for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
             if (await toast.isVisible()) await clickAsUser(session.page, toast);
         }
-        await clickVisible(session, 'button[aria-label="Scan cleanup"]');
+        await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
         await session.page.waitForSelector('.scan-cleanup-surface', {
             visible: true,
             timeout: 20_000,
@@ -92,14 +79,14 @@ describe('scan cleanup copied spread evidence', () => {
             document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
         ), {timeout: 120_000});
 
-        await clickVisible(session, '[role="radio"][aria-label="This page (p. 1)"]');
-        await clickVisible(session, '[role="combobox"][aria-label="Page layout"]');
+        await clickAsUser(session.page, '[role="radio"][aria-label="This page (p. 1)"]');
+        await clickAsUser(session.page, '[role="combobox"][aria-label="Page layout"]');
         await clickText(session, '[role="option"]', 'Two-page spread');
         await waitForFunctionInPage(session.page, () => (
             document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
                 && !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText)
         ), {timeout: 120_000});
-        await clickVisible(session, '[role="combobox"][aria-label="Output mode"]');
+        await clickAsUser(session.page, '[role="combobox"][aria-label="Output mode"]');
         await waitForFunctionInPage(session.page, () => (
             Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
                 .some(element => element.innerText.trim() === 'Black-and-white text with color pictures')
@@ -108,7 +95,7 @@ describe('scan cleanup copied spread evidence', () => {
         await waitForFunctionInPage(session.page, () => !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i
             .test(document.body.innerText), {timeout: 120_000});
 
-        await clickVisible(session, 'button[aria-label="Edit picture and fill zones"]');
+        await clickAsUser(session.page, 'button[aria-label="Edit picture and fill zones"]');
         await clickText(session, '.zone-editor-controls [role="radio"]', 'Picture');
         const zone = await session.page.$('.zone-editor-polygons');
         expect(zone).toBeTruthy();
@@ -122,7 +109,7 @@ describe('scan cleanup copied spread evidence', () => {
             document.querySelectorAll('.zone-editor-polygon:not(.is-draft)').length > 0
         ), {timeout: 10_000});
 
-        await clickVisible(session, 'button[aria-label="Edit picture and fill zones"]');
+        await clickAsUser(session.page, 'button[aria-label="Edit picture and fill zones"]');
         await clickText(session, 'button', 'Copy this page\'s settings to…');
         await waitForFunctionInPage(session.page, () => (
             Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
@@ -134,7 +121,7 @@ describe('scan cleanup copied spread evidence', () => {
                 && !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText)
         ), {timeout: 120_000});
 
-        await clickVisible(session, '[role="radio"][aria-label="All 2 pages"]');
+        await clickAsUser(session.page, '[role="radio"][aria-label="All 2 pages"]');
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
             if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
@@ -160,7 +147,7 @@ describe('scan cleanup copied spread evidence', () => {
         expect(actionState.ariaDisabled).not.toBe('true');
         expect(actionState.detectionStatus).toBe('completed');
         expect(actionState.previewRunning).toBe(false);
-        await session.page.mouse.click(actionRect!.x + actionRect!.width / 2, actionRect!.y + actionRect!.height / 2);
+        await clickAsUser(session.page, action!);
 
         await waitForFunctionInPage(session.page, (source: string) => {
             const active = (window as IWorkspaceExposeProbeWindow)
