@@ -503,6 +503,58 @@ async function clickPaneTool(page: Page, paneId: string, tool: string) {
 }
 
 describe('shared PDF split', () => {
+    // Issue #942, behavior contract I1: an enabled menu item responds even
+    // during its opening animation. The regular click helper waits for rest,
+    // so this regression deliberately aims and clicks with trusted raw input.
+    it('performs Split Right when chosen during the tab menu opening animation', async () => {
+        const missedRuns: number[] = [];
+        for (let run = 0; run < 20; run += 1) {
+            // Reusing a session lets the startup resize settle and hides the drop.
+            const stamp = Date.now();
+            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-early-${stamp}.pdf`, 6);
+            session = await startElectronE2ESession(`e2e-shared-pdf-split-early-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await click(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
+            const appeared = await page.waitForFunction(() => {
+                const menu = document.querySelector('.tab-context-menu');
+                return menu && menu.getBoundingClientRect().width > 0 ? performance.now() : false;
+            }, {
+                polling: 'mutation',
+                timeout: SETTLE_TIMEOUT_MS,
+            });
+            const appearedAt = await appeared.jsonValue() as number;
+            await appeared.dispose();
+            const point = await page.evaluate(async (start: number) => {
+                await new Promise<void>(resolve => setTimeout(resolve, Math.max(0, start + 30 - performance.now())));
+                const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
+                    .find(element => element.textContent?.trim() === 'Split Right');
+                if (!item) throw new Error('Split Right disappeared before selection');
+                const rect = item.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                if (item.getAttribute('aria-disabled') === 'true' || !item.contains(document.elementFromPoint(x, y))) {
+                    throw new Error('Split Right is not enabled and hit-testable');
+                }
+                return {
+                    x,
+                    y,
+                };
+            }, appearedAt);
+            await page.mouse.click(point.x, point.y);
+            const split = await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2,
+                {timeout: 1_000}).then(async handle => {await handle.dispose(); return true;}, () => false);
+            if (!split) missedRuns.push(run);
+            await session.stop({preserveArtifacts: true});
+            session = null;
+        }
+        expect(missedRuns, 'every enabled Split Right selection opens a second pane within 1 s').toEqual([]);
+    }, TIMEOUT_MS);
+
     it('shows one document in two views with shared edits, undo, dirty state and save, and separate placement', async () => {
         const stamp = Date.now();
         const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-${stamp}.pdf`, 6);
