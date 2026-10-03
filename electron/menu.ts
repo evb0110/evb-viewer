@@ -1018,7 +1018,7 @@ export type TApplicationMenuItemActivation =
     }
     | {
         activated: false;
-        reason: 'not-found' | 'hidden' | 'disabled' | 'unsupported-role';
+        reason: 'not-found' | 'hidden' | 'disabled' | 'unsupported-role' | 'no-window';
         label?: string;
     };
 
@@ -1070,18 +1070,17 @@ export function normalizeMenuAccelerator(accelerator: string) {
     return [...new Set(modifiers)].sort().concat(key).join('+');
 }
 
-/** Menu order, as AppKit walks key equivalents: the first item bound to a key takes it. */
-function findMenuItemByAccelerator(menu: Electron.Menu, accelerator: string): Electron.MenuItem | null {
-    for (const item of menu.items) {
-        if (item.accelerator && normalizeMenuAccelerator(item.accelerator) === accelerator) {
-            return item;
-        }
-        const nested = item.submenu ? findMenuItemByAccelerator(item.submenu, accelerator) : null;
-        if (nested) {
-            return nested;
-        }
-    }
-    return null;
+function findMenuItemsByAccelerator(menu: Electron.Menu, accelerator: string): Electron.MenuItem[] {
+    return menu.items.flatMap(item => [
+        ...(item.accelerator && normalizeMenuAccelerator(item.accelerator) === accelerator ? [item] : []),
+        ...(item.submenu ? findMenuItemsByAccelerator(item.submenu, accelerator) : []),
+    ]);
+}
+
+/** Menu order, as a key press walks it: the first available item bound to the key takes it. */
+function findMenuItemByAccelerator(menu: Electron.Menu, accelerator: string) {
+    const items = findMenuItemsByAccelerator(menu, accelerator);
+    return items.find(item => item.visible && item.enabled) ?? items[0] ?? null;
 }
 
 // macOS runs these roles through an AppKit selector instead of MenuItem.click,
@@ -1141,6 +1140,13 @@ export function activateApplicationMenuItem(query: TApplicationMenuItemQuery): T
         return {
             activated: false,
             reason: 'unsupported-role',
+            label,
+        };
+    }
+    if (nativeRoleAction && item.role !== 'quit' && !window) {
+        return {
+            activated: false,
+            reason: 'no-window',
             label,
         };
     }

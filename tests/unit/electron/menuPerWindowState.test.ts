@@ -874,6 +874,32 @@ describe('automation menu item activation', () => {
         expect(window.webContents.send).not.toHaveBeenCalled();
     });
 
+    it('passes a key to the next item bound to it when the first is unavailable on macOS', () => {
+        mocks.config.isMac = true;
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        setupMenu();
+        const closeWindow = vi.spyOn(window, 'close');
+
+        // No tab to close, so Cmd+W reaches Window > Close.
+        expect(activateApplicationMenuItem({accelerator: 'Cmd+W'})).toMatchObject({
+            activated: true,
+            windowId: 1,
+        });
+        expect(closeWindow).toHaveBeenCalledOnce();
+        expect(window.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('reports a window role that has no window to act on', () => {
+        mocks.config.isMac = true;
+        setupMenu();
+
+        expect(activateApplicationMenuItem({accelerator: 'Cmd+W'})).toMatchObject({
+            activated: false,
+            reason: 'no-window',
+        });
+    });
+
     it('finds an item without an accelerator by id', () => {
         const window = mocks.createWindow(1, 'Window');
         mocks.windows.push(window);
