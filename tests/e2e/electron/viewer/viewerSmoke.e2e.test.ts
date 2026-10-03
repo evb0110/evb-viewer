@@ -6541,7 +6541,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
         const cancelInitiator = await session.page.$('.djvu-banner button');
         expect(cancelInitiator).not.toBeNull();
-        await cancelInitiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, cancelInitiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
 
@@ -6605,7 +6606,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
         const successfulInitiator = await session.page.$('.djvu-banner button');
         expect(successfulInitiator).not.toBeNull();
-        await successfulInitiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, successfulInitiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
         await session.page.waitForSelector(progressSelector, {
@@ -6673,7 +6675,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         );
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
-        await initiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, initiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
         await session.page.waitForSelector('.app-progress-overlay[role="dialog"]', {
@@ -6773,7 +6776,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         );
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
-        await initiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, initiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await clickEnabledDialogButton(session.page, 'Convert');
         const progressSelector = `.editor-pane[data-editor-pane-id="${djvuPaneId}"] .app-progress-overlay`;
@@ -6949,7 +6953,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(shownPageCount).toBeGreaterThanOrEqual(options.minimumPageCount);
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
-        await initiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, initiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
 
         await clickEnabledDialogButton(session.page, 'Convert');
@@ -7065,7 +7070,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
         const failureInitiator = await session.page.$('.djvu-banner button');
         expect(failureInitiator).not.toBeNull();
-        await failureInitiator!.click();
+        // A closing dialog's backdrop can still cover the banner.
+        await clickAsUser(session.page, failureInitiator!);
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
         await truncate(corruptFixturePath, 0);
         await waitForFunctionInPage(session.page, () => Array.from(
