@@ -36,6 +36,9 @@ export const runtimeConfig = {
     get automationEnableRendererFileOpenHelper() { // false; expose the renderer harness hooks (file open, update status, menu items)
         return boolean(process.env.EVB_ENABLE_RENDERER_FILE_OPEN_HELPER);
     },
+    get automationRendererHooksEnabled() { // false; only an isolated automation session that asked for the renderer harness hooks
+        return Boolean(this.automationUserDataDir && this.automationSessionName && this.automationEnableRendererFileOpenHelper);
+    },
     get automationHideWindow() { // follows no-focus when unset; keep hidden automation renderers active
         return boolean(process.env.EVB_AUTOMATION_HIDE_WINDOW, this.automationNoFocus);
     },

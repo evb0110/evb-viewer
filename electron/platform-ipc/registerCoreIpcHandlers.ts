@@ -87,14 +87,6 @@ function assertAutomationCheckpointReset() {
     }
 }
 
-function isAutomationHookSession() {
-    return Boolean(
-        runtimeConfig.automationUserDataDir
-        && runtimeConfig.automationSessionName
-        && runtimeConfig.automationEnableRendererFileOpenHelper,
-    );
-}
-
 function registerAutomationHandlers(ipcMain: Electron.IpcMain) {
     const channel = CORE_IPC_CHANNELS.activateMenuItemForAutomation;
     createValidatedIpcMainRegistrar(ipcMain, {
@@ -125,7 +117,7 @@ export function registerCoreIpcHandlers(
             }
         },
     });
-    if (isAutomationHookSession()) {
+    if (runtimeConfig.automationRendererHooksEnabled) {
         registerAutomationHandlers(ipcMain);
     }
     eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
