@@ -16,6 +16,8 @@ const ELECTRON_RUN_COMMANDS = [
     // `windowResize` moves the real window. `emulateViewport` only changes the
     // metrics the renderer reports, so the two are never the same check.
     'windowResize',
+    // Runs an application-menu item as its accelerator would.
+    'activateMenuItem',
     'emulateViewport',
     'viewport',
     'openPdf',

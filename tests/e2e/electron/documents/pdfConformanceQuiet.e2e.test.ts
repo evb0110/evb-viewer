@@ -16,6 +16,7 @@ import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths'
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp,
     triggerOpenPathInApp,
@@ -142,7 +143,7 @@ describe('Electron E2E - PDF Conformance', () => {
                     }
                     clickStarted = true;
                     startWatcher?.close();
-                    void session.page.click('.tab-list .tab.is-active .tab-close')
+                    void clickAsUser(session.page, '.tab-list .tab.is-active .tab-close')
                         .then(() => resolveStart(), rejectStart);
                 };
                 startWatcher = watch(logPath, {persistent: false}, tryClick);

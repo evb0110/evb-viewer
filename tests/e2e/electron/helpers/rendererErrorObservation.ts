@@ -4,6 +4,7 @@ import type {
 } from 'puppeteer-core';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 
 // What a user notices when something breaks: an error toast, a broken document
 // surface, or a renderer stack in the console. Unhandled rejections are the
@@ -130,7 +131,7 @@ export async function dismissRuntimeErrorReports(page: Page) {
         return dismissed;
     }
     for (const button of await page.$$('.app-toast-failure [data-slot="close"]')) {
-        await button.click().catch(() => undefined);
+        await clickAsUser(page, button).catch(() => undefined);
     }
     await page.waitForSelector('.app-toast-failure', {
         hidden: true,

@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
+import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
@@ -400,7 +401,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             Object.assign(window, {__rightFileFlashProbe: {finish}});
         });
 
-        await session.page.click('.editor-pane:not(.is-active) .scan-cleanup-surface');
+        await clickAsUser(session.page, '.editor-pane:not(.is-active) .scan-cleanup-surface');
         await new Promise(resolve => setTimeout(resolve, 1_500));
         const result = await session.page.evaluate(() => {
             if (!('__rightFileFlashProbe' in window)) {

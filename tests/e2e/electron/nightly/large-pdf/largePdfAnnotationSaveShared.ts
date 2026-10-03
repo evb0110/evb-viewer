@@ -14,6 +14,7 @@ import {
     openAnnotationsTab, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForNoOpenNoteWindows } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import { readWorkspaceRecoveryRecords } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
@@ -479,7 +480,7 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
     if (!matchingItem) {
         throw new Error(`Visible sidebar note was not restored: ${currentText}`);
     }
-    await matchingItem.click({
+    await clickAsUser(page, matchingItem, {
         count: 2,
         delay: 80,
     });
@@ -491,7 +492,7 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
         throw new Error('Double-clicking the restored note did not open its editor');
     }
     await delay(100);
-    await textarea.click({
+    await clickAsUser(page, textarea, {
         count: 3,
         delay: 80,
     });
@@ -530,7 +531,7 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
                 && rect.height > 0;
         });
         if (visible) {
-            await closeButton.click();
+            await clickAsUser(page, closeButton);
             closed = true;
             break;
         }

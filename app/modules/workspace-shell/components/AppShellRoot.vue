@@ -529,12 +529,9 @@ onMounted(() => {
     );
 
     if (isAutomationSession()) {
-        cleanupAppShellE2EHooks = installAppShellE2EHooks({
-            setTabMemoryPolicy: (policy) => {
-                updateSetting('tabMemoryPolicy', policy);
-            },
-            splitEditorEmpty,
-        });
+        cleanupAppShellE2EHooks = installAppShellE2EHooks({setTabMemoryPolicy: (policy) => {
+            updateSetting('tabMemoryPolicy', policy);
+        }});
     }
 });
 

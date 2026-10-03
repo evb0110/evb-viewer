@@ -16,7 +16,10 @@ import {
     readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { revealForPointer } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 
 const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Draw': 'draw',
@@ -1042,7 +1045,7 @@ export async function createStickyNoteWithPointer(
     if (!textarea) {
         throw new Error('Sticky-note placement did not open the note editor');
     }
-    await textarea.click();
+    await clickAsUser(page, textarea);
     await page.keyboard.type(text, {delay: 10});
     await page.waitForFunction((expectedText: string) => (
         Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))

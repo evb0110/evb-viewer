@@ -65,6 +65,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
+import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
@@ -1139,7 +1140,7 @@ async function editCanonicalNoteText(page: Page, currentText: string, nextText: 
     if (!textarea) {
         throw new Error('Canonical note editor did not provide a textarea for keyboard editing');
     }
-    await textarea.click();
+    await clickAsUser(page, textarea);
     await selectAllFocusedAnnotationText(page);
     await page.keyboard.type(nextText, {delay: 10});
     await page.keyboard.press('Tab');
@@ -1965,7 +1966,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const rotated = await readPendingImagePlacementSnapshot(page);
             expect(Math.abs(rotated.rotationDegrees)).toBeGreaterThan(5);
 
-            await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
+            await clickAsUser(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
             await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
                 hidden: true,
                 timeout: 60_000,
@@ -2426,7 +2427,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             button => button.getAttribute('aria-label'),
         ));
         expect(headerButtons).toEqual(['Search annotations, text, author, page...']);
-        await page.click('.notes-list-header button');
+        await clickAsUser(page, '.notes-list-header button');
         await page.waitForSelector('.notes-search input, input.notes-search', {visible: true});
 
         const baselineCount = await getVisibleSidebarAnnotationCount(page);

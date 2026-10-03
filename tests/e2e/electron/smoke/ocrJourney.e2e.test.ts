@@ -22,6 +22,7 @@ import {
 } from 'vitest';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     createFixturePath,
     createScannedTextFixturePdf,
@@ -75,7 +76,7 @@ async function clickVisibleButton(page: Page, scope: string, name: string, timeo
             && button.checkVisibility()
         ))
     ), {timeout: timeoutMs}, scope, name);
-    await (handle.asElement() as ElementHandle<HTMLButtonElement>).click();
+    await clickAsUser(page, handle.asElement() as ElementHandle<HTMLButtonElement>);
 }
 
 async function waitForTextLayerWord(page: Page) {
@@ -242,14 +243,14 @@ describe('Electron E2E - OCR journey', () => {
         await waitForViewerInteractive(page, 90_000);
 
         await openDocumentSidebarTab(page, 'Search');
-        await page.click(`${ACTIVE_HOST} .document-search-bar input`);
+        await clickAsUser(page, `${ACTIVE_HOST} .document-search-bar input`);
         await page.keyboard.type(SEARCHED_WORD);
         await page.keyboard.press('Enter');
         await waitForFunctionInPage(page, (host: string, word: string) => (
             Array.from(document.querySelectorAll(`${host} .document-search-result`))
                 .some(result => result.textContent?.toLocaleLowerCase().includes(word))
         ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
-        await page.click(`${ACTIVE_HOST} .document-search-result`);
+        await clickAsUser(page, `${ACTIVE_HOST} .document-search-result`);
         await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
     }, 300_000);
 
@@ -276,7 +277,7 @@ describe('Electron E2E - OCR journey', () => {
             Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
                 .find(label => label.textContent?.trim() === 'All pages (3)' && label.checkVisibility())
         ), {timeout: 30_000});
-        await (allPagesOption.asElement() as ElementHandle<HTMLElement>).click();
+        await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await waitForFunctionInPage(page, () => (
             document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete') === true
@@ -518,7 +519,7 @@ describe('Electron E2E - OCR journey', () => {
             }, {timeout: 30_000});
 
             // The user closes the view that started the run; the left view stays.
-            await page.click(`${paneHost(rightPane!)} .tab.is-active .tab-close`);
+            await clickAsUser(page, `${paneHost(rightPane!)} .tab.is-active .tab-close`);
             await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
 
             // The left view shows the run under way, and it finishes.

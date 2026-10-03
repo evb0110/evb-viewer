@@ -912,7 +912,7 @@ export async function openDocumentSidebarTab(
     if (tabIndex < 0) {
         throw new Error(`Document sidebar tab '${label}' was unavailable: ${JSON.stringify(tabLabels)}`);
     }
-    await tabs[tabIndex]!.click();
+    await clickAsUser(page, tabs[tabIndex]!);
     await page.waitForFunction((expectedLabel: string) => {
         const normalized = expectedLabel.trim().toLocaleLowerCase();
         return Array.from(document.querySelectorAll<HTMLElement>(
@@ -1207,7 +1207,7 @@ export async function dismissScanCleanupFirstRunGuidance(
     if (!dismissButton) {
         throw new Error('Scan Cleanup first-run guidance has no dismiss button');
     }
-    await dismissButton.click();
+    await clickAsUser(page, dismissButton);
     await page.waitForSelector(selector, {
         hidden: true,
         timeout: timeoutMs,
@@ -1255,7 +1255,7 @@ export async function goToPageViaToolbar(page: Page, pageNumber: number) {
             continue;
         }
 
-        await page.click('.page-controls-inline-input', { count: 3 });
+        await clickAsUser(page, '.page-controls-inline-input', { count: 3 });
         await page.keyboard.type(String(pageNumber));
         await page.keyboard.press('Enter');
         await waitForToolbarCurrentPage(page, pageNumber);
@@ -1387,7 +1387,7 @@ export async function saveViaVisibleToolbar(
 
             throwIfAborted(signal);
             const baselineEventId = await getLatestAutomationEventId(page);
-            await button.click();
+            await clickAsUser(page, button);
             const event = await awaitWithAbort(
                 waitForAutomationEvent(page, 'save-committed', {
                     afterEventId: baselineEventId,

@@ -5,7 +5,10 @@ import {
     rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     basename,
     join,
@@ -41,7 +44,7 @@ function listExportScratch(tempRoot: string) {
 async function startConversion(session: IElectronE2ESession, tempRoot: string) {
     await openDjvuInApp(session.page, sourcePath, 120_000);
     await waitForDjvuLoaded(session.page, 120_000);
-    await session.page.click('[data-focus-restore="djvu-convert"]');
+    await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
     await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
         .find(element => element.textContent?.includes('Convert DjVu to PDF'))
         ?.querySelectorAll<HTMLButtonElement>('button') ?? [])

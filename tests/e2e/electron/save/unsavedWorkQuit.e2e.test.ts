@@ -12,6 +12,7 @@ import {
 } from 'vitest';
 import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import { activateMenuItemAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp, waitForPdfLoaded, waitForViewerInteractive, 
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -52,8 +53,8 @@ describe('unsaved work on app Quit', () => {
         copyFileSync(fixturePath, sourcePath);
         const sessionName = createE2ERunScopedSessionName(`e2e-quit-unsaved-${Date.now()}`);
         // Linux reaches the real window through X11 input, so its Xvfb window
-        // must be mapped. macOS sends Quit to the process, so the owner's
-        // desktop stays untouched with a hidden session.
+        // must be mapped. macOS runs the Quit menu item in a hidden session,
+        // so the owner's desktop stays untouched.
         const startSession = process.platform === 'linux' ? startHostVisibleElectronE2ESession : startElectronE2ESession;
         session = await startSession(sessionName, {
             clean: true,
@@ -105,15 +106,8 @@ describe('unsaved work on app Quit', () => {
                 'ctrl+q',
             ]);
         } else if (process.platform === 'darwin') {
-            // Cmd-Q and the Quit menu item send terminate: to the app, which
-            // a quit Apple Event also reaches. Renderer key events never do.
-            execFileSync('osascript', [
-                '-l',
-                'JavaScript',
-                '-e',
-                `ObjC.import("AppKit");
-                if (!$.NSRunningApplication.runningApplicationWithProcessIdentifier(${electronPid}).terminate) throw new Error("Quit was not sent");`,
-            ]);
+            // Renderer key events never reach the menu's Cmd-Q.
+            await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
         } else {
             await session.page.keyboard.down('Control');
             try {
@@ -177,9 +171,10 @@ describe('unsaved work on app Quit', () => {
 
 // Ctrl+W is File > Close Tab. Window > Close must not take it over: on Linux
 // and Windows the window's accelerator table keeps the last menu item bound to
-// a key. Only Linux reaches the native accelerator from a test, through X11
-// input to the session's own display.
-describe.runIf(process.platform === 'linux')('Close Tab shortcut', () => {
+// a key, and on macOS Window > Close also has Cmd+W. Linux presses the key
+// through X11 input to the session's own display; macOS runs the item the
+// accelerator resolves to in a hidden session.
+describe.runIf(process.platform === 'linux' || process.platform === 'darwin')('Close Tab shortcut', () => {
     let session: IElectronE2ESession | null = null;
     let outputDirectory: string | null = null;
 
@@ -200,7 +195,8 @@ describe.runIf(process.platform === 'linux')('Close Tab shortcut', () => {
         const secondPath = join(outputDirectory, 'second-tab.pdf');
         copyFileSync(fixturePath, firstPath);
         copyFileSync(fixturePath, secondPath);
-        session = await startHostVisibleElectronE2ESession(createE2ERunScopedSessionName(`e2e-close-tab-shortcut-${Date.now()}`), {
+        const startSession = process.platform === 'linux' ? startHostVisibleElectronE2ESession : startElectronE2ESession;
+        session = await startSession(createE2ERunScopedSessionName(`e2e-close-tab-shortcut-${Date.now()}`), {
             clean: true,
             initialOpenPaths: [
                 firstPath,
@@ -219,27 +215,32 @@ describe.runIf(process.platform === 'linux')('Close Tab shortcut', () => {
         const activeLabel = before.find(tab => tab.active)?.label;
         expect(activeLabel).toBeTruthy();
 
-        const electronPid = getSessionInfo(session.name)?.electronPid;
-        expect(electronPid).toEqual(expect.any(Number));
-        const windowId = execFileSync('xdotool', [
-            'search',
-            '--onlyvisible',
-            '--pid',
-            String(electronPid),
-        ], { encoding: 'utf8' })
-            .trim().split('\n')[0];
-        if (!windowId) throw new Error('The visible Electron window id was missing');
-        execFileSync('xdotool', [
-            'windowfocus',
-            '--sync',
-            windowId,
-        ]);
         const windowClosed = new Promise<'window closed'>(resolveClosed => session!.page.once('close', () => resolveClosed('window closed')));
-        execFileSync('xdotool', [
-            'key',
-            '--clearmodifiers',
-            'ctrl+w',
-        ]);
+        if (process.platform === 'linux') {
+            const electronPid = getSessionInfo(session.name)?.electronPid;
+            expect(electronPid).toEqual(expect.any(Number));
+            const windowId = execFileSync('xdotool', [
+                'search',
+                '--onlyvisible',
+                '--pid',
+                String(electronPid),
+            ], { encoding: 'utf8' })
+                .trim().split('\n')[0];
+            if (!windowId) throw new Error('The visible Electron window id was missing');
+            execFileSync('xdotool', [
+                'windowfocus',
+                '--sync',
+                windowId,
+            ]);
+            execFileSync('xdotool', [
+                'key',
+                '--clearmodifiers',
+                'ctrl+w',
+            ]);
+        } else {
+            const activation = await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
+            expect(activation.label).toBe('Close Tab');
+        }
 
         const outcome = await Promise.race([
             session.page.waitForFunction(() => document.querySelectorAll('.tab-list .tab[data-tab-id]').length === 1, {timeout: 15_000})

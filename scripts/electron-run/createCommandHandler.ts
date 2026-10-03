@@ -16,6 +16,8 @@ import {
     OPEN_PDF_TRIGGER_TIMEOUT_MS,
 } from '@scripts/electron-run/electronRunTimeouts';
 import { resizeElectronWindowContentArea } from '@scripts/electron-run/resizeElectronWindow';
+import { activateElectronMenuItem } from '@scripts/electron-run/activateElectronMenuItem';
+import type { TApplicationMenuItemQuery } from '@electron/menu';
 import { screenshotDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 import type {
     ISessionState,
@@ -128,6 +130,17 @@ function parseWindowSizeArgs(args: unknown[]) {
         width,
         height,
     };
+}
+
+function parseMenuItemQueryArgs(args: unknown[]): TApplicationMenuItemQuery {
+    const value = parseRequiredStringArg(args, 1, 'Usage: activateMenuItem id|accelerator <value>');
+    if (args[0] === 'id') {
+        return {id: value};
+    }
+    if (args[0] === 'accelerator') {
+        return {accelerator: value};
+    }
+    throw new Error('Usage: activateMenuItem id|accelerator <value>');
 }
 
 function parseBooleanArg(value: unknown, fallback = false) {
@@ -936,6 +949,9 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
             );
         }
         return result;
+    },
+    activateMenuItem(context, args) {
+        return activateElectronMenuItem(context.sessionState.page, parseMenuItemQueryArgs(args));
     },
     async emulateViewport(context, args) {
         const size = parseWindowSizeArgs(args);

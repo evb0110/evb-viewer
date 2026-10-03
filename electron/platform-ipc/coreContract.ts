@@ -14,7 +14,11 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 
-export const CORE_IPC_CHANNELS = {rendererReady: 'app:rendererReady'} as const;
+export const CORE_IPC_CHANNELS = {
+    rendererReady: 'app:rendererReady',
+    // Registered and exposed only in isolated automation sessions.
+    activateMenuItemForAutomation: 'automation:activateMenuItem',
+} as const;
 
 export const CORE_IPC_EVENT_CHANNELS = {
     menuCheckForUpdates: 'menu:checkForUpdates',

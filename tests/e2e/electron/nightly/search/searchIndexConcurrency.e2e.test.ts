@@ -6,6 +6,7 @@ import {
     it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createFixturePath} from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
@@ -122,7 +123,7 @@ describe('Electron E2E - concurrent search indexes', () => {
         await ensureSidebarOpen(page);
         await openDocumentSidebarTab(page, 'Search');
         const input = await page.waitForSelector(`${SIDEBAR} .document-search-bar input`, {visible: true});
-        await input!.click();
+        await clickAsUser(page, input!);
         await page.keyboard.type(lastWord(DOCUMENT_COUNT));
         await page.keyboard.press('Enter');
         await waitForFunctionInPage(page, (root: string, word: string) => (

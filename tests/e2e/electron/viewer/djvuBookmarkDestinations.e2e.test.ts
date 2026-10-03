@@ -1,6 +1,9 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {rm} from 'node:fs/promises';
 import {
     existsSync, mkdtempSync,
@@ -43,7 +46,7 @@ describe('DjVu converted bookmark destinations', () => {
         });
         await openDjvuInApp(session.page, sourcePath, 120_000);
         await waitForDjvuLoaded(session.page, 120_000);
-        await session.page.click('[data-focus-restore="djvu-convert"]');
+        await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
         await waitForFunctionInPage(session.page, () => {
             const dialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
                 .find(element => element.textContent?.includes('Convert DjVu to PDF'));
@@ -52,12 +55,12 @@ describe('DjVu converted bookmark destinations', () => {
                 .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled);
             return button !== undefined;
         }, {timeout: 30_000});
-        await session.page.click('.convert-advanced-toggle');
+        await clickAsUser(session.page, '.convert-advanced-toggle');
         await waitForFunctionInPage(session.page, () => {
             const radio = document.querySelector<HTMLButtonElement>('[role="radio"][value="direct-1"]');
             return Boolean(radio && !radio.disabled);
         }, {timeout: 30_000});
-        await session.page.click('[role="radio"][value="direct-1"]');
+        await clickAsUser(session.page, '[role="radio"][value="direct-1"]');
         await waitForFunctionInPage(session.page, () => (
             document.querySelector('[role="radio"][value="direct-1"]')?.getAttribute('aria-checked') === 'true'
         ), {timeout: 5_000});
@@ -104,7 +107,7 @@ describe('DjVu converted bookmark destinations', () => {
             },
         ]);
 
-        await session.page.click('.tab-list .tab.is-active .tab-close');
+        await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
         await openPdfInApp(session.page, outputPath, 120_000);
         await waitForPdfLoaded(session.page, 120_000);
         await openDocumentSidebarTab(session.page, 'Bookmarks');
@@ -127,7 +130,7 @@ describe('DjVu converted bookmark destinations', () => {
             });
             expect(bookmarkRow, `bookmark row accessible name is ${title}`).not.toBeNull();
             expect(await bookmarkRow!.evaluate(element => element.matches('.document-bookmark-item__row'))).toBe(true);
-            await bookmarkRow!.click();
+            await clickAsUser(session.page, bookmarkRow!);
             await expect.poll(async () => (await readToolbarPageIndicator(session.page)).renderedPage, {timeout: 15_000}).toBe(pageNumber);
             expect((await readToolbarPageIndicator(session.page)).renderedPage).toBe(pageNumber);
         }

@@ -35,11 +35,7 @@ export function createWindowStartupOptions() {
             encodeHostEnvironmentArgument(bounds),
             ...encodeUiScalePreferenceArgument(),
             ...(runtimeConfig.startupTrace ? ['--evb-startup-trace'] : []),
-            ...(runtimeConfig.automationUserDataDir
-                && runtimeConfig.automationSessionName
-                && runtimeConfig.automationEnableRendererFileOpenHelper
-                ? ['--evb-renderer-file-open-helper']
-                : []),
+            ...(runtimeConfig.automationRendererHooksEnabled ? ['--evb-renderer-file-open-helper'] : []),
         ],
     };
 }

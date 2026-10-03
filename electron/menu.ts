@@ -697,19 +697,25 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 }),
             ] : []),
             { type: 'separator' },
-            createWindowMenuAction({
-                label: te('menu.newPaneRight'),
-                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
-                accelerator: 'CmdOrCtrl+\\',
-                enabled: state.canCreatePane,
-                args: ['right'],
-            }),
-            createWindowMenuAction({
-                label: te('menu.newPaneDown'),
-                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
-                enabled: state.canCreatePane,
-                args: ['down'],
-            }),
+            {
+                ...createWindowMenuAction({
+                    label: te('menu.newPaneRight'),
+                    channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
+                    accelerator: 'CmdOrCtrl+\\',
+                    enabled: state.canCreatePane,
+                    args: ['right'],
+                }),
+                id: 'new-pane-right',
+            },
+            {
+                ...createWindowMenuAction({
+                    label: te('menu.newPaneDown'),
+                    channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
+                    enabled: state.canCreatePane,
+                    args: ['down'],
+                }),
+                id: 'new-pane-down',
+            },
             { type: 'separator' },
             { role: 'toggleDevTools' },
         ],
@@ -1000,6 +1006,167 @@ export function setMenuDocumentState(
 
     menuDocumentStateByWindow.set(windowId, normalized);
     rebuildMenuForWindowStateChange(windowId);
+}
+
+export type TApplicationMenuItemQuery = {id: string} | {accelerator: string};
+
+export type TApplicationMenuItemActivation =
+    | {
+        activated: true;
+        label: string;
+        windowId: number | null;
+    }
+    | {
+        activated: false;
+        reason: 'not-found' | 'hidden' | 'disabled' | 'unsupported-role' | 'no-window';
+        label?: string;
+    };
+
+const MAX_MENU_ITEM_QUERY_LENGTH = 128;
+
+export function decodeApplicationMenuItemQuery(value: unknown): TApplicationMenuItemQuery {
+    const isQueryString = (entry: unknown): entry is string => typeof entry === 'string'
+        && entry.trim().length > 0
+        && entry.length <= MAX_MENU_ITEM_QUERY_LENGTH;
+    if (typeof value === 'object' && value !== null) {
+        const {
+            id,
+            accelerator,
+        } = value as Record<string, unknown>;
+        if (isQueryString(id) && accelerator === undefined) {
+            return {id};
+        }
+        if (isQueryString(accelerator) && id === undefined) {
+            return {accelerator};
+        }
+    }
+    throw new Error('A menu item query names exactly one of id or accelerator');
+}
+
+const ACCELERATOR_MODIFIERS: Record<string, string> = {
+    alt: 'Alt',
+    altgr: 'AltGr',
+    cmd: 'Command',
+    command: 'Command',
+    control: 'Control',
+    ctrl: 'Control',
+    meta: 'Super',
+    option: 'Alt',
+    shift: 'Shift',
+    super: 'Super',
+};
+
+/** One spelling per accelerator, so `CmdOrCtrl+Shift+Z` finds `Cmd+Shift+Z` on macOS. */
+export function normalizeMenuAccelerator(accelerator: string) {
+    const parts = accelerator.split('+').map(part => part.trim());
+    const key = (parts.pop() ?? '').toUpperCase();
+    const modifiers = parts.map((part) => {
+        const name = part.toLowerCase();
+        if (name === 'cmdorctrl' || name === 'commandorcontrol') {
+            return config.isMac ? 'Command' : 'Control';
+        }
+        return ACCELERATOR_MODIFIERS[name] ?? part;
+    });
+    return [...new Set(modifiers)].sort().concat(key).join('+');
+}
+
+function findMenuItemsByAccelerator(menu: Electron.Menu, accelerator: string): Electron.MenuItem[] {
+    return menu.items.flatMap(item => [
+        ...(item.accelerator && normalizeMenuAccelerator(item.accelerator) === accelerator ? [item] : []),
+        ...(item.submenu ? findMenuItemsByAccelerator(item.submenu, accelerator) : []),
+    ]);
+}
+
+/** Menu order, as a key press walks it: the first available item bound to the key takes it. */
+function findMenuItemByAccelerator(menu: Electron.Menu, accelerator: string) {
+    const items = findMenuItemsByAccelerator(menu, accelerator);
+    return items.find(item => item.visible && item.enabled) ?? items[0] ?? null;
+}
+
+// macOS runs these roles through an AppKit selector instead of MenuItem.click,
+// whose role branch skips them there. Quit's selector reaches NSApp without a
+// key window. A hidden window is never key, so the rest run what the role runs
+// on Linux and Windows, which is also where AppKit's selector ends up.
+const MAC_NATIVE_ROLE_ACTIONS: Partial<Record<string, (window: BrowserWindow | null) => void>> = {
+    quit: () => Menu.sendActionToFirstResponder('terminate:'),
+    close: window => window?.close(),
+    minimize: window => window?.minimize(),
+    cut: window => window?.webContents.cut(),
+    copy: window => window?.webContents.copy(),
+    paste: window => window?.webContents.paste(),
+};
+// Electron's `nonNativeMacOSRole` roles, which MenuItem.click does run on macOS.
+const MAC_SCRIPTED_ROLES = new Set([
+    'forcereload',
+    'reload',
+    'resetzoom',
+    'toggledevtools',
+    'togglespellchecker',
+    'zoomin',
+    'zoomout',
+]);
+
+/**
+ * Automation's stand-in for pressing a menu item's accelerator, which a
+ * synthesized key event cannot do on macOS: the same item, its enabled and
+ * visible state, and the window an accelerator would target. Not the OS key
+ * routing itself.
+ */
+export function activateApplicationMenuItem(query: TApplicationMenuItemQuery): TApplicationMenuItemActivation {
+    const menu = Menu.getApplicationMenu();
+    const item = !menu
+        ? null
+        : 'id' in query
+            ? menu.getMenuItemById(query.id)
+            : findMenuItemByAccelerator(menu, normalizeMenuAccelerator(query.accelerator));
+    if (!item) {
+        return {
+            activated: false,
+            reason: 'not-found',
+        };
+    }
+    const {label} = item;
+    if (!item.visible || !item.enabled) {
+        return {
+            activated: false,
+            reason: item.visible ? 'disabled' : 'hidden',
+            label,
+        };
+    }
+
+    const window = getFocusedAppWindow();
+    const nativeRoleAction = config.isMac && item.role ? MAC_NATIVE_ROLE_ACTIONS[item.role] : undefined;
+    if (config.isMac && item.role && !nativeRoleAction && !MAC_SCRIPTED_ROLES.has(item.role)) {
+        return {
+            activated: false,
+            reason: 'unsupported-role',
+            label,
+        };
+    }
+    if (nativeRoleAction && item.role !== 'quit' && !window) {
+        return {
+            activated: false,
+            reason: 'no-window',
+            label,
+        };
+    }
+    logger.info(`Automation activates menu item "${label}"`);
+    if (nativeRoleAction) {
+        nativeRoleAction(window);
+    } else {
+        // Electron types MenuItem.click as Function; this is its documented call.
+        const click = item.click as (
+            event: Electron.KeyboardEvent,
+            focusedWindow: BaseWindow | undefined,
+            focusedWebContents: Electron.WebContents | undefined,
+        ) => void;
+        click({triggeredByAccelerator: true}, window ?? undefined, window?.webContents);
+    }
+    return {
+        activated: true,
+        label,
+        windowId: window?.id ?? null,
+    };
 }
 
 export function setMenuTabCount(windowId: number, tabCount: number) {

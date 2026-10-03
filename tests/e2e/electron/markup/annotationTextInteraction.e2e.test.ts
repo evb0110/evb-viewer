@@ -28,6 +28,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {countWarmHighlightPixels} from '@tests/e2e/electron/helpers/searchHighlightPaint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     clickAnnotationTool,
     clickVisibleAnnotationControl,
@@ -488,7 +489,7 @@ describe('Electron E2E - text interaction contract', () => {
         ]) {
             await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [zoom]);
             await waitForViewerInteractive(page);
-            await page.click(row);
+            await clickAsUser(page, row);
             await page.waitForFunction(() => {
                 const mark = document.querySelector('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
                 return mark && mark.getBoundingClientRect().height > 100;

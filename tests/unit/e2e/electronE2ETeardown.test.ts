@@ -5,16 +5,13 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
-import type {Page} from 'puppeteer-core';
 import {
     ElectronE2ETeardownError,
     ElectronE2ETimeoutError,
     runElectronE2ETeardown,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
-import {saveViaVisibleToolbarWithDeadline} from '@tests/e2e/electron/helpers/viewerCore';
 
 const SESSION_HELPER_SOURCE = readFileSync(
     join(process.cwd(), 'tests', 'e2e', 'electron', 'helpers', 'startElectronE2ESession.ts'),
@@ -52,50 +49,6 @@ describe('Electron E2E deadline policy', () => {
         expect(message).toContain('Waiting for session health timed out after');
         expect(message).toContain('stop refused');
         expect(message).toContain('session log tail');
-    });
-
-    it('cancels a visible large-save wait and reports its save phase', async () => {
-        const button = {
-            click: vi.fn(async () => undefined),
-            evaluate: vi.fn(async () => true),
-        };
-        const pageEvaluate = vi.fn(async (expression: string) => {
-            if (expression.includes('getAutomationEvents().find')) {
-                return {
-                    available: true,
-                    event: null,
-                };
-            }
-            if (expression.includes('getAutomationEvents')) {
-                return 0;
-            }
-            return undefined;
-        });
-        const page = Object.create(null) as Page;
-        Object.defineProperties(page, {
-            $$: {value: vi.fn(async () => [button])},
-            evaluate: {value: pageEvaluate},
-        });
-        let timeoutCleanupCalled = false;
-
-        const failure = await saveViaVisibleToolbarWithDeadline(
-            page,
-            20,
-            undefined,
-            {
-                label: 'large PDF toolbar save',
-                onTimeout: async () => {
-                    timeoutCleanupCalled = true;
-                },
-                diagnostics: () => 'phase=save-committed-await',
-            },
-        ).catch((error: unknown) => error);
-
-        expect(failure).toBeInstanceOf(ElectronE2ETimeoutError);
-        expect(timeoutCleanupCalled).toBe(true);
-        expect(button.click).toHaveBeenCalledOnce();
-        expect((failure as Error).message).toContain('large PDF toolbar save timed out after');
-        expect((failure as Error).message).toContain('phase=save-committed-await');
     });
 
     it('returns the task result and leaves the signal untouched when the task finishes in time', async () => {

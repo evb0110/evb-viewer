@@ -87,11 +87,22 @@ events.
 These paths stay outside trusted page input. Name the gap when a report
 depends on one:
 
-- Native menu accelerators. On macOS a CDP key event never reaches the
-  application menu's key equivalents, so Cmd+S, Cmd+W or Cmd+Z typed through
-  `page.keyboard` exercise only renderer handlers. Quit goes through
-  `terminate:` (see `unsavedWorkQuit`); other menu commands need their
-  automation hook as setup.
+- OS key routing to the application menu. A CDP key event reaches only the
+  renderer, so Cmd+W or Ctrl+W typed through `page.keyboard` exercises only
+  renderer handlers. Checked on macOS and on Linux under Xvfb, with the
+  window hidden and mapped; Windows is unchecked. Press the accelerator with
+  `activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+W'})` or
+  `{id: 'new-pane-down'}` from `userInput.ts` (session command
+  `activateMenuItem accelerator|id <value>`). The main process resolves the
+  item from the installed menu, the first match in menu order as AppKit does,
+  and runs it as a key press would: a disabled or hidden item does not run,
+  and the focused window, or the first one in a hidden session, is the target,
+  so window targeting and the text-field Undo branch run for real. On macOS,
+  Quit sends `terminate:` and Close, Minimize, Cut, Copy and Paste run their
+  Linux and Windows role action; other AppKit-only roles report
+  `unsupported-role`. Menu items run through their real handler; OS key
+  routing itself still needs a visible-window lane, or X11 input on Linux
+  (`unsavedWorkQuit`).
 - Main-process focus checks, such as Escape leaving zen mode, which requires
   `window.isFocused()`.
 - Native open, save and print dialogs, which E2E answers through

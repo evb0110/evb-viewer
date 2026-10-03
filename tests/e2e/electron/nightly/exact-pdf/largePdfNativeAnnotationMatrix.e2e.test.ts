@@ -30,6 +30,7 @@ import {
     type TLegacyDocumentRef,
 } from '@contracts/documentRef';
 import {resolveLargePdfFixtureAvailability} from '@tests/e2e/electron/helpers/fixtures';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clearTextSelection,
@@ -973,7 +974,7 @@ async function pasteImageFromVisibleMenu(page: Page, pageNumber: number) {
 }
 
 async function finalizeImagePlacement(page: Page) {
-    await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
+    await clickAsUser(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         hidden: true,
         timeout: 60_000,

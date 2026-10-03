@@ -600,26 +600,10 @@ async function waitForSplitResizeViewportAnchor(
 }
 
 async function splitActivePaneWithEmptyEditor(session: IElectronE2ESession) {
-    const result = await session.page.evaluate(async () => {
-        const sourcePaneId = document.querySelector<HTMLElement>('.editor-pane.is-active')
-            ?.dataset.editorPaneId ?? null;
-        const splitEditor = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
-        if (!sourcePaneId || typeof splitEditor !== 'function') {
-            return {
-                sourcePaneId,
-                split: false,
-            };
-        }
-        await splitEditor('right');
-        return {
-            sourcePaneId,
-            split: true,
-        };
-    });
-    expect(result.split).toBe(true);
-    expect(result.sourcePaneId).not.toBeNull();
-    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2);
-    return result.sourcePaneId!;
+    const sourcePaneId = await session.page.$eval('.editor-pane.is-active', pane => (pane as HTMLElement).dataset.editorPaneId ?? null);
+    expect(sourcePaneId).not.toBeNull();
+    await openNewPane(session.page, 'right');
+    return sourcePaneId!;
 }
 
 async function nudgeActiveDocumentViewportWithWheel(
@@ -1786,7 +1770,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     await row.focus();
                     await page.keyboard.press(key);
                 } else {
-                    await row.click();
+                    await clickAsUser(page, row);
                 }
                 await page.mouse.move(700, 300);
                 return;
@@ -1881,14 +1865,14 @@ describe('Electron E2E - Viewer Smoke', () => {
         await expectActive('Child', 3);
         await goToPageViaToolbar(page, 4);
         await expectActive('Same page', 4);
-        await page.click('.document-bookmarks-toolbar__actions button');
+        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
         await activate('Parent');
         await expectActive('Parent', 1);
         await activate('Child', 'Enter');
         await expectActive('Child', 3);
-        await page.click('.pdf-bookmark-item-row', {button: 'right'});
+        await clickAsUser(page, '.pdf-bookmark-item-row', {button: 'right'});
         await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
-        await page.click('.bookmarks-context-menu .pdf-context-menu__action');
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
         await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
         await page.keyboard.type('Two words');
         expect(await page.$eval('input.pdf-bookmark-item-input', input => input.value)).toBe('Two words');
@@ -1947,7 +1931,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             });
             const row = await page.$('::-p-xpath(//*[contains(@class, "document-bookmark-item__row")][normalize-space(.)="Appendix"])');
             expect(row).not.toBeNull();
-            await row!.click();
+            await clickAsUser(page, row!);
             await waitForToolbarCurrentPage(page, 4);
             await waitForViewportQuiet(page);
             observations.push(await page.evaluate(() => {
@@ -2086,7 +2070,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const readPlacementGridY = () => document.querySelector('.scan-cleanup-alignment-grid')
             ?.getBoundingClientRect().y ?? null;
         const placementYAllScope = await session.page.evaluate(readPlacementGridY);
-        await session.page.click('[data-settings-scope="page"]');
+        await clickAsUser(session.page, '[data-settings-scope="page"]');
         const pageScopePlacement = await session.page.evaluate(() => {
             const placement = document.querySelector<HTMLElement>('.scan-cleanup-alignment-grid');
             const outputMode = document.querySelector<HTMLElement>('[aria-label="Output mode"]');
@@ -2109,7 +2093,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(pageScopePlacement.placementY).toBe(placementYAllScope);
         expect(pageScopePlacement.outputModeY)
             .toBeGreaterThan(pageScopePlacement.placementY as number);
-        await session.page.click('[data-settings-scope="all"]');
+        await clickAsUser(session.page, '[data-settings-scope="all"]');
         const restoredPlacementY = await session.page.evaluate(readPlacementGridY);
         expect(Number.isFinite(restoredPlacementY)).toBe(true);
         expect(restoredPlacementY).toBe(placementYAllScope);
@@ -2264,7 +2248,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         }
         const marginsAfterClicks = await session.page.evaluate(readAllMargins);
         expect(marginsAfterClicks).toEqual(marginsBefore.map(value => value + 3));
-        await session.page.click('input[data-margin-side="topMm"]', {count: 3});
+        await clickAsUser(session.page, 'input[data-margin-side="topMm"]', {count: 3});
         await session.page.type('input[data-margin-side="topMm"]', '25');
         await session.page.keyboard.press('Enter');
         const sweptGeometryHandle = await waitForFunctionInPage(
@@ -2288,7 +2272,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             ?.getBoundingClientRect().x ?? null;
         const anchorLinked = await session.page.evaluate(readSettingsAnchorX);
         const fieldCountLinked = await session.page.evaluate(() => document.querySelectorAll('input[data-margin-side]').length);
-        await session.page.click('[data-margins-link]');
+        await clickAsUser(session.page, '[data-margins-link]');
         const fieldCountUnlinked = await session.page.evaluate(() => document.querySelectorAll('input[data-margin-side]').length);
         expect(fieldCountUnlinked).toBe(fieldCountLinked);
         const anchorUnlinked = await session.page.evaluate(readSettingsAnchorX);
@@ -2298,8 +2282,8 @@ describe('Electron E2E - Viewer Smoke', () => {
             'input[data-margin-side="topMm"]',
             input => Number((input as HTMLInputElement).value),
         );
-        await session.page.click('[data-settings-scope="page"]');
-        await session.page.click('input[data-margin-side="topMm"]', {count: 3});
+        await clickAsUser(session.page, '[data-settings-scope="page"]');
+        await clickAsUser(session.page, 'input[data-margin-side="topMm"]', {count: 3});
         await session.page.type('input[data-margin-side="topMm"]', String(Math.max(0, documentTopMargin - 7)));
         await session.page.keyboard.press('Enter');
         await session.page.waitForSelector('[data-override-marker="margins"]', {visible: true});
@@ -2308,7 +2292,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             button => button.getAttribute('aria-label'),
         );
         expect(marginResetLabel).toBe('Reset to document');
-        await session.page.click('[data-reset-override="margins"]');
+        await clickAsUser(session.page, '[data-reset-override="margins"]');
         await session.page.waitForSelector('[data-override-marker="margins"]', {hidden: true});
         const resetTopMargin = await session.page.$eval(
             'input[data-margin-side="topMm"]',
@@ -2353,7 +2337,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expect(thumbnailRows).toBeGreaterThan(0);
 
-        await session.page.$eval('.scan-cleanup-toolbar-done', button => (button as HTMLButtonElement).click());
+        await clickAsUser(session.page, '.scan-cleanup-toolbar-done');
         await session.page.waitForSelector('.scan-cleanup-surface', {
             hidden: true,
             timeout: 10_000,
@@ -2489,9 +2473,9 @@ describe('Electron E2E - Viewer Smoke', () => {
             && document.querySelectorAll('.preview-result-layer .placed-image').length === 1
         ), {timeout: 60_000});
 
-        await session.page.click('.preview-zoom-value');
+        await clickAsUser(session.page, '.preview-zoom-value');
         for (let step = 0; step < 3; step += 1) {
-            await session.page.click('button[aria-label="Zoom in"]');
+            await clickAsUser(session.page, 'button[aria-label="Zoom in"]');
         }
         await waitForFunctionInPage(session.page, () => {
             const surface = document.querySelector<HTMLElement>('.preview-surface');
@@ -2555,7 +2539,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         });
         const initialTile = await readDetailTile();
 
-        await session.page.click('button[role="radio"][aria-label="Original"]');
+        await clickAsUser(session.page, 'button[role="radio"][aria-label="Original"]');
         await session.page.waitForSelector('button[role="radio"][aria-label="Original"][aria-checked="true"]');
         const pan = await session.page.evaluate(() => {
             const surface = document.querySelector<HTMLElement>('.preview-surface');
@@ -2602,7 +2586,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await session.page.mouse.down();
         await session.page.mouse.move(pan.endX, pan.endY, {steps: 8});
         await session.page.mouse.up();
-        await session.page.click('button[role="radio"][aria-label="Cleaned"]');
+        await clickAsUser(session.page, 'button[role="radio"][aria-label="Cleaned"]');
         await session.page.waitForSelector('button[role="radio"][aria-label="Cleaned"][aria-checked="true"]');
         await waitForFunctionInPage(session.page, (previousSrc: string) => {
             const detail = document.querySelector<HTMLImageElement>(
@@ -3371,7 +3355,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
         const search = async (query: string) => {
             const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
-            await input!.click();
+            await clickAsUser(session.page, input!);
             // Setup only: select the previous query so the typed one replaces it.
             await input!.evaluate(element => element.select());
             await session.page.keyboard.type(query);
@@ -3425,11 +3409,11 @@ describe('Electron E2E - Viewer Smoke', () => {
             for (const label of toggles) {
                 const toggle = await session.page.$(`${sidebar} .document-search-bar button[aria-label="${label}"]`);
                 expect(toggle, `${label} toggle`).not.toBeNull();
-                await toggle!.click();
+                await clickAsUser(session.page, toggle!);
             }
             const input = await session.page.$(`${sidebar} .document-search-bar input`);
             expect(input).not.toBeNull();
-            await input!.click({count: 3});
+            await clickAsUser(session.page, input!, {count: 3});
             await session.page.keyboard.press('Backspace');
             await input!.type(query);
             await session.page.keyboard.press('Enter');
@@ -3488,8 +3472,8 @@ describe('Electron E2E - Viewer Smoke', () => {
         await ensureSidebarOpen(session.page);
         await openDocumentSidebarTab(session.page, 'Search');
         const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
-        await (await session.page.waitForSelector(`${sidebar} .document-search-bar button[aria-label="Use regular expression"]`))!.click();
-        await (await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true}))!.click();
+        await clickAsUser(session.page, (await session.page.waitForSelector(`${sidebar} .document-search-bar button[aria-label="Use regular expression"]`))!);
+        await clickAsUser(session.page, (await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true}))!);
         await session.page.keyboard.type(query);
         await session.page.keyboard.press('Enter');
         const result = await session.page.waitForSelector(`${sidebar} .document-search-result`, {
@@ -3497,7 +3481,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             timeout: 30_000,
         });
         expect(await result!.evaluate(element => element.textContent)).toContain('café');
-        await result!.click();
+        await clickAsUser(session.page, result!);
 
         const highlighted = await waitForFunctionInPage(session.page, () => (
             Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-search-highlight--current'))
@@ -3927,7 +3911,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         const selectionToggle = (page: number) =>
             `.editor-pane.is-active [data-thumbnail-page="${String(page)}"] .pdf-thumbnail-selection-toggle`;
-        await session.page.click(selectionToggle(2));
+        await clickAsUser(session.page, selectionToggle(2));
         expect(await session.page.$eval(selectionToggle(2), element => element.getAttribute('aria-pressed'))).toBe('true');
 
         await session.page.focus('.editor-pane.is-active [data-thumbnail-page="1"]');
@@ -4114,7 +4098,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             expect(row.pageEdgeGap, `page ${row.page} edge hugs its thumbnail`).toBeLessThanOrEqual(1);
         }
 
-        await session.page.click('.editor-pane.is-active [data-thumbnail-page="2"]');
+        await clickAsUser(session.page, '.editor-pane.is-active [data-thumbnail-page="2"]');
         await waitForWorkspaceToolbarSnapshot(
             session.page,
             {currentPage: 2},
@@ -4856,12 +4840,12 @@ describe('Electron E2E - Document Output', () => {
                 break;
             }
         }
-        await printButton!.click();
+        await clickAsUser(session.page, printButton!);
         const rangeInput = await session.page.waitForSelector('[role="dialog"] input[aria-label="Page range"]', {
             timeout: 15_000,
             visible: true,
         });
-        await rangeInput!.click();
+        await clickAsUser(session.page, rangeInput!);
         await session.page.keyboard.type('1, 3');
         const submit = await session.page.waitForSelector(
             '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
@@ -4870,7 +4854,7 @@ describe('Electron E2E - Document Output', () => {
                 visible: true,
             },
         );
-        await submit!.click();
+        await clickAsUser(session.page, submit!);
 
         await expect.poll(async () => {
             try {
@@ -4921,7 +4905,7 @@ describe('Electron E2E - Document Output', () => {
             timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
             visible: true,
         });
-        await (await session.page.$(thumbnailSelector))!.click({button: 'right'});
+        await clickAsUser(session.page, (await session.page.$(thumbnailSelector))!, {button: 'right'});
         const extractItem = await session.page.waitForSelector(
             '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Extract to New PDF")])',
             {
@@ -4929,7 +4913,7 @@ describe('Electron E2E - Document Output', () => {
                 visible: true,
             },
         );
-        await extractItem!.click();
+        await clickAsUser(session.page, extractItem!);
 
         // The extracted page opens as its own one-page document.
         await expect.poll(async () => (await readToolbarPageIndicator(session.page)).totalPagesText?.replace(/\D+/gu, ''), {timeout: 60_000})
@@ -4975,7 +4959,7 @@ describe('Electron E2E - Document Output', () => {
             visible: true,
         });
         const thumbnail = await session.page.$(thumbnailSelector);
-        await thumbnail!.click({button: 'right'});
+        await clickAsUser(session.page, thumbnail!, {button: 'right'});
         const exportItem = await session.page.waitForSelector(
             '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Export Pages")])',
             {
@@ -4983,7 +4967,7 @@ describe('Electron E2E - Document Output', () => {
                 visible: true,
             },
         );
-        await exportItem!.click();
+        await clickAsUser(session.page, exportItem!);
         const exportAction = await session.page.waitForSelector(
             '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Export Images"])',
             {
@@ -4991,7 +4975,7 @@ describe('Electron E2E - Document Output', () => {
                 visible: true,
             },
         );
-        await exportAction!.click();
+        await clickAsUser(session.page, exportAction!);
 
         await expect.poll(async () => (await readdir(exportDirectory)).filter(name => name.endsWith('.png')), {timeout: 60_000})
             .not.toEqual([]);
@@ -6818,7 +6802,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             const sidebar = document.querySelector(selector)?.closest('.sidebar-wrapper:not(.is-closed)');
             return sidebar !== null && sidebar !== undefined && sidebar.getAnimations().length === 0;
         }, {timeout: 5_000}, searchSelector);
-        await session.page.click(searchSelector);
+        await clickAsUser(session.page, searchSelector);
         const searchClickFocused = await session.page.evaluate((selector: string) => (
             document.activeElement === document.querySelector(selector)
         ), searchSelector);
@@ -7086,7 +7070,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             }
         }
         expect(convertButton).not.toBeNull();
-        await convertButton!.click();
+        await clickAsUser(session.page, convertButton!);
 
         const progressSelector = '.app-progress-overlay[role="dialog"]';
         await session.page.waitForSelector(progressSelector, {

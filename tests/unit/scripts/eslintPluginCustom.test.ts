@@ -214,6 +214,42 @@ describe('no-raw-red-presentation rule', () => {
     });
 });
 
+describe('e2e-click-as-user rule', () => {
+    it('rejects Puppeteer handle and page clicks but keeps pointer and in-page clicks', () => {
+        const filename = 'tests/e2e/electron/viewer/example.e2e.test.ts';
+        const errors = [{message: 'Click through clickAsUser from tests/e2e/electron/helpers/userInput.ts; ElementHandle.click and page.click do not check what covers the target.'}];
+        tester.run('e2e-click-as-user', rules['e2e-click-as-user'] as Parameters<typeof tester.run>[1], {
+            valid: [
+                'await clickAsUser(page, handle, {button: \'right\'});',
+                'await page.mouse.click(10, 20, {count: 2});',
+                'await mouse.click(10, 20);',
+                'await page.evaluate(() => { document.querySelector(\'.tab\')?.click(); });',
+                'await page.$eval(\'.done\', button => (button as HTMLButtonElement).click());',
+                'await waitForFunctionInPage(page, () => document.querySelector(\'.tab\')?.click() === undefined);',
+                'await evaluateInPage(page, async () => { const row = document.querySelector(\'.row\'); row?.click(); });',
+            ].map(code => ({
+                code,
+                filename,
+            })),
+            invalid: [
+                'await handle.click();',
+                'handle.click();',
+                'const probe = (index: number) => { tabs[index]?.click(); };',
+                'await handle!.click({count: 3});',
+                'await page.click(\'.tab-close\');',
+                'await session.page.click(\'.tab\', {button: \'right\'});',
+                'await (await page.$(\'.tab\'))?.click();',
+                'await Promise.all([page.waitForNavigation(), handle.click()]);',
+                'const open = () => handle.click();',
+            ].map(code => ({
+                code,
+                filename,
+                errors,
+            })),
+        });
+    });
+});
+
 describe('no-direct-console-error rule', () => {
     it('rejects direct application console.error calls', () => {
         tester.run('no-direct-console-error', rules['no-direct-console-error'] as Parameters<typeof tester.run>[1], {

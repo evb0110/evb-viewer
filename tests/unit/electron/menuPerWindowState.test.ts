@@ -7,8 +7,11 @@ import {
 } from 'vitest';
 
 interface IMenuItemLike {
+    id?: string;
     label?: string;
+    accelerator?: string;
     enabled?: boolean;
+    visible?: boolean;
     role?: string;
     type?: string;
     checked?: boolean;
@@ -42,6 +45,8 @@ const mocks = vi.hoisted(() => ({
         template,
     })),
     setApplicationMenu: vi.fn(),
+    sendActionToFirstResponder: vi.fn(),
+    config: {isMac: false},
     appListeners: new Map<string, (...args: unknown[]) => void>(),
     createWindow: ((_id: number, _title: string): IMenuPerWindowStateTestWindow => {
         throw new Error('createWindow mock not initialized');
@@ -125,6 +130,8 @@ vi.mock('electron', () => {
         Menu: {
             buildFromTemplate: mocks.buildFromTemplate,
             setApplicationMenu: mocks.setApplicationMenu,
+            getApplicationMenu: () => toApplicationMenu(getLastMenuTemplate()),
+            sendActionToFirstResponder: mocks.sendActionToFirstResponder,
         },
     };
 });
@@ -139,14 +146,63 @@ vi.mock('@electron/recentFiles', () => ({getRecentFilesSync: () => []}));
 
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 
-vi.mock('@electron/config', () => ({config: {isMac: false}}));
+vi.mock('@electron/config', () => ({config: mocks.config}));
 
 const {
+    activateApplicationMenuItem,
+    decodeApplicationMenuItemQuery,
     setupMenu,
     setMenuDocumentState,
     setMenuTabCount,
     refreshMenu,
 } = await import('@electron/menu');
+
+interface IApplicationMenuItemLike {
+    id: string | undefined;
+    label: string;
+    accelerator: string | undefined;
+    role: string | undefined;
+    enabled: boolean;
+    visible: boolean;
+    submenu: IApplicationMenuLike | null;
+    click: (event: unknown, window?: unknown) => void;
+}
+
+interface IApplicationMenuLike {
+    items: IApplicationMenuItemLike[];
+    getMenuItemById: (id: string) => IApplicationMenuItemLike | null;
+}
+
+// Electron's role defaults that matter for key resolution.
+const ROLE_DEFAULT_ACCELERATORS: Record<string, string> = {
+    close: 'CommandOrControl+W',
+    quit: 'CommandOrControl+Q',
+};
+
+/** The installed menu as Electron builds it from a template. */
+function toApplicationMenu(template: IMenuItemLike[]): IApplicationMenuLike {
+    const items = template.map((entry) => {
+        const role = entry.role?.toLowerCase();
+        const item: IApplicationMenuItemLike = {
+            id: entry.id,
+            label: entry.label ?? '',
+            role,
+            accelerator: entry.accelerator ?? (role ? ROLE_DEFAULT_ACCELERATORS[role] : undefined),
+            enabled: entry.enabled ?? true,
+            visible: entry.visible ?? true,
+            submenu: Array.isArray(entry.submenu) ? toApplicationMenu(entry.submenu as IMenuItemLike[]) : null,
+            click: (_event, window) => {
+                entry.click?.(item, window);
+            },
+        };
+        return item;
+    });
+    return {
+        items,
+        getMenuItemById: id => items.find(item => item.id === id)
+            ?? items.reduce<IApplicationMenuItemLike | null>((found, item) => found ?? item.submenu?.getMenuItemById(id) ?? null, null),
+    };
+}
 
 function getLastMenuTemplate() {
     const lastCall = mocks.buildFromTemplate.mock.calls.at(-1);
@@ -762,5 +818,113 @@ describe('menu per-window document state', () => {
 
         expect(getFileMenuSubmenu(getLastMenuTemplate()).find(item => item.label === 'menu.closeTab')?.enabled).toBe(false);
         expect(isMoveToNewWindowEnabled(getLastMenuTemplate())).toBe(false);
+    });
+});
+
+describe('automation menu item activation', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.windows.length = 0;
+        mocks.focusWindow(null);
+        mocks.config.isMac = false;
+    });
+
+    it.each([
+        false,
+        true,
+    ])('runs the item a key resolves to in the first window when none is focused (macOS %s)', (isMac) => {
+        mocks.config.isMac = isMac;
+        const firstWindow = mocks.createWindow(1, 'First');
+        const secondWindow = mocks.createWindow(2, 'Second');
+        mocks.windows.push(firstWindow, secondWindow);
+        setupMenu();
+        setMenuDocumentState(1, true);
+        const closeWindow = vi.spyOn(firstWindow, 'close');
+
+        // On macOS Window > Close also has Cmd+W; File > Close Tab comes first.
+        expect(activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'})).toEqual({
+            activated: true,
+            label: 'menu.closeTab',
+            windowId: 1,
+        });
+        expect(firstWindow.webContents.send).toHaveBeenCalledWith('menu:closeTab');
+        expect(secondWindow.webContents.send).not.toHaveBeenCalled();
+        expect(closeWindow).not.toHaveBeenCalled();
+    });
+
+    it('reports a disabled item and does not run it', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        setupMenu();
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            canCloseTab: false,
+        });
+
+        expect(activateApplicationMenuItem({accelerator: 'Ctrl+W'})).toEqual({
+            activated: false,
+            reason: 'disabled',
+            label: 'menu.closeTab',
+        });
+        expect(activateApplicationMenuItem({accelerator: 'Ctrl+Alt+F12'})).toEqual({
+            activated: false,
+            reason: 'not-found',
+        });
+        expect(window.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('passes a key to the next item bound to it when the first is unavailable on macOS', () => {
+        mocks.config.isMac = true;
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        setupMenu();
+        const closeWindow = vi.spyOn(window, 'close');
+
+        // No tab to close, so Cmd+W reaches Window > Close.
+        expect(activateApplicationMenuItem({accelerator: 'Cmd+W'})).toMatchObject({
+            activated: true,
+            windowId: 1,
+        });
+        expect(closeWindow).toHaveBeenCalledOnce();
+        expect(window.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('reports a window role that has no window to act on', () => {
+        mocks.config.isMac = true;
+        setupMenu();
+
+        expect(activateApplicationMenuItem({accelerator: 'Cmd+W'})).toMatchObject({
+            activated: false,
+            reason: 'no-window',
+        });
+    });
+
+    it('finds an item without an accelerator by id', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        setupMenu();
+
+        expect(activateApplicationMenuItem({id: 'new-pane-down'})).toMatchObject({activated: true});
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:splitEditor', 'down');
+    });
+
+    it('sends Quit the AppKit action its native menu item sends on macOS', () => {
+        mocks.config.isMac = true;
+        mocks.windows.push(mocks.createWindow(1, 'Window'));
+        setupMenu();
+
+        expect(activateApplicationMenuItem({accelerator: 'Cmd+Q'})).toMatchObject({activated: true});
+        expect(mocks.sendActionToFirstResponder).toHaveBeenCalledWith('terminate:');
+    });
+
+    it('accepts a query naming exactly one of id or accelerator', () => {
+        expect(decodeApplicationMenuItemQuery({id: 'new-pane-right'})).toEqual({id: 'new-pane-right'});
+        expect(() => decodeApplicationMenuItemQuery({
+            id: 'new-pane-right',
+            accelerator: 'Ctrl+W',
+        })).toThrow();
+        expect(() => decodeApplicationMenuItemQuery({id: ''})).toThrow();
+        expect(() => decodeApplicationMenuItemQuery('Ctrl+W')).toThrow();
     });
 });

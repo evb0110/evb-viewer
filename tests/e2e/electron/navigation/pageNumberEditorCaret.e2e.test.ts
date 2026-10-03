@@ -2,6 +2,7 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
@@ -22,7 +23,7 @@ describe('Electron E2E - page number editor caret', () => {
         await waitForToolbarCurrentPage(page, 12);
         const display = await page.$('#editor-global-toolbar-host .page-controls-display');
         expect(display).not.toBeNull();
-        await display!.click();
+        await clickAsUser(page, display!);
         const input = await page.waitForSelector('#editor-global-toolbar-host .page-controls-inline-input', {visible: true});
         const bounds = await input!.boundingBox();
         expect(bounds).not.toBeNull();

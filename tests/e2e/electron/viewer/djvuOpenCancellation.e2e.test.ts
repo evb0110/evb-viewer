@@ -17,6 +17,7 @@ import {
 } from 'node:path';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
@@ -107,7 +108,7 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
             }, {timeout: DJVU_OPEN_TIMEOUT_MS});
             await triggerOpenPathInApp(session.page, djvuFixturePath, DJVU_OPEN_TIMEOUT_MS);
             await openingSurface;
-            await session.page.click('.tab-list .tab.is-active .tab-close');
+            await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
 
             const readNewLog = () => readFileSync(logPath, 'utf8').slice(initialLogLength);
             await expect.poll(readNewLog, {timeout: DJVU_OPEN_TIMEOUT_MS})
