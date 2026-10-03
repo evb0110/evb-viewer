@@ -1,10 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { delay } from 'es-toolkit/promise';
-import type {
-    JSHandle,
-    Page,
-} from 'puppeteer-core';
+import type { Page } from 'puppeteer-core';
 import {
     afterEach, describe, expect, it,
 } from 'vitest';
@@ -20,10 +17,13 @@ import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
-    clickVisibleAnnotationControl,
     createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     goToPageViaToolbar,
     openAnnotationsTab,
@@ -108,59 +108,13 @@ async function centerOf(page: Page, selector: string): Promise<IPoint> {
     return point;
 }
 
-async function click(page: Page, selector: string, button: 'left' | 'right' = 'left') {
-    const point = await centerOf(page, selector);
-    await page.mouse.click(point.x, point.y, {button});
-}
-
-async function clickHandle(page: Page, handle: JSHandle<HTMLElement | null | undefined>) {
-    const point = await page.evaluate((element) => {
-        const rect = element?.getBoundingClientRect();
-        return rect
-            ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            }
-            : null;
-    }, handle);
-    await handle.dispose();
-    if (!point) {
-        throw new Error('The control to click disappeared');
-    }
-    await page.mouse.click(point.x, point.y);
-}
-
-/** Clicks a control once it rests where a pointer reaches it; an opening panel still moves it. */
-async function clickSteadyControl(page: Page, selector: string) {
-    await page.waitForFunction((target: string) => new Promise<boolean>((resolve) => {
-        const read = () => {
-            const rect = document.querySelector(target)?.getBoundingClientRect();
-            return rect && rect.width > 0 && rect.height > 0 ? `${rect.left},${rect.top},${rect.width},${rect.height}` : null;
-        };
-        const first = read();
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(first !== null && read() === first)));
-    }), {timeout: SETTLE_TIMEOUT_MS}, selector);
-    await clickVisibleAnnotationControl(page, selector);
-}
-
-async function clickVisible(page: Page, find: () => HTMLElement | null) {
-    const handle = await page.waitForFunction(find, {timeout: SETTLE_TIMEOUT_MS});
-    await clickHandle(page, handle);
-}
-
 async function clickToolbarButton(page: Page, label: string) {
-    const handle = await page.waitForFunction((name: string) => Array.from(
+    await clickFoundAsUser(page, (name: string) => Array.from(
         document.querySelectorAll<HTMLButtonElement>('#editor-global-toolbar-host button[aria-label]'),
     ).find((button) => {
         const ariaLabel = button.getAttribute('aria-label') ?? '';
-        if ((ariaLabel !== name && !ariaLabel.startsWith(`${name} (`)) || button.disabled) {
-            return false;
-        }
-        const rect = button.getBoundingClientRect();
-        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        return rect.width > 0 && rect.height > 0 && hit !== null && button.contains(hit);
-    }) ?? null, {timeout: SETTLE_TIMEOUT_MS}, label);
-    await clickHandle(page, handle);
+        return (ariaLabel === name || ariaLabel.startsWith(`${name} (`)) && !button.disabled;
+    }), label, {description: `toolbar ${label}`});
 }
 
 async function paneIds(page: Page) {
@@ -346,15 +300,15 @@ async function numberPagesWithPrefix(page: Page, paneId: string, prefix: string)
     const prefixInput = `${paneSelector(paneId)} #page-label-prefix-input`;
     const disclosure = `${paneSelector(paneId)} .pdf-sidebar-pages-disclosure`;
     if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
-        await clickSteadyControl(page, disclosure);
+        await clickAsUser(page, disclosure);
     }
-    await clickSteadyControl(page, prefixInput);
+    await clickAsUser(page, prefixInput);
     await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, prefixInput);
     // Replace whatever prefix the field still shows.
     await selectAllInFocusedField(page);
     await page.keyboard.type(prefix);
     await page.waitForFunction((selector: string, expected: string) => document.querySelector<HTMLInputElement>(selector)?.value === expected, {timeout: SETTLE_TIMEOUT_MS}, prefixInput, prefix);
-    await clickSteadyControl(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
+    await clickAsUser(page, `${paneSelector(paneId)} .pdf-sidebar-pages-primary-button`);
     await waitForPaneView(page, paneId, 'numbering the pages leaves unsaved changes', view => view.tabDirty);
 }
 
@@ -411,23 +365,25 @@ async function renameBookmark(page: Page, paneId: string, from: string, to: stri
             visible: true,
             timeout: SETTLE_TIMEOUT_MS,
         });
-        await click(page, `${pane} .document-bookmarks-toolbar__actions button`);
+        await clickAsUser(page, `${pane} .document-bookmarks-toolbar__actions button`);
         await page.waitForSelector(`${pane} .pdf-bookmarks-tree`, {timeout: SETTLE_TIMEOUT_MS});
     }
-    const row = await page.waitForFunction((selector: string, title: string) => Array.from(
+    await clickFoundAsUser(page, ({
+        selector, title,
+    }: {
+        selector: string;
+        title: string
+    }) => Array.from(
         document.querySelectorAll<HTMLElement>(`${selector} .pdf-bookmark-item-row`),
-    ).find(candidate => candidate.textContent?.trim() === title) ?? null, {timeout: SETTLE_TIMEOUT_MS}, pane, from);
-    const rowPoint = await page.evaluate((element) => {
-        const rect = element!.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    }, row);
-    await row.dispose();
-    await page.mouse.click(rowPoint.x, rowPoint.y, {button: 'right'});
-    await clickVisible(page, () => Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu .pdf-context-menu__action'))
-        .find(action => action.getBoundingClientRect().width > 0) ?? null);
+    ).find(candidate => candidate.textContent?.trim() === title), {
+        selector: pane,
+        title: from,
+    }, {
+        description: `bookmark row ${from}`,
+        button: 'right',
+    });
+    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu .pdf-context-menu__action'))
+        .find(action => action.getBoundingClientRect().width > 0), null, {description: 'bookmark Rename'});
     const input = `${pane} .pdf-bookmark-item-input`;
     await page.waitForFunction((selector: string) => document.activeElement === document.querySelector(selector), {timeout: SETTLE_TIMEOUT_MS}, input);
     await selectAllInFocusedField(page);
@@ -448,10 +404,17 @@ async function saveFromToolbar(page: Page, pdfPath: string) {
 
 /** Clicks the text box showing `text` in a pane, as a person selects it. */
 async function clickTextBoxInPane(page: Page, paneId: string, text: string) {
-    const box = await page.waitForFunction((selector: string, expected: string) => Array.from(
+    await clickFoundAsUser(page, ({
+        selector, expected,
+    }: {
+        selector: string;
+        expected: string
+    }) => Array.from(
         document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
-    ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0) ?? null, {timeout: SETTLE_TIMEOUT_MS}, paneSelector(paneId), text);
-    await clickHandle(page, box);
+    ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0), {
+        selector: paneSelector(paneId),
+        expected: text,
+    }, {description: `text box ${text}`});
 }
 
 /** The texts of the text boxes a pane shows as selected. */
@@ -498,7 +461,7 @@ async function clickPaneTool(page: Page, paneId: string, tool: string) {
         visible: true,
         timeout: SETTLE_TIMEOUT_MS,
     });
-    await click(page, selector);
+    await clickAsUser(page, selector);
     await page.waitForSelector(`${selector}[aria-pressed="true"]`, {timeout: SETTLE_TIMEOUT_MS});
 }
 
@@ -518,7 +481,7 @@ describe('shared PDF split', () => {
         const {page} = session;
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
-        await click(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
+        await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', {button: 'right'});
         await page.waitForFunction(() => {
             const menu = document.querySelector('.tab-context-menu');
             return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
@@ -734,7 +697,7 @@ describe('shared PDF split', () => {
         await waitForPaneView(page, leftPane!, 'the left comments list shows every comment before the right view closes', view => (
             containsAll(view.listedTexts, listedBeforeClose)
         ));
-        await click(page, `${paneSelector(rightPane!)} .tab.is-active[data-tab-id] .tab-close`);
+        await clickAsUser(page, `${paneSelector(rightPane!)} .tab.is-active[data-tab-id] .tab-close`);
         await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 1, {timeout: SETTLE_TIMEOUT_MS});
         expect(await page.$$eval('[role="dialog"]', dialogs => dialogs.length), 'closing one view asks nothing').toBe(0);
         await waitForPaneView(page, leftPane!, 'the remaining view keeps the document and its unsaved edit', view => (
@@ -752,11 +715,11 @@ describe('shared PDF split', () => {
         ));
 
         // Closing the last view asks the normal unsaved-changes question.
-        await click(page, `${paneSelector(leftPane!)} .tab.is-active[data-tab-id] .tab-close`);
+        await clickAsUser(page, `${paneSelector(leftPane!)} .tab.is-active[data-tab-id] .tab-close`);
         await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
             .some(dialog => dialog.textContent?.includes('Close tab with unsaved changes?')), {timeout: SETTLE_TIMEOUT_MS});
-        await clickVisible(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
-            .find(button => button.textContent?.trim() === 'Discard changes') ?? null);
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Discard changes'), null, {description: 'Discard changes'});
         await waitForPaneView(page, leftPane!, 'discarding the last view closes the document', view => view.showsStart);
         expect(await readFile(pdfPath)).toEqual(savedBytes);
     }, TIMEOUT_MS);
@@ -918,7 +881,7 @@ describe('shared PDF split', () => {
         });
 
         // Typing more keeps the focus in the left view's editor.
-        await click(page, `${paneSelector(leftPane!)} .note-window textarea.note-window__textarea`);
+        await clickAsUser(page, `${paneSelector(leftPane!)} .note-window textarea.note-window__textarea`);
         await page.keyboard.type(' more');
         expect(await readNoteWindows()).toEqual({
             left: 1,
@@ -1009,18 +972,20 @@ describe('shared PDF split', () => {
             await waitForPaneView(page, paneId, `${paneId} renders the text box`, view => containsAll(view.renderedTexts, [text]));
         }
 
-        const box = await page.waitForFunction((selector: string, expected: string) => Array.from(
+        await clickFoundAsUser(page, ({
+            selector, expected,
+        }: {
+            selector: string;
+            expected: string
+        }) => Array.from(
             document.querySelectorAll<HTMLElement>(`${selector} .pdf-annotation-editor-layer [data-annotation-kind="text-box"]`),
-        ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0) ?? null, {timeout: SETTLE_TIMEOUT_MS}, paneSelector(leftPane!), text);
-        const boxPoint = await page.evaluate((element) => {
-            const rect = element!.getBoundingClientRect();
-            return {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            };
-        }, box);
-        await box.dispose();
-        await page.mouse.click(boxPoint.x, boxPoint.y, {button: 'right'});
+        ).find(element => element.textContent?.includes(expected) && element.getBoundingClientRect().width > 0), {
+            selector: paneSelector(leftPane!),
+            expected: text,
+        }, {
+            description: `text box ${text}`,
+            button: 'right',
+        });
         await page.waitForSelector('.annotation-context-menu', {
             visible: true,
             timeout: SETTLE_TIMEOUT_MS,
@@ -1223,10 +1188,10 @@ describe('shared PDF split', () => {
         // The left view deletes page 1 from its Pages panel.
         await activatePaneByTab(page, leftPane!);
         await openDocumentSidebarTab(page, 'Pages');
-        await clickSteadyControl(page, thumbnailSelector(leftPane!, 1));
-        await click(page, thumbnailSelector(leftPane!, 1), 'right');
-        await clickVisible(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0) ?? null);
+        await clickAsUser(page, thumbnailSelector(leftPane!, 1));
+        await clickAsUser(page, thumbnailSelector(leftPane!, 1), {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0), null, {description: 'Delete Pages'});
         await waitForPaneView(page, leftPane!, 'the left view has five pages', view => view.pageCount === 5);
 
         // The right view still shows what it was reading, now as page 3. The
