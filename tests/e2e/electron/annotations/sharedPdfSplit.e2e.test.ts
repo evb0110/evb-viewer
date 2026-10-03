@@ -23,11 +23,13 @@ import {
 import {
     clickAsUser,
     clickFoundAsUser,
+    revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     goToPageViaToolbar,
     openAnnotationsTab,
     openDocumentSidebarTab,
+    openPdfInApp,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -525,6 +527,95 @@ describe('shared PDF split', () => {
         const split = await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2,
             {timeout: 1_000}).then(async handle => {await handle.dispose(); return true;}, () => false);
         expect(split, 'Split Right opens a second pane within 1 s').toBe(true);
+    }, TIMEOUT_MS);
+
+    // Issue #947: when the tab menu finished closing, focus went back to the
+    // invisible anchor at the right-click point. The page field a person had
+    // clicked meanwhile lost focus and, since it commits on blur, vanished
+    // before they could type. The click on the field is raw trusted input on
+    // purpose, as above: it has to land during the menu's closing animation.
+    it('keeps focus where a person moves it while the tab menu closes, and returns Escape to the tab', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-menu-focus-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const tabSelector = '.editor-pane.is-active .tab.is-active[data-tab-id]';
+        const tabId = await page.$eval(tabSelector, tab => (tab as HTMLElement).dataset.tabId ?? '');
+        const pageField = await revealForPointer(page, '#editor-global-toolbar-host .page-controls-display');
+        const openTabMenu = async () => {
+            await clickAsUser(page, tabSelector, {button: 'right'});
+            await page.waitForFunction(() => {
+                const menu = document.querySelector('.tab-context-menu');
+                return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
+            }, {timeout: SETTLE_TIMEOUT_MS});
+        };
+        // What has focus once no tab menu is open and the task that restored
+        // focus when one unmounted has run.
+        const settledFocus = async () => {
+            await page.waitForFunction(() => document.querySelector('.tab-context-menu') === null, {timeout: SETTLE_TIMEOUT_MS});
+            return page.evaluate(() => new Promise<string>(resolve => setTimeout(() => {
+                const focused = document.activeElement as HTMLElement | null;
+                resolve(focused?.dataset.tabId
+                    ? `tab ${focused.dataset.tabId}`
+                    : focused?.className || focused?.tagName || 'none');
+            })));
+        };
+
+        await openTabMenu();
+        await page.keyboard.press('Escape');
+        const afterEscape = await settledFocus();
+
+        await openTabMenu();
+        // The scenario only covers the bug when the click lands while the menu
+        // is still closing, so record whether it did.
+        const clickWatch = await page.evaluateHandle(() => ({landed: new Promise<boolean>(resolve => document.addEventListener(
+            'pointerdown',
+            () => resolve(document.querySelector('.tab-context-menu') !== null),
+            {
+                capture: true,
+                once: true,
+            },
+        ))}));
+        await page.keyboard.press('Escape');
+        await page.mouse.click(pageField.x, pageField.y);
+        const clickLandedWhileMenuClosing = await page.evaluate(watch => watch.landed, clickWatch);
+        await clickWatch.dispose();
+        const afterPageFieldClick = await settledFocus();
+
+        // Close Tab from the menu removes the menu's own tab; focus goes to the
+        // tab that takes its place.
+        await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-second-${stamp}.pdf`, 2));
+        await openTabMenu();
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
+            .find(element => element.textContent?.trim() === 'Close Tab'), undefined, {description: 'tab menu Close Tab'});
+        const afterCloseTab = await settledFocus();
+
+        // A close that finishes while focus is still inside the closing tab,
+        // here on its own close button clicked directly, also hands focus to
+        // the tab that takes its place.
+        await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-third-${stamp}.pdf`, 2));
+        await clickAsUser(page, '.editor-pane.is-active .tab.is-active[data-tab-id] .tab-close');
+        await page.waitForFunction(() => document.querySelectorAll('.editor-pane.is-active .tab[data-tab-id]').length === 1, {timeout: SETTLE_TIMEOUT_MS});
+        const afterCloseButton = await settledFocus();
+
+        expect({
+            afterEscape,
+            clickLandedWhileMenuClosing,
+            afterPageFieldClick,
+            afterCloseTab,
+            afterCloseButton,
+        }).toEqual({
+            afterEscape: `tab ${tabId}`,
+            clickLandedWhileMenuClosing: true,
+            afterPageFieldClick: 'page-controls-inline-input',
+            afterCloseTab: `tab ${tabId}`,
+            afterCloseButton: `tab ${tabId}`,
+        });
     }, TIMEOUT_MS);
 
     it('shows one document in two views with shared edits, undo, dirty state and save, and separate placement', async () => {
