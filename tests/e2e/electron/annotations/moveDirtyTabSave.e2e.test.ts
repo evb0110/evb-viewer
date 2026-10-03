@@ -19,6 +19,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {openNewPane} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     getLatestAutomationEventId,
     waitForAutomationEvent,
@@ -233,13 +234,8 @@ describe('dirty tab transfer and annotation save', () => {
         const sourceBytes = await readFile(sourcePath);
         const sourcePaneId = await page.$eval('.editor-pane.is-active', pane => (pane as HTMLElement).dataset.editorPaneId ?? '');
 
-        // Setup only: an empty pane on the right gives the drag a destination.
-        await page.evaluate(async () => {
-            const splitEmpty = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
-            if (typeof splitEmpty !== 'function') throw new Error('Split Empty automation hook is unavailable');
-            await splitEmpty('right');
-        });
-        await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2, {timeout: 20_000});
+        // An empty pane on the right gives the drag a destination.
+        await openNewPane(page, 'right');
         const targetPaneId = await page.$$eval('.editor-pane', (panes, source) => panes
             .map(pane => (pane as HTMLElement).dataset.editorPaneId ?? '')
             .find(id => id !== source) ?? '', sourcePaneId);

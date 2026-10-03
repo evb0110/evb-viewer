@@ -600,26 +600,10 @@ async function waitForSplitResizeViewportAnchor(
 }
 
 async function splitActivePaneWithEmptyEditor(session: IElectronE2ESession) {
-    const result = await session.page.evaluate(async () => {
-        const sourcePaneId = document.querySelector<HTMLElement>('.editor-pane.is-active')
-            ?.dataset.editorPaneId ?? null;
-        const splitEditor = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
-        if (!sourcePaneId || typeof splitEditor !== 'function') {
-            return {
-                sourcePaneId,
-                split: false,
-            };
-        }
-        await splitEditor('right');
-        return {
-            sourcePaneId,
-            split: true,
-        };
-    });
-    expect(result.split).toBe(true);
-    expect(result.sourcePaneId).not.toBeNull();
-    await session.page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2);
-    return result.sourcePaneId!;
+    const sourcePaneId = await session.page.$eval('.editor-pane.is-active', pane => (pane as HTMLElement).dataset.editorPaneId ?? null);
+    expect(sourcePaneId).not.toBeNull();
+    await openNewPane(session.page, 'right');
+    return sourcePaneId!;
 }
 
 async function nudgeActiveDocumentViewportWithWheel(

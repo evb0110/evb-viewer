@@ -8,6 +8,7 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import {readSessionLogTail} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {startHostVisiblePdfDiagnosticsElectronSession} from '@scripts/diagnostics/startPdfDiagnosticsElectronSession';
 import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
+import {openNewPane} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -199,16 +200,7 @@ page.on('pageerror', (error: unknown) => consoleLines.push(
 
 try {
     await openPdfInApp(page, pdfPath, 90_000);
-    const split = await page.evaluate(async () => {
-        const splitEditor = (window as Window & {__splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void;}).__splitEditorEmptyForE2E;
-        if (typeof splitEditor !== 'function') {
-            return false;
-        }
-        await splitEditor('right');
-        return true;
-    });
-    if (!split) throw new Error('Split-pane automation hook is unavailable');
-    await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length >= 2, {timeout: 15_000});
+    await openNewPane(page, 'right', 15_000);
     await delay(1_000);
     await openPdfInApp(page, pdfPath, 90_000);
 

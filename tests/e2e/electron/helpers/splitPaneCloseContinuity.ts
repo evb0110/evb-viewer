@@ -3,6 +3,7 @@ import { expect } from 'vitest';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {openDocumentSidebarTab} from '@tests/e2e/electron/helpers/viewerCore';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {openNewPane} from '@tests/e2e/electron/helpers/workspaceTabs';
 
 export type TSplitPaneCloseDocumentKind = 'pdf' | 'djvu';
 
@@ -616,24 +617,9 @@ async function splitAndCloseEmptyRightPane(page: Page, sourcePaneId: string) {
             probe.samplingEnabled = false;
         }
     });
-    const split = await page.evaluate(async () => {
-        interface ISplitWindow extends Window { __splitEditorEmptyForE2E?: (direction: 'right') => Promise<void> | void; }
-        const splitEditor = (window as ISplitWindow).__splitEditorEmptyForE2E;
-        if (typeof splitEditor !== 'function') {
-            return false;
-        }
-        await splitEditor('right');
-        return true;
-    });
-    if (!split) {
-        throw new Error('Empty split automation hook was unavailable');
-    }
-    await page.waitForFunction(
-        () => document.querySelectorAll('.editor-pane').length === 2,
-        {timeout: CONTINUITY_TIMEOUT_MS},
-    );
+    await openNewPane(page, 'right', CONTINUITY_TIMEOUT_MS);
 
-    // The split promise covers its layout frames, but Vue publishes the
+    // The split runs through its layout frames, and Vue publishes the
     // resize-fence release through the source chassis on the following patch.
     // Start the close probe only after that lifecycle edge, not in the split's
     // transient reset-to-origin state.
