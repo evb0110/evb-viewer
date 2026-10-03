@@ -214,7 +214,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         if (isCommittedVisual(pageNumber)) {
             return 'current';
         }
-        if (slot.job === 'failed' && slot.version === renderVersion) {
+        if (isPageRenderFailed(pageNumber)) {
             return 'failed';
         }
         return slot.canvasReadiness === 'ready' ? 'stale-scale' : 'absent';
@@ -897,6 +897,18 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     function isPageVisualReady(pageNumber: TPageNumber) {
         void renderedPageStateVersion.value; return isCommittedVisual(pageNumber);
     }
+    function isPageRenderFailed(pageNumber: TPageNumber) {
+        const slot = pageRenderState.getSlot(pageNumber);
+        return slot.job === 'failed' && slot.version === renderVersion;
+    }
+    // Only pixels settle a mandatory raster: its pass can end with them discarded, as when Fit
+    // Width moves the scale. A failed page, a detached viewer or a pass whose render version was
+    // retired (cancelled, a stall, a new revision) has nothing more to paint here.
+    function isMandatoryRasterSettled(range: PdfUi.IPageRange, version: number) {
+        return version !== renderVersion || !options.viewerContainer.value || Array.from({length: range.end - range.start + 1}, (_, index) => range.start + index)
+            .every(page => page <= documentSession.numPages.value
+                && (isCommittedVisual(toPageNumber(page)) || isPageRenderFailed(toPageNumber(page))));
+    }
     let frameId: number | null = null;
     let activeMandatoryRasterId: number | null = null;
     let disposed = false;
@@ -930,7 +942,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const demand = latestDemand;
         if (!demand.operational) {
             if (demand.mandatoryRaster) {
-                viewport.settleMandatoryRaster(demand.mandatoryRaster.id);
+                viewport.settleMandatoryRaster(demand.mandatoryRaster.id, false);
             }
             void cancelRasterDemand();
             return;
@@ -941,18 +953,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 return;
             }
             activeMandatoryRasterId = mandatory.id;
-            void renderVisiblePages(mandatory.range, mandatory.options).finally(() => {
-                if (activeMandatoryRasterId === mandatory.id) {
-                    activeMandatoryRasterId = null;
-                }
-                viewport.settleMandatoryRaster(mandatory.id);
-                if (
-                    latestDemand.mandatoryRaster
-                    && latestDemand.mandatoryRaster.id !== mandatory.id
-                ) {
-                    queueMandatoryDemandTask();
-                }
-            });
+            const version = renderVersion;
+            void renderVisiblePages(mandatory.range, mandatory.options).finally(() => (
+                viewport.settleMandatoryRaster(mandatory.id, isMandatoryRasterSettled(mandatory.range, version))
+            ));
             return;
         }
         const requiredPages = demand.requiredPages.map(toPageNumber);
@@ -1258,9 +1262,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         if (mandatoryDemandTaskId !== null) window.clearTimeout(mandatoryDemandTaskId);
         qualityRefineGate.clearIdleTimer();
-        if (latestDemand.mandatoryRaster) {
-            viewport.settleMandatoryRaster(latestDemand.mandatoryRaster.id);
-        }
         resetRenderStallRecoveryState();
         initialVisual.setPendingReadyToken(null);
         await cancelRasterDemand();
@@ -1283,10 +1284,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             ? pageRenderState.getSlot(pageNumber).targetScale
             : null,
         isPageRenderedForClass: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber, false),
-        isPageRenderFailed: (pageNumber: TPageNumber) => {
-            const slot = pageRenderState.getSlot(pageNumber);
-            return slot.job === 'failed' && slot.version === renderVersion;
-        },
+        isPageRenderFailed,
         invalidatePages,
         handlePageRenderStall,
     };
