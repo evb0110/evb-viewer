@@ -60,7 +60,11 @@ export async function establishUserEnvironment(page: Page, deviceScaleFactor: nu
     const resize = await resizeElectronWindowContentArea(page, E2E_CONTENT_SIZE, RESIZE_SETTLE_TIMEOUT_MS);
     const report = await readUserEnvironment(page);
     const problems = [
-        ...(resize.settled ? [] : ['the window did not reach the canonical content size']),
+        ...(resize.settled
+            && report.contentSize.width === E2E_CONTENT_SIZE.width
+            && report.contentSize.height === E2E_CONTENT_SIZE.height
+            ? []
+            : ['the window did not reach the canonical content size']),
         ...(report.hasFocus ? [] : ['the document has no focus']),
         ...(report.visibilityState === 'visible' ? [] : ['the document is not visible']),
         ...(report.devicePixelRatio === deviceScaleFactor ? [] : [`the scale is not ${deviceScaleFactor}`]),

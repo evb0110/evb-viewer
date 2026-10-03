@@ -15,11 +15,11 @@ export function shouldEmulateAutomationFocus(env: NodeJS.ProcessEnv) {
     return env.EVB_AUTOMATION_NO_FOCUS === '1' || env.EVB_AUTOMATION_HIDE_WINDOW === '1';
 }
 
-async function focusPage(page: Page | null) {
+async function focusPage(resolvePage: () => Promise<Page | null>) {
     try {
-        await page?.emulateFocusedPage(true);
+        await (await resolvePage())?.emulateFocusedPage(true);
     } catch {
-        // The window closed before it could be focused.
+        // The window closed before its page could attach or be focused.
     }
 }
 
@@ -30,9 +30,11 @@ async function focusPage(page: Page | null) {
 export async function emulateAutomationFocus(browser: Browser, page: Page) {
     browser.on('targetcreated', async (target: Target) => {
         if (target.type() === 'page') {
-            await focusPage(await target.page());
+            await focusPage(() => target.page());
         }
     });
     await page.emulateFocusedPage(true);
-    await Promise.all((await browser.pages()).filter(candidate => candidate !== page).map(focusPage));
+    await Promise.all((await browser.pages())
+        .filter(candidate => candidate !== page)
+        .map(candidate => focusPage(() => Promise.resolve(candidate))));
 }

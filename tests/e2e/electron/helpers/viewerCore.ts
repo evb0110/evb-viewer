@@ -656,30 +656,44 @@ const TOOLBAR_APP_MENU: IToolbarMenuSelectors = {
     label: '.app-menu-label',
 };
 
-async function findInlineToolbarButton(page: Page, query: IToolbarActionQuery) {
-    const handle = await page.evaluateHandle((args: IToolbarActionQuery) => {
-        const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).filter((button) => {
-            const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
-            const matches = ariaLabel === args.label
-                || ariaLabel.startsWith(`${args.label} (`)
-                || args.iconHints.some(selector => Boolean(button.querySelector(selector)));
-            const rect = button.getBoundingClientRect();
-            const style = window.getComputedStyle(button);
-            return matches
-                && rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
-        });
-        return candidates.find(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true')
-            ?? (candidates.length > 0 ? 'disabled' : 'not-found');
-    }, query);
-    const element = handle.asElement() as ElementHandle<HTMLButtonElement> | null;
-    if (element) {
-        return element;
+/**
+ * Self-contained page function: it runs in the page on every poll, so a
+ * toolbar that re-renders is searched again rather than through a stale node.
+ */
+function findEnabledInlineToolbarButton(args: IToolbarActionQuery & {markDisabled: boolean}) {
+    const candidates = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).filter((button) => {
+        const ariaLabel = button.getAttribute('aria-label')?.trim() ?? '';
+        const matches = ariaLabel === args.label
+            || ariaLabel.startsWith(`${args.label} (`)
+            || args.iconHints.some(selector => Boolean(button.querySelector(selector)));
+        const rect = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return matches
+            && rect.width > 8
+            && rect.height > 8
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number(style.opacity || '1') > 0;
+    });
+    const enabled = candidates.find(button => !button.disabled && button.getAttribute('aria-disabled') !== 'true');
+    if (enabled) {
+        return enabled;
     }
-    const status = await handle.jsonValue() as 'disabled' | 'not-found';
+    // A status read tells a shown but disabled match apart from a missing one.
+    return args.markDisabled ? candidates[0] ?? null : null;
+}
+
+async function readInlineToolbarButtonStatus(page: Page, query: IToolbarActionQuery) {
+    const handle = await page.evaluateHandle(findEnabledInlineToolbarButton, {
+        ...query,
+        markDisabled: true,
+    });
+    const status = await page.evaluate((found: HTMLButtonElement | null) => {
+        if (!found) {
+            return 'not-found';
+        }
+        return found.disabled || found.getAttribute('aria-disabled') === 'true' ? 'disabled' : 'enabled';
+    }, handle);
     await handle.dispose();
     return status;
 }
@@ -759,20 +773,22 @@ export async function clickVisibleToolbarButton(page: Page, ariaLabel: string) {
         iconHints: getToolbarActionIconHints(ariaLabel),
     };
     const deadline = Date.now() + 4_000;
-    let inline = await findInlineToolbarButton(page, query);
+    let inline = await readInlineToolbarButtonStatus(page, query);
     while (inline === 'disabled' && Date.now() < deadline) {
         await delay(50);
-        inline = await findInlineToolbarButton(page, query);
+        inline = await readInlineToolbarButtonStatus(page, query);
     }
     if (inline === 'disabled') {
         throw new Error(`Visible toolbar button stayed disabled: ${ariaLabel}`);
     }
-    if (inline !== 'not-found') {
-        try {
-            await clickAsUser(page, inline, {timeoutMs: 4_000});
-        } finally {
-            await inline.dispose();
-        }
+    if (inline === 'enabled') {
+        await clickFoundAsUser(page, findEnabledInlineToolbarButton, {
+            ...query,
+            markDisabled: false,
+        }, {
+            description: `toolbar button ${ariaLabel}`,
+            timeoutMs: 4_000,
+        });
         return;
     }
 

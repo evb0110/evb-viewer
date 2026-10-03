@@ -32,7 +32,8 @@ interface IClickAsUserOptions {
 interface IPointerStep {
     x: number;
     y: number;
-    /** Wheel distance still needed to bring the target into its scroller; 0 when it can be clicked. */
+    /** Wheel distances still needed to bring the target into its scroller; both 0 when it can be clicked. */
+    deltaX: number;
     deltaY: number;
 }
 
@@ -58,18 +59,29 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
             return {
                 x,
                 y,
+                deltaX: 0,
                 deltaY: 0,
             };
         }
+        const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
+        const distance = (start: number, end: number, boxStart: number, boxEnd: number) => (
+            end > boxEnd ? end - boxEnd : start < boxStart ? start - boxStart : 0
+        );
         for (let scroller = candidate.parentElement; scroller; scroller = scroller.parentElement) {
-            const overflowY = getComputedStyle(scroller).overflowY;
-            if ((overflowY !== 'auto' && overflowY !== 'scroll') || scroller.scrollHeight <= scroller.clientHeight) continue;
+            const style = getComputedStyle(scroller);
             const box = scroller.getBoundingClientRect();
-            if (rect.top >= box.top && rect.bottom <= box.bottom) continue;
+            const deltaX = scrolls(style.overflowX) && scroller.scrollWidth > scroller.clientWidth
+                ? distance(rect.left, rect.right, box.left, box.right)
+                : 0;
+            const deltaY = scrolls(style.overflowY) && scroller.scrollHeight > scroller.clientHeight
+                ? distance(rect.top, rect.bottom, box.top, box.bottom)
+                : 0;
+            if (deltaX === 0 && deltaY === 0) continue;
             return {
                 x: box.left + box.width / 2,
                 y: box.top + box.height / 2,
-                deltaY: rect.bottom > box.bottom ? rect.bottom - box.bottom : rect.top - box.top,
+                deltaX,
+                deltaY,
             };
         }
     }
@@ -155,13 +167,13 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
     let previous: IPointerStep | null = null;
     for (;;) {
         const step = await waitForPointerStep(page, target, deadline);
-        if (step.deltaY === 0) {
+        if (step.deltaX === 0 && step.deltaY === 0) {
             // A person aims once the target stops moving: a menu that is
             // still scaling in, or a panel sliding into place, is not
             // clicked mid-animation.
             await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
             const settled = await waitForPointerStep(page, target, deadline);
-            if (settled.deltaY === 0) {
+            if (settled.deltaX === 0 && settled.deltaY === 0) {
                 return {
                     x: settled.x,
                     y: settled.y,
@@ -176,13 +188,17 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
         const stalled = previous !== null
             && Math.abs(previous.x - step.x) < 1
             && Math.abs(previous.y - step.y) < 1
+            && Math.abs(previous.deltaX - step.deltaX) < 1
             && Math.abs(previous.deltaY - step.deltaY) < 1;
         if (stalled) {
             throw new Error(`A person could not click ${describeTarget(target)}: the wheel does not scroll it into view`);
         }
         previous = step;
         await page.mouse.move(step.x, step.y);
-        await page.mouse.wheel({deltaY: step.deltaY});
+        await page.mouse.wheel({
+            deltaX: step.deltaX,
+            deltaY: step.deltaY,
+        });
         // The wheel may scroll smoothly; measure again only once the target rests.
         await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
     }

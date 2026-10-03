@@ -462,16 +462,26 @@ async function startElectronE2ESessionWithAutomationEnv(
             const environment = await establishUserEnvironment(page, deviceScaleFactor);
             console.log(`[E2E environment] ${scopedSessionName} ${process.platform}: ${formatUserEnvironment(environment)}`);
         } catch (error) {
+            // Each cleanup step runs even when the one before it fails, and
+            // every failure is reported with the environment error.
+            const cleanupErrors: unknown[] = [];
             try {
                 await browser.disconnect();
+            } catch (disconnectError) {
+                cleanupErrors.push(disconnectError);
+            }
+            try {
                 await stopSingleSession(scopedSessionName);
             } catch (stopError) {
-                throw new AggregateError([
-                    error,
-                    stopError,
-                ], 'The E2E renderer environment failed and its session could not be stopped');
+                cleanupErrors.push(stopError);
             } finally {
                 releaseCurrentSessionName(scopedSessionName);
+            }
+            if (cleanupErrors.length > 0) {
+                throw new AggregateError([
+                    error,
+                    ...cleanupErrors,
+                ], 'The E2E renderer environment failed and its session could not be cleaned up');
             }
             throw error;
         }
