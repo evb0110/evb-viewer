@@ -66,7 +66,7 @@
     </div>
 
     <UDropdownMenu
-        v-model:open="contextMenuOpen"
+        v-model:open="contextMenu.visible"
         :items="contextMenuItems"
         :content="contextMenuContentOptions"
         :ui="contextMenuUi"
@@ -83,7 +83,6 @@
 </template>
 
 <script setup lang="ts">
-import { useEventListener } from '@vueuse/core';
 import type { TTabView } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import type { TPaneDirection } from '@contracts/editorPanes';
@@ -185,16 +184,6 @@ const contextMenuAnchorStyle = computed(() => ({
     left: `${contextMenu.value.x}px`,
     top: `${contextMenu.value.y}px`,
 }));
-const contextMenuOpen = computed({
-    get: () => contextMenu.value.visible,
-    set: (open: boolean) => {
-        if (!open) {
-            closeTabContextMenu();
-            return;
-        }
-        contextMenu.value.visible = true;
-    },
-});
 const contextMenuContentOptions = {
     side: 'bottom' as const,
     align: 'start' as const,
@@ -461,7 +450,6 @@ function handleTabClick(tabId: string) {
     if (shouldSuppressClick()) {
         return;
     }
-    closeTabContextMenu();
     emit('activate', tabId);
 }
 
@@ -494,7 +482,6 @@ function handleTabKeydown(event: KeyboardEvent, tabId: string) {
         }
         event.preventDefault();
         event.stopPropagation();
-        closeTabContextMenu();
         focusedTabId.value = targetTab.id;
         tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(targetTab.id)}"]`)
             ?.focus({preventScroll: true});
@@ -522,11 +509,6 @@ function requestClose(tabId: string) {
     emit('close', tabId);
 }
 
-function closeTabContextMenu() {
-    contextMenu.value.visible = false;
-    contextMenu.value.tabId = null;
-}
-
 async function loadWindowTransferTargets() {
     if (!canUseNativeWindowTransfers.value) {
         windowTransferTargets.value = [];
@@ -549,34 +531,13 @@ function openTabContextMenu(event: MouseEvent, tabId: string) {
     void loadWindowTransferTargets();
 }
 
+// The menu keeps its tab after it closes: a closing menu still accepts a click.
 function runContextCommand(command: TTabContextCommand) {
     const tabId = contextMenu.value.tabId;
-    if (!isCommandEnabled(command)) {
-        closeTabContextMenu();
-        return;
+    if (tabId && isCommandEnabled(command)) {
+        emit('tab-context-command', tabId, command);
     }
-    closeTabContextMenu();
-    if (!tabId) {
-        return;
-    }
-
-    emit('tab-context-command', tabId, command);
 }
-
-useEventListener(window, 'resize', () => {
-    closeTabContextMenu();
-});
-
-useEventListener(window, 'scroll', () => {
-    closeTabContextMenu();
-}, { capture: true });
-
-useEventListener(window, 'keydown', (event) => {
-    if (event.key === 'Escape') {
-        closeTabContextMenu();
-    }
-});
-
 </script>
 
 <style lang="scss">

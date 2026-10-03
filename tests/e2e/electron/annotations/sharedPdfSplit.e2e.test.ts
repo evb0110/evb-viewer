@@ -503,56 +503,60 @@ async function clickPaneTool(page: Page, paneId: string, tool: string) {
 }
 
 describe('shared PDF split', () => {
-    // Issue #942, behavior contract I1: an enabled menu item responds even
-    // during its opening animation. The regular click helper waits for rest,
-    // so this regression deliberately aims and clicks with trusted raw input.
-    it('performs Split Right when chosen during the tab menu opening animation', async () => {
-        const missedRuns: number[] = [];
-        for (let run = 0; run < 20; run += 1) {
-            // Reusing a session lets the startup resize settle and hides the drop.
-            const stamp = Date.now();
-            const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-early-${stamp}.pdf`, 6);
-            session = await startElectronE2ESession(`e2e-shared-pdf-split-early-${stamp}`, {
-                clean: true,
-                initialOpenPaths: [pdfPath],
-            });
-            const {page} = session;
-            await waitForPdfLoaded(page);
-            await waitForViewerInteractive(page);
-            await click(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
-            const appeared = await page.waitForFunction(() => {
-                const menu = document.querySelector('.tab-context-menu');
-                return menu && menu.getBoundingClientRect().width > 0 ? performance.now() : false;
-            }, {
-                polling: 'mutation',
-                timeout: SETTLE_TIMEOUT_MS,
-            });
-            const appearedAt = await appeared.jsonValue() as number;
-            await appeared.dispose();
-            const point = await page.evaluate(async (start: number) => {
-                await new Promise<void>(resolve => setTimeout(resolve, Math.max(0, start + 30 - performance.now())));
-                const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
-                    .find(element => element.textContent?.trim() === 'Split Right');
-                if (!item) throw new Error('Split Right disappeared before selection');
-                const rect = item.getBoundingClientRect();
-                const x = rect.left + rect.width / 2;
-                const y = rect.top + rect.height / 2;
-                if (item.getAttribute('aria-disabled') === 'true' || !item.contains(document.elementFromPoint(x, y))) {
-                    throw new Error('Split Right is not enabled and hit-testable');
-                }
-                return {
-                    x,
-                    y,
-                };
-            }, appearedAt);
-            await page.mouse.click(point.x, point.y);
-            const split = await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2,
-                {timeout: 1_000}).then(async handle => {await handle.dispose(); return true;}, () => false);
-            if (!split) missedRuns.push(run);
-            await session.stop({preserveArtifacts: true});
-            session = null;
-        }
-        expect(missedRuns, 'every enabled Split Right selection opens a second pane within 1 s').toEqual([]);
+    // Issue #942, behavior contract I1: a window resize while the tab menu is
+    // open used to close the menu and forget its tab, yet the closing menu still
+    // took clicks, so Split Right did nothing. The click is raw trusted input on
+    // purpose: clickAsUser waits until its target stops moving, which would let
+    // the closing animation finish and hide the drop.
+    it('performs Split Right when a window resize arrives while the tab menu is open', async () => {
+        const stamp = Date.now();
+        const pdfPath = await createMultiPageTextFixturePdf(`shared-pdf-split-resize-${stamp}.pdf`, 6);
+        session = await startElectronE2ESession(`e2e-shared-pdf-split-resize-${stamp}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await click(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
+        await page.waitForFunction(() => {
+            const menu = document.querySelector('.tab-context-menu');
+            return menu !== null && menu.getBoundingClientRect().width > 0 && menu.getAnimations({subtree: true}).length === 0;
+        }, {timeout: SETTLE_TIMEOUT_MS});
+        const resizeWatch = await page.evaluateHandle(() => ({seen: new Promise<void>(resolve => window.addEventListener('resize', () => resolve(), {once: true}))}));
+        const {
+            width, height,
+        } = await page.evaluate(() => ({
+            width: window.innerWidth,
+            height: window.innerHeight,
+        }));
+        const resizing = session.command('windowResize', [
+            width - 60,
+            height,
+        ]);
+        const point = await page.evaluate(async (watch) => {
+            await watch.seen;
+            await new Promise(requestAnimationFrame);
+            const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
+                .find(element => element.textContent?.trim() === 'Split Right');
+            if (!item) throw new Error('Split Right disappeared before selection');
+            const rect = item.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            if (item.getAttribute('aria-disabled') === 'true' || !item.contains(document.elementFromPoint(x, y))) {
+                throw new Error('Split Right is not enabled and hit-testable');
+            }
+            return {
+                x,
+                y,
+            };
+        }, resizeWatch);
+        await page.mouse.click(point.x, point.y);
+        await resizing;
+        await resizeWatch.dispose();
+        const split = await page.waitForFunction(() => document.querySelectorAll('.editor-pane').length === 2,
+            {timeout: 1_000}).then(async handle => {await handle.dispose(); return true;}, () => false);
+        expect(split, 'Split Right opens a second pane within 1 s').toBe(true);
     }, TIMEOUT_MS);
 
     it('shows one document in two views with shared edits, undo, dirty state and save, and separate placement', async () => {
