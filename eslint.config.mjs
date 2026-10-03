@@ -269,6 +269,15 @@ const projectConfig = withNuxt(
         },
     },
     {
+        files: ['tests/e2e/**/*.ts'],
+        // Playwright's locator.click() waits for actionability itself, and a
+        // syntactic rule cannot tell a Locator from a Puppeteer handle.
+        ignores: ['tests/e2e/electron/drawing/annotationStrokeParity.e2e.test.ts'],
+        rules: {
+            'custom/e2e-click-as-user': 'error',
+        },
+    },
+    {
         files: ['tests/**/*'],
         rules: {
             'import-classic/no-restricted-paths': 'off',

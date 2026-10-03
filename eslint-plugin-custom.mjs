@@ -754,6 +754,82 @@ const noBarePageNumberTypeRule = {
     },
 };
 
+// Functions passed to these calls run inside the renderer, where
+// element.click() is the DOM method a race probe may use on purpose.
+const IN_PAGE_FUNCTION_CALLEES = new Set([
+    '$eval',
+    '$$eval',
+    'evaluate',
+    'evaluateHandle',
+    'evaluateInPage',
+    'evaluateOnNewDocument',
+    'waitForFunction',
+    'waitForFunctionInPage',
+]);
+
+function getCalleeName(callee) {
+    if (callee?.type === 'Identifier') {
+        return callee.name;
+    }
+    if (callee?.type === 'MemberExpression' && !callee.computed && callee.property?.type === 'Identifier') {
+        return callee.property.name;
+    }
+    return null;
+}
+
+function isInsideInPageFunction(node) {
+    for (let current = node.parent; current; current = current.parent) {
+        if (
+            (current.type === 'ArrowFunctionExpression' || current.type === 'FunctionExpression')
+            && current.parent?.type === 'CallExpression'
+            && current.parent.arguments.includes(current)
+            && IN_PAGE_FUNCTION_CALLEES.has(getCalleeName(current.parent.callee))
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Puppeteer's ElementHandle.click() and page.click(selector) return a promise
+// and take options or a selector; the DOM's element.click() takes nothing and
+// returns nothing. Without type information the rule treats a click as
+// Puppeteer's when it has arguments or its result is used, and as in-page code
+// when it is a bare statement or sits in a function handed to the page.
+const e2eClickAsUserRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Require E2E element clicks to go through clickAsUser',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        return {CallExpression(node) {
+            const callee = node.callee;
+            if (
+                callee.type !== 'MemberExpression'
+                || callee.computed
+                || callee.property.type !== 'Identifier'
+                || callee.property.name !== 'click'
+                || getCalleeName(callee.object) === 'mouse'
+            ) {
+                return;
+            }
+            const expression = node.parent?.type === 'ChainExpression' ? node.parent : node;
+            const isBareStatement = node.arguments.length === 0 && expression.parent?.type === 'ExpressionStatement';
+            if (isBareStatement || isInsideInPageFunction(node)) {
+                return;
+            }
+            context.report({
+                node,
+                message: 'Click through clickAsUser from tests/e2e/electron/helpers/userInput.ts; ElementHandle.click and page.click do not check what covers the target.',
+            });
+        }};
+    },
+};
+
 function makeArchitectureRule(description, create) {
     return {
         meta: {
@@ -1035,6 +1111,7 @@ export default {rules: {
     'no-direct-console-error': noDirectConsoleErrorRule,
     'no-bare-page-number-type': noBarePageNumberTypeRule,
     'named-timestamps': namedTimestampsRule,
+    'e2e-click-as-user': e2eClickAsUserRule,
     'commonjs-named-imports': {
         meta: {
             type: 'problem',
