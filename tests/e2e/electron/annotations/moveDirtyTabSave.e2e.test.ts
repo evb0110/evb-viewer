@@ -18,6 +18,7 @@ import {
     openAnnotationsTab, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     getLatestAutomationEventId,
     waitForAutomationEvent,
@@ -40,9 +41,9 @@ afterEach(async () => {
 async function moveTabToNewWindow(page: Page) {
     const browser = page.browser();
     const oldPages = new Set(await browser.pages());
-    await page.click('.tab-new');
-    await page.click('.tab-list [role="tab"]:first-child');
-    await page.click('.tab-list [role="tab"].is-active', {button: 'right'});
+    await clickAsUser(page, '.tab-new');
+    await clickAsUser(page, '.tab-list [role="tab"]:first-child');
+    await clickAsUser(page, '.tab-list [role="tab"].is-active', {button: 'right'});
     await page.waitForFunction(() => Array.from(document.querySelectorAll('[role="menuitem"]'))
         .some(item => item.textContent?.includes('Move Tab to New Window')));
     const item = await page.$('[role="menuitem"]');
@@ -53,7 +54,7 @@ async function moveTabToNewWindow(page: Page) {
     })));
     const menuItem = transfer.find(candidate => candidate.text.includes('Move Tab to New Window'))?.candidate;
     if (!menuItem || !item) throw new Error('Move Tab to New Window menu item was not rendered');
-    await menuItem.click();
+    await clickAsUser(page, menuItem);
     let destination: Page | undefined;
     const deadline = Date.now() + 30_000;
     while (!destination && Date.now() < deadline) {
@@ -68,7 +69,7 @@ async function moveTabToNewWindow(page: Page) {
 async function createDestinationTextAnnotation(page: Page, text: string) {
     await openAnnotationsTab(page);
     const textTool = await page.waitForSelector('.editor-pane.is-active .notes-panel .tool-button[data-tool="text"]', {visible: true});
-    await textTool!.click();
+    await clickAsUser(page, textTool!);
     const selector = '.editor-pane.is-active .page_container[data-page="1"]';
     await page.waitForFunction((pageSelector: string) => {
         const container = document.querySelector<HTMLElement>(pageSelector);

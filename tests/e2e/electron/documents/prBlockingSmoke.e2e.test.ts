@@ -1351,7 +1351,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
 
         async function chooseViewMode(index: number) {
-            await session.page.click('#editor-global-toolbar-host .zoom-controls-display');
+            await clickAsUser(session.page, '#editor-global-toolbar-host .zoom-controls-display');
             await session.page.waitForSelector('.zoom-dropdown', {visible: true});
             const point = await evaluateInPage(session.page, (modeIndex: number) => {
                 const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(

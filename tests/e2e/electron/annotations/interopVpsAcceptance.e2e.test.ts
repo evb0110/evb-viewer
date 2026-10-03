@@ -21,6 +21,7 @@ import type {Page} from 'puppeteer-core';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
 import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     collectAnnotationOwnershipDebugState,
     createStickyNoteWithPointer,
@@ -222,7 +223,7 @@ async function saveDecryptedOutput(page: Page, path: string) {
         timeout: SAVE_TIMEOUT_MS,
         visible: true,
     });
-    await page.click('[data-testid="unencrypted-save-continue"]');
+    await clickAsUser(page, '[data-testid="unencrypted-save-continue"]');
     await expect(savePromise).resolves.toEqual({
         called: true,
         value: true,

@@ -14,6 +14,7 @@ import {
     createOutlinePageLabelFixturePdf, fixtureBookmark, readPdfMetadataWithQpdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -48,12 +49,12 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
         const editToggle = await page.$('.document-bookmarks-toolbar__actions button');
         expect(editToggle, 'bookmark editing control is visible').not.toBeNull();
-        await editToggle!.click();
+        await clickAsUser(page, editToggle!);
         await waitForFunctionInPage(page, () => document.querySelector('.pdf-bookmarks-tree') !== null);
         const middleRow = await findBookmarkRow(page, 'Middle');
-        await middleRow.click({button: 'right'});
+        await clickAsUser(page, middleRow, {button: 'right'});
         await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
-        await page.click('.bookmarks-context-menu .pdf-context-menu__action');
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
         await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
         await page.keyboard.down('Control');
         await page.keyboard.press('A');
@@ -134,7 +135,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
 async function activateBookmark(page: Page, title: string) {
     const row = await findBookmarkRow(page, title);
-    await row.click();
+    await clickAsUser(page, row);
 }
 
 async function findBookmarkRow(page: Page, title: string) {

@@ -43,6 +43,7 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import type {KeyInput} from 'puppeteer-core';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
@@ -456,7 +457,7 @@ async function increaseSelectedTextBoxFontSize(page: Parameters<typeof evaluateI
     }
     const currentSize = await fontSizeInput.evaluate(input => Number((input as HTMLInputElement).value));
     expect(Number.isFinite(currentSize)).toBe(true);
-    await fontSizeInput.click({count: 3});
+    await clickAsUser(page, fontSizeInput, {count: 3});
     await page.keyboard.type(String(currentSize + 1));
     await page.keyboard.press('Tab');
     await expect.poll(() => fontSizeInput.evaluate(input => Number((input as HTMLInputElement).value)), {timeout: 20_000})

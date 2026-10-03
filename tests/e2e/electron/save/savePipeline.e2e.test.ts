@@ -1,6 +1,9 @@
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {existsSync} from 'node:fs';
 import {
     chmod,
@@ -189,9 +192,9 @@ async function saveWithUnencryptedNoticeChoice(
         visible: true,
     });
     if (choice === 'continue-and-suppress') {
-        await page.click('[data-testid="unencrypted-save-dont-show-again"]');
+        await clickAsUser(page, '[data-testid="unencrypted-save-dont-show-again"]');
     }
-    await page.click(choice === 'cancel'
+    await clickAsUser(page, choice === 'cancel'
         ? '[data-testid="unencrypted-save-cancel"]'
         : '[data-testid="unencrypted-save-continue"]');
     return savePromise;
@@ -252,7 +255,7 @@ async function clickEnabledSaveButton(page: Page) {
     while (Date.now() < deadline) {
         const button = await findEnabledSaveButton(page);
         if (button) {
-            await button.click();
+            await clickAsUser(page, button);
             return;
         }
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
@@ -1019,7 +1022,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 timeout: SAVE_TIMEOUT_MS,
                 visible: true,
             });
-            await textarea?.click();
+            await clickAsUser(session.page, textarea!);
             await selectAllFocusedAnnotationText(session.page);
             await session.page.keyboard.type(editedText, {delay: 10});
             await session.page.keyboard.press('Tab');
@@ -1069,7 +1072,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             element => (element as HTMLInputElement).value.trim(),
         );
         expect(defaultAuthor.length).toBeGreaterThan(0);
-        await session.page.click('#settings-author');
+        await clickAsUser(session.page, '#settings-author');
         await session.page.$eval(
             '#settings-author',
             element => (element as HTMLInputElement).select(),
@@ -1079,7 +1082,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         // Settings opens in a separate empty tab from the shell toolbar. Its
         // start-page variant intentionally has no Back button, so close that
         // tab to return to the already-open PDF.
-        await session.page.click('button.tab-close.is-visible');
+        await clickAsUser(session.page, 'button.tab-close.is-visible');
         await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
 
         await createDirtyStickyNote(session.page);
@@ -1112,14 +1115,14 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             timeout: SAVE_TIMEOUT_MS,
             visible: true,
         });
-        await session.page.click('#settings-author');
+        await clickAsUser(session.page, '#settings-author');
         await session.page.$eval(
             '#settings-author',
             element => (element as HTMLInputElement).select(),
         );
         await session.page.keyboard.type(secondAuthor);
         await waitForPersistedAuthor(session.page, secondAuthor);
-        await session.page.click('button.tab-close.is-visible');
+        await clickAsUser(session.page, 'button.tab-close.is-visible');
         await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
         await createDirtyStickyNote(session.page);
         await saveFromWorkspace(session.page, pdfPath);
@@ -1169,7 +1172,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(initial).toBe('false');
 
         const seedAuthor = `Consent seed ${Date.now()}`;
-        await session.page.click('#settings-author');
+        await clickAsUser(session.page, '#settings-author');
         await session.page.$eval('#settings-author', element => (element as HTMLInputElement).select());
         await session.page.keyboard.type(seedAuthor);
         await waitForPersistedAuthor(session.page, seedAuthor);
@@ -1178,7 +1181,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await rename(settingsPath, backupPath);
         await mkdir(settingsPath);
         try {
-            await session.page.click(switchSelector);
+            await clickAsUser(session.page, switchSelector);
             // The failed save is told in the failure toast, with Retry.
             await session.page.waitForFunction(() => [...document.querySelectorAll('.app-toast-failure')]
                 .some(toast => toast.textContent?.includes('Last save failed') && toast.textContent.includes('Retry')), {timeout: SAVE_TIMEOUT_MS});
@@ -1193,7 +1196,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         }
 
         const author = `Consent recovery ${Date.now()}`;
-        await session.page.click('#settings-author');
+        await clickAsUser(session.page, '#settings-author');
         await session.page.$eval('#settings-author', element => (element as HTMLInputElement).select());
         await session.page.keyboard.type(author);
         await waitForPersistedAuthor(session.page, author);

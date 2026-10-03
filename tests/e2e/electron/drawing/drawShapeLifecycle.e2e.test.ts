@@ -24,6 +24,7 @@ import {
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     clickAnnotationTool,
@@ -2356,7 +2357,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             y: 0.6,
         })).toBe(false);
 
-        await page.click('.editor-pane.is-active .tab.is-active .tab-close');
+        await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
         await expect.poll(async () => (
             await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])
         ).originalPath, {timeout: 10_000}).toBeNull();
@@ -2459,7 +2460,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await expect.poll(() => existsSync(outputPath), {timeout: 20_000}).toBe(true);
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
         await waitForShapeCount(page, 1);
-        await page.click('.editor-pane.is-active .tab.is-active .tab-close');
+        await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
         await openPdfInApp(page, outputPath);
         await waitForPdfLoaded(page);
         await waitForShapeCount(page, 1);

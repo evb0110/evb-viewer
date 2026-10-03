@@ -1,7 +1,10 @@
 import {spawn} from 'node:child_process';
 import {PDFDocument} from 'pdf-lib';
 import { delay } from 'es-toolkit/promise';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {createHash} from 'node:crypto';
 import {
     chmodSync,
@@ -994,7 +997,7 @@ describe('Project 8 recovered close decisions', () => {
         await createNewWorkspaceTab(session);
         await openPdfInApp(session.page, secondPdfPath, 60_000);
         await expect(callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).resolves.toMatchObject({called: true});
-        await session.page.click('.tab-list .tab[data-tab-id]:last-child', {button: 'right'});
+        await clickAsUser(session.page, '.tab-list .tab[data-tab-id]:last-child', {button: 'right'});
         await session.page.waitForSelector('.tab-context-menu');
         await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(candidate => (candidate.textContent ?? '').toLowerCase().includes('move tab to new window')), null, {description: 'Move Tab to New Window'});
