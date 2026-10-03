@@ -1,0 +1,63 @@
+tests/e2e/electron/smoke/blockingPdfSaveSmoke.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 327,338,382,452,545,639,687
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 40
+tests/e2e/electron/navigation/inactivePdfTabs.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 404
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 7
+tests/e2e/electron/smoke/scanCleanupCopiedSpreadEvidence.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 84
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 19
+tests/e2e/electron/viewer/djvuOpenCancellation.e2e.test.ts
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 20
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 111
+tests/e2e/electron/smoke/scanCleanupToolbarContract.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 101,124,152
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 11
+tests/e2e/electron/nightly/search/searchMatchScrolling.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 649
+tests/e2e/electron/nightly/exact-pdf/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 33
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 977
+tests/e2e/electron/navigation/pageNumberEditorCaret.e2e.test.ts
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 5
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 26
+tests/e2e/electron/smoke/ocrJourney.e2e.test.ts
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 25
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 79,246,253,280,522
+tests/e2e/electron/navigation/moveTabViewState.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 55-57,67,131
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 12
+tests/e2e/electron/viewer/djvuBookmarkDestinations.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 49,58,63,110,133
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 3-6
+tests/e2e/electron/viewer/djvuConvertScratch.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 47
+  s_70eb7a16b9afe1::t_69d54098bc9b55 8-11
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 1789,1884,1889,1891,1950,2089,2112,2267,2291,2301-2302,2311,2492,2494,2558,2605,3374,3428,3432,3491-3492,3500,3930,4117,4859,4864,4873,4924,4932,4978,4986,4994,6821,7089
+tests/e2e/electron/navigation/inactiveDjvuTabs.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 585,678
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 14
+tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSaveShared.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 483,495,534
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 17
+tests/e2e/electron/nightly/search/searchIndexConcurrency.e2e.test.ts
+  s_70eb7a16b9afe1::t_cd426db3b2c71d 126
+  s_70eb7a16b9afe1::t_8b5dd196a1a72a 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "869607e5a880fd9ad400d13d76e7b2c6c3552e22",
+  "prompts": {},
+  "sessions": {
+    "s_70eb7a16b9afe1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20ac9246-8517-4538-8bcb-53629379874b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
