@@ -37,6 +37,7 @@ import {
     createFreeTextAnnotationWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     callWorkspaceCommand,
@@ -323,7 +324,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             () => document.querySelector('#evb-startup-overlay') === null,
             {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
         );
-        await page.click('nav[aria-label="File"] button.rail-item');
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
         await page.waitForSelector('[data-combine-page]', {visible: true});
         const fileInput = await page.$('input[type="file"]');
         expect(fileInput).not.toBeNull();
@@ -334,7 +335,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             imagePaths.length,
         );
 
-        await page.click('footer.combine-actions button');
+        await clickAsUser(page, 'footer.combine-actions button');
         await page.waitForFunction(() => {
             const bodyText = document.body.innerText.replace(/\s+/gu, ' ');
             const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Save"]'))
@@ -378,7 +379,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             () => document.querySelector('#evb-startup-overlay') === null,
             {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
         );
-        await page.click('nav[aria-label="File"] button.rail-item');
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
         await page.waitForSelector('[data-combine-page]', {visible: true});
         const fileInput = await page.$('input[type="file"]');
         expect(fileInput).not.toBeNull();
@@ -448,7 +449,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
         );
         await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
-        await page.click('.start-open-panel .open-panel-cta');
+        await clickAsUser(page, '.start-open-panel .open-panel-cta');
 
         await page.waitForSelector('.app-toast-failure', {
             visible: true,
@@ -541,7 +542,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         // Open File from Start into an empty tab.
         await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
         await holdViewerLayoutOff(page, 600);
-        await page.click('.start-open-panel .open-panel-cta');
+        await clickAsUser(page, '.start-open-panel .open-panel-cta');
         await expectOpenedFirstPage(page, 'Open File from Start');
 
         // Open File over a document that is already showing.
@@ -635,7 +636,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await openPdfInApp(page, goneFile);
 
         // A new tab's Start lists the file; then the file is deleted on disk.
-        await page.click('.tab-new');
+        await clickAsUser(page, '.tab-new');
         const rowSelector = `.workspace-host[data-workspace-active="true"] [data-recent-source="${goneFile}"] .recent-open`;
         await page.waitForSelector(rowSelector, {
             visible: true,
@@ -683,7 +684,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             });
             sample();
         });
-        await page.click(rowSelector);
+        await clickAsUser(page, rowSelector);
 
         await page.waitForFunction((name: string) => [...document.querySelectorAll('.app-toast')]
             .some(toast => toast.textContent?.includes(name)), {timeout: 20_000}, goneName);

@@ -11,6 +11,7 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
@@ -581,7 +582,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             if (!tab) {
                 throw new Error(`Workspace tab ${index} was not found`);
             }
-            await tab.click();
+            await clickAsUser(session.page, tab);
         };
 
         const returnToDjvu = async () => {
@@ -674,7 +675,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         if (!customZoomInput) {
             throw new Error('Custom zoom input was not found before zoom-out');
         }
-        await customZoomInput.click({count: 3});
+        await clickAsUser(session.page, customZoomInput, {count: 3});
         await session.page.waitForFunction(() => {
             const active = document.activeElement;
             return active instanceof HTMLInputElement

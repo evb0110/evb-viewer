@@ -8,6 +8,7 @@ import {
     it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     createLargeScannedFixturePdf,
     readPdfPageSnapshots,
@@ -97,7 +98,7 @@ describe('scan cleanup toolbar contract', () => {
         // Queue cleanup while detection is still running: the run meter must
         // appear and report the queued analysis phase as readable text,
         // and the primary action must remain enabled (it becomes cancel).
-        await session.page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await waitForFunctionInPage(session.page, (runMeterSelector: string, primaryActionSelector: string) => {
             const meter = document.querySelector<HTMLElement>(runMeterSelector);
             const action = document.querySelector<HTMLButtonElement>(
@@ -120,7 +121,7 @@ describe('scan cleanup toolbar contract', () => {
         expect(queuedStatus.text).toContain('Analyze');
 
         // Cancel the queued run: the meter clears while detection continues.
-        await session.page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await waitForFunctionInPage(session.page, (runMeterSelector: string, cancelDetectionSelector: string) => (
             document.querySelector(runMeterSelector) === null
                 && document.querySelector(cancelDetectionSelector) !== null
@@ -148,7 +149,7 @@ describe('scan cleanup toolbar contract', () => {
                 && (action.textContent ?? '').includes('Clean up');
         }, {timeout: 30_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
         SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, SCAN_CLEANUP_RUN_METER_SELECTOR);
-        await session.page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await waitForFunctionInPage(session.page, (source: string) => {
             const active = (window as IWorkspaceExposeProbeWindow)
                 .__evbTestApi

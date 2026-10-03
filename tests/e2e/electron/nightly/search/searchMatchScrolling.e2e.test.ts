@@ -646,7 +646,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
         await openDocumentSidebarTab(session.page, 'Search');
         const searchInput = await session.page.$('.editor-pane.is-active .document-search-bar input');
         await searchInput!.type(searchMatchScrollConfig.query);
-        await session.page.click('.editor-pane.is-active .search-run-button');
+        await clickAsUser(session.page, '.editor-pane.is-active .search-run-button');
         await waitForFunctionInPage(session.page, (count: number) => {
             const summary = document.querySelector('.editor-pane.is-active .document-search-results-header-summary');
             return summary?.textContent?.trim().startsWith(`${count} results`)

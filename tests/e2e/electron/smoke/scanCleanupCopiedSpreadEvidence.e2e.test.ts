@@ -16,6 +16,7 @@ import {
     onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {readPdfPageSnapshots} from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
@@ -80,7 +81,7 @@ describe('scan cleanup copied spread evidence', () => {
         await waitForViewerInteractive(session.page, 90_000);
 
         for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-            if (await toast.isVisible()) await toast.click();
+            if (await toast.isVisible()) await clickAsUser(session.page, toast);
         }
         await clickVisible(session, 'button[aria-label="Scan cleanup"]');
         await session.page.waitForSelector('.scan-cleanup-surface', {

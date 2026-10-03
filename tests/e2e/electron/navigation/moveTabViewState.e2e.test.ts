@@ -9,6 +9,7 @@ import {
     afterEach, describe, expect, it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -51,9 +52,9 @@ async function moveTabToNewWindow(page: Page) {
     const previous = new Set(await browser.pages());
     // Keep a second source tab so closing the moved tab cannot destroy the
     // source window; then act on the loaded PDF tab through its real menu.
-    await page.click('.tab-new');
-    await page.click('.tab-list [role="tab"]:first-child');
-    await page.click('.tab-list [role="tab"].is-active', {button: 'right'});
+    await clickAsUser(page, '.tab-new');
+    await clickAsUser(page, '.tab-list [role="tab"]:first-child');
+    await clickAsUser(page, '.tab-list [role="tab"].is-active', {button: 'right'});
     await page.waitForFunction(() => Array.from(document.querySelectorAll('[role="menuitem"]'))
         .some(item => item.textContent?.includes('Move Tab to New Window')));
     const menuItems = await page.$$('[role="menuitem"]');
@@ -63,7 +64,7 @@ async function moveTabToNewWindow(page: Page) {
     })));
     const transferItem = transferItems.find(item => item.text.includes('Move Tab to New Window'));
     if (!transferItem) throw new Error('Move Tab to New Window menu item was not rendered');
-    await transferItem.candidate.click();
+    await clickAsUser(page, transferItem.candidate);
     let destination: Page | undefined;
     const deadline = Date.now() + 30_000;
     while (!destination && Date.now() < deadline) {
@@ -127,7 +128,7 @@ describe('Move Tab to New Window view state', () => {
         await ensureSidebarOpen(session.page);
         const zoomButton = await session.page.$('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)');
         if (!zoomButton) throw new Error('Custom zoom control was not available');
-        await zoomButton.click();
+        await clickAsUser(session.page, zoomButton);
         await session.page.waitForSelector('.zoom-dropdown input', {
             visible: true,
             timeout: 10_000,
