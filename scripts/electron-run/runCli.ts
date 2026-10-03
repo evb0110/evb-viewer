@@ -61,6 +61,7 @@ const CLI_COMMANDS = [
     'content',
     'waitfor',
     'windowResize',
+    'activateMenuItem',
     'emulateViewport',
     'viewport',
     'run',
@@ -415,6 +416,8 @@ Commands (require running session):
                      Wait until selector appears (useful for scripted flows)
   windowResize <w> <h>
                      Resize the real window so its content area is w x h
+  activateMenuItem id|accelerator <value>
+                     Run an application-menu item as its accelerator would
   emulateViewport <w> <h>
                      Override the reported viewport only; the window does not move
   viewport            Print current viewport dimensions
@@ -429,6 +432,7 @@ Examples:
   pnpm electron:run logs --follow --since=15m      # Follow merged current-session logs
   pnpm electron:run viewport                       # Read current viewport/window size
   pnpm electron:run windowResize 1280 820          # Resize the real window content area
+  pnpm electron:run activateMenuItem accelerator CmdOrCtrl+W  # File > Close Tab
   pnpm electron:run emulateViewport 1280 820       # Emulate a viewport for deterministic screenshots
   pnpm electron:run list                           # Show all running sessions
   pnpm electron:run stop --all                     # Stop everything
@@ -762,6 +766,7 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
     },
     waitfor: args => printJsonCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS),
     windowResize: args => printJsonCommand('windowResize', args, COMMAND_EXECUTION_TIMEOUT_MS),
+    activateMenuItem: args => printJsonCommand('activateMenuItem', args),
     emulateViewport: args => printJsonCommand('emulateViewport', args),
     viewport: args => printJsonCommand('viewport', args),
     async run(args) {

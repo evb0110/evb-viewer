@@ -40,6 +40,11 @@ import {
 } from '@electron/workspaceCheckpointStore';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {
+    activateApplicationMenuItem,
+    decodeApplicationMenuItemQuery,
+    type TApplicationMenuItemQuery,
+} from '@electron/menu';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
@@ -82,6 +87,22 @@ function assertAutomationCheckpointReset() {
     }
 }
 
+function isAutomationHookSession() {
+    return Boolean(
+        runtimeConfig.automationUserDataDir
+        && runtimeConfig.automationSessionName
+        && runtimeConfig.automationEnableRendererFileOpenHelper,
+    );
+}
+
+function registerAutomationHandlers(ipcMain: Electron.IpcMain) {
+    const channel = CORE_IPC_CHANNELS.activateMenuItemForAutomation;
+    createValidatedIpcMainRegistrar(ipcMain, {
+        allowedChannels: new Set([channel]),
+        codecs: {[channel]: {decodeArgs: args => [decodeApplicationMenuItemQuery(args[0])]}},
+    }).handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query));
+}
+
 export function registerCoreIpcHandlers(
     ipcMain: Electron.IpcMain,
     options: ICoreIpcHandlerOptions,
@@ -104,6 +125,9 @@ export function registerCoreIpcHandlers(
             }
         },
     });
+    if (isAutomationHookSession()) {
+        registerAutomationHandlers(ipcMain);
+    }
     eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
         options.onRendererReady?.(event);
     });

@@ -1,9 +1,8 @@
-import {expect} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForTabCount} from '@tests/e2e/electron/helpers/waitForTabCount';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
@@ -38,22 +37,10 @@ export async function splitActiveTabFromTabMenu(page: Page, direction: 'right' |
     await page.waitForFunction((count: number) => document.querySelectorAll('.editor-pane').length === count + 1, {timeout: timeoutMs}, paneCount);
 }
 
-/**
- * New Pane Right or Down: the explicit empty-pane split. The View menu command
- * is a native accelerator that page input cannot reach, so this is setup
- * through the command's automation hook.
- */
+/** View > New Pane Right or Down: the explicit empty-pane split, through its menu item. */
 export async function openNewPane(page: Page, direction: 'right' | 'down', timeoutMs = 20_000) {
     const paneCount = await page.$$eval('.editor-pane', panes => panes.length);
-    const opened = await page.evaluate(async (targetDirection: 'right' | 'down') => {
-        const splitEmpty = (window as IE2EWindow & {__splitEditorEmptyForE2E?: (direction: 'right' | 'down') => Promise<void> | void;}).__splitEditorEmptyForE2E;
-        if (typeof splitEmpty !== 'function') {
-            return false;
-        }
-        await splitEmpty(targetDirection);
-        return true;
-    }, direction);
-    expect(opened).toBe(true);
+    await activateMenuItemAsUser(page, {id: `new-pane-${direction}`});
     await page.waitForFunction((count: number) => document.querySelectorAll('.editor-pane').length === count + 1, {timeout: timeoutMs}, paneCount);
 }
 

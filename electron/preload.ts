@@ -21,6 +21,7 @@ import { readHostResourceProfileArgument } from '@electron/preload/readHostResou
 import { readHostEnvironmentArgument } from '@electron/preload/readHostEnvironmentArgument';
 import { readUiScalePreferenceArgument } from '@electron/preload/readUiScalePreferenceArgument';
 import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
+import { CORE_IPC_CHANNELS } from '@electron/platform-ipc/coreContract';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -94,6 +95,10 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
     contextBridge.exposeInMainWorld('__emitUpdateStatusForAutomation', (status: unknown) => {
         ipcRenderer.emit(UPDATES_PLATFORM_FEATURE.events.onStatus.channel, {}, status);
     });
+    // Runs an application-menu item as its accelerator would; synthesized
+    // key events never reach the native menu on macOS.
+    contextBridge.exposeInMainWorld('__activateMenuItemForAutomation', (query: unknown) =>
+        ipcRenderer.invoke(CORE_IPC_CHANNELS.activateMenuItemForAutomation, query));
     tracePreload('automation file-open capability helper exposed');
 }
 

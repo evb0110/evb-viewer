@@ -3,6 +3,8 @@ import type {
     MouseButton,
     Page,
 } from 'puppeteer-core';
+import type { TApplicationMenuItemQuery } from '@electron/menu';
+import { activateElectronMenuItem } from '@scripts/electron-run/activateElectronMenuItem';
 
 // A person can only click what is on top. `element.click()` inside the page
 // skips hit testing, pointer and mouse-down events, focus changes and the
@@ -230,4 +232,18 @@ export async function clickFoundAsUser<TArg>(
         arg,
         description: options.description,
     }, options);
+}
+
+/**
+ * A menu accelerator as a person presses it: the main process runs the
+ * application-menu item with this id or accelerator, honouring its enabled
+ * and visible state, against the window the key would reach. Page key events
+ * never reach the native menu on macOS. Fails when the item does not run.
+ */
+export async function activateMenuItemAsUser(page: Page, query: TApplicationMenuItemQuery) {
+    const result = await activateElectronMenuItem(page, query);
+    if (!result.activated) {
+        throw new Error(`Menu item ${JSON.stringify(query)} did not run: ${result.reason}`);
+    }
+    return result;
 }
