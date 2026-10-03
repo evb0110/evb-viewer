@@ -1110,9 +1110,13 @@ const MAC_SCRIPTED_ROLES = new Set([
  * Automation's stand-in for pressing a menu item's accelerator, which a
  * synthesized key event cannot do on macOS: the same item, its enabled and
  * visible state, and the window an accelerator would target. Not the OS key
- * routing itself.
+ * routing itself. The activation is decided now; `runItem` decides when the
+ * item runs, so a caller can report it before the item closes its window.
  */
-export function activateApplicationMenuItem(query: TApplicationMenuItemQuery): TApplicationMenuItemActivation {
+export function activateApplicationMenuItem(
+    query: TApplicationMenuItemQuery,
+    runItem: (run: () => void) => void = run => run(),
+): TApplicationMenuItemActivation {
     const menu = Menu.getApplicationMenu();
     const item = !menu
         ? null
@@ -1151,17 +1155,34 @@ export function activateApplicationMenuItem(query: TApplicationMenuItemQuery): T
         };
     }
     logger.info(`Automation activates menu item "${label}"`);
-    if (nativeRoleAction) {
-        nativeRoleAction(window);
-    } else {
-        // Electron types MenuItem.click as Function; this is its documented call.
-        const click = item.click as (
-            event: Electron.KeyboardEvent,
-            focusedWindow: BaseWindow | undefined,
-            focusedWebContents: Electron.WebContents | undefined,
-        ) => void;
-        click({triggeredByAccelerator: true}, window ?? undefined, window?.webContents);
-    }
+    runItem(() => {
+        // The window the key reached closed before the item ran; the item's
+        // own fallback would pick another window, which no key press reaches.
+        if (window?.isDestroyed()) {
+            logger.warn(`Automation menu item "${label}" skipped: its window closed before it ran`);
+            return;
+        }
+        try {
+            if (nativeRoleAction) {
+                nativeRoleAction(window);
+                return;
+            }
+            // Electron types MenuItem.click as Function; this is its documented call.
+            const click = item.click as (
+                event: Electron.KeyboardEvent,
+                focusedWindow: BaseWindow | undefined,
+                focusedWebContents: Electron.WebContents | undefined,
+            ) => void;
+            click({triggeredByAccelerator: true}, window ?? undefined, window?.webContents);
+        } catch (error) {
+            // The caller already heard the item ran and waits for its effect,
+            // which never comes; the session stays up to show why.
+            logger.error(`Automation menu item "${label}" failed`, {
+                code: 'MAIN_AUTOMATION_MENU_ITEM_FAILED',
+                cause: error,
+            });
+        }
+    });
     return {
         activated: true,
         label,

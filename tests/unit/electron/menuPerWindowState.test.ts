@@ -852,6 +852,51 @@ describe('automation menu item activation', () => {
         expect(closeWindow).not.toHaveBeenCalled();
     });
 
+    it('reports the activation before a deferred item runs, against the window the key reached', () => {
+        const firstWindow = mocks.createWindow(1, 'First');
+        const secondWindow = mocks.createWindow(2, 'Second');
+        mocks.windows.push(firstWindow, secondWindow);
+        setupMenu();
+        setMenuDocumentState(1, true);
+        const deferred: Array<() => void> = [];
+
+        expect(activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run))).toEqual({
+            activated: true,
+            label: 'menu.closeTab',
+            windowId: 1,
+        });
+        expect(firstWindow.webContents.send).not.toHaveBeenCalled();
+
+        mocks.focusWindow(secondWindow);
+        deferred.forEach(run => run());
+        expect(firstWindow.webContents.send).toHaveBeenCalledWith('menu:closeTab');
+        expect(secondWindow.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('skips a deferred item whose window closed and keeps a failing item from escaping', () => {
+        const firstWindow = mocks.createWindow(1, 'First');
+        const secondWindow = mocks.createWindow(2, 'Second');
+        mocks.windows.push(firstWindow, secondWindow);
+        setupMenu();
+        setMenuDocumentState(1, true);
+        const deferred: Array<() => void> = [];
+
+        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run));
+        firstWindow.isDestroyed = () => true;
+        mocks.focusWindow(secondWindow);
+        deferred.splice(0).forEach(run => run());
+        expect(firstWindow.webContents.send).not.toHaveBeenCalled();
+        expect(secondWindow.webContents.send).not.toHaveBeenCalled();
+
+        setMenuDocumentState(2, true);
+        secondWindow.webContents.send.mockImplementation(() => {
+            throw new Error('renderer gone');
+        });
+        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run));
+        expect(() => deferred.splice(0).forEach(run => run())).not.toThrow();
+        expect(secondWindow.webContents.send).toHaveBeenCalledWith('menu:closeTab');
+    });
+
     it('reports a disabled item and does not run it', () => {
         const window = mocks.createWindow(1, 'Window');
         mocks.windows.push(window);
