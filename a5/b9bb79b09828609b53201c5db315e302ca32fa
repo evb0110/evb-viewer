@@ -1,0 +1,24 @@
+eslint-plugin-custom.mjs
+  s_70eb7a16b9afe1::t_34a195d5fa0909 1114
+  s_70eb7a16b9afe1::t_fda15c811c1050 757-832
+eslint.config.mjs
+  s_70eb7a16b9afe1::t_34a195d5fa0909 272-279
+tests/unit/scripts/eslintPluginCustom.test.ts
+  s_70eb7a16b9afe1::t_a56f853d50a0b4 217-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a5b9bb79b09828609b53201c5db315e302ca32fa",
+  "prompts": {},
+  "sessions": {
+    "s_70eb7a16b9afe1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20ac9246-8517-4538-8bcb-53629379874b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
