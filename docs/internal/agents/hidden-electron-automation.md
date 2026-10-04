@@ -97,7 +97,9 @@ depends on one:
   item from the installed menu, the first match in menu order as AppKit does,
   and runs it as a key press would: a disabled or hidden item does not run,
   and the focused window, or the first one in a hidden session, is the target,
-  so window targeting and the text-field Undo branch run for real. On macOS,
+  so window targeting and the text-field Undo branch run for real. The call
+  returns once the item is chosen and the item runs right after, so an item
+  that closes the window or quits still reports; wait for the effect. On macOS,
   Quit sends `terminate:` and Close, Minimize, Cut, Copy and Paste run their
   Linux and Windows role action; other AppKit-only roles report
   `unsupported-role`. Menu items run through their real handler; OS key
