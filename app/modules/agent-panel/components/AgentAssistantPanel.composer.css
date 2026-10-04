@@ -68,7 +68,7 @@
 
 .agent-assistant-composer-error {
     margin: 0;
-    padding: var(--app-space-xl) var(--app-space-8xl) 0;
+    padding: var(--app-space-xl) var(--app-space-3xl) 0;
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
@@ -79,7 +79,7 @@
     width: 100%;
     min-height: var(--app-assistant-install-card-min-height);
     resize: none;
-    padding: var(--app-space-4xl) var(--app-space-8xl) var(--app-space-4xl);
+    padding: var(--app-space-4xl) var(--app-space-3xl);
     border: 0;
     background: transparent;
     color: var(--ui-text);

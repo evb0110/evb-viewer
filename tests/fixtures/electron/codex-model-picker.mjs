@@ -7,7 +7,7 @@ import { createInterface } from 'node:readline';
 if (process.argv.includes('--version')) {
     process.stdout.write('codex-cli 0.157.1\n');
 } else if (process.argv.includes('login')) {
-    process.exitCode = 1;
+    process.stdout.write('Logged in using ChatGPT\n');
 } else {
     const catalog = JSON.parse(readFileSync(new URL('./codex-app-server-model-list-0.157.1.json', import.meta.url), 'utf8'));
     const input = createInterface({ input: process.stdin });

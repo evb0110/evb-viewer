@@ -468,7 +468,7 @@
                             <textarea
                                 ref="composerInputRef"
                                 v-model="draft"
-                                class="agent-assistant-input app-scrollbar app-scroll-region--balanced"
+                                class="agent-assistant-input app-scrollbar"
                                 :placeholder="placeholderText"
                                 rows="3"
                                 :disabled="!hasComposer || hasQueuedSteer"
@@ -538,7 +538,7 @@
             >
                 <div class="agent-assistant-composer-field">
                     <textarea
-                        class="agent-assistant-input app-scrollbar app-scroll-region--balanced"
+                        class="agent-assistant-input app-scrollbar"
                         :placeholder="placeholderText"
                         rows="3"
                         tabindex="-1"

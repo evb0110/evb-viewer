@@ -27,6 +27,13 @@ describe('Electron E2E - assistant model discovery', () => {
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.assistant-switcher-trigger');
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', { visible: true });
+        await clickAsUser(page, '.agent-assistant-input:not(:disabled)');
+        const inputInset = await page.$eval('.agent-assistant-input', input => {
+            const style = getComputedStyle(input);
+            return input.clientLeft + Number.parseFloat(style.paddingLeft);
+        });
+        expect(inputInset, 'Composer text should have a compact inline inset').toBeLessThanOrEqual(12);
         await clickAsUser(page, '.assistant-switcher-trigger');
         await page.waitForFunction(() => {
             const groups = [...document.querySelectorAll('.assistant-model-group')];
