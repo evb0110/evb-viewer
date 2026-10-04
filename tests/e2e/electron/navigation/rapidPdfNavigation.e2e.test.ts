@@ -2953,10 +2953,28 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                 huntState.movingFrames += paneMoving ? 1 : 0;
                 if (item && paneMoving) {
                     huntState.itemFramesWhileMoving += 1;
-                    item.scrollIntoView({block: 'center'});
+                    // Centre the row by scrolling only the rail, as a wheel
+                    // does. scrollIntoView would also scroll the clipped
+                    // curtain sideways while it is narrower than the row,
+                    // pulling its resizer inside the visible curtain and
+                    // making the row jump back once the curtain is wide.
+                    if (rail) {
+                        const railRect = rail.getBoundingClientRect();
+                        const rowRect = item.getBoundingClientRect();
+                        rail.scrollTop += (rowRect.top + rowRect.height / 2) - (railRect.top + railRect.height / 2);
+                    }
                     const rect = item.getBoundingClientRect();
+                    // The row's full centre may still be under the curtain
+                    // when the click arrives. Aim at the middle of the part
+                    // inside the curtain and left of its resizer, which the
+                    // slide only moves away from.
+                    const wrapper = item.closest('.sidebar-wrapper');
+                    const curtain = wrapper?.getBoundingClientRect();
+                    const resizer = wrapper?.querySelector('.sidebar-resizer')?.getBoundingClientRect();
+                    const exposedLeft = Math.max(rect.left, curtain?.left ?? rect.left);
+                    const exposedRight = Math.min(rect.right, curtain?.right ?? rect.right, resizer?.left ?? rect.right);
                     const point = {
-                        x: rect.left + rect.width / 2,
+                        x: (exposedLeft + exposedRight) / 2,
                         y: rect.top + rect.height / 2,
                     };
                     const hit = document.elementFromPoint(point.x, point.y);
