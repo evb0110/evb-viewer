@@ -3,7 +3,7 @@ import {
     electronE2ETeardownTimeoutMs,
     unitSlowTestThresholdMs,
     vitestProjects,
-} from './vitest.shared.config';
+} from './vitest.shared.config.ts';
 
 export default defineConfig({ test: {
     projects: vitestProjects,

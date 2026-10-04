@@ -2,7 +2,7 @@ import type { TestProjectConfiguration } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 import AutoImport from 'unplugin-auto-import/vite';
 import Vue from '@vitejs/plugin-vue';
-import { vitestResolveAlias } from './scripts/vitestResolveAlias';
+import { vitestResolveAlias } from './scripts/vitestResolveAlias.ts';
 import {
     listNightlyElectronE2ELanes,
     listRequiredElectronE2ELanes,
@@ -75,7 +75,6 @@ function createUnitTestProject(
         ],
         resolve: vitestResolveConfig,
         ...(processCss ? {css: {preprocessorOptions: {scss: scssPreprocessorOptions}}} : {}),
-        ...(name === vitestProjectNames.unitCore ? {esbuild: {tsconfigRaw: '{}'}} : {}),
         test: {
             name,
             include,

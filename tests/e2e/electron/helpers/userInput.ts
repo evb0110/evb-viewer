@@ -50,12 +50,44 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
     const candidates = typeof target === 'string'
         ? Array.from(document.querySelectorAll<HTMLElement>(target))
         : target ? [target as HTMLElement] : [];
+    const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
+    const visibleBox = (element: HTMLElement) => {
+        const rect = element.getBoundingClientRect();
+        let left = Math.max(0, rect.left);
+        let top = Math.max(0, rect.top);
+        let right = Math.min(innerWidth, rect.right);
+        let bottom = Math.min(innerHeight, rect.bottom);
+        for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            const box = parent.getBoundingClientRect();
+            const scaleX = parent.offsetWidth ? box.width / parent.offsetWidth : 1;
+            const scaleY = parent.offsetHeight ? box.height / parent.offsetHeight : 1;
+            if (style.overflowX !== 'visible') {
+                const contentLeft = box.left + parent.clientLeft * scaleX;
+                left = Math.max(left, contentLeft);
+                right = Math.min(right, contentLeft + parent.clientWidth * scaleX);
+            }
+            if (style.overflowY !== 'visible') {
+                const contentTop = box.top + parent.clientTop * scaleY;
+                top = Math.max(top, contentTop);
+                bottom = Math.min(bottom, contentTop + parent.clientHeight * scaleY);
+            }
+        }
+        return right > left && bottom > top ? {
+            left,
+            top,
+            right,
+            bottom,
+        } : null;
+    };
+    // Aim inside the part the person can see, including all ancestor clips.
+    // Prefer an already clickable match over scrolling another copy of it.
     for (const candidate of candidates) {
         if (!candidate.isConnected) continue;
-        const rect = candidate.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
+        const box = visibleBox(candidate);
+        if (!box) continue;
+        const x = (box.left + box.right) / 2;
+        const y = (box.top + box.bottom) / 2;
         const hit = document.elementFromPoint(x, y);
         if (hit && candidate.contains(hit)) {
             return {
@@ -65,23 +97,36 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
                 deltaY: 0,
             };
         }
-        const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
-        const distance = (start: number, end: number, boxStart: number, boxEnd: number) => (
-            end > boxEnd ? end - boxEnd : start < boxStart ? start - boxStart : 0
-        );
+    }
+    const distance = (start: number, end: number, boxStart: number, boxEnd: number) => (
+        end > boxEnd ? end - boxEnd : start < boxStart ? start - boxStart : 0
+    );
+    for (const candidate of candidates) {
+        if (!candidate.isConnected) continue;
+        const rect = candidate.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        let subject = candidate;
         for (let scroller = candidate.parentElement; scroller; scroller = scroller.parentElement) {
             const style = getComputedStyle(scroller);
-            const box = scroller.getBoundingClientRect();
-            const deltaX = scrolls(style.overflowX) && scroller.scrollWidth > scroller.clientWidth
-                ? distance(rect.left, rect.right, box.left, box.right)
-                : 0;
-            const deltaY = scrolls(style.overflowY) && scroller.scrollHeight > scroller.clientHeight
-                ? distance(rect.top, rect.bottom, box.top, box.bottom)
-                : 0;
+            const scrollX = scrolls(style.overflowX) && scroller.scrollWidth > scroller.clientWidth;
+            const scrollY = scrolls(style.overflowY) && scroller.scrollHeight > scroller.clientHeight;
+            if (!scrollX && !scrollY) continue;
+            const box = visibleBox(scroller);
+            const subjectRect = subject.getBoundingClientRect();
+            // A wheel over an offscreen panel reaches whatever is on screen
+            // instead. Reveal that panel through its outer scroller first.
+            subject = scroller;
+            if (!box) continue;
+            const deltaX = scrollX ? distance(subjectRect.left, subjectRect.right, box.left, box.right) : 0;
+            const deltaY = scrollY ? distance(subjectRect.top, subjectRect.bottom, box.top, box.bottom) : 0;
             if (deltaX === 0 && deltaY === 0) continue;
+            const x = (box.left + box.right) / 2;
+            const y = (box.top + box.bottom) / 2;
+            const hit = document.elementFromPoint(x, y);
+            if (!hit || !scroller.contains(hit)) continue;
             return {
-                x: box.left + box.width / 2,
-                y: box.top + box.height / 2,
+                x,
+                y,
                 deltaX,
                 deltaY,
             };
@@ -173,9 +218,11 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
             // A person aims once the target stops moving: a menu that is
             // still scaling in, or a panel sliding into place, is not
             // clicked mid-animation.
+            await page.mouse.move(step.x, step.y);
             await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
             const settled = await waitForPointerStep(page, target, deadline);
-            if (settled.deltaX === 0 && settled.deltaY === 0) {
+            if (settled.deltaX === 0 && settled.deltaY === 0
+                && settled.x === step.x && settled.y === step.y) {
                 return {
                     x: settled.x,
                     y: settled.y,
