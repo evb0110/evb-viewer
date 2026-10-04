@@ -17,7 +17,7 @@ describe('Electron E2E - assistant model discovery', () => {
         extraEnv: { CODEX_CLI_PATH: resolve(`tests/fixtures/electron/codex-model-picker.${process.platform === 'win32' ? 'cmd' : 'mjs'}`) },
     });
 
-    it('shows current Sol and versioned Opus first without superseded Sol', async () => {
+    it('shows the newest model in each family with Sol and Opus first', async () => {
         const { page } = fixture.getSession();
         await page.evaluate(async () => {
             await (window as IE2EWindow).electronAPI?.settings.save({ assistantPanelEnabled: true });
@@ -43,6 +43,17 @@ describe('Electron E2E - assistant model discovery', () => {
         expect(codex.some(label => /-Luna$/.test(label))).toBe(true);
         expect(claude[0]).toMatch(/^Opus \d+(?:\.\d+)?/);
         expect(claude).not.toContain('Opus');
+        for (const family of [
+            'Opus',
+            'Fable',
+        ]) {
+            const versions = claude.flatMap(label => {
+                const match = new RegExp(`^${family} (\\d+(?:\\.\\d+)?)`).exec(label);
+                return match ? [match[1]] : [];
+            });
+            expect(versions.length).toBeGreaterThan(0);
+            expect(new Set(versions).size, `${family} has stale versions: ${versions.join(', ')}`).toBe(1);
+        }
         expect(await page.$('.agent-assistant-message.is-user')).toBeNull();
     }, 60_000);
 });

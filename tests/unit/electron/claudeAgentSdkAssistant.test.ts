@@ -103,12 +103,22 @@ describe('claudeAgentSdkAssistant', () => {
         sdkMocks.query.mockReset();
     });
 
-    it('automatically puts the latest resolved Opus ahead of older models', () => {
+    it('automatically keeps only the latest version of each family with Opus first', () => {
         expect(normalizeClaudeSdkModelList([
             {
                 value: 'fable',
                 resolvedModel: 'claude-fable-5-1',
                 displayName: 'Fable',
+            },
+            {
+                value: 'old-fable',
+                resolvedModel: 'claude-fable-5',
+                displayName: 'Fable',
+            },
+            {
+                value: 'older-opus',
+                resolvedModel: 'claude-opus-4-8',
+                displayName: 'Opus',
             },
             {
                 value: 'old-opus',
@@ -122,7 +132,6 @@ describe('claudeAgentSdkAssistant', () => {
             },
         ]).map(model => model.label)).toEqual([
             'Opus 5.6',
-            'Opus 5.5',
             'Fable 5.1',
         ]);
     });

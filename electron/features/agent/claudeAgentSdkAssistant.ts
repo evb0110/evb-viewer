@@ -220,10 +220,24 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
         seen.add(model.id);
         models.push(model);
     }
-    // The SDK's "default" row repeats another row's model under an alias.
-    return models.filter(model => model.id !== 'default' || !models.some(other => (
-        other !== model && other.resolvedModel === model.resolvedModel
-    ))).sort((left, right) => {
+    return models.filter(model => {
+        // The SDK's "default" row repeats another row's model under an alias.
+        if (model.id === 'default' && models.some(other => (
+            other !== model && other.resolvedModel === model.resolvedModel
+        ))) {
+            return false;
+        }
+        const version = CLAUDE_RESOLVED_MODEL_PATTERN.exec(model.resolvedModel ?? model.id);
+        // Keep custom rows and all context options for the newest family version.
+        return !version || !models.some(other => {
+            const otherVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(other.resolvedModel ?? other.id);
+            return otherVersion !== null && otherVersion[1] === version[1] && (
+                Number(otherVersion[2]) > Number(version[2])
+                || (Number(otherVersion[2]) === Number(version[2])
+                    && Number(otherVersion[3] ?? 0) > Number(version[3] ?? 0))
+            );
+        });
+    }).sort((left, right) => {
         const leftVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(left.resolvedModel ?? left.id);
         const rightVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(right.resolvedModel ?? right.id);
         return Number(!left.id.includes('opus')) - Number(!right.id.includes('opus'))
