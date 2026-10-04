@@ -120,13 +120,51 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
             const deltaX = scrollX ? distance(subjectRect.left, subjectRect.right, box.left, box.right) : 0;
             const deltaY = scrollY ? distance(subjectRect.top, subjectRect.bottom, box.top, box.bottom) : 0;
             if (deltaX === 0 && deltaY === 0) continue;
-            const x = (box.left + box.right) / 2;
-            const y = (box.top + box.bottom) / 2;
-            const hit = document.elementFromPoint(x, y);
-            if (!hit || !scroller.contains(hit)) continue;
-            return {
+            const insetX = Math.min(1, (box.right - box.left) / 2);
+            const insetY = Math.min(1, (box.bottom - box.top) / 2);
+            const points: Array<[number, number]> = [
+                [
+                    (box.left + box.right) / 2,
+                    (box.top + box.bottom) / 2,
+                ],
+                [
+                    box.right - insetX,
+                    box.top + insetY,
+                ],
+                [
+                    box.left + insetX,
+                    box.top + insetY,
+                ],
+                [
+                    box.right - insetX,
+                    box.bottom - insetY,
+                ],
+                [
+                    box.left + insetX,
+                    box.bottom - insetY,
+                ],
+            ];
+            const point = points.find(([
                 x,
                 y,
+            ]) => {
+                const hit = document.elementFromPoint(x, y);
+                if (!hit || !scroller.contains(hit)) return false;
+                // A descendant panel can consume the wheel before the panel
+                // we need to move. Aim at an exposed part of that panel.
+                for (let child: Element | null = hit; child && child !== scroller; child = child.parentElement) {
+                    const childStyle = getComputedStyle(child);
+                    if ((deltaX !== 0 && scrolls(childStyle.overflowX) && child.scrollWidth > child.clientWidth)
+                        || (deltaY !== 0 && scrolls(childStyle.overflowY) && child.scrollHeight > child.clientHeight)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+            if (!point) continue;
+            return {
+                x: point[0],
+                y: point[1],
                 deltaX,
                 deltaY,
             };
@@ -231,7 +269,7 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
             previous = null;
             continue;
         }
-        // The aim point is the centre of the scroller the step selected, so the
+        // The aim point belongs to the scroller the step selected, so the
         // same point needing the same distance again means that scroller did
         // not move; a step into another scroller is progress.
         const stalled = previous !== null

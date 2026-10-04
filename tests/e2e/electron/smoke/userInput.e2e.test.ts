@@ -103,6 +103,22 @@ describe('trusted pointer harness', () => {
         });
     });
 
+    it('wheels the outer panel at a point where a nested panel cannot consume its wheel', async () => {
+        const {page} = sessions.getSession();
+        await mountPointerFixture(page, `
+            <div data-scroller style="position:absolute;left:40px;top:40px;width:260px;height:180px;overflow:auto">
+                <div style="width:220px;height:140px;overflow:auto"><div style="height:600px"></div></div>
+                <div style="height:250px"></div>
+                <button data-target="outer">Outer target</button>
+            </div>
+        `);
+        await clickAsUser(page, '[data-target="outer"]', {timeoutMs: 3000});
+        expect(await readPointerOutcome(page)).toMatchObject({
+            clicked: 'outer',
+            trusted: 'true',
+        });
+    });
+
     it('refuses a target covered by a dialog and clicks it after the dialog is dismissed', async () => {
         const {page} = sessions.getSession();
         await mountPointerFixture(page, `
