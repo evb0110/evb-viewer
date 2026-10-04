@@ -119,11 +119,33 @@ const providerRuntimeStates = createAssistantProviderRuntimeStates();
 const codexProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'codex');
 const claudeProviderRuntime = getAssistantProviderRuntimeState(providerRuntimeStates, 'claude');
 let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
-interface IClaudeRuntimeModule {ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;}
+interface IClaudeRuntimeModule {
+    discoverClaudeAssistantModels(cwd: string, executablePath: string | null): Promise<IAgentAssistantModelOption[]>;
+    ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;
+}
 let claudeRuntimeModulePromise: Promise<IClaudeRuntimeModule> | null = null;
 async function loadClaudeRuntimeModule() {
     claudeRuntimeModulePromise ??= import('@electron/features/agent/claudeAgentSdkAssistant') as Promise<IClaudeRuntimeModule>;
     return claudeRuntimeModulePromise;
+}
+
+let modelDiscovery: Promise<void> | null = null;
+async function discoverAssistantModels() {
+    modelDiscovery ??= Promise.all([
+        runtimeLifecycle.refreshCodexModelList().catch(error => logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`)),
+        (async () => {
+            const info = await refreshClaudeInfo();
+            if (!info.installed) {
+                return;
+            }
+            const provider = await loadClaudeRuntimeModule();
+            const models = await provider.discoverClaudeAssistantModels(await ensureAssistantCwd(), info.executablePath);
+            if (models.length > 0) {
+                claudeAssistantModels = models;
+            }
+        })().catch(error => logger.warn(`Failed to read Claude model list: ${getErrorMessage(error)}`)),
+    ]).then(() => undefined);
+    await modelDiscovery;
 }
 
 const sessionStore = createAssistantChatSessionStore({
@@ -814,8 +836,10 @@ export async function getAgentAssistantState(
         await shutdownAgentAssistant();
         return currentState(scope, selection);
     }
-    // State reads may inspect cached provider metadata, but never start a
-    // provider runtime. A first send/login/install operation owns startup.
+    // Metadata probes close without creating a chat, MCP server or model turn.
+    if (request?.discoverModels) {
+        await discoverAssistantModels();
+    }
     if (selection.provider === 'codex') {
         await runtimeLifecycle.refreshCodexInfo();
         await runtimeLifecycle.refreshCodexAuthStateWithoutRuntime();

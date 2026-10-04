@@ -103,6 +103,30 @@ describe('claudeAgentSdkAssistant', () => {
         sdkMocks.query.mockReset();
     });
 
+    it('automatically puts the latest resolved Opus ahead of older models', () => {
+        expect(normalizeClaudeSdkModelList([
+            {
+                value: 'fable',
+                resolvedModel: 'claude-fable-5-1',
+                displayName: 'Fable',
+            },
+            {
+                value: 'old-opus',
+                resolvedModel: 'claude-opus-5-5',
+                displayName: 'Opus',
+            },
+            {
+                value: 'opus',
+                resolvedModel: 'claude-opus-5-6',
+                displayName: 'Opus',
+            },
+        ]).map(model => model.label)).toEqual([
+            'Opus 5.6',
+            'Opus 5.5',
+            'Fable 5.1',
+        ]);
+    });
+
     it('matches persisted Claude model ids to current provider rows', () => {
         const models = [
             {
@@ -167,12 +191,12 @@ describe('claudeAgentSdkAssistant', () => {
                 'Opus 5.5 (1M context)',
             ],
             [
-                'fable',
-                'Fable 5.1',
-            ],
-            [
                 'opus',
                 'Opus 5.5',
+            ],
+            [
+                'fable',
+                'Fable 5.1',
             ],
             [
                 'custom',
@@ -220,21 +244,6 @@ describe('claudeAgentSdkAssistant', () => {
             },
         ])).toEqual([
             {
-                id: 'claude-fable-5-1',
-                label: 'Fable 5.1',
-                resolvedModel: 'claude-fable-5-1',
-                reasoningEfforts: [
-                    {
-                        id: 'low',
-                        label: 'Low',
-                    },
-                    {
-                        id: 'medium',
-                        label: 'Medium',
-                    },
-                ],
-            },
-            {
                 id: 'opus',
                 label: 'Opus 5.5',
                 resolvedModel: 'claude-opus-5-5',
@@ -249,6 +258,22 @@ describe('claudeAgentSdkAssistant', () => {
                     },
                 ],
             },
+            {
+                id: 'claude-fable-5-1',
+                label: 'Fable 5.1',
+                resolvedModel: 'claude-fable-5-1',
+                reasoningEfforts: [
+                    {
+                        id: 'low',
+                        label: 'Low',
+                    },
+                    {
+                        id: 'medium',
+                        label: 'Medium',
+                    },
+                ],
+            },
+
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);
     });

@@ -527,12 +527,25 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
     }
 
     async function refreshCodexModelList() {
-        if (!runtime) {
+        const info = runtime ? null : await refreshCodexInfo();
+        const path = runtime?.codexPath ?? (info?.isVersionSupported ? info.path : null);
+        if (!path) {
             return;
         }
-
+        await fsPromises.mkdir(getAssistantCodexHome(), { recursive: true });
+        const client = runtime?.client ?? new CodexAppServerClient(
+            path,
+            createCodexProcessEnvironment(getAssistantCodexHome()),
+            await ensureAssistantCwd(),
+            () => undefined,
+            () => undefined,
+        );
+        const ownsClient = client !== runtime?.client;
         try {
-            const response = await runtime.client.requestDecoded(
+            if (ownsClient) {
+                await client.initialize();
+            }
+            const response = await client.requestDecoded(
                 'model/list',
                 { includeHidden: false },
                 normalizeCodexModelListResponse,
@@ -546,6 +559,10 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             }
         } catch (error) {
             options.logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`);
+        } finally {
+            if (ownsClient) {
+                await client.shutdown();
+            }
         }
     }
 
@@ -605,6 +622,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         refreshAuthState,
         refreshAuthStateAndRuntimeAvailability,
         refreshCodexInfo,
+        refreshCodexModelList,
         refreshCodexAuthStateWithoutRuntime,
         setCodexInfo,
         shutdownCodexRuntime,

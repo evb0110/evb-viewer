@@ -252,7 +252,7 @@ describe('mounted assistant panel lifecycle', () => {
         mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
         const harness = await mountHarness(null);
 
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-6-astra');
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-6.1-sol');
         harness.unmount();
     });
 
@@ -318,7 +318,7 @@ describe('mounted assistant panel lifecycle', () => {
         mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
         const harness = await mountHarness(null);
 
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-6-astra');
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-6.1-sol');
         harness.unmount();
     });
 

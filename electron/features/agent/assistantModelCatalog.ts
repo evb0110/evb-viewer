@@ -5,6 +5,7 @@ import type {
 } from '@contracts/agent';
 import {
     CODEX_ASSISTANT_DEFAULT_MODEL,
+    CODEX_ASSISTANT_FALLBACK_MODELS,
     getAssistantEffortFallbackLabel,
     normalizeAssistantEffortId,
 } from '@contracts/agentModels';
@@ -179,8 +180,9 @@ export function normalizeCodexModelListResponse(value: unknown) {
         return null;
     }
 
+    const data = value.data;
     const seen = new Set<string>();
-    const listedModels = value.data
+    const listedModels = data
         .map(normalizeCodexModelOption)
         .filter((model): model is TCodexAssistantModelOption => {
             if (!model || seen.has(model.id)) {
@@ -189,6 +191,13 @@ export function normalizeCodexModelListResponse(value: unknown) {
             seen.add(model.id);
             return true;
         });
+    // An unsigned CLI can return an older bundled catalog. Its workhorse must
+    // not replace the current startup fallback with an already superseded Sol.
+    if (listedModels.some(model => CODEX_GPT_MODEL_VERSION_PATTERN.test(model.id) && /-sol$/iu.test(model.id))) {
+        listedModels.push(...CODEX_ASSISTANT_FALLBACK_MODELS.filter(model => !seen.has(model.id) && !data.some((raw: unknown) => (
+            isRecord(raw) && raw.hidden === true && (raw.model === model.id || raw.id === model.id)
+        ))));
+    }
     const versions = listedModels.flatMap(model => {
         const match = CODEX_GPT_MODEL_VERSION_PATTERN.exec(model.id);
         return match
@@ -203,16 +212,29 @@ export function normalizeCodexModelListResponse(value: unknown) {
         return listedModels;
     }
 
-    const newest = versions.reduce((current, candidate) => (
-        candidate.major > current.major
-        || (candidate.major === current.major && candidate.minor > current.minor)
-            ? candidate
-            : current
-    ));
-    return listedModels.filter(model => {
+    const baseline = CODEX_GPT_MODEL_VERSION_PATTERN.exec(CODEX_ASSISTANT_DEFAULT_MODEL);
+    const newestMajor = Math.max(...versions.map(version => version.major));
+    // Minor releases replace their own family, not other current-generation models.
+    const current = versions.filter(version => version.major === newestMajor);
+    const retained = listedModels.filter(model => {
         const version = versions.find(candidate => candidate.model.id === model.id);
-        return !version || (version.major === newest.major && version.minor === newest.minor);
+        if (!version) {
+            return true;
+        }
+        const family = model.id.replace(CODEX_GPT_MODEL_VERSION_PATTERN, '');
+        const belowBaseline = family === CODEX_ASSISTANT_DEFAULT_MODEL.replace(CODEX_GPT_MODEL_VERSION_PATTERN, '')
+            && baseline && (version.major < Number(baseline[1])
+                || (version.major === Number(baseline[1]) && version.minor < Number(baseline[2] ?? 0)));
+        return !belowBaseline && version.major === newestMajor && !current.some(candidate => (
+            candidate.model.id.replace(CODEX_GPT_MODEL_VERSION_PATTERN, '') === family
+            && candidate.minor > version.minor
+        ));
     });
+    return retained.sort((left, right) => (
+        Number(!/-sol$/iu.test(left.id)) - Number(!/-sol$/iu.test(right.id))
+        || (versions.find(version => version.model.id === right.id)?.minor ?? 0)
+        - (versions.find(version => version.model.id === left.id)?.minor ?? 0)
+    ));
 }
 
 export function resolveCodexDefaultModelId(models: readonly TCodexAssistantModelOption[]) {

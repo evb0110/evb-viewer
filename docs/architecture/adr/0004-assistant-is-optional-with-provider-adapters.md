@@ -33,6 +33,13 @@ disabled setting refuses assistant initialization and tool execution. Issue
 [#327](https://github.com/evb0110/evb-viewer/issues/327) completes this split
 without replacing the existing lazy facade.
 
+Opening the enabled assistant panel explicitly requests model metadata for both
+providers. These short-lived metadata probes submit no prompt, persist no chat,
+start no embedded MCP server, and close after discovery. Ordinary status and
+availability reads remain passive. Provider catalogs determine current versions;
+minor releases replace their own model family without hiding other current
+families.
+
 Retain the Claude Agent SDK and the pinned Codex CLI acquisition path. The
 Codex artifact manifest, publisher URL, redirects, archive size, and SHA-256
 checks remain part of that path. Lazy loading reduces startup work. It does not

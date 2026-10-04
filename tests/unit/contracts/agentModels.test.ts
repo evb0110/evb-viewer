@@ -20,20 +20,20 @@ describe('assistant model defaults', () => {
     });
 
     it('keeps one current Codex fallback before model discovery', () => {
-        expect(CODEX_ASSISTANT_DEFAULT_MODEL).toBe('gpt-6-astra');
+        expect(CODEX_ASSISTANT_DEFAULT_MODEL).toBe('gpt-6.1-sol');
         expect(CODEX_ASSISTANT_FALLBACK_MODELS).toMatchObject([{
-            id: 'gpt-6-astra',
-            label: 'GPT-6-Astra',
+            id: 'gpt-6.1-sol',
+            label: 'GPT-6.1-Sol',
             defaultReasoningEffort: 'medium',
             defaultServiceTier: 'fast',
         }]);
     });
 
-    it('keeps unversioned Claude fallback labels and defaults to Opus', () => {
+    it('keeps current Claude fallback labels and defaults to Opus', () => {
         expect(CLAUDE_ASSISTANT_DEFAULT_MODEL).toBe('opus');
         expect(CLAUDE_ASSISTANT_MODELS.map(model => model.label)).toEqual([
-            'Opus',
-            'Fable',
+            'Opus 5.5',
+            'Fable 5.1',
         ]);
     });
 

@@ -574,6 +574,7 @@ const agentAssistantStateSchema = v.object({
     messages: v.array(agentAssistantChatMessageSchema),
 });
 const agentAssistantStateRequestSchema = v.object({
+    discoverModels: v.optional(v.boolean()),
     scope: v.optional(v.nullable(agentAssistantChatScopeSchema)),
     provider: v.optional(agentAssistantProviderIdSchema),
     model: v.optional(v.string()),

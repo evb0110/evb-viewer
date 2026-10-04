@@ -107,11 +107,11 @@ export function getAssistantPreferredModelId(
 export const CLAUDE_ASSISTANT_MODELS = [
     {
         id: 'opus',
-        label: 'Opus',
+        label: 'Opus 5.5',
     },
     {
         id: 'fable',
-        label: 'Fable',
+        label: 'Fable 5.1',
     },
 ] as const satisfies readonly IAgentAssistantModelOption[];
 
@@ -120,7 +120,7 @@ export const CLAUDE_ASSISTANT_DEFAULT_MODEL = getAssistantPreferredModelId(
     'opus',
 );
 
-const CODEX_ASSISTANT_FALLBACK_MODEL_ID = 'gpt-6-astra';
+const CODEX_ASSISTANT_FALLBACK_MODEL_ID = 'gpt-6.1-sol';
 
 export const CODEX_ASSISTANT_FALLBACK_MODELS = [{
     id: CODEX_ASSISTANT_FALLBACK_MODEL_ID,

@@ -1,3 +1,4 @@
+import { CODEX_ASSISTANT_FALLBACK_MODELS } from '@contracts/agentModels';
 import { readFileSync } from 'node:fs';
 import {
     describe,
@@ -11,6 +12,42 @@ import {
 } from '@electron/features/agent/assistantModelCatalog';
 
 describe('agent assistant model catalog', () => {
+    it('keeps current Astra and Luna while replacing and promoting an updated Sol', () => {
+        const models = normalizeCodexModelListResponse({ data: [
+            {
+                model: 'gpt-6-astra',
+                isDefault: true,
+            },
+            { model: 'gpt-6-sol' },
+            { model: 'gpt-6-luna' },
+            { model: 'gpt-6.1-sol' },
+            { model: 'gpt-5.6-terra' },
+        ] }) ?? [];
+        expect(models.map(model => model.id)).toEqual([
+            'gpt-6.1-sol',
+            'gpt-6-astra',
+            'gpt-6-luna',
+        ]);
+    });
+
+    it('automatically promotes a later Sol release and honors a hidden baseline', () => {
+        expect(normalizeCodexModelListResponse({ data: [
+            { model: 'gpt-6.1-sol' },
+            { model: 'gpt-6.2-sol' },
+            { model: 'gpt-6-astra' },
+        ] })?.map(model => model.id)).toEqual([
+            'gpt-6.2-sol',
+            'gpt-6-astra',
+        ]);
+        expect(normalizeCodexModelListResponse({ data: [
+            { model: 'gpt-6-sol' },
+            {
+                model: 'gpt-6.1-sol',
+                hidden: true,
+            },
+        ] })?.map(model => model.id)).toEqual([]);
+    });
+
     it('reads a real Codex 0.157.1 app-server model/list response', () => {
         const response = JSON.parse(readFileSync(
             'tests/fixtures/electron/codex-app-server-model-list-0.157.1.json',
@@ -23,13 +60,13 @@ describe('agent assistant model catalog', () => {
             model.defaultReasoningEffort,
         ])).toEqual([
             [
-                'gpt-6-astra',
-                'GPT-6-Astra',
+                'gpt-6.1-sol',
+                'GPT-6.1-Sol',
                 'medium',
             ],
             [
-                'gpt-6-sol',
-                'GPT-6-Sol',
+                'gpt-6-astra',
+                'GPT-6-Astra',
                 'medium',
             ],
             [
@@ -101,6 +138,7 @@ describe('agent assistant model catalog', () => {
         ]});
 
         expect(models).toEqual([
+            ...CODEX_ASSISTANT_FALLBACK_MODELS,
             {
                 id: 'gpt-6-astra',
                 label: 'GPT-6-Astra Live',
@@ -138,14 +176,6 @@ describe('agent assistant model catalog', () => {
                 isDefault: true,
             },
             {
-                id: 'gpt-6-sol',
-                label: 'GPT-6-Sol',
-                serviceTiers: [{
-                    id: 'fast',
-                    label: 'Fast',
-                }],
-            },
-            {
                 id: 'custom-runtime-model',
                 label: 'Custom Runtime Model',
             },
@@ -178,15 +208,15 @@ describe('agent assistant model catalog', () => {
         ]}) ?? [];
 
         expect(models.map(model => model.id)).toEqual([
+            'gpt-6.1-sol',
             'custom-runtime-model',
-            'gpt-6-sol',
             'gpt-6-astra',
         ]);
         expect(resolveCodexModelStatus(models, 'gpt-5.6-sol')).toMatchObject({
-            defaultModel: 'gpt-6-sol',
-            activeModel: 'gpt-6-sol',
+            defaultModel: 'gpt-6.1-sol',
+            activeModel: 'gpt-6.1-sol',
         });
-        expect(normalizeCodexAssistantModelFromCatalog([], 'gpt-5.6-sol')).toBe('gpt-6-astra');
+        expect(normalizeCodexAssistantModelFromCatalog([], 'gpt-5.6-sol')).toBe('gpt-6.1-sol');
     });
 
     it('deduplicates visible Codex models and ignores hidden and blank records', () => {
@@ -212,13 +242,10 @@ describe('agent assistant model catalog', () => {
             },
             null,
         ]})).toEqual([
+            ...CODEX_ASSISTANT_FALLBACK_MODELS,
             {
                 id: 'gpt-6-astra',
                 label: 'GPT-6-Astra',
-            },
-            {
-                id: 'gpt-6-sol',
-                label: 'gpt-6-sol',
             },
         ]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();

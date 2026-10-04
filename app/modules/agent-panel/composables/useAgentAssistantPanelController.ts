@@ -733,7 +733,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     async function refreshState() {
         const generation = ++stateGeneration;
         lastRefreshStartedAt = Date.now();
-        const nextState = await getAgentCapability().getAssistantState(createAssistantStateRequest());
+        const nextState = await getAgentCapability().getAssistantState({
+            ...createAssistantStateRequest(),
+            discoverModels: true,
+        });
         if (generation === stateGeneration) {
             applyState(nextState);
         }

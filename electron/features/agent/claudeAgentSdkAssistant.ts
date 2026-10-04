@@ -223,7 +223,37 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
     // The SDK's "default" row repeats another row's model under an alias.
     return models.filter(model => model.id !== 'default' || !models.some(other => (
         other !== model && other.resolvedModel === model.resolvedModel
-    )));
+    ))).sort((left, right) => {
+        const leftVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(left.resolvedModel ?? left.id);
+        const rightVersion = CLAUDE_RESOLVED_MODEL_PATTERN.exec(right.resolvedModel ?? right.id);
+        return Number(!left.id.includes('opus')) - Number(!right.id.includes('opus'))
+            || Number(rightVersion?.[2] ?? 0) - Number(leftVersion?.[2] ?? 0)
+            || Number(rightVersion?.[3] ?? 0) - Number(leftVersion?.[3] ?? 0);
+    });
+}
+
+// Ask only for metadata. The empty prompt queue never submits a model turn.
+export async function discoverClaudeAssistantModels(cwd: string, executablePath: string | null) {
+    const prompts = new ClaudePromptQueue();
+    const metadata = query({
+        prompt: prompts,
+        options: {
+            cwd,
+            ...(executablePath ? { pathToClaudeCodeExecutable: executablePath } : {}),
+            tools: [],
+            mcpServers: {},
+            strictMcpConfig: true,
+            settingSources: [],
+            persistSession: false,
+            permissionMode: 'dontAsk',
+        },
+    });
+    try {
+        return normalizeClaudeSdkModelList(await metadata.supportedModels());
+    } finally {
+        prompts.close();
+        metadata.close();
+    }
 }
 
 function extractDataUrlBase64(dataUrl: string) {
