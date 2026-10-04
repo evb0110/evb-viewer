@@ -473,9 +473,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     let mandatoryRasterId = 0;
     let pendingMandatoryRaster: IPdfViewportMandatoryRaster | null = null;
-    // Resolves true when the request's own raster pass settled, false when a
-    // newer mandatory request superseded it or the demand was cancelled.
-    const mandatoryRasterResolvers = new Map<number, (settled: boolean) => void>();
+    // Resolves true once the range painted or a page in it failed to render; false when its
+    // pass ended without those pixels, a newer request superseded it or the demand was cancelled.
+    let resolvePendingMandatoryRaster = (_settled: boolean) => {};
     let demandRevision = 0;
     function estimatePageRasterPixels(pageNumber: TPageNumber) {
         const metric = pageMetrics.value[pageNumber - 1];
@@ -611,10 +611,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         range: IPageRange,
         renderOptions: IRenderVisiblePagesOptions = {},
     ) {
-        if (pendingMandatoryRaster) {
-            mandatoryRasterResolvers.get(pendingMandatoryRaster.id)?.(false);
-            mandatoryRasterResolvers.delete(pendingMandatoryRaster.id);
-        }
+        resolvePendingMandatoryRaster(false);
         return new Promise<boolean>((resolve) => {
             const id = ++mandatoryRasterId;
             pendingMandatoryRaster = {
@@ -631,24 +628,20 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                     preserveRenderedPages: renderOptions.preserveRenderedPages ?? true,
                 },
             };
-            mandatoryRasterResolvers.set(id, resolve);
+            resolvePendingMandatoryRaster = resolve;
             publishDemand();
         });
     }
-    function settleMandatoryRaster(id: number) {
-        mandatoryRasterResolvers.get(id)?.(true);
-        mandatoryRasterResolvers.delete(id);
+    function settleMandatoryRaster(id: number, settled: boolean) {
         if (pendingMandatoryRaster?.id !== id) {
             return;
         }
+        resolvePendingMandatoryRaster(settled);
         pendingMandatoryRaster = null;
         publishDemand();
     }
     function cancelMandatoryRaster() {
-        for (const resolve of mandatoryRasterResolvers.values()) {
-            resolve(false);
-        }
-        mandatoryRasterResolvers.clear();
+        resolvePendingMandatoryRaster(false);
         pendingMandatoryRaster = null;
         publishDemand();
     }
