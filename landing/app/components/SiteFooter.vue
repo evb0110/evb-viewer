@@ -4,7 +4,7 @@
 
     <div class="footer-copy">
       <p class="footer-title">{{ t('app.title') }}</p>
-      <p class="footer-meta">{{ t('footer.copyright') }}</p>
+      <p class="footer-meta"><SiteCopyright /></p>
     </div>
 
     <div class="footer-links">
@@ -29,6 +29,7 @@
 <script setup lang="ts">
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import SentryAcknowledgement from './SentryAcknowledgement.vue';
+import SiteCopyright from './SiteCopyright.vue';
 
 const { t } = useTypedI18n();
 const localePath = useLocalePath();

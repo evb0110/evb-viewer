@@ -328,7 +328,7 @@
     </main>
 
     <footer class="home-bottom">
-      <span class="home-copyright">{{ t('footer.copyright') }} · {{ t('footer.license') }}</span>
+      <span class="home-copyright"><SiteCopyright /> · {{ t('footer.license') }}</span>
       <nav
         class="home-links"
         :aria-label="t('footer.linksLabel')"
@@ -352,6 +352,7 @@ import { track } from '@vercel/analytics';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
 import SentryAcknowledgement from '~/components/SentryAcknowledgement.vue';
+import SiteCopyright from '~/components/SiteCopyright.vue';
 import {
     buildClientProfile,
     formatFileSize,

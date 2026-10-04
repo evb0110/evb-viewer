@@ -13,7 +13,8 @@ export default {
         github: 'GitHub',
     },
     footer: {
-        copyright: 'Copyright © 2026 Eugene Barsky',
+        copyright: 'Copyright © 2026 {author}',
+        author: 'Eugene Barsky',
         docs: 'Documentación',
         features: 'Funciones',
         viewSource: 'Ver código fuente',
