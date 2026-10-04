@@ -889,12 +889,15 @@ describe('automation menu item activation', () => {
         expect(secondWindow.webContents.send).not.toHaveBeenCalled();
 
         setMenuDocumentState(2, true);
-        secondWindow.webContents.send.mockImplementation(() => {
+        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run));
+        // sendToWindow checks the renderer before its own try, so this throw
+        // reaches the deferred run's guard.
+        secondWindow.webContents.isDestroyed.mockImplementation(() => {
             throw new Error('renderer gone');
         });
-        activateApplicationMenuItem({accelerator: 'CmdOrCtrl+W'}, run => deferred.push(run));
         expect(() => deferred.splice(0).forEach(run => run())).not.toThrow();
-        expect(secondWindow.webContents.send).toHaveBeenCalledWith('menu:closeTab');
+        expect(secondWindow.webContents.isDestroyed).toHaveBeenCalled();
+        expect(secondWindow.webContents.send).not.toHaveBeenCalled();
     });
 
     it('reports a disabled item and does not run it', () => {
