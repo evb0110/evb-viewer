@@ -14,6 +14,7 @@ describe('Electron E2E - assistant model discovery', () => {
     const fixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-assistant-model-picker-${Date.now()}`,
         timeoutMs: 60_000,
+        extraEnv: { CODEX_CLI_PATH: resolve(`tests/fixtures/electron/codex-model-picker.${process.platform === 'win32' ? 'cmd' : 'mjs'}`) },
     });
 
     it('shows current Sol and versioned Opus first without superseded Sol', async () => {
