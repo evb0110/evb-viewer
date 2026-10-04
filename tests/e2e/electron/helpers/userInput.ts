@@ -238,7 +238,9 @@ export async function clickFoundAsUser<TArg>(
  * A menu accelerator as a person presses it: the main process runs the
  * application-menu item with this id or accelerator, honouring its enabled
  * and visible state, against the window the key would reach. Page key events
- * never reach the native menu on macOS. Fails when the item does not run.
+ * never reach the native menu on macOS. Fails when the item cannot run.
+ * Returns before the item runs, so an item that closes the window still
+ * reports; wait for its effect as after a key press.
  */
 export async function activateMenuItemAsUser(page: Page, query: TApplicationMenuItemQuery) {
     const result = await activateElectronMenuItem(page, query);

@@ -89,10 +89,13 @@ function assertAutomationCheckpointReset() {
 
 function registerAutomationHandlers(ipcMain: Electron.IpcMain) {
     const channel = CORE_IPC_CHANNELS.activateMenuItemForAutomation;
+    // Electron sends the reply once this handler's promise settles, which is
+    // before an immediate runs. The item runs after it, so one that closes the
+    // window or quits cannot take the renderer away before the caller hears it ran.
     createValidatedIpcMainRegistrar(ipcMain, {
         allowedChannels: new Set([channel]),
         codecs: {[channel]: {decodeArgs: args => [decodeApplicationMenuItemQuery(args[0])]}},
-    }).handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query));
+    }).handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query, run => setImmediate(run)));
 }
 
 export function registerCoreIpcHandlers(
