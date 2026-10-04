@@ -1,7 +1,11 @@
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
-import {createServer} from 'node:http';
+import {once} from 'node:events';
 import {resolve} from 'node:path';
+import {
+    findFreePort, isProcessAlive, killProcessTree,
+} from '@scripts/electron-run/electronRunProcessTree';
+import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     PDFDocument,
     StandardFonts,
@@ -46,28 +50,15 @@ interface IBrowserLifecycleTestApi {
     }>;
 }
 
-async function reservePort() {
-    const reservation = createServer();
-    await new Promise<void>((resolveListen, rejectListen) => {
-        reservation.once('error', rejectListen);
-        reservation.listen(0, '127.0.0.1', resolveListen);
-    });
-    const address = reservation.address();
-    if (!address || typeof address === 'string') {
-        throw new Error('Browser lifecycle test could not reserve a port');
-    }
-    await new Promise<void>(resolveClose => reservation.close(() => resolveClose()));
-    return address.port;
-}
-
 async function waitForServer(url: string) {
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
-        if (devServer?.exitCode !== null) {
+        if (devServer?.exitCode !== null || devServer.signalCode !== null) {
             throw new Error(`Nuxt exited before becoming ready:\n${serverOutput.slice(-8_000)}`);
         }
         try {
-            const response = await fetch(url);
+            const response = await fetch(url, {signal: AbortSignal.timeout(Math.max(1, deadline - Date.now()))});
+            await response.body?.cancel();
             if (response.ok) {
                 return;
             }
@@ -119,25 +110,21 @@ function keepFileChooserInterceptionEnabled(page: Page) {
 async function stopServer() {
     const server = devServer;
     devServer = null;
-    if (!server || server.exitCode !== null) {
+    if (!server?.pid) {
         return;
     }
-    server.kill('SIGTERM');
-    await Promise.race([
-        new Promise<void>(resolveExit => server.once('exit', () => resolveExit())),
-        new Promise<void>(resolveTimeout => setTimeout(resolveTimeout, 5_000)),
-    ]);
-    if (server.exitCode === null) {
-        server.kill('SIGKILL');
+    await killProcessTree(server.pid);
+    if (isProcessAlive(server.pid)) {
+        throw new Error('The browser lifecycle Nuxt process did not exit');
     }
 }
 
 beforeAll(async () => {
-    const port = await reservePort();
+    const port = await findFreePort();
     origin = `http://127.0.0.1:${String(port)}`;
-    devServer = spawn('pnpm', [
-        'exec',
-        'nuxi',
+    const sessionName = `browser-lifecycle-${process.pid}`;
+    devServer = spawn(process.execPath, [
+        resolve(process.cwd(), 'node_modules/nuxt/bin/nuxt.mjs'),
         'dev',
         '--host',
         '127.0.0.1',
@@ -145,10 +132,9 @@ beforeAll(async () => {
         String(port),
     ], {
         cwd: process.cwd(),
-        env: {
-            ...process.env,
-            NODE_ENV: 'test',
-        },
+        // The shared launcher isolates build/output/cache, strips Vitest's
+        // child environment and keeps Nitro's macOS socket path short.
+        env: buildNuxtDevServerEnv(process.env, port, sessionName),
         stdio: [
             'ignore',
             'pipe',
@@ -160,6 +146,7 @@ beforeAll(async () => {
     };
     devServer.stdout?.on('data', captureOutput);
     devServer.stderr?.on('data', captureOutput);
+    await once(devServer, 'spawn');
     await waitForServer(origin);
 }, 120_000);
 

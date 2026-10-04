@@ -45,10 +45,9 @@ if [ "$host_display_isolation" = "xvfb" ]; then
   # compositor over the private X server.
   unset WAYLAND_DISPLAY
   export XDG_SESSION_TYPE=x11
-  # xvfb-run defaults to a 1280x1024 screen, which caps the real window a test
-  # can ask for at about 1279x996 once the frame is counted. Give tests a
-  # display an ordinary desktop window fits on.
-  exec xvfb-run -a -s "-screen 0 ${EVB_XVFB_SCREEN:-1920x1200x24}" "${test_command[@]}"
+  # Fit the canonical 900x672 content window at native scale 2, including
+  # its frame. A 1200-pixel screen clips its height at that scale.
+  exec xvfb-run -a -s "-screen 0 ${EVB_XVFB_SCREEN:-1920x1440x24}" "${test_command[@]}"
 fi
 
 exec "${test_command[@]}"

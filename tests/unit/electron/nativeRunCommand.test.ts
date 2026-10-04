@@ -140,7 +140,16 @@ describe('runNativeCommand', () => {
     it('keeps concurrent native invocations in separate scratch directories', async () => {
         vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
         const scratchRoot = await mkdtemp(join(tmpdir(), 'native-run-command-test-'));
-        mocks.createManagedScratchTempDir.mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
+        const secondSpawned = Promise.withResolvers<number>();
+        // Filesystem work may finish out of call order. Hold the first
+        // allocation until the second invocation has actually spawned.
+        mocks.createManagedScratchTempDir
+            .mockImplementationOnce(async (prefix) => {
+                const path = await mkdtemp(join(scratchRoot, prefix));
+                await secondSpawned.promise;
+                return path;
+            })
+            .mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
         mocks.removeManagedScratchTempDir.mockImplementation(async path => {
             await rm(path, {
                 force: true,
@@ -148,14 +157,25 @@ describe('runNativeCommand', () => {
             });
             return true;
         });
-        const firstProcess = new MockNativeProcess();
-        const secondProcess = new MockNativeProcess(42_425);
-        mocks.spawn.mockReturnValueOnce(firstProcess).mockReturnValueOnce(secondProcess);
+        const processes = [
+            new MockNativeProcess(),
+            new MockNativeProcess(42_425),
+        ];
+        mocks.spawn.mockReturnValueOnce(processes[0]).mockReturnValueOnce(processes[1]);
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
-        const firstResult = runNativeCommand('/bin/tool', []);
-        const secondResult = runNativeCommand('/bin/tool', []);
-        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(2));
+        const firstSpawned = Promise.withResolvers<number>();
+        const firstResult = runNativeCommand('/bin/tool', [], {onSpawn: firstSpawned.resolve});
+        const secondResult = runNativeCommand('/bin/tool', [], {onSpawn: secondSpawned.resolve});
+        const [
+            firstPid,
+            secondPid,
+        ] = await Promise.all([
+            firstSpawned.promise,
+            secondSpawned.promise,
+        ]);
+        const firstProcess = processes.find(proc => proc.pid === firstPid)!;
+        const secondProcess = processes.find(proc => proc.pid === secondPid)!;
         const firstScratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
         const secondScratch = await mocks.createManagedScratchTempDir.mock.results[1]!.value;
 

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 
-const projectRoot = resolve(__dirname, '..');
+const projectRoot = resolve(import.meta.dirname, '..');
 
 export const vitestResolveAlias = {
     // Nuxt's own alias for the generated build directory, so a test can read the
