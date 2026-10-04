@@ -6,6 +6,10 @@ packages:
 # Hold new registry releases for seven days before they can enter the lockfile.
 # This applies to direct and transitive dependencies.
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  # Security fix for GHSA-ch52-4w7c-c8xp, published 2026-10-04. Remove this
+  # exception after http-cache-semantics@4.3.0 has aged past the hold.
+  - http-cache-semantics@4.3.0
 
 # Release automation and Electron smoke need the real Electron binary on every
 # fresh install. Electron 43 downloads lazily when required, so the root
