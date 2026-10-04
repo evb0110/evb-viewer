@@ -361,26 +361,36 @@ async function zoomInTwiceAsReader(session: IElectronE2ESession, before: string)
 
 // From now on, the pages drawn with content (a PDF page's raster, a DjVu
 // page's committed image), in the order they are drawn.
+// Record the first pages painted inside the viewport: a rendered PDF page or a
+// decoded committed page image. Pages committed offscreen are not seen.
 async function recordDrawnPages(session: IElectronE2ESession) {
     await evaluateInPage(session.page, () => {
         const drawn: number[] = [];
         (window as Window & {__drawnPagesForTest?: number[]}).__drawnPagesForTest = drawn;
         const record = () => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
+            )?.getBoundingClientRect();
             for (const page of document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-document-page-number]')) {
                 const pageNumber = Number(page.dataset.documentPageNumber);
-                const hasContent = page.classList.contains('page_container--rendered')
-                    || page.querySelector('[data-document-page-visual="committed"]') !== null;
-                if (hasContent && !drawn.includes(pageNumber)) {
+                if (!viewport || drawn.includes(pageNumber)) {
+                    continue;
+                }
+                const image = page.querySelector<HTMLImageElement>('img[data-document-page-visual="committed"]');
+                const painted = page.classList.contains('page_container--rendered')
+                    ? page
+                    : (image?.complete && image.naturalWidth > 0 ? image : null);
+                const rect = painted?.getBoundingClientRect();
+                if (rect && rect.bottom > viewport.top && rect.top < viewport.bottom
+                    && rect.right > viewport.left && rect.left < viewport.right) {
                     drawn.push(pageNumber);
                 }
             }
+            if (drawn.length === 0) {
+                requestAnimationFrame(record);
+            }
         };
-        new MutationObserver(record).observe(document.body, {
-            subtree: true,
-            childList: true,
-            attributes: true,
-            attributeFilter: ['class'],
-        });
+        requestAnimationFrame(record);
     });
 }
 
@@ -1435,7 +1445,7 @@ describe('Electron E2E - Recent Files', () => {
         await waitForPdfLoaded(session.page);
         const defaultZoomLabel = await readZoomLabel(session);
         await goToPageViaToolbar(session.page, 27);
-        const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
+        await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
 
@@ -1454,11 +1464,13 @@ describe('Electron E2E - Recent Files', () => {
         await waitForRecentPdfOpen(session, fixturePath);
         await expectReadingPlace(session, 1, defaultZoomLabel);
 
-        // The same reopen without a move goes back to the remembered place.
+        // The place the reader kept is now the last reading: closing remembers
+        // it, and the next reopen returns there, not to the older place.
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForRecentFileRow(session, fixturePath);
         await clickRecentFile(session, fixturePath);
         await waitForRecentPdfOpen(session, fixturePath);
-        await expectReadingPlace(session, 27, readingZoomLabel);
+        await expectReadingPlace(session, 1, defaultZoomLabel);
     });
 });
 
