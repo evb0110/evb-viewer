@@ -787,6 +787,18 @@ describe('shared PDF split', () => {
         await waitForPaneView(page, rightPane!, 'the new view shows the document with the unsaved numbering', view => (
             !view.showsStart && view.centerPage !== null && view.active && view.tabDirty && view.saveDotLabel === 'Save changes'
         ));
+        // Issue #946: Fit Width settling in the new pane discarded its first raster, and the
+        // view showed "Unable to render this page" with Save disabled.
+        const firstPage = `${paneSelector(rightPane!)} #pdf-viewer .page_container[data-page="1"]`;
+        await page.waitForFunction((selector: string) => {
+            const container = document.querySelector(selector);
+            const canvas = container?.querySelector('canvas')?.getBoundingClientRect();
+            return !container?.querySelector('.pdf-page-render-error') && (canvas?.width ?? 0) > 0 && (canvas?.height ?? 0) > 0;
+        }, {timeout: SETTLE_TIMEOUT_MS}, firstPage).catch(async () => {
+            throw new Error(`the new view does not show its first page: ${await page.$eval(firstPage, element => (
+                element.querySelector('.pdf-page-render-error')?.textContent?.trim() ?? 'no painted canvas'
+            ))}`);
+        });
         const saveBaseline = await getLatestAutomationEventId(page);
         await clickToolbarButton(page, 'Save');
         await waitForAutomationEvent(page, 'save-committed', {
