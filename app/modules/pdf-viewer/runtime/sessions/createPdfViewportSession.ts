@@ -220,14 +220,17 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             pageNumber => pageLayoutScaleResolver.value?.(pageNumber) ?? scale.effectiveScale.value,
         );
     }
-    function getNavigationRenderTargetPage() {
-        return singlePageScroll.viewportAuthority.targetPage.value
-            ?? singlePageScroll.navigationAnchorPage.value;
-    }
-    function getProtectedVisibleRange() {
+    function getProtectedVisibleRange(): IPageRange {
+        // The committed range is a live reading of the previous layout. A page
+        // edit replaces the document before the viewport measures again, so
+        // project it into the current page count before the row policy runs.
+        const pageCount = Math.max(1, numPages.value);
         return resolvePdfProtectedVisibleRange({
-            visibleRange: visibleRange.value,
-            navigationTargetPage: getNavigationRenderTargetPage(),
+            visibleRange: {
+                start: clampPageNumber(visibleRange.value.start, pageCount),
+                end: clampPageNumber(visibleRange.value.end, pageCount),
+            },
+            navigationTargetPage: singlePageScroll.renderTargetPage.value,
             viewMode: options.viewMode.value,
             totalPages: numPages.value,
         });
@@ -486,15 +489,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             * Math.max(1, Math.round(height * scaled));
         return Math.min(requestedPixels, options.settledMaxCanvasPixels);
     }
-    function clampedProtectedVisibleRange(): IPageRange {
-        const requested = getProtectedVisibleRange();
-        const pageCount = Math.max(1, numPages.value);
-        const start = Math.max(1, Math.min(pageCount, Math.trunc(requested.start)));
-        return {
-            start,
-            end: Math.max(start, Math.min(pageCount, Math.trunc(requested.end))),
-        };
-    }
     const demand = shallowRef<IPdfViewportDemand>({
         revision: 0,
         visibleRange: {
@@ -512,7 +506,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     function resolveDemand(): IPdfViewportDemand {
         demandRevision += 1;
-        const range = clampedProtectedVisibleRange();
+        const range = getProtectedVisibleRange();
         const operational = (options.isActive.value || pendingMandatoryRaster !== null)
             && !isLoading.value
             && pdfDocument.value !== null
@@ -526,7 +520,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 residentPages: [],
                 mountedPages: [],
                 currentPage: currentPage.value,
-                destinationPage: getNavigationRenderTargetPage(),
+                destinationPage: singlePageScroll.renderTargetPage.value,
                 operational: false,
                 mandatoryRaster: pendingMandatoryRaster,
             };
@@ -542,7 +536,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const mounted = new Set(mountedPages);
         const requiredPages = plan.visiblePages.filter(page => mounted.has(page));
         const nearbyPages = plan.bufferPages.filter(page => mounted.has(page));
-        const committedViewportPages = getNavigationRenderTargetPage() === null
+        const committedViewportPages = singlePageScroll.renderTargetPage.value === null
             ? []
             : mountedPages.filter(page => (
                 page >= visibleRange.value.start
@@ -561,7 +555,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ])],
             mountedPages,
             currentPage: currentPage.value,
-            destinationPage: getNavigationRenderTargetPage(),
+            destinationPage: singlePageScroll.renderTargetPage.value,
             operational: true,
             mandatoryRaster: pendingMandatoryRaster,
         };

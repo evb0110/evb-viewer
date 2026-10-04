@@ -33,6 +33,10 @@ import {
 import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import { readViewportPageObservation } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
+    activateWorkspaceTab,
+    createNewWorkspaceTab,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
     getWorkspaceToolbarSnapshot,
     requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
@@ -50,6 +54,7 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
+import { E2E_CONTENT_SIZE } from '@tests/e2e/electron/helpers/userEnvironment';
 
 const OPEN_TIMEOUT_MS = 60_000;
 const SETTLE_TIMEOUT_MS = 30_000;
@@ -965,6 +970,105 @@ async function clickFitWidthWithTrustedInput(session: IElectronE2ESession) {
     await waitForAnimationFrames(session.page, 4);
 }
 
+async function readActiveSidebarPresentation(session: IElectronE2ESession) {
+    return evaluateInPage(session.page, () => {
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const content = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper:not(.is-closed) .sidebar-wrapper__content');
+        const zoom = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display-value, .zoom-controls-display'))
+            .find(element => element.checkVisibility())?.textContent?.trim() ?? null;
+        return {
+            sidebarWidth: content ? Math.round(content.getBoundingClientRect().width) : null,
+            zoom,
+        };
+    });
+}
+
+/** The real fit inputs behind a presentation sample, reported with any mismatch. */
+async function readActiveFitGeometry(session: IElectronE2ESession) {
+    return evaluateInPage(session.page, () => {
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const wrapper = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
+        const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+        const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+        const rect = viewport?.getBoundingClientRect();
+        return {
+            chassisResizing: chassis?.dataset.chassisResizing ?? null,
+            lifecycle: chassis?.dataset.viewportLifecycle ?? null,
+            viewport: viewport && rect
+                ? {
+                    clientHeight: viewport.clientHeight,
+                    clientWidth: viewport.clientWidth,
+                    left: rect.left,
+                    offsetWidth: viewport.offsetWidth,
+                    scrollHeight: viewport.scrollHeight,
+                    scrollTop: viewport.scrollTop,
+                    scrollWidth: viewport.scrollWidth,
+                    width: rect.width,
+                }
+                : null,
+            window: {
+                height: window.innerHeight,
+                width: window.innerWidth,
+            },
+            wrapperTargetWidth: wrapper?.style.width ?? null,
+            wrapperWidth: wrapper ? wrapper.getBoundingClientRect().width : null,
+        };
+    });
+}
+
+/**
+ * A sidebar drag, slide or tab transition holds the chassis in its layout
+ * resize, but the wrapper's CSS width transition also runs when a returning tab
+ * restores its width without a slide. The sample is taken only after both end,
+ * with the wrapper at its authored width, and the viewport session is ready
+ * with page 1 rendered, so it reads a finished fit.
+ */
+async function waitForSidebarFitSettled(session: IElectronE2ESession) {
+    await waitForFunctionInPage(session.page, () => {
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis');
+        const wrapper = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper');
+        if (chassis?.dataset.chassisResizing !== 'false' || !wrapper) {
+            return false;
+        }
+        const isWidthTransitioning = wrapper.getAnimations().some(animation => (
+            animation instanceof CSSTransition
+            && animation.transitionProperty === 'width'
+            && animation.playState !== 'finished'
+        ));
+        return !isWidthTransitioning
+            && window.getComputedStyle(wrapper).width === wrapper.style.width;
+    }, {timeout: SETTLE_TIMEOUT_MS});
+    await waitForFitSettlement(session, 1);
+}
+
+async function dragActiveSidebarResizerAsUser(session: IElectronE2ESession, deltaX: number) {
+    const start = await evaluateInPage(session.page, () => {
+        const rect = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper:not(.is-closed) .sidebar-resizer',
+        )?.getBoundingClientRect();
+        return rect ? {
+            x: rect.left + (rect.width / 2),
+            y: rect.top + (rect.height / 2),
+        } : null;
+    });
+    expect(start).not.toBeNull();
+    if (!start) {
+        return;
+    }
+    await session.page.mouse.move(start.x, start.y);
+    await session.page.mouse.down();
+    await session.page.mouse.move(start.x + deltaX, start.y, {steps: 10});
+    await session.page.mouse.up();
+    await waitForSidebarFitSettled(session);
+}
+
 describe('standard PDF.js fit-mode continuity', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-standard-pdf-fit-${Date.now()}`,
@@ -1684,5 +1788,62 @@ describe('standard PDF.js fit-mode continuity', () => {
             Math.max(0, rotatedGeometry.viewport.scrollWidth - rotatedGeometry.viewport.clientWidth),
             JSON.stringify(rotatedGeometry),
         ).toBeLessThanOrEqual(1);
+    }, 180_000);
+
+    it('keeps a dragged sidebar width and Fit Width zoom across tab switches and reopen', async () => {
+        const session = sessionFixture.getSession();
+        // The session's real 900x672 content area, the report's 900px window.
+        expect((await readActiveFitGeometry(session)).window).toEqual(E2E_CONTENT_SIZE);
+        const firstPdfPath = await createMultiPageTextFixturePdf(`standard-pdf-sidebar-a-${Date.now()}.pdf`, 6);
+        const secondPdfPath = await createMultiPageTextFixturePdf(`standard-pdf-sidebar-b-${Date.now()}.pdf`, 6);
+
+        await openPdfInApp(session.page, firstPdfPath, OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page, OPEN_TIMEOUT_MS);
+        await clickFitWidthWithTrustedInput(session);
+        await waitForSidebarFitSettled(session);
+        expect((await readActiveSidebarPresentation(session)).sidebarWidth).toBe(272);
+
+        // The reported sequence: a real drag to 372px, then tab switches.
+        await dragActiveSidebarResizerAsUser(session, 100);
+        const dragged = await readActiveSidebarPresentation(session);
+        const draggedGeometry = await readActiveFitGeometry(session);
+        expect(dragged.sidebarWidth, JSON.stringify({
+            dragged,
+            draggedGeometry,
+        })).toBe(372);
+
+        await createNewWorkspaceTab(session);
+        await openPdfInApp(session.page, secondPdfPath, OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+
+        const returns = [];
+        const returnGeometry = [];
+        for (let round = 0; round < 3; round += 1) {
+            await activateWorkspaceTab(session, 1);
+            await waitForSidebarFitSettled(session);
+            await activateWorkspaceTab(session, 0);
+            await waitForSidebarFitSettled(session);
+            returns.push(await readActiveSidebarPresentation(session));
+            returnGeometry.push(await readActiveFitGeometry(session));
+        }
+        expect(returns, JSON.stringify({
+            dragged,
+            draggedGeometry,
+            returnGeometry,
+            returns,
+        })).toEqual(returns.map(() => dragged));
+
+        await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+        await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: false}, {timeoutMs: SETTLE_TIMEOUT_MS});
+        await waitForSidebarFitSettled(session);
+        await ensureSidebarOpen(session.page, OPEN_TIMEOUT_MS);
+        await waitForSidebarFitSettled(session);
+        const reopened = await readActiveSidebarPresentation(session);
+        expect(reopened, JSON.stringify({
+            draggedGeometry,
+            reopened,
+            reopenedGeometry: await readActiveFitGeometry(session),
+        })).toEqual(dragged);
     }, 180_000);
 });

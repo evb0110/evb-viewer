@@ -6,7 +6,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    watch,
+} from 'vue';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -418,6 +421,55 @@ describe('createDocumentOpenFlow', () => {
         expect(state.isDirty.value).toBe(true);
         expect(recoveryBaselineDuringHistoryReset).toEqual([true]);
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
+    });
+
+    it('admits an opening working copy, with its own page count, before its source is shown', async () => {
+        const harness = createOpenFlowHarness();
+        const sourceWhenAdmitted: unknown[] = [];
+        const admission = Promise.withResolvers<undefined>();
+        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
+            pageNumber: 1,
+            pageCount: 40,
+            width: 612,
+            height: 792,
+            rotation: 0,
+            widestPageWidth: 612,
+            size: 1,
+            modifiedAt: 1,
+        });
+        const openFlow = createDocumentOpenFlow(harness.state, {
+            ...harness.deps,
+            admitOpeningSource: async (source, pageCount) => {
+                sourceWhenAdmitted.push(source, harness.state.pdfSrc.value, await pageCount);
+                await admission.promise;
+            },
+        });
+        const result: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/remembered.pdf'),
+            workingPath: requireDocumentRef('/tmp/remembered-working.pdf'),
+            isGenerated: false,
+        };
+
+        const opening = openFlow.openFile(result);
+        await vi.waitFor(() => expect(sourceWhenAdmitted).toEqual([
+            result.workingPath,
+            null,
+            40,
+        ]));
+        await Promise.resolve();
+        expect(harness.state.pdfSrc.value).toBeNull();
+
+        // The source a view shows changes once, to the admitted copy, through
+        // the commit's awaits: its view defaults run against that one source.
+        const shownSources: unknown[] = [];
+        watch(() => harness.state.openedWorkingCopyPath.value ?? harness.state.pdfSrc.value, (shown) => {
+            shownSources.push(shown);
+        }, {flush: 'sync'});
+        admission.resolve(undefined);
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+        expect(harness.state.pdfSrc.value).not.toBeNull();
+        expect(shownSources).toEqual([result.workingPath]);
     });
 
     it('does not request cleanup when a recovered PDF fails before adoption', async () => {

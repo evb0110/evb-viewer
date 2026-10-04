@@ -2,6 +2,7 @@ import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { parseDocumentRef } from '@contracts/documentRef';
 import { createRequestId } from '@contracts/shared';
+import { SerializableError } from '@contracts/serializableError';
 import {
     decodeFailureReceipt,
     isExpectedOutcome,
@@ -78,7 +79,8 @@ interface IDjvuLoadingProgress {
 }
 
 export interface IOpenDjvuFileOptions {
-    closeActiveDocument?: () => void | Promise<void>;
+    /** Runs once main accepts the DjVu, with its page count, before its pages are shown. */
+    closeActiveDocument?: (pageCount: number | null) => void | Promise<void>;
     setOriginalPath?: (path: TDocumentRef | null) => void;
 }
 
@@ -111,6 +113,25 @@ function getDjvuExpectedOutcome(value: unknown): ExpectedOutcome | undefined {
         return undefined;
     }
     return isExpectedOutcome(value.expected) ? value.expected : undefined;
+}
+
+/**
+ * A refused DjVu open as an error the document-open classifier can localize:
+ * its typed reason, the diagnostic message and one failure receipt, reusing
+ * main's receipt instead of capturing the same failure again.
+ */
+function createDjvuOpenFailure(result: IDjvuOpenResult, fallbackMessage: string) {
+    const message = result.error ?? fallbackMessage;
+    const failure = BrowserLogger.error(
+        'djvu',
+        'Open failed',
+        message,
+        getDjvuFailureReceipt(result) ?? {code: 'RENDERER_DJVU_OPERATION_FAILED'},
+    );
+    const error = result.errorEnvelope
+        ? new SerializableError(result.errorEnvelope)
+        : new Error(message);
+    return Object.assign(error, {failure});
 }
 
 function classifyDjvuConversionExpectedOutcome(error: unknown): ExpectedOutcome | undefined {
@@ -444,8 +465,10 @@ export const useDjvu = (config: {getOpenSurface?: (() => IDocumentOpenSurfaceSes
                 return false;
             }
             if (!result.success) {
-                BrowserLogger.error('djvu', 'Open failed', result.error, {code: 'RENDERER_DJVU_OPERATION_FAILED'});
-                throw new Error(result.error ?? t('errors.djvu.open'));
+                if (getDjvuExpectedOutcome(result)?.code === 'canceled') {
+                    throw new JobCanceledError();
+                }
+                throw createDjvuOpenFailure(result, t('errors.djvu.open'));
             }
 
             // The native open result is the candidate acceptance boundary.
@@ -459,7 +482,7 @@ export const useDjvu = (config: {getOpenSurface?: (() => IDocumentOpenSurfaceSes
                 current: isCurrentDjvuOpen(generation, djvuPath),
             });
             try {
-                const closeResult = options.closeActiveDocument?.();
+                const closeResult = options.closeActiveDocument?.(result.pageCount ?? null);
                 if (isPromiseLike(closeResult)) {
                     await closeResult;
                 }

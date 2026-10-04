@@ -262,13 +262,22 @@ describe('createElectronApi', () => {
 
         listener({}, {requestId: 'close-1'});
         await vi.waitFor(() => {
-            expect(ipcRenderer.send).toHaveBeenCalledWith(
-                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
-                {
-                    decision: 'discard',
-                    requestId: 'close-1',
-                },
-            );
+            expect(ipcRenderer.send.mock.calls).toEqual([
+                [
+                    CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                    {
+                        requestId: 'close-1',
+                        status: 'acknowledged',
+                    },
+                ],
+                [
+                    CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                    {
+                        decision: 'discard',
+                        requestId: 'close-1',
+                    },
+                ],
+            ]);
         });
         expect(callback).toHaveBeenCalledWith({requestId: 'close-1'});
 
@@ -276,15 +285,55 @@ describe('createElectronApi', () => {
         ipcRenderer.send.mockClear();
         listener({}, {requestId: 'close-2'});
         await vi.waitFor(() => {
-            expect(ipcRenderer.send).toHaveBeenCalledWith(
+            expect(ipcRenderer.send.mock.calls).toEqual([[
                 CORE_IPC_SEND_CHANNELS.windowCloseResponse,
                 {
                     requestId: 'close-2',
                     status: 'unavailable',
                     reason: 'no-handler',
                 },
-            );
+            ]]);
         });
+
+        const first = api.system.onWindowCloseRequest(callback);
+        const second = api.system.onWindowCloseRequest(vi.fn(() => 'save' as const));
+        ipcRenderer.send.mockClear();
+        listener({}, {requestId: 'close-3'});
+        await vi.waitFor(() => {
+            expect(ipcRenderer.send.mock.calls).toEqual([[
+                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                {
+                    requestId: 'close-3',
+                    status: 'unavailable',
+                    reason: 'multiple-handlers',
+                },
+            ]]);
+        });
+        first();
+        second();
+    });
+
+    it('does not run the close handler when its acknowledgment cannot be sent', async () => {
+        const {
+            api,
+            ipcRenderer,
+            listeners,
+        } = await createApiHarness();
+        if (!api.system.onWindowCloseRequest) {
+            throw new Error('Expected the native window close hook to be available');
+        }
+        const callback = vi.fn(() => 'save' as const);
+        api.system.onWindowCloseRequest(callback);
+        ipcRenderer.send.mockImplementationOnce(() => {
+            throw new Error('channel closed');
+        });
+
+        listeners.get(CORE_IPC_EVENT_CHANNELS.windowCloseRequest)?.({}, {requestId: 'close-ack-fail'});
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(callback).not.toHaveBeenCalled();
+        expect(ipcRenderer.send).toHaveBeenCalledOnce();
     });
 
     it('reports a renderer close handler failure without converting it to cancel', async () => {

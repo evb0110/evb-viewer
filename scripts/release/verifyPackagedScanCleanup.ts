@@ -11,9 +11,7 @@ import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {
     copyFile,
-    mkdir,
     readFile,
-    rm,
     writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,10 +25,15 @@ import type {
 import {
     collectDescendantPidsUnix,
     findFreePort,
-    isProcessAlive,
-    killPids,
 } from '@scripts/electron-run/electronRunProcessTree';
-import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
+import {emulateAutomationFocus} from '@scripts/electron-run/emulateAutomationFocus';
+import {
+    startOwnedPackagedProcess,
+    type TOwnedHelperCleanup,
+} from '@scripts/release/runPackagedAutomation';
+import {establishUserEnvironment} from '@tests/e2e/electron/helpers/userEnvironment';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {activatePaneByTab} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     evaluateInPage,
     installPageEvaluationShims,
@@ -58,6 +61,7 @@ const STARTUP_TIMEOUT_MS = 90_000;
 const DETECTION_TIMEOUT_MS = 30 * 60_000;
 const CLEANUP_TIMEOUT_MS = 45 * 60_000;
 const DEFAULT_EXPECTED_PAGE_COUNT = 392;
+const DEVICE_SCALE_FACTOR = 1;
 const execFileAsync = promisify(execFile);
 
 interface IArguments {
@@ -101,6 +105,23 @@ interface IResourceSample {
     rssBytes: number;
     timestampMs: number;
 }
+
+// Windows has no owned-tree RSS sampler in the shared process mechanism, so
+// its footprint is reported unsupported, never as a measured zero.
+type TResourceSummary = {
+    status: 'measured';
+    peakProcessCount: number;
+    peakRssBytes: number;
+    failedSamples: number;
+    samples: IResourceSample[];
+} | {
+    status: 'unsupported' | 'failed';
+    reason: string;
+    peakProcessCount: null;
+    peakRssBytes: null;
+    failedSamples: number;
+    samples: IResourceSample[];
+};
 
 interface INewTabEvidence {
     activeTabIdAfter: string;
@@ -285,23 +306,6 @@ function parseArguments(argv: string[]): IArguments {
     return result;
 }
 
-async function waitForProcessExit(pid: number, timeoutMs: number) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-        if (!isProcessAlive(pid)) {
-            return true;
-        }
-        await delay(100);
-    }
-    return !isProcessAlive(pid);
-}
-
-async function waitForProcessTreeExit(pids: number[], timeoutMs: number) {
-    const uniquePids = [...new Set(pids)];
-    const results = await Promise.all(uniquePids.map(pid => waitForProcessExit(pid, timeoutMs)));
-    return results.every(Boolean);
-}
-
 async function detectionSample(page: Page): Promise<IDetectionSample | null> {
     return evaluateInPage(page, (toolbarCountSelector: string) => {
         const status = document.querySelector<HTMLElement>(toolbarCountSelector);
@@ -403,7 +407,7 @@ async function verifyCleanupQueuedDuringDetection(
         throw new Error('Packaged queued-cleanup verification found no detection counter');
     }
 
-    await page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+    await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
     // The redesigned run meter (#70) renders its status as child text spans
     // instead of an aria-valuetext attribute.
     await waitForFunctionInPage(page, (runMeterSelector: string, primaryActionSelector: string) => {
@@ -429,7 +433,7 @@ async function verifyCleanupQueuedDuringDetection(
         );
     }
 
-    await page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+    await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
     await waitForFunctionInPage(page, (runMeterSelector: string, cancelDetectionSelector: string) => (
         document.querySelector(runMeterSelector) === null
         && document.querySelector(cancelDetectionSelector) !== null
@@ -476,15 +480,7 @@ async function sampleGeometry(page: Page): Promise<IGeometry> {
 }
 
 async function activatePane(page: Page, paneId: string, toolbarSelector: string) {
-    await evaluateInPage(page, (targetPaneId: string) => {
-        const pane = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
-            .find(candidate => candidate.dataset.editorPaneId === targetPaneId);
-        pane?.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            pointerId: 1,
-        }));
-        return pane !== undefined;
-    }, paneId);
+    await activatePaneByTab(page, paneId, 30_000);
     await waitForFunctionInPage(page, (
         targetPaneId: string,
         targetToolbarSelector: string,
@@ -583,7 +579,7 @@ async function verifyNewTabAfterScale(page: Page): Promise<INewTabEvidence> {
     if (!before.activeTabId) {
         throw new Error('Packaged scale verification found no active tab before new-tab check');
     }
-    await page.click('.tab-new');
+    await clickAsUser(page, '.tab-new');
     await waitForFunctionInPage(page, (
         previousActiveTabId: string,
         previousTabCount: number,
@@ -744,113 +740,129 @@ async function runArtifactAudit(
 
 async function run() {
     const args = parseArguments(process.argv.slice(2));
-    if (path.basename(args.executablePath) !== 'EVB Viewer') {
-        throw new Error(
-            `Packaged executable must be named "EVB Viewer", got "${path.basename(args.executablePath)}"`,
-        );
-    }
-    await mkdir(args.artifactDir, {recursive: true});
     const sourceCopyPath = path.join(args.artifactDir, 'rome-packaged-source.pdf');
     const geometryCopyPath = path.join(args.artifactDir, 'rome-pane-geometry-source.pdf');
     const outputCopyPath = path.join(args.artifactDir, 'rome-packaged-cleaned.pdf');
     const nativeMetadataPath = path.join(args.artifactDir, 'native-metadata');
-    const userDataPath = path.join(args.artifactDir, 'user-data');
-    const appLogPath = path.join(args.artifactDir, 'app-logs', APP_LOG_FILE_NAME);
-    await rm(userDataPath, {
-        force: true,
-        recursive: true,
-    });
-    await rm(path.dirname(appLogPath), {
-        force: true,
-        recursive: true,
-    });
-    await rm(outputCopyPath, {force: true});
-    await rm(nativeMetadataPath, {
-        force: true,
-        recursive: true,
-    });
-    await copyFile(args.sourcePath, sourceCopyPath);
-    // A second logical document exercises pane switching without asking the
-    // working-copy registry to open the same source twice while cleanup owns
-    // the first tab.
-    await copyFile(args.sourcePath, geometryCopyPath);
+    // The supplied payload's identity, recorded before launch. On macOS the
+    // app runs from a per-run LSUIElement copy; this hash is of the original.
+    const executableIdentity = {
+        path: args.executablePath,
+        sha256: await sha256(args.executablePath),
+    };
     const cdpPort = await findFreePort();
-    const launch = preparePackagedAutomationLaunch({
+    // The artifact directory is the owned run root. The shared owner claims
+    // it empty and unused before anything is written, so a rerun or a
+    // concurrent run is refused without touching another run's evidence.
+    const owned = await startOwnedPackagedProcess({
         executablePath: args.executablePath,
         workDirectory: args.artifactDir,
+        sessionName: 'packaged-scan-cleanup-verification',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            `--force-device-scale-factor=${String(DEVICE_SCALE_FACTOR)}`,
+            `--remote-debugging-port=${cdpPort}`,
+        ],
         env: {
             ...process.env,
-            EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_NO_FOCUS: '1',
-            EVB_AUTOMATION_SESSION_NAME: 'packaged-scan-cleanup-verification',
-            EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
-            EVB_FILE_LOG_DIR: path.dirname(appLogPath),
             EVB_SCAN_CLEANUP_EVIDENCE_DIR: nativeMetadataPath,
             ELECTRON_FILE_LOG_LEVEL: 'debug',
         },
-    });
-    const child = spawn(launch.executablePath, [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        `--remote-debugging-port=${cdpPort}`,
-        `--user-data-dir=${userDataPath}`,
-    ], {
-        env: launch.env,
         stdio: [
             'ignore',
             'pipe',
             'pipe',
         ],
     });
+    const {child} = owned;
+    const appLogPath = path.join(owned.logDirectory, APP_LOG_FILE_NAME);
+    // A signal ends the run through the same owned stop as every other path.
+    const stopOnSignal = () => {
+        void owned.stop({force: true}).catch(error => console.error(error));
+    };
+    process.once('SIGINT', stopOnSignal);
+    process.once('SIGTERM', stopOnSignal);
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', data => {
+    child.stdout?.on('data', data => {
         const text = String(data);
         stdout += text;
         process.stdout.write(text);
     });
-    child.stderr.on('data', data => {
+    child.stderr?.on('data', data => {
         const text = String(data);
         stderr += text;
         process.stderr.write(text);
     });
 
-    let resourceSamplingActive = args.scaleOnly;
+    const resourceSamplingSupported = process.platform !== 'win32';
+    let resourceSamplingActive = args.scaleOnly && resourceSamplingSupported;
     const resourceSamples: IResourceSample[] = [];
+    let failedResourceSamples = 0;
     const resourceSampling = (async () => {
         while (resourceSamplingActive && typeof child.pid === 'number') {
             const sample = await sampleProcessTreeRss(child.pid).catch(() => null);
             if (sample) {
                 resourceSamples.push(sample);
+            } else {
+                failedResourceSamples += 1;
             }
             await delay(1_000);
         }
     })();
-    const stopResourceSampling = async () => {
+    const stopResourceSampling = async (): Promise<TResourceSummary> => {
         resourceSamplingActive = false;
         await resourceSampling;
+        if (!resourceSamplingSupported) {
+            return {
+                status: 'unsupported',
+                reason: 'Owned process-tree RSS sampling uses Unix ps; Windows has no shared owned-tree sampler.',
+                peakProcessCount: null,
+                peakRssBytes: null,
+                failedSamples: 0,
+                samples: [],
+            };
+        }
+        if (resourceSamples.length === 0) {
+            return {
+                status: 'failed',
+                reason: `No resource sample succeeded (${String(failedResourceSamples)} failed).`,
+                peakProcessCount: null,
+                peakRssBytes: null,
+                failedSamples: failedResourceSamples,
+                samples: [],
+            };
+        }
         return {
-            peakProcessCount: resourceSamples.reduce(
-                (peak, sample) => Math.max(peak, sample.processCount),
-                0,
-            ),
-            peakRssBytes: resourceSamples.reduce(
-                (peak, sample) => Math.max(peak, sample.rssBytes),
-                0,
-            ),
+            status: 'measured',
+            peakProcessCount: Math.max(...resourceSamples.map(sample => sample.processCount)),
+            peakRssBytes: Math.max(...resourceSamples.map(sample => sample.rssBytes)),
+            failedSamples: failedResourceSamples,
             samples: resourceSamples,
         };
     };
 
     let browser: Browser | null = null;
+    let verified = false;
+    let helperCleanup: TOwnedHelperCleanup | null = null;
     try {
-        const browserWSEndpoint = await waitForPackagedCdpEndpoint(
-            cdpPort,
-            STARTUP_TIMEOUT_MS,
-            'Packaged EVB Viewer',
-        );
+        await copyFile(args.sourcePath, sourceCopyPath);
+        // A second logical document exercises pane switching without asking the
+        // working-copy registry to open the same source twice while cleanup owns
+        // the first tab.
+        await copyFile(args.sourcePath, geometryCopyPath);
+        const browserWSEndpoint = await Promise.race([
+            waitForPackagedCdpEndpoint(
+                cdpPort,
+                STARTUP_TIMEOUT_MS,
+                'Packaged EVB Viewer',
+            ),
+            owned.exited.then((code) => {
+                throw new Error(`Packaged EVB Viewer exited with code ${String(code)} before its CDP endpoint was ready`);
+            }),
+        ]);
         browser = await puppeteer.connect({
             browserWSEndpoint,
             defaultViewport: null,
@@ -861,6 +873,11 @@ async function run() {
             STARTUP_TIMEOUT_MS,
             'Packaged EVB Viewer',
         );
+        // The hidden window never has OS focus. The same focus owner and
+        // canonical renderer state the hidden E2E sessions use apply here,
+        // held by this connection for the whole run.
+        await emulateAutomationFocus(browser, page);
+        const userEnvironment = await establishUserEnvironment(page, DEVICE_SCALE_FACTOR);
         await installPageEvaluationShims(page);
         await openPdfInApp(page, sourceCopyPath, STARTUP_TIMEOUT_MS);
         await waitForPdfLoaded(page, STARTUP_TIMEOUT_MS);
@@ -880,22 +897,28 @@ async function run() {
             `Packaged verification stage: detection completed ${String(args.expectedPageCount)}/${String(args.expectedPageCount)}`,
         );
         const geometrySamples = await verifyPaneGeometry(page, geometryCopyPath);
+        const commonEvidence = {
+            detectionSamples,
+            executable: executableIdentity,
+            launchExecutablePath: owned.launchExecutablePath,
+            platform: process.platform,
+            expectedPageCount: args.expectedPageCount,
+            geometryCopyPath,
+            geometrySamples,
+            queuedCleanupEvidence,
+            sourceCopyPath,
+            userEnvironment,
+        };
         if (args.scaleOnly) {
             const newTabEvidence = await verifyNewTabAfterScale(page);
             const resourceSummary = await stopResourceSampling();
             await writeFile(
                 path.join(args.artifactDir, 'packaged-verification.json'),
                 `${JSON.stringify({
-                    detectionSamples,
-                    executablePath: args.executablePath,
-                    expectedPageCount: args.expectedPageCount,
-                    geometryCopyPath,
-                    geometrySamples,
+                    ...commonEvidence,
                     newTabEvidence,
-                    queuedCleanupEvidence,
                     resourceSummary,
                     scaleOnly: true,
-                    sourceCopyPath,
                 }, null, 2)}\n`,
             );
             console.log(
@@ -903,81 +926,66 @@ async function run() {
                 + `${String(args.expectedPageCount)} pages analyzed, `
                 + 'second pane opened, and new tab created',
             );
+            verified = true;
             await delay(500);
-            return;
-        }
-        await page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-        console.log('Packaged verification stage: final cleanup started');
-        const generatedOutputPath = await waitForCleanedOutput(page, sourceCopyPath);
-        console.log('Packaged verification stage: final cleanup output opened');
-        await copyFile(generatedOutputPath, outputCopyPath);
-        await preserveFinalPdfIdentity(args, sourceCopyPath, outputCopyPath);
-        console.log('Packaged verification stage: final PDF identity preserved');
-        const planEvidence = new RegExp(
-            `page-plan evidence: pinned=${String(args.expectedPageCount)} absent=0 mismatched=0`,
-            'u',
-        );
-        const logEvidence = await waitForLogEvidence(appLogPath, planEvidence);
-        if (!logEvidence) {
-            throw new Error(
-                'Packaged cleanup logs lack exact pinned/absent/mismatched evidence',
+        } else {
+            await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+            console.log('Packaged verification stage: final cleanup started');
+            const generatedOutputPath = await waitForCleanedOutput(page, sourceCopyPath);
+            console.log('Packaged verification stage: final cleanup output opened');
+            await copyFile(generatedOutputPath, outputCopyPath);
+            await preserveFinalPdfIdentity(args, sourceCopyPath, outputCopyPath);
+            console.log('Packaged verification stage: final PDF identity preserved');
+            const planEvidence = new RegExp(
+                `page-plan evidence: pinned=${String(args.expectedPageCount)} absent=0 mismatched=0`,
+                'u',
             );
+            const logEvidence = await waitForLogEvidence(appLogPath, planEvidence);
+            if (!logEvidence) {
+                throw new Error(
+                    'Packaged cleanup logs lack exact pinned/absent/mismatched evidence',
+                );
+            }
+            console.log('Packaged verification stage: rasterized final-PDF audit started');
+            await runArtifactAudit(args, sourceCopyPath, outputCopyPath);
+            console.log('Packaged verification stage: rasterized final-PDF audit passed');
+            await writeFile(
+                path.join(args.artifactDir, 'packaged-verification.json'),
+                `${JSON.stringify({
+                    ...commonEvidence,
+                    outputCopyPath,
+                    auditSourcePath: args.auditSourcePath,
+                    referenceMetadataDir: args.referenceMetadataDir,
+                    scaleOnly: false,
+                    sourcePages: args.sourcePages,
+                    syntheticSpecPath: args.syntheticSpecPath,
+                }, null, 2)}\n`,
+            );
+            console.log(`Packaged scan-cleanup verification passed: ${outputCopyPath}`);
+            verified = true;
+            await delay(500);
         }
-        console.log('Packaged verification stage: rasterized final-PDF audit started');
-        await runArtifactAudit(args, sourceCopyPath, outputCopyPath);
-        console.log('Packaged verification stage: rasterized final-PDF audit passed');
-        await writeFile(
-            path.join(args.artifactDir, 'packaged-verification.json'),
-            `${JSON.stringify({
-                detectionSamples,
-                executablePath: args.executablePath,
-                expectedPageCount: args.expectedPageCount,
-                geometryCopyPath,
-                geometrySamples,
-                outputCopyPath,
-                queuedCleanupEvidence,
-                auditSourcePath: args.auditSourcePath,
-                referenceMetadataDir: args.referenceMetadataDir,
-                scaleOnly: false,
-                sourceCopyPath,
-                sourcePages: args.sourcePages,
-                syntheticSpecPath: args.syntheticSpecPath,
-            }, null, 2)}\n`,
-        );
-        console.log(`Packaged scan-cleanup verification passed: ${outputCopyPath}`);
-        await delay(500);
     } finally {
         await stopResourceSampling();
         await writeFile(path.join(args.artifactDir, 'packaged-stdout.log'), stdout);
         await writeFile(path.join(args.artifactDir, 'packaged-stderr.log'), stderr);
         await browser?.disconnect().catch(() => {});
-        let processTreeExited = true;
-        if (typeof child.pid === 'number') {
-            // Closing the browser asks every deliberately dirty harness tab to
-            // save and turns teardown into an unrelated Save As workflow.
-            // Capture the complete owned tree before killing it, then await each
-            // PID so the copied bundle cannot be removed while a helper still
-            // has files open.
-            const processTreePids = [
-                ...collectDescendantPidsUnix(child.pid),
-                child.pid,
-            ];
-            if (processTreePids.some(pid => isProcessAlive(pid))) {
-                killPids(processTreePids, {signal: 'SIGKILL'});
-            }
-            processTreeExited = await waitForProcessTreeExit(processTreePids, 5_000);
-        } else if (child.exitCode === null) {
-            child.kill('SIGKILL');
-            processTreeExited = false;
+        // Closing the browser asks every deliberately dirty harness tab to
+        // save and turns teardown into an unrelated Save As workflow, so the
+        // owned processes are killed outright.
+        try {
+            helperCleanup = await owned.stop({force: true});
+        } finally {
+            process.off('SIGINT', stopOnSignal);
+            process.off('SIGTERM', stopOnSignal);
         }
-        if (!processTreeExited) {
-            console.error(`Packaged scan-cleanup process tree remained alive; preserving its launch copy at ${String(launch.bundleDirectory)}.`);
-        } else if (launch.bundleDirectory) {
-            await rm(launch.bundleDirectory, {
-                force: true,
-                recursive: true,
-            });
-        }
+        await writeFile(
+            path.join(args.artifactDir, 'packaged-process-cleanup.json'),
+            `${JSON.stringify({helperCleanup}, null, 2)}\n`,
+        );
+    }
+    if (verified && helperCleanup === 'root-exited-helpers-unverified') {
+        throw new Error('The packaged main process exited before cleanup; its helpers cannot be shown stopped on Windows.');
     }
 }
 

@@ -27,8 +27,7 @@ import {
 } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type {
-    TWindowCloseDecision,
-    TWindowCloseUnavailableReason,
+    IWindowCloseResponse,
     TWindowCloseRequestHandler,
 } from '@contracts/systemPlatformFeature';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
@@ -391,13 +390,19 @@ export function createElectronApi(
         void (async () => {
             const callbacks = Array.from(windowCloseCallbacks);
             const callback = callbacks.length === 1 ? callbacks[0] : undefined;
-            let response: {
-                requestId: string;
-                decision?: TWindowCloseDecision;
-                status?: 'unavailable';
-                reason?: TWindowCloseUnavailableReason;
-            };
+            let response: IWindowCloseResponse;
             if (callback) {
+                // Main stops waiting for an answer once the handler owns the
+                // request; the choice and its save may outlast its deadline.
+                try {
+                    ipcRenderer.send(CORE_IPC_SEND_CHANNELS.windowCloseResponse, {
+                        requestId: request.requestId,
+                        status: 'acknowledged',
+                    } satisfies IWindowCloseResponse);
+                } catch (error) {
+                    console.warn(`[preload] Window close acknowledgment failed: ${getErrorMessage(error)}`);
+                    return;
+                }
                 try {
                     const candidate = await callback(request);
                     if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {

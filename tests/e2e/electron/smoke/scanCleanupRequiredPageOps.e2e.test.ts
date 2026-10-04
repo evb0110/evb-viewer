@@ -7,6 +7,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
@@ -58,11 +59,16 @@ describe('scan cleanup required page ops', () => {
             1280,
             900,
         ]);
-        const sourcePath = await createLargeScannedFixturePdf(
+        const fixturePath = await createLargeScannedFixturePdf(
             `scan-cleanup-page-ops-${mode.toLowerCase().replaceAll(' ', '-')}.pdf`,
             1,
             0,
         );
+        // The managed working copy is always document.pdf; the output must keep
+        // the user's own file name instead.
+        const sourceStem = `Сканы книги ${mode} 書`;
+        const sourcePath = join(dirname(fixturePath), `${sourceStem}.pdf`);
+        copyFileSync(fixturePath, sourcePath);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
@@ -172,6 +178,7 @@ describe('scan cleanup required page ops', () => {
         const outputState = await readWorkspaceStateValues(session.page, ['originalPath']);
         const outputPath = typeof outputState.originalPath === 'string' ? outputState.originalPath : null;
         expect(outputPath).toBeTruthy();
+        expect(basename(outputPath!)).toBe(`${sourceStem} — cleaned.pdf`);
         expect(existsSync(outputPath!)).toBe(true);
         expect(statSync(outputPath!).size).toBeGreaterThan(0);
         expect(await readPdfPageSnapshots(outputPath!)).toEqual([{

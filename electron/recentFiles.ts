@@ -15,7 +15,9 @@ import {
     uniq,
     uniqBy,
 } from 'es-toolkit/array';
+import {isEqual} from 'es-toolkit/predicate';
 import type { IRecentFile } from '@contracts/shared';
+import {RECENT_READING_VIEW_SCHEMA} from '@contracts/recentReadingView';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     inferDocumentRefBackend,
@@ -138,6 +140,13 @@ const recentFileSchema = v.object({
     timestamp: v.custom<TEpochMs>(isEpochMs),
     fileSize: v.number(),
     modifiedAt: v.exactOptional(v.custom<TEpochMs>(isEpochMs)),
+    // The source bytes the view was left on, as their working copy was admitted.
+    // An unreadable view is forgotten; the entry stays.
+    readingView: v.fallback(v.optional(v.object({
+        ...RECENT_READING_VIEW_SCHEMA.entries,
+        sourceSize: v.number(),
+        sourceModifiedAtMs: v.number(),
+    })), undefined),
 });
 
 const recentFilesDataSchema = v.pipe(
@@ -333,6 +342,11 @@ async function loadBootstrapRecentFilesData(): Promise<TRecentFilesData | null> 
     return null;
 }
 
+/** The stored entries, read in turn with Recent edits. */
+export function readRecentFilesData() {
+    return enqueueRecentFilesOperation(loadRecentFilesData);
+}
+
 async function loadRecentFilesData(): Promise<TRecentFilesData> {
     const storagePath = getStoragePath();
     let content: string;
@@ -409,27 +423,33 @@ async function saveRecentFilesData(data: TRecentFilesData) {
     }
 }
 
-function cloneRecentFiles(files: readonly IRecentFile[]): IRecentFile[] {
-    return files.map(file => ({...file}));
-}
-
-function recentFilesEqual(left: readonly IRecentFile[], right: readonly IRecentFile[]) {
-    return left.length === right.length && left.every((file, index) => {
-        const other = right[index];
-        return other !== undefined
-            && file.originalPath === other.originalPath
-            && file.backend === other.backend
-            && file.fileName === other.fileName
-            && file.timestamp === other.timestamp
-            && file.fileSize === other.fileSize
-            && file.modifiedAt === other.modifiedAt;
-    });
+// Reading views stay on disk; the list and the menu show files only.
+function cloneRecentFiles(files: ReadonlyArray<IRecentFile & {readingView?: unknown}>): IRecentFile[] {
+    return files.map(({
+        readingView: _readingView,
+        ...file
+    }) => file);
 }
 
 function enqueueRecentFilesOperation<T>(operation: () => Promise<T>): Promise<T> {
     const run = recentFilesOperationQueue.then(operation, operation);
     recentFilesOperationQueue = run.then(() => undefined, () => undefined);
     return run;
+}
+
+/** One Recent edit: load, change, and write only when the change reports it changed something. */
+export function mutateRecentFiles(mutate: (data: TRecentFilesData) => Promise<boolean> | boolean) {
+    return enqueueRecentFilesOperation(async () => {
+        cacheTimestamp = 0;
+        const data = await loadRecentFilesData();
+        const changed = await mutate(data);
+        if (changed) {
+            await saveRecentFilesData(data);
+        }
+        recentFilesCache = cloneRecentFiles(data.files);
+        cacheTimestamp = Date.now();
+        return changed;
+    });
 }
 
 function refreshRecentFilesCache(): Promise<IRecentFile[]> {
@@ -440,7 +460,7 @@ function refreshRecentFilesCache(): Promise<IRecentFile[]> {
     const refreshPromise = enqueueRecentFilesOperation(async () => {
         const data = await loadRecentFilesData();
         const filtered = await filterExistingFiles(data.files);
-        if (!recentFilesEqual(data.files, filtered.files)) {
+        if (!isEqual(data.files, filtered.files)) {
             data.files = filtered.files;
             await saveRecentFilesData(data);
         }
@@ -533,54 +553,30 @@ function canonicalizePersistedRecentFiles(files: TRecentFilesData['files']) {
 
 /** Persists a recent-file entry; callers must validate or mint path capabilities before calling. */
 export async function addRecentFile(filePath: string, senderWebContentsId?: number) {
-    await enqueueRecentFilesOperation(async () => {
-        // Invalidate cache before mutation
-        cacheTimestamp = 0;
-
-        if (!filePath) {
-            return;
-        }
-
-        const originalPath = resolveRecentOriginalPath(filePath, senderWebContentsId);
-        if (!originalPath) {
-            return;
-        }
-
+    const originalPath = filePath ? resolveRecentOriginalPath(filePath, senderWebContentsId) : null;
+    if (!originalPath) {
+        return;
+    }
+    await mutateRecentFiles(async (data) => {
         const inspection = await inspectPath(originalPath);
         if (inspection.status !== 'exists' || typeof inspection.size !== 'number') {
-            return;
+            return false;
         }
-        const fileSize = inspection.size;
-        const modifiedAt = inspection.modifiedAt;
-
-        const data = await loadRecentFilesData();
-
-        // Remove if already exists (to update timestamp)
-        data.files = data.files.filter(f => f.originalPath !== originalPath);
-
-        // Get file info
-        const fileName = basename(originalPath);
-
-        // Add to front
-        data.files.unshift({
-            originalPath,
-            backend: 'electron',
-            fileName,
-            timestamp: createEpochMs(),
-            fileSize,
-            ...(modifiedAt === undefined ? {} : {modifiedAt}),
-        });
-
-        // Enforce limit
-        if (data.files.length > MAX_RECENT_FILES) {
-            data.files = data.files.slice(0, MAX_RECENT_FILES);
-        }
-
-        await saveRecentFilesData(data);
-
-        // Update cache
-        recentFilesCache = cloneRecentFiles(data.files);
-        cacheTimestamp = Date.now();
+        // Moves the entry to the front; its reading view stays, checked against the source when read.
+        const previous = data.files.find(f => f.originalPath === originalPath);
+        data.files = [
+            {
+                originalPath,
+                backend: 'electron' as const,
+                fileName: basename(originalPath),
+                timestamp: createEpochMs(),
+                fileSize: inspection.size,
+                ...(inspection.modifiedAt === undefined ? {} : {modifiedAt: inspection.modifiedAt}),
+                ...(previous?.readingView ? {readingView: previous.readingView} : {}),
+            },
+            ...data.files.filter(f => f.originalPath !== originalPath),
+        ].slice(0, MAX_RECENT_FILES);
+        return true;
     });
 }
 
@@ -599,17 +595,9 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
 }
 
 export async function removeRecentFile(originalPath: string) {
-    await enqueueRecentFilesOperation(async () => {
-        // Invalidate cache before mutation
-        cacheTimestamp = 0;
-
-        const data = await loadRecentFilesData();
+    await mutateRecentFiles((data) => {
         data.files = data.files.filter(f => f.originalPath !== originalPath);
-        await saveRecentFilesData(data);
-
-        // Update cache
-        recentFilesCache = cloneRecentFiles(data.files);
-        cacheTimestamp = Date.now();
+        return true;
     });
 }
 
@@ -668,21 +656,14 @@ export async function removeRecentFileIfMissing(originalPath: string) {
     }
     // The check and the removal run as one Recent operation, so a file that
     // reappears or an entry added meanwhile is not lost.
-    return enqueueRecentFilesOperation(async () => {
+    return mutateRecentFiles(async (data) => {
         const inspection = await inspectPath(originalPath);
         if (inspection.code !== 'ENOENT' || !await isVolumeMounted(originalPath)) {
             return false;
         }
-        cacheTimestamp = 0;
-        const data = await loadRecentFilesData();
         const files = data.files.filter(file => file.originalPath !== originalPath);
         const removed = files.length !== data.files.length;
-        if (removed) {
-            data.files = files;
-            await saveRecentFilesData(data);
-        }
-        recentFilesCache = cloneRecentFiles(data.files);
-        cacheTimestamp = Date.now();
+        data.files = files;
         return removed;
     });
 }

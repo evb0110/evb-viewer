@@ -35,6 +35,14 @@ import {
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
+import type * as PlatformDocuments from '@app/utils/platformDocuments';
+import { seedOpeningSource } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+
+const recentReadingViews = vi.hoisted(() => ({readingView: vi.fn()}));
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
+    ...await importOriginal<typeof PlatformDocuments>(),
+    getDocumentRecentFilesCapability: () => ({recentFiles: recentReadingViews}),
+}));
 
 const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
@@ -70,7 +78,10 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
             scrollToPage: vi.fn(),
             getViewerContainer: () => null,
             restoreReadingAnchor: (anchor: unknown) => surfaceRenders.restoreReadingAnchor?.(anchor),
-            getUserViewportInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
+            getReaderInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
+            observeReaderCommand: () => {
+                surfaceRenders.interactionEpoch.value += 1;
+            },
         });
         return () => {
             surfaceRenders.viewers.push({...attrs});
@@ -212,8 +223,9 @@ async function mountDocumentWorkspace(options: {
     const { default: DocumentSessionHost } = await import(
         '@app/modules/workspace-shell/components/DocumentSessionHost.vue'
     );
+    let registry: ReturnType<typeof provideDocumentContextRegistry> | null = null;
     const app = createApp(defineComponent({setup() {
-        provideDocumentContextRegistry();
+        registry = provideDocumentContextRegistry();
         return () => [
             h(DocumentSessionHost, {documentController: documentSession}),
             h(cast<never>(DocumentWorkspace), {
@@ -273,6 +285,7 @@ async function mountDocumentWorkspace(options: {
     return {
         expose,
         documentSession,
+        documentContext: registry!.get(documentSession)!,
     };
 }
 
@@ -359,6 +372,133 @@ describe('DocumentWorkspace navigation command', () => {
         expect(workspace.documentSession.snapshot.value.identity.originalPath).toBeNull();
     }, 120_000);
 
+    it.each([
+        'handleZoomIn',
+        'handleZoomOut',
+        'handleActualSize',
+        'handleFitWidth',
+        'handleFitHeight',
+    ] as const)('lets the reader\'s %s outrank a restored place, which a restored view does not', async (command) => {
+        const workspace = await mountDocumentWorkspace({
+            pendingDocumentPath: requireDocumentRef('/tmp/shared.pdf'),
+            openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
+        });
+        const reader = workspace.expose.followReader!();
+
+        workspace.expose.restoreViewState({
+            currentPage: null,
+            zoom: 1.5,
+            zoomMode: 'custom',
+            continuousScroll: false,
+            viewMode: 'facing',
+            viewRotation: 90,
+        });
+        expect(reader.moved()).toBe(false);
+        expect(workspace.expose.getToolbarSnapshot().zoom).toBe(1.5);
+
+        workspace.expose[command]();
+        expect(reader.moved()).toBe(true);
+        await reader.finish(null);
+    }, 120_000);
+
+    describe('following the reader of an open across the viewer routing', () => {
+        // The workspace routes its viewer through the PDF or the DjVu slot as
+        // the source changes, clearing and re-binding them while the same
+        // chassis, with its interaction count, stays mounted. The routing is
+        // driven here directly, before the workspace re-renders and re-binds.
+        async function mountFollowedView() {
+            surfaceRenders.interactionEpoch.value = 3;
+            const {
+                documentContext,
+                expose,
+            } = await mountDocumentWorkspace();
+            const view = cast<{
+                pdfViewerRef: {value: unknown};
+                djvuViewerRef: {value: unknown};
+                documentViewerRef: {value: unknown};
+            }>(documentContext.views.commandView.value!.view);
+            await vi.waitFor(() => expect(view.documentViewerRef.value).not.toBeNull());
+            const chassis = view.documentViewerRef.value;
+            const reader = expose.followReader!();
+            const routeAway = () => {
+                view.pdfViewerRef.value = null;
+                view.djvuViewerRef.value = null;
+            };
+            return {
+                view,
+                chassis,
+                reader,
+                routeAway,
+                routeTo: (viewer: unknown) => {
+                    view.djvuViewerRef.value = viewer;
+                },
+            };
+        }
+
+        it('keeps a reader who has not moved unmoved when the same chassis is routed away and back', async () => {
+            const followed = await mountFollowedView();
+
+            followed.routeAway();
+            expect(followed.view.documentViewerRef.value).toBeNull();
+            followed.routeTo(followed.chassis);
+            expect(followed.reader.moved()).toBe(false);
+
+            surfaceRenders.interactionEpoch.value = 4;
+            expect(followed.reader.moved()).toBe(true);
+            await followed.reader.finish(null);
+        }, 120_000);
+
+        it('counts a move in a different chassis that replaced the followed one from that chassis\'s start', async () => {
+            const followed = await mountFollowedView();
+            const replacementMoves = {value: 0};
+
+            followed.routeAway();
+            followed.routeTo({getReaderInteractionEpoch: () => replacementMoves.value});
+            expect(followed.reader.moved()).toBe(false);
+
+            replacementMoves.value = 1;
+            expect(followed.reader.moved()).toBe(true);
+            await followed.reader.finish(null);
+        }, 120_000);
+    });
+
+    it('ends a normal open whose admission throws as a failed open ends: its view takes no later reading seed', async () => {
+        const {
+            documentContext,
+            expose,
+        } = await mountDocumentWorkspace();
+        const port = documentContext.views.commandView.value!;
+        const {
+            zoom: zoomBefore,
+            zoomMode: zoomModeBefore,
+        } = expose.getToolbarSnapshot();
+        recentReadingViews.readingView.mockResolvedValue({
+            currentPage: 27,
+            pageCount: 40,
+            zoom: 1.85,
+            zoomMode: 'custom',
+            viewMode: 'single',
+            continuousScroll: true,
+            viewRotation: 0,
+        });
+
+        await expect(port.runDocumentOpen({
+            kind: 'open',
+            target: {
+                fileName: 'remembered.pdf',
+                originalPath: requireDocumentRef('/tmp/remembered.pdf'),
+            },
+        }, () => Promise.reject(new Error('admission refused')))).rejects.toThrow('admission refused');
+        // A late source admission for the open that ended reaches no open.
+        await seedOpeningSource(port.openSurface, requireDocumentRef('/tmp/remembered-working.pdf'), Promise.resolve(40));
+
+        await nextTick();
+        expect(expose.getToolbarSnapshot()).toMatchObject({
+            zoom: zoomBefore,
+            zoomMode: zoomModeBefore,
+        });
+    }, 120_000);
+
     describe('placing a split view at its source\'s reading point', () => {
         const anchor = {
             page: 3,
@@ -376,7 +516,7 @@ describe('DocumentWorkspace navigation command', () => {
                 pendingDocumentPath: requireDocumentRef('/tmp/shared.pdf'),
                 openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
             });
-            const placing = workspace.expose.placeReadingAnchorAfterOpen!(anchor);
+            const placing = workspace.expose.followReader!().finish(anchor);
             return {
                 ...workspace,
                 placing,

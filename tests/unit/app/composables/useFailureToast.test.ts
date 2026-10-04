@@ -189,6 +189,28 @@ describe('useFailureToast', () => {
         expect(toastUpdate.mock.calls[0]?.[1].actions.at(-1).label).toBe('errors.runtime.copied');
     });
 
+    it('labels a toast in the locale current when it is shown, not when the composable was created', async () => {
+        vi.stubGlobal('navigator', {clipboard: {writeText: vi.fn().mockResolvedValue(undefined)}});
+        const locale = ref('en');
+        vi.doMock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => `${locale.value}:${key}`})}));
+        const {useFailureToast} = await loadFailureToast();
+        const {presentFailureToast} = useFailureToast();
+
+        locale.value = 'ru';
+        presentFailureToast({
+            failure: createFailure(),
+            title: 'Не удалось открыть файл',
+        });
+
+        expect(renderDescription(presentedToast())).toEqual(['ru:errors.runtime.errorId: 01234567']);
+        expect(presentedToast().actions.at(-1)?.label).toBe('ru:errors.runtime.copy');
+
+        locale.value = 'de';
+        presentedToast().actions.at(-1)?.onClick();
+        await vi.waitFor(() => expect(toastUpdate).toHaveBeenCalledOnce());
+        expect(toastUpdate.mock.calls[0]?.[1].actions.at(-1).label).toBe('de:errors.runtime.copied');
+    });
+
     it('names the toast by its receipt so the toaster keeps one toast per failure', async () => {
         const {useFailureToast} = await loadFailureToast();
         const failure = createFailure();

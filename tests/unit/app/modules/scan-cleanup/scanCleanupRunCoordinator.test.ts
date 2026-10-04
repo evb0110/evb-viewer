@@ -767,7 +767,7 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: toastDescriptionContaining('scan-cleanup IPC codec failed\nError ID: 01234567'),
+                description: toastDescriptionContaining('scan-cleanup IPC codec failed\nerrors.runtime.errorId: 01234567'),
             }));
             expect(coordinator.scanCleanupRun.lastError?.failure).toEqual(diagnosticMocks.failure);
         } finally {
@@ -814,7 +814,7 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: toastDescriptionContaining('page 17 has invalid geometry\nError ID: 01234567'),
+                description: toastDescriptionContaining('page 17 has invalid geometry\nerrors.runtime.errorId: 01234567'),
             }));
         } finally {
             cleanup();

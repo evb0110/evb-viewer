@@ -11,6 +11,7 @@ import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { SerializableError } from '@contracts/serializableError';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 const toastAddMock = vi.fn();
@@ -204,5 +205,55 @@ describe('useWorkspaceFailureSurface', () => {
             title: 'errors.annotation.create',
             description: toastDescriptionContaining('errors.runtime.errorId: annotati'),
         }));
+    });
+});
+
+describe('useWorkspaceFailureSurface describing a failed open', () => {
+    beforeEach(() => {
+        toastAddMock.mockClear();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('explains a too-large DjVu page and keeps its receipt and cause, without a toast', () => {
+        const receipt = {
+            code: 'RENDERER_DJVU_OPERATION_FAILED',
+            eventId: 'd'.repeat(32),
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const capture = vi.spyOn(BrowserLogger, 'error');
+        const error = Object.assign(new SerializableError({
+            code: 'djvu-raster-limit',
+            message: 'DjVu page 1 (10000x8001) exceeds the browser full-resolution raster budget',
+        }), {failure: receipt});
+
+        expect(useWorkspaceFailureSurface().describeOpenFailure(error)).toEqual({
+            failure: receipt,
+            title: 'errors.file.open',
+            description: 'errors.file.djvuRasterLimit',
+            technicalDetails: 'DjVu page 1 (10000x8001) exceeds the browser full-resolution raster budget',
+        });
+        expect(capture).not.toHaveBeenCalled();
+        expect(toastAddMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps native tool output out of the explanation of an unexplained failure', () => {
+        const presentation = useWorkspaceFailureSurface().describeOpenFailure(new Error('djvused failed with exit code 1 (DjVuDocEditor.cpp:178)'));
+
+        expect(presentation.description).toBe('errors.file.openDescription');
+        expect(presentation.technicalDetails).toBe('djvused failed with exit code 1 (DjVuDocEditor.cpp:178)');
+        expect(presentation.failure.code).toBe('RENDERER_PDF_DOCUMENT_LOAD_FAILED');
+    });
+
+    it('offers the repair command when PDF.js assets do not match', () => {
+        const presentation = useWorkspaceFailureSurface().describeOpenFailure(
+            new Error('PDF.js vendored asset version mismatch at pdf.worker.mjs'),
+        );
+
+        expect(presentation.description).toBe('errors.file.pdfjsAssetMismatch');
+        expect(presentation.actions?.map(action => action.label)).toEqual(['errors.file.pdfjsAssetRepairAction']);
     });
 });

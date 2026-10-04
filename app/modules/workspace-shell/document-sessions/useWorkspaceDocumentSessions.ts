@@ -109,7 +109,7 @@ export const useWorkspaceDocumentSessions = (options: {
     // The new view opens at the source's page, then takes the source's place on it.
     async function placeAtReadingAnchor(view: IWorkspaceDocumentView, anchor: IPdfSemanticAnchor) {
         const workspace = await view.whenMounted();
-        await workspace?.placeReadingAnchorAfterOpen?.(anchor);
+        await workspace?.followReader?.().finish(anchor);
     }
 
     /**

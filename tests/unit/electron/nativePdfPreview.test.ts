@@ -12,6 +12,7 @@ import {
     parsePdfOpeningGeometryMetadata,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
+import { NativeProcessError } from '@electron/native-tools/processResult';
 
 const mocks = vi.hoisted(() => ({
     resolveExistingReadablePdfPath: vi.fn(),
@@ -205,5 +206,40 @@ Page    1 rot:   0
 
         await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/open-twice.pdf'))
             .rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+    });
+});
+
+describe('PDF opening geometry of an encrypted PDF before its password', () => {
+    function pdfinfoFailure(stderr: string) {
+        return new NativeProcessError('exit-code', 1, null, `pdfinfo-opening-geometry failed with exit code 1. ${stderr}`);
+    }
+
+    it('answers no geometry when pdfinfo needs the password', async () => {
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/locked.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 3_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(reader: (physicalPath: string) => Promise<T>) => reader('/books/locked.pdf'),
+        });
+        mocks.runNativeToolCommand.mockRejectedValue(pdfinfoFailure('Command Line Error: Incorrect password'));
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/locked.pdf')).resolves.toBeNull();
+    });
+
+    it('still rejects a malformed PDF', async () => {
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/broken.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 3_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(reader: (physicalPath: string) => Promise<T>) => reader('/books/broken.pdf'),
+        });
+        mocks.runNativeToolCommand.mockRejectedValue(pdfinfoFailure('Syntax Error: Couldn\'t find trailer dictionary'));
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/broken.pdf'))
+            .rejects.toBeInstanceOf(NativeProcessError);
     });
 });

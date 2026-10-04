@@ -289,6 +289,53 @@ describe('useDjvu', () => {
             ).rejects.toThrow('File corrupted');
         });
 
+        it('refuses a classified open with its typed reason and main receipt, captured once', async () => {
+            const mainReceipt: FailureReceipt = {
+                ...conversionFailureReceipt,
+                eventId: 'fedcba9876543210fedcba9876543210' as FailureReceipt['eventId'],
+                code: 'MAIN_DJVU_VIEWING_FAILED',
+            };
+            browserLoggerMock.error.mockImplementation((_section, _message, _error, receiptOrOptions) => (
+                'eventId' in receiptOrOptions ? receiptOrOptions : conversionFailureReceipt
+            ));
+            const nativeMessage = 'djvused failed with exit code 10. Unrecognized DjVu Message';
+            mockOpenJobResult.mockResolvedValue({
+                success: false,
+                error: nativeMessage,
+                errorEnvelope: {
+                    code: 'invalid-djvu',
+                    message: nativeMessage,
+                },
+                failure: mainReceipt,
+            });
+
+            const djvu = useDjvu();
+
+            await expect(djvu.openDjvuFile('/bad.djvu')).rejects.toMatchObject({
+                message: nativeMessage,
+                errorEnvelope: {code: 'invalid-djvu'},
+                failure: mainReceipt,
+            });
+            expect(djvu.isLoadingPages.value).toBe(false);
+        });
+
+        it('keeps an open canceled in main quiet', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: false,
+                error: 'The operation was aborted',
+                expected: {
+                    kind: 'expected',
+                    code: 'canceled',
+                },
+            });
+
+            const djvu = useDjvu();
+
+            await expect(djvu.openDjvuFile('/canceled.djvu')).resolves.toBe(false);
+            expect(browserLoggerMock.error).not.toHaveBeenCalled();
+            expect(toastAddMock).not.toHaveBeenCalled();
+        });
+
         it('sets loading state for multi-page files', async () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,

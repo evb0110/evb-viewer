@@ -522,13 +522,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         },
     });
     const windowWebContents = window.webContents;
-    if (config.automation.hideWindow && process.platform === 'win32') {
-        // On Windows the compositor of a never-shown window draws only for a
-        // pending copy, so CDP Page.captureScreenshot, which waits for a
-        // presented frame before it copies, never returns. A frame
-        // subscription keeps a copy pending for every new frame. It stays on
-        // the render widget it was taken on, so it follows each committed
-        // main-frame navigation to the page's current widget.
+    if (config.automation.hideWindow && process.platform !== 'darwin') {
+        // On Windows and X11 a never-shown window draws only for a pending
+        // copy, so CDP screenshots hang. A frame subscription keeps one
+        // pending; it follows each main-frame navigation to the new widget.
         windowWebContents.on('did-navigate', () => windowWebContents.beginFrameSubscription(() => undefined));
     }
 

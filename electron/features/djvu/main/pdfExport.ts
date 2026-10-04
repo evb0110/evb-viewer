@@ -716,15 +716,12 @@ async function awaitDjvuJob(
         ...(terminal.progress.requestId ? {requestId: terminal.progress.requestId} : {}),
         ...(terminal.progress.documentRef ? {documentRef: terminal.progress.documentRef} : {}),
         error: terminal.error.message,
+        ...(terminal.error.failure === undefined ? {} : {failure: terminal.error.failure}),
+        ...(terminal.error.expected === undefined ? {} : {expected: terminal.error.expected}),
     };
-    if (kind === 'convert') {
-        return {
-            ...baseResult,
-            ...(terminal.error.failure === undefined ? {} : {failure: terminal.error.failure}),
-            ...(terminal.error.expected === undefined ? {} : {expected: terminal.error.expected}),
-        } satisfies IDjvuConvertResult;
-    }
-    return baseResult satisfies IDjvuOpenResult;
+    return kind === 'convert'
+        ? baseResult satisfies IDjvuConvertResult
+        : baseResult satisfies IDjvuOpenResult;
 }
 
 export function subscribeDjvuProgress(context: IDjvuOperationContext) {
@@ -1414,7 +1411,7 @@ export function startDurableDjvuOpenJob(
         const value = result as IDjvuOpenResult;
         const snapshot = djvuJobs.get(jobId, {sender: context.sender});
         if (value.success && snapshot?.progress.documentRef) {
-            adoptDjvuViewingPath(context, snapshot.progress.documentRef);
+            adoptDjvuViewingPath(context, snapshot.progress.documentRef, value.source ?? null);
         }
         safeSendToWindow(
             BrowserWindow.fromWebContents(context.sender),

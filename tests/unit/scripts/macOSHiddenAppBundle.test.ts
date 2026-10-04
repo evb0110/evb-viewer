@@ -11,7 +11,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    join,
+    resolve,
+} from 'node:path';
 import {
     afterEach,
     describe,
@@ -35,13 +38,25 @@ describe('packaged automation environment', () => {
                 EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '0',
             },
         });
-        expect(launch.executablePath).toBe('/artifact/evb-viewer');
+        expect(launch.executablePath).toBe(resolve('/artifact/evb-viewer'));
         expect(launch.env).toEqual({
             PATH: '/bin',
             EVB_AUTOMATION_HIDE_WINDOW: '1',
             EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
         });
+        expect(launch.bundleDirectory).toBeUndefined();
+    });
+
+    it('launches the Windows installer payload by its own name without a bundle copy', () => {
+        const launch = preparePackagedAutomationLaunch({
+            executablePath: '/artifact/EVB Viewer/EVB Viewer.exe',
+            workDirectory: '/unused',
+            platform: 'win32',
+            env: {EVB_AUTOMATION_HIDE_WINDOW: '0'},
+        });
+        expect(launch.executablePath).toBe(resolve('/artifact/EVB Viewer/EVB Viewer.exe'));
+        expect(launch.env.EVB_AUTOMATION_HIDE_WINDOW).toBe('1');
         expect(launch.bundleDirectory).toBeUndefined();
     });
 });

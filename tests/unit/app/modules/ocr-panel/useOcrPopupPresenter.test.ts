@@ -724,6 +724,45 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
+    // #969: closing the final document closes its view's dialog while cancellation settles.
+    it('keeps a dialog closed by its view while the run is still settling, without dropping the run', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.isOpen.value = true;
+            await nextTick();
+            harness.presenter.handleRunOcr();
+            harness.ocr.progress.value = {
+                ...harness.ocr.progress.value,
+                isRunning: true,
+            };
+            const runSettings = harness.ocr.settings.value;
+            harness.ocr.activeRunSettings.value = runSettings;
+            harness.ocr.lastCompletedRunSettings.value = runSettings;
+            setSearchableResult(harness.ocr, 'req-shared', '/tmp/shared-result.pdf');
+            const sharedResults = harness.ocr.results.value;
+            await nextTick();
+
+            harness.isOpen.value = false;
+            await nextTick();
+            await nextTick();
+            expect(harness.isOpen.value).toBe(false);
+            expect(harness.ocr.results.value).toBe(sharedResults);
+            expect(harness.ocr.activeRunSettings.value).toBe(runSettings);
+            expect(harness.ocr.lastCompletedRunSettings.value).toBe(runSettings);
+
+            harness.ocr.progress.value = {
+                ...harness.ocr.progress.value,
+                isRunning: false,
+            };
+            await nextTick();
+            await nextTick();
+            expect(harness.isOpen.value).toBe(false);
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
     it('refuses an agent run while the document is busy and starts none', async () => {
         const harness = createPresenterHarness();
 

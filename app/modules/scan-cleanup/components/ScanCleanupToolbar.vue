@@ -1,6 +1,7 @@
 <template>
     <header
         class="toolbar scan-cleanup-toolbar"
+        :class="{'scan-cleanup-toolbar-metered': meterVisible}"
         :aria-label="t('scanCleanup.workspaceTitle')"
     >
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-left">
@@ -292,10 +293,12 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 }
 
 .scan-cleanup-toolbar-title {
-    flex: none;
+    min-width: 0;
+    overflow: hidden;
     color: var(--ui-text-highlighted);
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-heading);
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
@@ -389,6 +392,16 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
             minmax(0, var(--app-scan-toolbar-primary-width))
             minmax(0, 1fr);
         gap: var(--app-space-3xl);
+    }
+
+    /* While the meter shows, its phase, step and count keep the room they
+       need; the title gives way first, and the primary action keeps its width.
+       Idle, the settings badges keep the side room. */
+    .scan-cleanup-toolbar-metered {
+        grid-template-columns:
+            minmax(0, 1fr)
+            minmax(0, var(--app-scan-toolbar-activity-width))
+            minmax(var(--app-scan-toolbar-primary-width), 1fr);
     }
 
     .scan-cleanup-settings-reset [data-slot='label'] {

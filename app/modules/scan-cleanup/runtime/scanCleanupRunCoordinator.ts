@@ -221,7 +221,7 @@ export function reportScanCleanupRunError(
         return;
     }
     const workspaceIsOpen = scanCleanupRun.workspaceOwnerIds.has(ownerId);
-    createFailureToastPresenter(dependencies.toast)({
+    createFailureToastPresenter(dependencies.toast, dependencies.t)({
         failure,
         title: dependencies.t('scanCleanup.failed'),
         description: error,
@@ -674,7 +674,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     undefined,
                     {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
                 );
-                createFailureToastPresenter(terminalDependencies.toast)({
+                createFailureToastPresenter(terminalDependencies.toast, terminalDependencies.t)({
                     failure,
                     title: terminalDependencies.t('scanCleanup.openResultFailed'),
                     description: state.outputPdfPath,
@@ -736,7 +736,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 state.error,
                 {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
             );
-            createFailureToastPresenter(terminalDependencies.toast)({
+            createFailureToastPresenter(terminalDependencies.toast, terminalDependencies.t)({
                 failure,
                 title: terminalDependencies.t('scanCleanup.failed'),
                 description: error,

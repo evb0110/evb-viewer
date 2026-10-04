@@ -910,6 +910,10 @@ export function createBrowserDocumentsFileCapability(
                 await browserDocumentStore.clearRecentFiles();
                 await clearSearchCaches();
             },
+            // A browser document's stored bytes are refreshed from its file
+            // handle without an admission identity, so no view is kept for it.
+            readingView: () => Promise.resolve(null),
+            rememberReadingView: () => Promise.resolve(undefined),
         },
         getPathForFile(file) {
             return browserDocumentStore.getRefForFile(file);

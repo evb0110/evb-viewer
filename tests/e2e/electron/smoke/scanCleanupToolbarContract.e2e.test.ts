@@ -95,6 +95,88 @@ describe('scan cleanup toolbar contract', () => {
         }, {timeout: 90_000}, 6, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
         SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
 
+        // At the default window size the meter got an action button's width:
+        // the count painted through the cancel button and the clock was cut
+        // (#967). Every painted glyph of the phase, current count and caret
+        // must sit inside the boxes that clip it and clear of the button.
+        const detectionLayout = await session.page.evaluate((
+            toolbarCountSelector: string,
+            cancelDetectionSelector: string,
+        ) => {
+            const cancel = document.querySelector(cancelDetectionSelector)!.getBoundingClientRect();
+            const paint = (element: Element | null) => {
+                if (!element) return null;
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                const glyphs = [...range.getClientRects()].filter(rect => rect.width > 0);
+                const ink = glyphs.length > 0 ? glyphs : [element.getBoundingClientRect()];
+                const left = Math.min(...ink.map(rect => rect.left));
+                const right = Math.max(...ink.map(rect => rect.right));
+                const top = Math.min(...ink.map(rect => rect.top));
+                const bottom = Math.max(...ink.map(rect => rect.bottom));
+                let shown = {
+                    left,
+                    right,
+                    top,
+                    bottom,
+                };
+                for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                    const style = getComputedStyle(parent);
+                    if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+                    const box = parent.getBoundingClientRect();
+                    shown = {
+                        left: Math.max(shown.left, box.left),
+                        right: Math.min(shown.right, box.right),
+                        top: Math.max(shown.top, box.top),
+                        bottom: Math.min(shown.bottom, box.bottom),
+                    };
+                }
+                return {
+                    text: element.textContent?.trim() ?? '',
+                    whole: getComputedStyle(element).visibility === 'visible'
+                        && right > left
+                        && shown.left <= left + 0.5 && shown.right >= right - 0.5
+                        && shown.top <= top + 0.5 && shown.bottom >= bottom - 0.5,
+                    shownWidth: Math.max(0, shown.right - shown.left),
+                    clearOfCancel: right <= cancel.left || left >= cancel.right,
+                };
+            };
+            return {
+                phase: paint(document.querySelector('.scan-cleanup-activity-phase')),
+                detail: paint(document.querySelector('.scan-cleanup-activity-detail')),
+                count: paint(document.querySelector(`${toolbarCountSelector} .scan-cleanup-stable-width-value`)),
+                caret: paint(document.querySelector('.scan-cleanup-activity-caret')),
+            };
+        }, SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        expect(detectionLayout.phase).toMatchObject({
+            text: 'Analyze',
+            whole: true,
+            clearOfCancel: true,
+        });
+        expect(detectionLayout.count).toMatchObject({
+            whole: true,
+            clearOfCancel: true,
+        });
+        expect(detectionLayout.count?.text).toMatch(/^\d+ of 6 pages$/u);
+        expect(detectionLayout.caret).toMatchObject({
+            whole: true,
+            clearOfCancel: true,
+        });
+        expect(detectionLayout.detail?.text.length).toBeGreaterThan(0);
+        expect(detectionLayout.detail?.shownWidth).toBeGreaterThan(0);
+
+        // The cancel button beside the meter takes a person's click and stops
+        // detection; Re-detect then starts it again for the queue checks below.
+        await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await waitForFunctionInPage(session.page, (cancelDetectionSelector: string) => {
+            const redetect = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-redetect');
+            return document.querySelector(cancelDetectionSelector) === null
+                && document.querySelector('.scan-cleanup-toolbar-error') === null
+                && redetect?.disabled === false;
+        }, {timeout: 15_000}, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await clickAsUser(session.page, '.scan-cleanup-toolbar-redetect');
+        await session.page.waitForSelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, {timeout: 10_000});
+
         // Queue cleanup while detection is still running: the run meter must
         // appear and report the queued analysis phase as readable text,
         // and the primary action must remain enabled (it becomes cancel).

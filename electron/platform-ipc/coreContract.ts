@@ -148,6 +148,13 @@ export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse 
         };
     }
 
+    if (value.status === 'acknowledged') {
+        return {
+            requestId,
+            status: 'acknowledged',
+        };
+    }
+
     if (
         value.status !== 'unavailable'
         || (

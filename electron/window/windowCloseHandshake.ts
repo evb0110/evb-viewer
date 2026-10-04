@@ -9,9 +9,13 @@ import {
     CORE_IPC_SEND_CHANNELS,
     decodeWindowCloseResponse,
 } from '@electron/platform-ipc/coreContract';
+import { shouldResetRendererReadyOnNavigation } from '@electron/bootstrap/rendererReady';
 import type { ILogger } from '@electron/utils/createLogger';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
+// Bounds only how long the renderer may take to acknowledge a request. Once
+// acknowledged, the person's choice and its save take as long as they take;
+// renderer death or replacement settles the request instead.
 export const NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS = 10_000;
 
 interface IWindowCloseHandshakeOptions {
@@ -38,13 +42,40 @@ export function attachNativeWindowCloseHandshake(
     let pendingRequestId: string | null = null;
     let pendingTimeout: NodeJS.Timeout | null = null;
 
-    function clearPendingRequest() {
-        pendingRequestId = null;
+    function clearPendingTimeout() {
         if (!pendingTimeout) {
             return;
         }
         clearTimeout(pendingTimeout);
         pendingTimeout = null;
+    }
+
+    function clearPendingRequest() {
+        pendingRequestId = null;
+        clearPendingTimeout();
+    }
+
+    function settleForRendererLoss(reason: string) {
+        if (pendingRequestId === null) {
+            return;
+        }
+        clearPendingRequest();
+        options.logger.warn(
+            `[window-close] Renderer ${reason} before deciding; keeping the window open (windowId=${window.id})`,
+        );
+    }
+
+    function handleRenderProcessGone() {
+        settleForRendererLoss('went away');
+    }
+
+    function handleNavigationStart(_event: unknown, _url: string, isInPlace: boolean, isMainFrame: boolean) {
+        if (shouldResetRendererReadyOnNavigation({
+            isInPlace,
+            isMainFrame,
+        })) {
+            settleForRendererLoss('was replaced');
+        }
     }
 
     function handleResponse(event: IpcMainEvent, payload: unknown) {
@@ -54,6 +85,11 @@ export function attachNativeWindowCloseHandshake(
 
         const response = decodeWindowCloseResponse(payload);
         if (!response || response.requestId !== pendingRequestId) {
+            return;
+        }
+
+        if ('status' in response && response.status === 'acknowledged') {
+            clearPendingTimeout();
             return;
         }
 
@@ -150,6 +186,10 @@ export function attachNativeWindowCloseHandshake(
         disposed = true;
         clearPendingRequest();
         options.ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.windowCloseResponse, handleResponse);
+        if (!window.webContents.isDestroyed()) {
+            window.webContents.removeListener('render-process-gone', handleRenderProcessGone);
+            window.webContents.removeListener('did-start-navigation', handleNavigationStart);
+        }
         options.rawIpcRegistrationAudit?.release('window-close-response', registrationScope);
     }
 
@@ -159,6 +199,8 @@ export function attachNativeWindowCloseHandshake(
     } else {
         register();
     }
+    window.webContents.on('render-process-gone', handleRenderProcessGone);
+    window.webContents.on('did-start-navigation', handleNavigationStart);
     window.on('close', handleClose);
     window.once('closed', cleanup);
 

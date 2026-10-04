@@ -19,14 +19,13 @@ export function classifyDocumentOpenError(
     }
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
     const rawMessage = error instanceof Error ? stripIpcInvocationPrefix(error.message) : '';
-    const missing = openError ? openError.code === 'not-found' : /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage);
-    if (missing || openError) {
-        return missing
-            ? t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')})
-            : t(openError?.code === 'source-changed' ? 'errors.file.changedWhileOpening' : 'errors.file.invalid');
+    if (openError ? openError.code === 'not-found' : /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
+        return t('errors.file.openNotFound', {name: openError?.fileName ?? (path ? getDocumentRefBaseName(path) ?? String(path) : '')});
     }
-    const nativeError = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
-    return nativeError?.code === 'too-large' ? t('errors.file.encryptedTooLarge') : rawMessage || t('errors.file.open');
+    if (openError) {
+        return t(openError.code === 'source-changed' ? 'errors.file.changedWhileOpening' : openError.code === 'djvu-raster-limit' ? 'errors.file.djvuRasterLimit' : openError.code === 'empty-pdf' ? 'errors.file.emptyPdf' : 'errors.file.invalid');
+    }
+    return t(findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large' ? 'errors.file.encryptedTooLarge' : 'errors.file.openDescription');
 }
 
 /**

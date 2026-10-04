@@ -708,7 +708,13 @@ export function createScanCleanupService(
                         };
                     }
                 }
-                const outputPdfPath = await createScanCleanupGeneratedOutputPath(request.sourcePdfPath, partial);
+                // The request path is the private working copy (pdf-work-<uuid>/document.pdf);
+                // the user's file name lives with its registered original.
+                const outputPdfPath = await createScanCleanupGeneratedOutputPath(
+                    getWorkingCopyBackingEntry(request.sourcePdfPath, sender.id)?.originalPath
+                        ?? request.sourcePdfPath,
+                    partial,
+                );
                 // Allocate the run-owned scratch before handing the job to the
                 // registry. This keeps the start reservation ordered through
                 // all main-owned setup, so a second start cannot observe the

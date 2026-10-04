@@ -10,9 +10,13 @@ import {
 import {
     afterEach, describe, expect, it, 
 } from 'vitest';
-import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
+import {
+    readPdfAnnotationSummary, readPdfTextAnnotationRecords,
+} from '@tests/e2e/electron/helpers/fixtures';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import { activateMenuItemAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    activateMenuItemAsUser, clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp, waitForPdfLoaded, waitForViewerInteractive, 
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -21,7 +25,58 @@ import {
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRunRunId';
 import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
+import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
+
+async function startQuitSession(name: string, initialOpenPaths: string[]) {
+    // Linux reaches the real window through X11 input, so its Xvfb window
+    // must be mapped. macOS runs the Quit menu item in a hidden session,
+    // so the owner's desktop stays untouched.
+    const startSession = process.platform === 'linux' ? startHostVisibleElectronE2ESession : startElectronE2ESession;
+    return startSession(createE2ERunScopedSessionName(`${name}-${Date.now()}`), {
+        clean: true,
+        initialOpenPaths,
+    });
+}
+
+function readElectronPid(session: IElectronE2ESession) {
+    const electronPid = getSessionInfo(session.name)?.electronPid;
+    if (typeof electronPid !== 'number') throw new Error('The Electron pid was missing');
+    return electronPid;
+}
+
+async function quitAsUser(session: IElectronE2ESession) {
+    if (process.platform === 'linux') {
+        const windowId = execFileSync('xdotool', [
+            'search',
+            '--onlyvisible',
+            '--pid',
+            String(readElectronPid(session)),
+        ], { encoding: 'utf8' })
+            .trim().split('\n')[0];
+        if (!windowId || !/^\d+$/u.test(windowId)) throw new Error('The visible Electron window id was missing');
+        execFileSync('xdotool', [
+            'windowfocus',
+            '--sync',
+            windowId,
+        ]);
+        execFileSync('xdotool', [
+            'key',
+            '--clearmodifiers',
+            'ctrl+q',
+        ]);
+    } else if (process.platform === 'darwin') {
+        // Renderer key events never reach the menu's Cmd-Q.
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
+    } else {
+        await session.page.keyboard.down('Control');
+        try {
+            await session.page.keyboard.press('q');
+        } finally {
+            await session.page.keyboard.up('Control');
+        }
+    }
+}
 
 describe('unsaved work on app Quit', () => {
     let session: IElectronE2ESession | null = null;
@@ -51,15 +106,7 @@ describe('unsaved work on app Quit', () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-unsaved-'));
         const sourcePath = join(outputDirectory, 'quit-source.pdf');
         copyFileSync(fixturePath, sourcePath);
-        const sessionName = createE2ERunScopedSessionName(`e2e-quit-unsaved-${Date.now()}`);
-        // Linux reaches the real window through X11 input, so its Xvfb window
-        // must be mapped. macOS runs the Quit menu item in a hidden session,
-        // so the owner's desktop stays untouched.
-        const startSession = process.platform === 'linux' ? startHostVisibleElectronE2ESession : startElectronE2ESession;
-        session = await startSession(sessionName, {
-            clean: true,
-            initialOpenPaths: requiresSaveAs ? [] : [sourcePath],
-        });
+        session = await startQuitSession('e2e-quit-unsaved', requiresSaveAs ? [] : [sourcePath]);
 
         let documentPath = sourcePath;
         if (requiresSaveAs) {
@@ -75,47 +122,13 @@ describe('unsaved work on app Quit', () => {
         await waitForViewerInteractive(session.page, 60_000);
         const originalBytes = readFileSync(documentPath);
         const originalAnnotationSummary = await readPdfAnnotationSummary(documentPath);
-        const electronPid = getSessionInfo(session.name)?.electronPid;
-        expect(electronPid).toEqual(expect.any(Number));
-        if (process.platform === 'linux') {
-            const windowId = execFileSync('xdotool', [
-                'search',
-                '--onlyvisible',
-                '--pid',
-                String(electronPid),
-            ], { encoding: 'utf8' })
-                .trim().split('\n')[0];
-            expect(windowId).toMatch(/^\d+$/u);
-            if (!windowId) throw new Error('The visible Electron window id was missing');
-            execFileSync('xdotool', [
-                'windowfocus',
-                '--sync',
-                windowId,
-            ]);
-        }
         const marker = `Quit unsaved ${Date.now()}`;
         await createCanonicalTextBoxWithPointer(session.page, marker, {
             x: 0.4,
             y: 0.3,
         });
 
-        if (process.platform === 'linux') {
-            execFileSync('xdotool', [
-                'key',
-                '--clearmodifiers',
-                'ctrl+q',
-            ]);
-        } else if (process.platform === 'darwin') {
-            // Renderer key events never reach the menu's Cmd-Q.
-            await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
-        } else {
-            await session.page.keyboard.down('Control');
-            try {
-                await session.page.keyboard.press('q');
-            } finally {
-                await session.page.keyboard.up('Control');
-            }
-        }
+        await quitAsUser(session);
         const quitOutcome = await Promise.race([
             session.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')), { timeout: 15_000 })
                 .then(() => 'prompt' as const, () => 'no-prompt' as const),
@@ -166,6 +179,40 @@ describe('unsaved work on app Quit', () => {
         if (!discard) throw new Error('Window close decision did not offer Discard changes');
         await session.page.mouse.click(discard.x, discard.y);
         await windowClosed;
+    }, 150_000);
+
+    it('saves and quits when Save changes is chosen after the Quit prompt has been open for a while', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-late-save-'));
+        const documentPath = join(outputDirectory, 'quit-late-save.pdf');
+        copyFileSync(resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), documentPath);
+        session = await startQuitSession('e2e-quit-late-save', [documentPath]);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const electronPid = readElectronPid(session);
+        const marker = `Quit late save ${Date.now()}`;
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.3,
+        });
+
+        await quitAsUser(session);
+        await session.page.waitForFunction(() => Array.from(document.querySelectorAll('[role="dialog"] button'))
+            .some(button => button.textContent?.trim() === 'Save changes'), {timeout: 15_000});
+        // A person reading the prompt takes longer than the main process's
+        // deadline for the renderer to answer a close request (#968).
+        await new Promise(resolveWait => setTimeout(resolveWait, 13_000));
+        let pageClosed = false;
+        session.page.once('close', () => {
+            pageClosed = true;
+        });
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Save changes'), undefined, {description: 'Save changes and quit'});
+
+        // One 15 s budget covers both the window closing and the app exiting.
+        await expect.poll(() => pageClosed && !isProcessAlive(electronPid), {timeout: 15_000}).toBe(true);
+        expect((await readPdfTextAnnotationRecords(documentPath))
+            .filter(record => record.subtype === '/FreeText')
+            .map(record => record.contents)).toEqual([marker]);
     }, 150_000);
 });
 

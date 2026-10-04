@@ -83,7 +83,7 @@ async function readActiveViewportCentre(page: Page) {
     const centre = await evaluateInPage(page, () => {
         const host = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        );
         const viewport = host?.querySelector<HTMLElement>(
             '[data-document-viewer-chassis-viewport], #pdf-viewer',
         ) ?? null;
@@ -254,7 +254,7 @@ export async function waitForPdfLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
             };
             const viewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
             const visibleViewers = viewers.filter(isElementVisible);
-            const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
             const viewer = (activeViewer && visibleViewers.includes(activeViewer))
                 ? activeViewer
                 : (visibleViewers.length === 1 ? visibleViewers[0] : null);
@@ -338,7 +338,7 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
 
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter(isVisibleHost);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             const host = (activeHost && visibleHosts.includes(activeHost))
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -587,7 +587,7 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
 
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = (activeHost && visibleHosts.includes(activeHost))
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -837,7 +837,7 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
         };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = (activeHost && isVisibleHost(activeHost))
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -870,7 +870,7 @@ export async function ensureSidebarOpen(page: Page, timeoutMs = DEFAULT_TIMEOUT_
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
         };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = (activeHost && isVisibleHost(activeHost))
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -946,7 +946,7 @@ async function isAnnotationsPanelVisible(page: Page) {
             return rect.height > 10 && rect.width > 10 && style.display !== 'none' && style.visibility !== 'hidden';
         };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = (activeHost && isVisibleHost(activeHost))
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
@@ -956,7 +956,7 @@ async function isAnnotationsPanelVisible(page: Page) {
 }
 
 async function tryActivateAnnotationsTab(page: Page) {
-    const activeSelector = '.editor-pane.is-active .workspace-host [data-testid="document-sidebar"] [role="tab"]';
+    const activeSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-testid="document-sidebar"] [role="tab"]';
     const fallbackSelector = '.workspace-host [data-testid="document-sidebar"] [role="tab"]';
     let tabs = await page.$$(activeSelector);
     if (tabs.length === 0) {
@@ -1089,7 +1089,7 @@ export async function setupScrollToPage(page: Page, pageNumber: number) {
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
         };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = (activeHost && isVisibleHost(activeHost))
             ? activeHost
             : Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))

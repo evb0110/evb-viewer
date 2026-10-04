@@ -27,6 +27,7 @@ import {
 } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
+import { NativeProcessError } from '@electron/native-tools/processResult';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
@@ -221,6 +222,15 @@ async function resolvePdfOpeningGeometryPath(
         // and therefore cannot resolve this pre-open source.
         return trustedRecentPath;
     }
+}
+
+// Poppler's answer for an encrypted PDF read without its password. Opening
+// geometry is read before the password prompt, so this is an expected outcome.
+function isPasswordRequiredPdfInfoFailure(error: unknown) {
+    return error instanceof NativeProcessError
+        && error.kind === 'exit-code'
+        && error.exitCode === 1
+        && error.message.includes('Command Line Error: Incorrect password');
 }
 
 function abortWithReason(controller: AbortController, reason: string) {
@@ -612,7 +622,12 @@ async function readPdfOpeningGeometry(
                 signal: abortController.signal,
                 cancelGroup,
             }),
-        );
+        ).catch((error: unknown) => {
+            if (isPasswordRequiredPdfInfoFailure(error)) {
+                return null;
+            }
+            throw error;
+        });
         const result = originalBackedRead
             ? await originalBackedRead.read(readGeometry)
             : await readGeometry(resolvedPath);
@@ -628,6 +643,9 @@ async function readPdfOpeningGeometry(
             || identityAfter.modifiedAt !== identityBefore.modifiedAt
         ) {
             throw new Error('PDF changed while opening geometry was being discovered');
+        }
+        if (result === null) {
+            return null;
         }
         return parsePdfOpeningGeometryMetadata(result.stdout, identityAfter);
     } finally {

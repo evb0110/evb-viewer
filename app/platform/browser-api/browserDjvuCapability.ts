@@ -5,6 +5,11 @@ import type {
     IDjvuOpenResult,
 } from '@contracts/electronApiDjvu';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
+import {
+    findSerializableErrorEnvelope,
+    SerializableError,
+} from '@contracts/serializableError';
 import {
     createJobId,
     createRequestId,
@@ -34,42 +39,33 @@ import {
     withBrowserDjvuWorker,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
+// The browser open reports the typed reason a page or document was refused,
+// whichever worker route it took, and keeps the diagnostic message.
 async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuOpenResult> {
-    if (!isBrowserDocumentRef(djvuPath)) {
-        return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSizes = await getDjvuWorkerPageSizes(worker);
-            return pageSizes.length > 0
-                ? {
-                    success: true,
-                    pageCount: pageSizes.length,
-                }
-                : {
-                    success: false,
-                    error: 'DjVu document has no pages',
-                };
-        }, 'open');
-    }
+    const browserRef = isBrowserDocumentRef(djvuPath);
     try {
-        const worker = await retainBrowserDjvuViewingWorker(djvuPath);
-        const pageSizes = await getDjvuWorkerPageSizes(worker);
-        const pageCount = pageSizes.length;
-
-        if (pageCount <= 0) {
-            releaseBrowserDjvuViewingWorker(djvuPath);
-            return {
-                success: false,
-                error: 'DjVu document has no pages',
-            };
+        const pageSizes = browserRef
+            ? await getDjvuWorkerPageSizes(await retainBrowserDjvuViewingWorker(djvuPath))
+            : await withBrowserDjvuWorker(djvuPath, getDjvuWorkerPageSizes, 'open');
+        if (pageSizes.length <= 0) {
+            throw new SerializableError({
+                code: 'invalid-djvu',
+                message: 'DjVu document has no pages',
+            });
         }
         return {
             success: true,
-            pageCount,
+            pageCount: pageSizes.length,
         };
     } catch (error: unknown) {
-        releaseBrowserDjvuViewingWorker(djvuPath);
+        if (browserRef) {
+            releaseBrowserDjvuViewingWorker(djvuPath);
+        }
+        const errorEnvelope = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
         return {
             success: false,
-            error: error instanceof Error ? getErrorMessage(error) : 'DjVu viewing failed',
+            error: getErrorMessage(error),
+            ...(errorEnvelope ? {errorEnvelope} : {}),
         };
     }
 }

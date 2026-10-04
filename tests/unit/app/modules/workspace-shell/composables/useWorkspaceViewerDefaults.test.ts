@@ -125,6 +125,79 @@ describe('useWorkspaceViewerDefaults', () => {
         }
     });
 
+    it('keeps a view seeded for its admitted source when that source is shown, and defaults any other', async () => {
+        const setup = createDefaultsSetup(
+            {defaultZoomPreset: 'fit-width'},
+            {initialDocumentSourceKey: '/tmp/previous-working.pdf'},
+        );
+        const seed = (source: string) => setup.defaults.seedViewForSource({
+            zoom: 1.85,
+            zoomMode: 'custom',
+            viewMode: 'single',
+            continuousScroll: true,
+            viewRotation: 0,
+        }, source);
+
+        try {
+            // A replacing open: seeded, the old source reset, the admitted one shown.
+            seed('/tmp/remembered-working.pdf');
+            setup.documentSourceKey.value = null;
+            await nextTick();
+            setup.documentSourceKey.value = '/tmp/remembered-working.pdf';
+            await nextTick();
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ]).toEqual([
+                'custom',
+                1.85,
+                'single',
+            ]);
+
+            // An open seeded for one source that shows another takes that one's defaults.
+            seed('/tmp/seeded-working.pdf');
+            setup.documentSourceKey.value = '/tmp/unrelated-working.pdf';
+            await nextTick();
+            expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('defaults a source reopened after the open that seeded it ended without showing it', async () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
+
+        try {
+            const view = {
+                zoom: 1.85,
+                zoomMode: 'custom' as const,
+                viewMode: 'single' as const,
+                continuousScroll: true,
+                viewRotation: 0 as const,
+            };
+            // An older open ending does not withdraw a newer open's seed.
+            const withdrawOlder = setup.defaults.seedViewForSource(view, '/docs/older.djvu');
+            const withdrawNewer = setup.defaults.seedViewForSource(view, '/docs/book.djvu');
+            withdrawOlder();
+            setup.documentSourceKey.value = '/docs/book.djvu';
+            await nextTick();
+            expect(setup.zoom.value).toBe(1.85);
+
+            // The open failed or was cancelled: the same source reopened
+            // later, unseeded, takes its defaults.
+            withdrawNewer();
+            setup.documentSourceKey.value = null;
+            await nextTick();
+            setup.defaults.seedViewForSource(view, '/docs/book.djvu')();
+            setup.documentSourceKey.value = '/docs/book.djvu';
+            await nextTick();
+            expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
     it('preserves a document source already attached during setup', async () => {
         const setup = createDefaultsSetup(
             {defaultZoomPreset: 'fit-width'},

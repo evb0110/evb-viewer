@@ -6,9 +6,14 @@ import type {
     ISettingsData,
     TFitMode,
     TPdfViewMode,
+    TPdfViewRotation,
     TZoomMode,
 } from '@contracts/shared';
 import type { IAnnotationSettings } from '@app/types/annotations';
+import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
+import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+
+type TSavedView = Pick<IWorkspaceCheckpointTab, 'zoom' | 'zoomMode' | 'continuousScroll' | 'viewMode' | 'viewRotation'>;
 
 interface IUseWorkspaceViewerDefaultsOptions {
     appSettings: Ref<ISettingsData>;
@@ -22,6 +27,9 @@ interface IUseWorkspaceViewerDefaultsOptions {
     pdfSrc: Ref<TPdfSource | null>;
     documentSourceKey?: Ref<unknown>;
     preserveInitialStateForFirstSource?: boolean | undefined;
+    /** The view's viewer, told when the reader zooms, as a scroll tells it. */
+    documentViewerRef?: Ref<Pick<IDocumentViewerExpose, 'observeReaderCommand'> | null>;
+    viewRotation?: Ref<TPdfViewRotation>;
 }
 
 export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsOptions) => {
@@ -29,7 +37,12 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         return clampPdfManualZoom(level);
     }
 
+    // A custom zoom is the reader's requested display value; a fit mode's
+    // display value is the scale the viewer computed for it.
     function resolveDisplayZoom() {
+        if (options.zoomMode.value === 'custom') {
+            return clampWorkspaceZoomLevel(options.zoom.value);
+        }
         if (Number.isFinite(options.effectiveZoom.value) && options.effectiveZoom.value > 0) {
             return options.effectiveZoom.value;
         }
@@ -81,24 +94,71 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true
         || defaultsSourceKey.value !== null;
 
+    // The admitted source a seeded view was restored for: when that source is
+    // shown, its view stands in for its defaults, through any reset between.
+    // Any other shown source takes its defaults and ends the claim.
+    let keptViewSource: unknown = null;
+
     watch(defaultsSourceKey, (sourceKey) => {
-        if (shouldPreserveInitialState) {
-            if (sourceKey !== null) {
-                shouldPreserveInitialState = false;
-            }
-            return;
+        const keepsView = shouldPreserveInitialState || (keptViewSource !== null && (sourceKey === null || sourceKey === keptViewSource));
+        if (sourceKey !== null) {
+            shouldPreserveInitialState = false;
+            keptViewSource = null;
         }
-        applyWorkspaceViewerDefaults();
+        if (!keepsView) {
+            applyWorkspaceViewerDefaults();
+        }
     }, {immediate: true});
 
+    // A saved view (a checkpoint, a moved tab, a reading seed) set as state;
+    // a null setting keeps the current one.
+    function applyView(state: TSavedView) {
+        options.continuousScroll.value = state.continuousScroll ?? options.continuousScroll.value;
+        options.viewMode.value = state.viewMode ?? options.viewMode.value;
+        if (options.viewRotation && state.viewRotation != null) {
+            options.viewRotation.value = state.viewRotation;
+        }
+        if (state.zoomMode === 'fit-width' || state.zoomMode === 'fit-height') {
+            options.zoom.value = 1;
+            options.fitMode.value = state.zoomMode === 'fit-height' ? 'height' : 'width';
+            options.zoomMode.value = state.zoomMode;
+        } else if (state.zoom !== null) {
+            setCustomZoomFromDisplay(state.zoom);
+        }
+    }
+
+    // The reader's zoom commands (toolbar, menu, keyboard) move the view;
+    // defaults and restored views set the zoom without being a move.
+    function zoomAsReader(displayZoom: number) {
+        options.documentViewerRef?.value?.observeReaderCommand?.();
+        setCustomZoomFromDisplay(displayZoom);
+    }
+
     return {
-        handleZoomIn: () => setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP),
+        handleZoomIn: () => zoomAsReader(resolveDisplayZoom() + ZOOM.STEP),
         handleZoomOut: () => {
             const displayZoom = resolveDisplayZoom();
             if (displayZoom > ZOOM.MIN) {
-                setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
+                zoomAsReader(displayZoom - ZOOM.STEP);
             }
         },
-        handleActualSize: () => setCustomZoomFromDisplay(1),
+        handleActualSize: () => zoomAsReader(1),
+        setCustomZoomFromDisplay,
+        applyView,
+        /**
+         * Sets an open's admitted reading seed for the source it is about to
+         * show, where that source's defaults would go when it is shown. Being
+         * that document's own view, all of it applies. Returns the withdrawal
+         * for when the open ends; a later open's seed stays.
+         */
+        seedViewForSource: (state: TSavedView, source: unknown) => {
+            keptViewSource = source;
+            applyView(state);
+            return () => {
+                if (keptViewSource === source) {
+                    keptViewSource = null;
+                }
+            };
+        },
     };
 };

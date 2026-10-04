@@ -34,11 +34,11 @@
                 @update:page-dropdown-open="handleDropdownOpen('page', $event)"
                 @update:overflow-menu-open="handleDropdownOpen('overflow', $event)"
                 @update:app-menu-open="handleDropdownOpen('appMenu', $event)"
-                @update:zoom="zoom = $event"
+                @update:zoom="observeReaderCommand(); zoom = $event"
                 @update:effective-zoom="effectiveZoom = $event"
-                @update:zoom-mode="zoomMode = $event"
-                @update:fit-mode="fitMode = $event"
-                @update:view-mode="viewMode = $event"
+                @update:zoom-mode="observeReaderCommand(); zoomMode = $event"
+                @update:fit-mode="observeReaderCommand(); fitMode = $event"
+                @update:view-mode="observeReaderCommand(); viewMode = $event"
                 @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="scanCleanup.openScanCleanup"
@@ -67,14 +67,14 @@
                 @toggle-sidebar="runToolbarAction(workspaceExpose.handleToggleSidebar)"
                 @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
                 @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
-                @toggle-continuous-scroll="runToolbarAction(toggleContinuousScroll)"
+                @toggle-continuous-scroll="runToolbarAction(workspaceExpose.handleToggleContinuousScroll)"
                 @enable-drag="runToolbarAction(enableDragMode)"
                 @disable-drag="runToolbarAction(workspaceExpose.handleDisableDragMode)"
                 @capture-region="runToolbarAction(handleCaptureRegion)"
                 @crop="runToolbarAction(handleCropAction)"
                 @quick-note="runToolbarAction(handleQuickNoteAction)"
                 @toggle-fullscreen="emit('toggle-fullscreen')"
-                @set-view-mode="runToolbarAction(() => setViewMode($event))"
+                @set-view-mode="observeReaderCommand(); runToolbarAction(() => setViewMode($event))"
                 @go-to-page="handleGoToPage"
             />
         </WorkspaceToolbarHost>
@@ -89,7 +89,7 @@
             v-show="surfaceMode === 'reader' || !scanCleanup.workspaceMounted.value"
             :show-sidebar="toolbarShowSidebarForDisplay"
             :sidebar-wrapper-style="sidebarWrapperStyle"
-            :sidebar-content-width="sidebarWidth"
+            :sidebar-content-width="search.sidebarContentWidth.value"
             :is-resizing-sidebar="isPointerResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
             @resize-start="startSidebarResize"
@@ -293,11 +293,9 @@ const {
     fitMode,
     viewMode,
     totalPages,
-    continuousScroll,
     showSidebar,
 } = view;
 const {
-    sidebarWidth,
     sidebarWrapperStyle,
     isResizingSidebar,
     isPointerResizingSidebar,
@@ -427,9 +425,9 @@ function runToolbarAction(action: () => unknown) {
     }
     closeAllDropdowns();
 }
-function toggleContinuousScroll() {
-    continuousScroll.value = !continuousScroll.value;
-}
+// The zoom control's own edits are the reader moving this view, as a scroll is;
+// the workspace's view commands count themselves.
+const observeReaderCommand = () => view.documentViewerRef.value?.observeReaderCommand?.();
 function setViewMode(mode: TPdfViewMode) {
     viewMode.value = mode;
 }

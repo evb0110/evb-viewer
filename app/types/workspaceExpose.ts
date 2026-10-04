@@ -5,7 +5,9 @@ import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import type { IWorkspaceReaderFollow } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
     IAnnotationCommentSummary,
@@ -273,7 +275,7 @@ export interface IWorkspaceExpose {
     handleViewModeFacingFirstSingle: () => void;
     handleViewRotationCw: () => void;
     handleViewRotationCcw: () => void;
-    setViewRotation: (rotation: TPdfViewRotation) => void;
+    restoreViewState: (state: Pick<IWorkspaceCheckpointTab, 'currentPage' | 'zoom' | 'zoomMode' | 'continuousScroll' | 'viewMode' | 'viewRotation'>) => void;
     handleDeletePages: () => void;
     handleExtractPages: () => void;
     handleRotateCw: (pages?: number[]) => Promise<boolean>;
@@ -327,9 +329,6 @@ export interface IWorkspaceExpose {
     scrollToPage?: (page: number) => void;
     /** Where the view reads: the point of a page at its center. */
     captureReadingAnchor?: () => IPdfSemanticAnchor | null;
-    /**
-     * Once the document has opened here, brings a point captured in another
-     * view of it to this view's center, unless the reader navigated first.
-     */
-    placeReadingAnchorAfterOpen?: (anchor: IPdfSemanticAnchor) => Promise<void>;
+    /** Follows the reader from now, so their moves outrank a restored place. */
+    followReader?: () => IWorkspaceReaderFollow;
 }

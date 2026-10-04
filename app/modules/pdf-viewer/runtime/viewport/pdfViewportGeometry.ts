@@ -13,14 +13,9 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {createLazyIndexedCollection} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 
-export interface IPdfSemanticAnchor {
-    page: number;
-    pageXFraction: number;
-    pageYFraction: number;
-    viewportXFraction: number;
-    viewportYFraction: number;
-    affinity: 'start' | 'center' | 'end';
-}
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+
+export type {IPdfSemanticAnchor};
 
 export interface IPdfViewportPageMetric {
     width: number;

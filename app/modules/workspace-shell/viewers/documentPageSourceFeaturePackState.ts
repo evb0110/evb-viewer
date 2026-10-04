@@ -236,6 +236,13 @@ export async function openDocumentPageSource(
     if (!documentRef) {
         return false;
     }
+    // The page the source opens at: where its view already is, else the page
+    // the open presents (a restore or a navigation during the open can set it
+    // before any page is shown), as the chassis's opening shell reads it.
+    const readOpeningPage = () => {
+        const viewport = context.chassisAuthority?.openSurface.viewportSession.value;
+        return Math.max(1, Math.trunc(viewport?.observedPage ?? viewport?.committedPage ?? viewport?.requestedPage ?? context.readCurrentPage()));
+    };
     try {
         const preview = await createDjvuPagePreviewSourceFromPath(documentRef);
         if (!transition.isCurrent()) {
@@ -246,7 +253,7 @@ export async function openDocumentPageSource(
             documentRef,
             preview,
             context.surfaceBudget,
-            {initialPageNumber: Math.max(1, Math.trunc(context.readCurrentPage()))},
+            {initialPageNumber: readOpeningPage()},
         ).catch((error: unknown) => {
             preview.terminate();
             throw error;
@@ -266,10 +273,7 @@ export async function openDocumentPageSource(
             search: Boolean(nextSource.searchProvider ?? nextSource.textProvider),
             text: Boolean(nextSource.textProvider),
         });
-        const normalizePage = () => Math.max(1, Math.min(
-            nextSource.pageCount,
-            Math.trunc(context.readCurrentPage()),
-        ));
+        const normalizePage = () => Math.min(nextSource.pageCount, readOpeningPage());
         let initialPage = normalizePage();
         let initialMetric = await loadInitialDocumentPageMetric(
             nextSource,

@@ -3,9 +3,11 @@ import {parsePaneId} from '@contracts/editorPanes';
 import type {TEditorLayoutNode} from '@contracts/editorPanes';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {parseTabId} from '@contracts/windowTabs';
-import type {
-    TPdfViewRotation, TPdfViewMode, TZoomMode,
-} from '@contracts/shared';
+import {
+    VIEW_MODE_SCHEMA as viewModeSchema,
+    VIEW_ROTATION_SCHEMA as viewRotationSchema,
+    ZOOM_MODE_SCHEMA as zoomModeSchema,
+} from '@contracts/recentReadingView';
 import {parseEpochMs} from '@contracts/timestamps';
 
 const MAX_CHECKPOINT_TABS = 128;
@@ -16,23 +18,6 @@ const nullablePaneIdSchema = v.nullable(paneIdSchema);
 const nullableTabIdSchema = v.nullable(tabIdSchema);
 const nullableDocumentRefSchema = v.nullable(documentRefSchema);
 const epochMsSchema = v.pipe(v.number(), v.check(value => parseEpochMs(value) !== null), v.transform(value => parseEpochMs(value)!));
-const zoomModeSchema = v.picklist([
-    'custom',
-    'fit-height',
-    'fit-width',
-] satisfies TZoomMode[]);
-const viewModeSchema = v.picklist([
-    'single',
-    'facing',
-    'facing-first-single',
-] satisfies TPdfViewMode[]);
-const viewRotationSchema = v.picklist([
-    0,
-    90,
-    180,
-    270,
-] satisfies TPdfViewRotation[]);
-
 function createLayoutNodeSchema(depth: number): v.GenericSchema<unknown, TEditorLayoutNode> {
     const leafSchema = v.object({
         type: v.literal('leaf'),

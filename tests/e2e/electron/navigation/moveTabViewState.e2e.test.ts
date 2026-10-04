@@ -11,7 +11,7 @@ import {
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
-    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded,
+    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
@@ -164,5 +164,35 @@ describe('Move Tab to New Window view state', () => {
         expect(result.zoomMode).toBe('custom');
         expect(result.zoomText).toContain('137');
         expect(result.sidebarOpen).toBe(true);
+    }, 120_000);
+
+    it('keeps the moved view over the place Recent remembers for its document', async () => {
+        const session = sessions.getSession();
+        const appTempDirectory = electronAppTempDirPath(session.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-'));
+        const fixture = join(outputDirectory, 'transfer-recent.pdf');
+        await createTwelvePageFixture(fixture);
+        const recentRow = `.editor-pane.is-active [data-recent-source="${fixture}"] .recent-open`;
+        await openPdfInApp(session.page, fixture);
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 3);
+        // Closing the tab remembers page 3; reopening from Recent goes back there.
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await session.page.waitForSelector(recentRow, {
+            visible: true,
+            timeout: 20_000,
+        });
+        await clickAsUser(session.page, recentRow);
+        await waitForPdfLoaded(session.page);
+        await waitForToolbarCurrentPage(session.page, 3);
+        await goToPageViaToolbar(session.page, 7);
+
+        const destination = await moveTabToNewWindow(session.page);
+        await waitForFunctionInPage(destination, () => (
+            document.querySelector('.editor-pane.is-active .document-viewer-chassis')?.getAttribute('data-viewport-lifecycle') === 'ready'
+        ), {timeout: 30_000});
+        expect((await readView(destination)).page).toBe(7);
+
     }, 120_000);
 });

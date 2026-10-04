@@ -18,6 +18,7 @@ import type {
 import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { SerializableError } from '@contracts/serializableError';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
@@ -341,6 +342,24 @@ describe('document page-source presentation lifecycle', () => {
         expect(render).toHaveBeenCalledTimes(3);
         expect(capture).toHaveBeenCalledOnce();
         expect(harness.emit).toHaveBeenCalledWith('loadError', expect.any(Error));
+    });
+
+    it('fails a page the raster limit refuses on its first render, with the refusal', async () => {
+        const harness = createPresentationHarness();
+        const render = vi.mocked(harness.source.renderPage);
+        const refusal = new SerializableError({
+            code: 'djvu-raster-limit',
+            message: 'DjVu page 1 (10000x8001) exceeds the browser full-resolution raster budget',
+        });
+        vi.spyOn(BrowserLogger, 'error');
+        render.mockRejectedValue(refusal);
+        harness.presentation.beginSourceGeneration();
+
+        await harness.presentation.renderPage(1);
+        await harness.presentation.renderPage(1);
+
+        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
+        expect(harness.emit).toHaveBeenCalledWith('loadError', refusal);
     });
 
     it('persists image-error retries until exhaustion and clears them with the source generation', async () => {

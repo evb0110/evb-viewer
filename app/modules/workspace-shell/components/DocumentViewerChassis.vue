@@ -647,6 +647,8 @@ watch(() => [
 // page alone does not create or commit a scroll intent.
 defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     getCurrentPage: () => chassisAuthority.currentPage.value,
+    getReaderInteractionEpoch: () => chassisAuthority.viewportWritePort.getInteractionEpoch(),
+    observeReaderCommand: () => chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined),
     getPendingNavigationTargetPage: () => {
         const ticket = chassisAuthority.navigationTicket.value;
         const target = ticket?.request.target;

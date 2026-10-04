@@ -67,12 +67,11 @@ export interface IWorkspaceOpenRequest {
     acceptDocumentWithoutVisual?: boolean | undefined;
     /** The page-shape read the open's input started, if it started one. */
     pageShape?: IPdfPageShapeRead | null | undefined;
-    /**
-     * The file whose pages the open shows, when it is not the target's source
-     * (a recovered, decrypted or generated working copy); null when there is
-     * none to read yet, as for a file that still waits for its password.
-     */
+    /** The file whose pages the open shows, when not the target's source (a recovered, decrypted or
+     * generated working copy); null while there is none to read yet, as before a password. */
     pageShapeSource?: TDocumentRef | null | undefined;
+    /** The open brings its reader's own view (a moved tab), which outranks reading history. */
+    carriesView?: boolean | undefined;
 }
 
 /**

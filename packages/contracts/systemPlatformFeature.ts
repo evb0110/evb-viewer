@@ -43,9 +43,14 @@ export type TWindowCloseUnavailableReason =
 
 export interface IWindowCloseRequest {requestId: TRequestId;}
 
+// `acknowledged` means the renderer has taken the request to its sole
+// handler. It is not a decision; a decision or `unavailable` follows.
 export type IWindowCloseResponse = {
     decision: TWindowCloseDecision;
     requestId: TRequestId;
+} | {
+    requestId: TRequestId;
+    status: 'acknowledged';
 } | {
     requestId: TRequestId;
     status: 'unavailable';

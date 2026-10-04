@@ -266,8 +266,8 @@ function utf8Prefix(value: string, maxBytes: number) {
     return prefix;
 }
 
-function humanOutputName(sourcePdfPath: string, partial: boolean) {
-    const sourceName = basename(sourcePdfPath, extname(sourcePdfPath)).trim() || 'document';
+function humanOutputName(originalPdfPath: string, partial: boolean) {
+    const sourceName = basename(originalPdfPath, extname(originalPdfPath)).trim() || 'document';
     const suffix = ` — cleaned${partial ? ' selection' : ''}.pdf`;
     const fullName = `${sourceName}${suffix}`;
     if (Buffer.byteLength(fullName, 'utf8') <= SCAN_CLEANUP_OUTPUT_LEAF_MAX_BYTES) {
@@ -285,7 +285,7 @@ function humanOutputName(sourcePdfPath: string, partial: boolean) {
 }
 
 export async function createScanCleanupGeneratedOutputPath(
-    sourcePdfPath: string,
+    originalPdfPath: string,
     partial = false,
     baseDir = getScanCleanupOutputBaseDirs()[0]!,
 ) {
@@ -294,7 +294,7 @@ export async function createScanCleanupGeneratedOutputPath(
         recursive: true,
         mode: 0o700,
     });
-    return join(outputDirectory, humanOutputName(sourcePdfPath, partial));
+    return join(outputDirectory, humanOutputName(originalPdfPath, partial));
 }
 
 /**

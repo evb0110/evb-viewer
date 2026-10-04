@@ -1669,6 +1669,7 @@ export default {
             'passwordPromptIncorrect': 'La contraseña no es correcta. Inténtalo de nuevo.',
             'unsupportedEncryption': 'Este PDF usa un cifrado que EVB Viewer no puede abrir.',
             'encryptedTooLarge': 'Este PDF cifrado supera el límite de 512 MiB y no se puede abrir.',
+            'djvuRasterLimit': 'Esta página DjVu es demasiado grande para mostrarse a resolución completa.',
             'changedWhileOpening': 'El archivo cambió mientras se abría. Vuelve a abrirlo.',
             'invalid': 'El archivo está dañado o no es un documento compatible.',
             'emptyPdf': 'El archivo PDF está vacío (0 bytes)',

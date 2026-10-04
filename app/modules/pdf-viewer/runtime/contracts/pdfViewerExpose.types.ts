@@ -107,6 +107,14 @@ export interface IDocumentViewerExpose {
     restoreReadingAnchor?: (anchor: IPdfSemanticAnchor) => void;
     cancelProgrammaticNavigation?: () => void;
     getUserViewportInteractionEpoch?: () => number;
+    /**
+     * The reader's moves of this view, PDF or DjVu alike, as the chassis's
+     * viewport write port counts them: scrolls, wheels, pointer presses and
+     * view commands. A new viewer counts from its own start.
+     */
+    getReaderInteractionEpoch?: () => number;
+    /** A reader's view command (zoom, fit, view mode) counts as a move of this view. */
+    observeReaderCommand?: () => void;
     invalidatePages?: (pages: number[]) => void;
     remapPageIdentityDelta?: (delta: IPageIdentityDelta) => void;
     preparePageMutationRevisionSwap?: (input: {

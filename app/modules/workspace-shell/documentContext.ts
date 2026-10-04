@@ -56,6 +56,10 @@ import {
     type TViewShellState,
 } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    createReadingViewLifecycleHooks,
+    registerViewInUse,
+} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
 interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
 
@@ -119,16 +123,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         closePageContextMenu: () => commandView.value?.pageContextMenu.closePageContextMenu(),
     };
     // A document source change resets every view's search, not only the one in use.
-    function resetSearchCaches() {
-        for (const port of viewPorts.value.values()) {
-            port.search.resetSearchCache();
-        }
-    }
-    function closeSearches() {
-        for (const port of viewPorts.value.values()) {
-            port.search.closeSearch();
-        }
-    }
+    const resetSearchCaches = () => viewPorts.value.forEach(port => port.search.resetSearchCache());
+    const closeSearches = () => viewPorts.value.forEach(port => port.search.closeSearch());
+    registerViewInUse(controller, () => views.commandTabId.value);
     function runDocumentOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
         const port = commandView.value;
         return port ? port.runDocumentOpen(request, run) : controller.runOpen(request, run);
@@ -140,7 +137,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
-        createViewerLifecycleHooks: context => driver.createLifecycleHooks(context),
+        createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller, () => commandView.value?.openSurface ?? null)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
     });

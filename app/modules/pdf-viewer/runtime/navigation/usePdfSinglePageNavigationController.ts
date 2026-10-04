@@ -1224,6 +1224,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         immediate: true,
     });
     const navigationAnchorPage = computed(() => viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value);
+    // Where rendering must land now. Reload work and a retained surface ticket
+    // keep the page they asked for while a page edit installs a shorter
+    // document, so project that request into the current page count.
+    const renderTargetPage = computed(() => {
+        const page = viewportAuthority.targetPage.value ?? navigationAnchorPage.value;
+        return page === null ? null : toBoundedPageNumber(page);
+    });
     const searchNavigationTargetPage = computed(() => currentNavigationTicket()?.request.source === 'search'
         ? navigationAnchorPage.value
         : null);
@@ -1282,6 +1289,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         commitCurrentViewportIfSettled,
         captureViewportCommitDiagnostics,
         navigationAnchorPage,
+        renderTargetPage,
         navigationVisualHandoffTargetPage: navigationAnchorPage,
         pagedNavigationTargetPage: navigationAnchorPage,
         continuousNavigationTargetPage: computed(() => null),

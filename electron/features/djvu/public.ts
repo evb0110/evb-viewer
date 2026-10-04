@@ -25,6 +25,7 @@ export {
 export {
     cleanupDjvuTempPdfPath,
     performDjvuViewingShutdownCleanup,
+    getAdmittedDjvuViewingSource,
     handleDjvuOpenForViewing,
     isAllowedDjvuViewingPath,
     releaseDjvuViewingPath,

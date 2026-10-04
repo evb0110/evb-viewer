@@ -20,6 +20,7 @@ import {
     snapshotOccupiesTab,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -477,6 +478,9 @@ export const useAppShellTabLifecycle = (
         if (shouldPersistBeforeClose === null) {
             return;
         }
+        // The place this view was left at is remembered before the view, or a
+        // cold document no workspace will close, goes.
+        await rememberReadingView(getDocumentSession(tabId), tabId);
 
         if (!shouldDeferCrossPaneHandoff) {
             await handoffActiveTabBeforeClose(paneId, tabId);

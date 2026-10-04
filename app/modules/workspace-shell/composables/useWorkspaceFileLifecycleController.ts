@@ -1,4 +1,3 @@
-import { getErrorMessage } from '@app/utils/error';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import type { Ref } from 'vue';
@@ -27,6 +26,7 @@ import {
 import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
+import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
     createViewerLifecycleHooks?: (
@@ -115,6 +115,13 @@ function createWorkspaceFileSwitch(deps: {
 export const useWorkspaceFileLifecycleController = (
     options: IUseWorkspaceFileLifecycleControllerOptions,
 ) => {
+    const { t } = useTypedI18n();
+    // An open's admitted source, before any page of it is drawn.
+    async function admitOpeningSource(source: TDocumentRef, pageCount: Promise<number | null>) {
+        for (const hooks of getViewerLifecycleHooks()) {
+            await hooks.beforeSourcePresented?.(source, pageCount);
+        }
+    }
     const {
         pdfSrc,
         pdfReloadSrc,
@@ -165,7 +172,7 @@ export const useWorkspaceFileLifecycleController = (
         setWorkspaceCommandSink,
         undo,
         redo,
-    } = usePdfFile();
+    } = usePdfFile({admitOpeningSource});
 
     const {
         isDjvuMode,
@@ -212,6 +219,7 @@ export const useWorkspaceFileLifecycleController = (
         clearRecentFiles,
     } = useRecentFiles();
 
+    const getViewerLifecycleHooks = () => options.createViewerLifecycleHooks?.(lifecycleContext) ?? [];
     const lifecycleContext: IWorkspaceViewerLifecycleContext = {
         cleanupDjvuTemp,
         captureDjvuActivation,
@@ -256,7 +264,11 @@ export const useWorkspaceFileLifecycleController = (
         });
         try {
             const activated = await openDjvuFile(djvuPath, {
-                closeActiveDocument: closeFile,
+                // After main accepts the DjVu and before its pages are shown.
+                closeActiveDocument: (pageCount) => {
+                    closeFile();
+                    return admitOpeningSource(djvuPath, Promise.resolve(pageCount));
+                },
                 setOriginalPath: (path) => {
                     originalPath.value = path;
                 },
@@ -274,16 +286,13 @@ export const useWorkspaceFileLifecycleController = (
                 } satisfies TDocumentOpenOutcome;
             }
         } catch (error) {
-            const message = getErrorMessage(error);
-            pdfError.value = message;
-            BrowserLogger.error('djvu-open-transaction', 'Activation failed', {
-                reason: 'open-djvu-threw',
-                djvuPath,
-                error: message,
-            }, {code: 'RENDERER_DJVU_OPERATION_FAILED'});
+            // useDjvu already recorded the failure; its receipt is reused.
+            const presentation = describeDocumentOpenFailure(error, t);
+            pdfFailurePresentation.value = presentation;
+            pdfError.value = presentation.description;
             return {
                 status: 'failed',
-                error: message,
+                error: presentation.description,
             } satisfies TDocumentOpenOutcome;
         }
         if (!isDjvuMode.value || djvuSourcePath.value !== djvuPath) {
@@ -315,7 +324,7 @@ export const useWorkspaceFileLifecycleController = (
         closeFileWithViewerLifecycle: closeFileWithViewerLifecycleBase,
     } = createWorkspaceFileSwitch({
         workingCopyPath,
-        getViewerLifecycleHooks: () => options.createViewerLifecycleHooks?.(lifecycleContext) ?? [],
+        getViewerLifecycleHooks,
         pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
@@ -339,8 +348,12 @@ export const useWorkspaceFileLifecycleController = (
         return presented || !didOpenDocument(opened.outcome) ? opened.outcome : {status: 'cancelled'};
     }
 
+    // A moved tab's document: it brings its own view.
     function openFileInDocumentTransaction(result: TOpenFileResult) {
-        return openInDocumentTransaction(describeOpenResult(result), () => openFileWithViewerLifecycle(result));
+        return openInDocumentTransaction({
+            ...describeOpenResult(result),
+            carriesView: true,
+        }, () => openFileWithViewerLifecycle(result));
     }
 
     // The conversion keeps its modal progress until the converted PDF is

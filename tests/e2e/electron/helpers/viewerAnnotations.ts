@@ -86,7 +86,7 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     const activeTool = await getActiveToolLabel(page);
 
     await clickVisibleAnnotationControl(page,
-        `.editor-pane.is-active .notes-panel .swatch[aria-label="${colorHex}"]`);
+        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .notes-panel .swatch[aria-label="${colorHex}"]`);
 
     if (activeTool) {
         await waitForActiveAnnotationTool(page, activeTool, Math.min(DEFAULT_TIMEOUT_MS, 4_000));
@@ -117,7 +117,7 @@ export async function clickVisibleAnnotationControl(page: Page, selector: string
 }
 
 export async function setAnnotationKeepActiveWithPointer(page: Page, enabled: boolean) {
-    const selector = '.editor-pane.is-active .annotation-tool-options [role="checkbox"], .editor-pane.is-active .annotation-tool-options input[type="checkbox"]';
+    const selector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .annotation-tool-options [role="checkbox"], .editor-pane.is-active .workspace-host[data-workspace-active="true"] .annotation-tool-options input[type="checkbox"]';
     await page.waitForSelector(selector, {
         visible: true,
         timeout: 20_000,
@@ -187,7 +187,7 @@ export async function createTextMarkupWithPointer(
         spanIndex: number;
         pageNumber: number
     }) => {
-        const host = document.querySelector('.editor-pane.is-active .workspace-host');
+        const host = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const targetPage = host?.querySelector(`.page_container[data-page="${input.pageNumber}"]`);
         const spans = Array.from(targetPage?.querySelectorAll<HTMLElement>('.text-layer span') ?? [])
             .filter(span => (span.textContent?.trim().length ?? 0) > 3);
@@ -236,7 +236,7 @@ export async function createTextMarkupWithPointer(
         before: number;
         pageNumber: number
     }) => (
-        (document.querySelector(`.editor-pane.is-active .page_container[data-page="${input.pageNumber}"]`)
+        (document.querySelector(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${input.pageNumber}"]`)
             ?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0) === input.before + 1
     ), {timeout: 20_000}, {
         before: geometry.before,
@@ -393,7 +393,7 @@ export async function createCanonicalTextBoxWithPointer(
     await clickAnnotationTool(page, 'Text', 30_000);
     await page.waitForFunction((targetPageNumber: number) => {
         const selector = `.page_container[data-page="${targetPageNumber}"]`;
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const container = host?.querySelector<HTMLElement>(selector);
         const layer = container?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
         const rect = layer?.getBoundingClientRect();
@@ -417,7 +417,7 @@ export async function createCanonicalTextBoxWithPointer(
     }
     await page.mouse.click(point.x, point.y);
 
-    const editorSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"] `
+    const editorSelector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] `
         + '.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
     await page.waitForSelector(editorSelector, {
         timeout: 30_000,
@@ -438,13 +438,13 @@ export async function createCanonicalTextBoxWithPointer(
     }
     await page.waitForFunction((expectedText: string) => Array.from(
         document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         ),
     ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 30_000}, text);
 
     const annotationId = await page.evaluate((expectedText: string) => Array.from(
         document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         ),
     ).find(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText)
         ?.dataset.annotationId ?? null, text);
@@ -483,7 +483,7 @@ export async function waitForNoOpenNoteWindows(page: Page) {
             };
             const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
                 .filter(isVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             const host = activeHost && visibleHosts.includes(activeHost)
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -517,7 +517,7 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
         };
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
             .filter(isVisible);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts.length === 1 ? visibleHosts[0] : null);
@@ -579,7 +579,7 @@ async function collectStickyNoteDebugState(page: Page) {
                     && Number(style.opacity || '1') > 0
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -702,11 +702,11 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
     ]);
     const result = await page.evaluate(() => {
         const staticLayer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .page_container[data-page="1"] .annotation-layer, '
-            + '.editor-pane.is-active .page_container[data-page="1"] .annotationLayer',
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotation-layer, '
+            + '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotationLayer',
         );
         const editorLayer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .pdf-annotation-editor-layer',
         );
         const canonicalEntities = Array.from(
             editorLayer?.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]') ?? [],
@@ -719,8 +719,8 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
         return {
             canonicalEntities,
             legacyEditorLayerCount: document.querySelectorAll(
-                '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
-                + '.editor-pane.is-active .page_container[data-page="1"] .annotationEditorLayer',
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotation-editor-layer, '
+                + '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotationEditorLayer',
             ).length,
             staticLinkHrefs: Array.from(
                 staticLayer?.querySelectorAll<HTMLAnchorElement>('.linkAnnotation a[data-href]') ?? [],
@@ -895,7 +895,7 @@ export async function createStickyNoteWithPointer(
                     && style.visibility !== 'hidden'
                 );
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const host = activeHost && visibleHosts.includes(activeHost)
             ? activeHost
             : (visibleHosts[0] ?? null);
@@ -984,7 +984,7 @@ export async function createStickyNoteWithPointer(
         if (!request.allowClearPointSearch) {
             return false;
         }
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const pageContainer = host?.querySelector<HTMLElement>(
             `.page_container[data-page="${request.pageNumber}"]`,
         ) ?? null;

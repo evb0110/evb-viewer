@@ -20,6 +20,7 @@ import {
     vi,
 } from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
+import {createTestEventSender} from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => {
     const app = { getPath: vi.fn() };
@@ -212,6 +213,202 @@ describe('recentFiles persistence', () => {
         expect(recentFiles.getRecentFilesSync()).toEqual([originalPath]);
         expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
         workingCopyStore.clearWorkingCopyOriginalPaths();
+    });
+
+    describe('reading views', () => {
+        const readingView = {
+            currentPage: 27,
+            pageCount: 40,
+            zoom: 1.85,
+            zoomMode: 'custom' as const,
+            viewMode: 'single' as const,
+            continuousScroll: true,
+            viewRotation: 0 as const,
+        };
+
+        async function openWorkingCopy(originalPath: string, name: string) {
+            const workingDir = join(userDataDir, 'evb-viewer', `pdf-work-${name}`);
+            mkdirSync(workingDir, {recursive: true});
+            const workingPath = join(workingDir, 'original.pdf');
+            writeFileSync(workingPath, 'working');
+            const workingCopyStore = await import('@electron/file-access/workingCopyStore');
+            await workingCopyStore.setWorkingCopyOriginalPath(workingPath, originalPath, 42);
+            return workingPath;
+        }
+
+        async function load() {
+            const recentFiles = await loadRecentFilesModule();
+            const readingViews = await import('@electron/recentReadingViews');
+            const workingCopyStore = await import('@electron/file-access/workingCopyStore');
+            return {
+                recentFiles,
+                readingViews,
+                workingCopyStore,
+            };
+        }
+
+        it('reopens unchanged bytes at the remembered view and keeps it off the list', async () => {
+            const originalPath = writeFixture('reading.pdf', 'reading bytes');
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const firstOpen = await openWorkingCopy(originalPath, 'first');
+            await recentFiles.addRecentFile(firstOpen, 42);
+            await readingViews.rememberRecentReadingView(firstOpen, readingView, 42);
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+
+            const reopened = await openWorkingCopy(originalPath, 'second');
+            await recentFiles.addRecentFile(reopened, 42);
+
+            expect(await readingViews.getRecentReadingView(reopened, 42)).toEqual(readingView);
+            expect(await readingViews.getRecentReadingView(reopened, 7)).toBeNull();
+            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+        });
+
+        it('starts a changed source at the defaults', async () => {
+            const originalPath = writeFixture('changed.pdf', 'first bytes');
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const firstOpen = await openWorkingCopy(originalPath, 'first');
+            await recentFiles.addRecentFile(firstOpen, 42);
+            await readingViews.rememberRecentReadingView(firstOpen, readingView, 42);
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+
+            writeFileSync(originalPath, 'replaced with longer bytes');
+            const reopened = await openWorkingCopy(originalPath, 'second');
+
+            expect(await readingViews.getRecentReadingView(reopened, 42)).toBeNull();
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+        });
+
+        it('does not bring back a removed or cleared entry', async () => {
+            const originalPath = writeFixture('forgotten.pdf');
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const workingPath = await openWorkingCopy(originalPath, 'forgotten');
+            await recentFiles.addRecentFile(workingPath, 42);
+            await recentFiles.removeRecentFile(originalPath);
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            expect(await recentFiles.getRecentFiles()).toEqual([]);
+
+            await recentFiles.addRecentFile(workingPath, 42);
+            await recentFiles.clearRecentFiles();
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            expect(await recentFiles.getRecentFiles()).toEqual([]);
+
+            await recentFiles.addRecentFile(workingPath, 42);
+            expect(await readingViews.getRecentReadingView(workingPath, 42)).toBeNull();
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+        });
+
+        async function openDjvu(djvuPath: string, senderId: number) {
+            const viewing = await import('@electron/features/djvu/main/viewing');
+            const {readDjvuSourceRevision} = await import('@electron/features/djvu/main/djvuPageSourceInfoCache');
+            const context = {
+                sender: createTestEventSender(senderId) as never,
+                senderId,
+            };
+            const {
+                sourceModifiedAt, sourceSize,
+            } = await readDjvuSourceRevision(djvuPath);
+            viewing.adoptDjvuViewingPath(context, djvuPath, {
+                sourceModifiedAt,
+                sourceSize,
+            });
+            return () => viewing.releaseDjvuViewingPath(context, djvuPath);
+        }
+
+        it('reopens an unchanged DjVu at the view its sender left, for that sender only', async () => {
+            const djvuPath = writeFixture('reading.djvu', 'djvu bytes');
+            const {
+                recentFiles, readingViews,
+            } = await load();
+            const closeFirst = await openDjvu(djvuPath, 42);
+            await recentFiles.addRecentFile(djvuPath, 42);
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 7);
+            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
+            closeFirst();
+            expect(await readingViews.getRecentReadingView(djvuPath, 42)).toBeNull();
+
+            const closeReopened = await openDjvu(djvuPath, 42);
+            expect(await readingViews.getRecentReadingView(djvuPath, 42)).toEqual(readingView);
+            expect(await readingViews.getRecentReadingView(djvuPath, 7)).toBeNull();
+            closeReopened();
+        });
+
+        it('does not remember or restore a DjVu view over bytes changed since its open', async () => {
+            const djvuPath = writeFixture('changed.djvu', 'first djvu bytes');
+            const {
+                recentFiles, readingViews,
+            } = await load();
+            const closeFirst = await openDjvu(djvuPath, 42);
+            await recentFiles.addRecentFile(djvuPath, 42);
+            writeFileSync(djvuPath, 'replaced with longer djvu bytes');
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
+            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            closeFirst();
+
+            writeFileSync(djvuPath, 'first djvu bytes');
+            const closeSecond = await openDjvu(djvuPath, 42);
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
+            closeSecond();
+            writeFileSync(djvuPath, 'replaced with longer djvu bytes');
+            const closeReopened = await openDjvu(djvuPath, 42);
+            expect(await readingViews.getRecentReadingView(djvuPath, 42)).toBeNull();
+            closeReopened();
+        });
+
+        it('remembers no DjVu view while two live opens of it read different bytes, until both are released', async () => {
+            const djvuPath = writeFixture('ambiguous.djvu', 'first djvu bytes');
+            const {
+                recentFiles, readingViews,
+            } = await load();
+            const closeFirst = await openDjvu(djvuPath, 42);
+            await recentFiles.addRecentFile(djvuPath, 42);
+            writeFileSync(djvuPath, 'replaced with longer djvu bytes');
+            const closeSecond = await openDjvu(djvuPath, 42);
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
+            expect(await readingViews.getRecentReadingView(djvuPath, 42)).toBeNull();
+            closeSecond();
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
+            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            closeFirst();
+
+            const closeFresh = await openDjvu(djvuPath, 42);
+            await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
+            expect(await readingViews.getRecentReadingView(djvuPath, 42)).toEqual(readingView);
+            closeFresh();
+        });
+
+        it('forgets an unreadable stored view and keeps its entry', async () => {
+            const originalPath = writeFixture('stored.pdf');
+            writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
+                version: 1,
+                files: [{
+                    originalPath,
+                    backend: 'electron',
+                    fileName: 'stored.pdf',
+                    timestamp: 1,
+                    fileSize: 10,
+                    readingView: {
+                        ...readingView,
+                        currentPage: -3,
+                    },
+                }],
+            }));
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const workingPath = await openWorkingCopy(originalPath, 'stored');
+
+            expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+            expect(await readingViews.getRecentReadingView(workingPath, 42)).toBeNull();
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+        });
     });
 
     it('persists the exact original identity when its filename ends in whitespace', async () => {
