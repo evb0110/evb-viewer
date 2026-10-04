@@ -24,7 +24,7 @@
                     :aria-posinset="index + 1"
                     :aria-setsize="tabs.length"
                     :tabindex="tab.id === (focusedTabId ?? activeTabId) ? 0 : -1"
-                    @focus="handleTabFocus(tab.id)"
+                    @focusin="handleTabFocus(tab.id)"
                     @click="handleTabClick(tab.id)"
                     @auxclick.prevent="handleAuxClick($event, tab.id)"
                     @keydown="handleTabKeydown($event, tab.id)"
@@ -72,11 +72,9 @@
         :ui="contextMenuUi"
         portal="body"
     >
-        <button
-            type="button"
+        <span
             class="tab-context-menu-anchor"
             :style="contextMenuAnchorStyle"
-            tabindex="-1"
             aria-hidden="true"
         />
     </UDropdownMenu>
@@ -130,6 +128,7 @@ type TTabContextMenuItem =
     };
 
 const {
+    activeTabId,
     contextAvailability = undefined,
     tabs,
 } = defineProps<{
@@ -163,6 +162,11 @@ watch(
     (tabIds) => {
         if (focusedTabId.value !== null && !tabIds.includes(focusedTabId.value)) {
             focusedTabId.value = null;
+            // A closed tab that held focus hands it to the tab that replaced
+            // it, however late the close finished, instead of to the page.
+            if (document.activeElement === document.body && activeTabId) {
+                focusTab(activeTabId);
+            }
         }
     },
     {flush: 'post'},
@@ -191,6 +195,7 @@ const contextMenuContentOptions = {
     collisionPadding: 8,
     positionStrategy: 'fixed' as const,
     updatePositionStrategy: 'always' as const,
+    onCloseAutoFocus: returnFocusToTab,
 };
 const contextMenuUi = {
     content: 'tab-context-menu toolbar-menu-panel',
@@ -457,6 +462,25 @@ function handleTabFocus(tabId: string) {
     focusedTabId.value = tabId;
 }
 
+function focusTab(tabId: string) {
+    tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`)
+        ?.focus({preventScroll: true});
+}
+
+// The closed menu hands focus to its tab, or to the tab that replaced it when
+// the menu closed it, never to the invisible anchor, and only while nothing
+// else has it: a control the person moved to keeps focus.
+function returnFocusToTab(event: Event) {
+    event.preventDefault();
+    const focused = document.activeElement;
+    const focusMoved = focused !== null && focused !== document.body
+        && !(event.target instanceof Node && event.target.contains(focused));
+    const tabId = clickedTab.value?.id ?? activeTabId;
+    if (tabId && !focusMoved) {
+        focusTab(tabId);
+    }
+}
+
 function handleTabKeydown(event: KeyboardEvent, tabId: string) {
     const tabIndex = tabs.findIndex(tab => tab.id === tabId);
     if (tabIndex < 0) {
@@ -483,8 +507,7 @@ function handleTabKeydown(event: KeyboardEvent, tabId: string) {
         event.preventDefault();
         event.stopPropagation();
         focusedTabId.value = targetTab.id;
-        tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(targetTab.id)}"]`)
-            ?.focus({preventScroll: true});
+        focusTab(targetTab.id);
         return;
     }
 
