@@ -9,6 +9,7 @@ import {
     nextTick,
     ref,
     shallowRef,
+    watch,
 } from 'vue';
 import {
     describe,
@@ -22,6 +23,14 @@ import type {
     TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import { createPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
+import type {
+    IPdfPageRasterScheduler,
+    IPdfRasterDemand,
+    IPdfRasterDemandPolicy,
+    IPdfRasterRenderTarget,
+    TPdfRasterOutcome,
+} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import {
     createDocumentOpenSurfaceSession,
@@ -115,7 +124,24 @@ function createDocumentFixture(pageCount = 100) {
                 }
             };
         },
-        registerDisposable: vi.fn(),
+        disposers: [] as Array<() => void | Promise<void>>,
+        registerDisposable(disposer: () => void | Promise<void>) {
+            this.disposers.push(disposer);
+        },
+        // Read by the rendering session when a fixture attaches one.
+        rasterScheduler: null as IPdfPageRasterScheduler | null,
+        pendingPageMutationRevisionSwap: null as {
+            revision: string;
+            invalidatedPages: readonly number[];
+            preservePageMetrics: boolean;
+        } | null,
+        activeLoadPlan: {
+            isSelectiveReload: false,
+            preserveVisibleContent: false,
+        },
+        openSurfaceGeneration: 1,
+        openSurfaceRevision: 'revision-1',
+        evictPage: vi.fn(),
         preserveNextReloadVisibleContent: vi.fn(),
         carryAnchorThroughPageMutation: vi.fn((anchor: unknown) => anchor),
         async emit(transition: IPdfDocumentTransition) {
@@ -143,6 +169,8 @@ function createViewportFixture(input: {
     isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
     onEmitCurrentPage?: (page: number) => void;
     pageCount?: number;
+    /** Attaches a rendering session whose rasters go through this scheduler. */
+    rasterScheduler?: IPdfPageRasterScheduler;
     viewMode?: 'single' | 'facing' | 'facing-first-single';
     zoom?: Ref<number>;
     zoomMode?: 'custom' | 'fit-width' | 'fit-height';
@@ -209,6 +237,32 @@ function createViewportFixture(input: {
                 emitEffectiveZoom,
                 summarizeViewerStateForLog: vi.fn(),
             });
+            if (input.rasterScheduler) {
+                documentSession.rasterScheduler = input.rasterScheduler;
+                createPdfRenderingSession({
+                    document: documentSession,
+                    viewport,
+                    chassisAuthority: null,
+                    openSurfaceRenderOwner: undefined,
+                    performancePolicy,
+                    viewerContainer,
+                    isActive: computed(() => isActive.value),
+                    isResizing: computed(() => false),
+                    isAnySaving: computed(() => false),
+                    viewMode: computed(() => viewMode.value),
+                    outputScale,
+                    rasterDisplayProfile: computed(() => null),
+                    bufferPages: computed(() => input.bufferPages ?? 3),
+                    searchPageMatches: computed(() => new Map()),
+                    currentSearchMatch: computed(() => null),
+                    currentSearchMatchNavigationId: computed(() => 0),
+                    workingCopyPath: computed(() => null),
+                    documentRevisionToken: computed(() => null),
+                    maxBufferCanvasPixels: 100,
+                    emitInitialVisualReady: vi.fn(),
+                    emitLoadError: vi.fn(),
+                });
+            }
             return () => null;
         },
     }));
@@ -219,6 +273,13 @@ function createViewportFixture(input: {
     return {
         app,
         container,
+        // Unmounts and runs what the sessions registered, newest first, as closing the document does.
+        async dispose() {
+            app.unmount();
+            for (const disposer of documentSession.disposers.splice(0).reverse()) {
+                await disposer();
+            }
+        },
         documentSession,
         emitEffectiveZoom,
         emittedPages,
@@ -230,6 +291,68 @@ function createViewportFixture(input: {
         viewMode,
         zoom,
         zoomMode,
+    };
+}
+
+/** Mounts a page with the raster host the rendering session paints into. */
+function appendRasterTarget(container: HTMLElement, page: number) {
+    const host = document.createElement('div');
+    host.className = 'page_canvas__render-layer';
+    appendPageBox(container, page, {
+        height: 900,
+        top: (page - 1) * 920,
+    }).append(host);
+}
+
+/** A scheduler whose every raster ends without pixels, as a discarded one does. */
+function createDiscardingRasterScheduler() {
+    const discard = <TPrepared>(demand: IPdfRasterDemand, target: IPdfRasterRenderTarget<TPrepared>) => {
+        target.release(demand.pageNumber, 'raster-not-committed');
+    };
+    const scheduler: IPdfPageRasterScheduler = {
+        documentFence: {
+            loadToken: 1,
+            documentVersion: 1,
+            documentRevision: 'revision-1',
+        },
+        setDemand: <TInput, TPrepared>(request: {
+            input: TInput;
+            policy: IPdfRasterDemandPolicy<TInput>;
+            target: IPdfRasterRenderTarget<TPrepared>;
+        }) => request.policy.expand(request.input).forEach(demand => discard(demand, request.target)),
+        request: async <TPrepared>(request: {
+            demand: IPdfRasterDemand;
+            target: IPdfRasterRenderTarget<TPrepared>;
+        }): Promise<TPdfRasterOutcome> => {
+            discard(request.demand, request.target);
+            return {
+                status: 'discarded',
+                demand: request.demand,
+            };
+        },
+        invalidate: vi.fn(),
+        cancelSource: async () => {},
+        releaseSource: async () => {},
+        snapshot: () => {
+            throw new Error('Not used by these tests');
+        },
+        dispose: async () => {},
+    };
+    return scheduler;
+}
+
+/** Collects the ids of the mandatory raster requests the viewport publishes. */
+function recordMandatoryRasterRequests(viewport: ReturnType<typeof createPdfViewportSession>) {
+    const ids = new Set<number>();
+    const stop = watch(viewport.demand, (demand) => {
+        if (demand.mandatoryRaster) ids.add(demand.mandatoryRaster.id);
+    }, {
+        flush: 'sync',
+        immediate: true,
+    });
+    return {
+        ids,
+        stop,
     };
 }
 
@@ -570,6 +693,128 @@ describe('PdfViewportSession behavior', () => {
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             fixture.app.unmount();
+        }
+    });
+
+    it('requests a navigation target again when its raster pass ends without its pixels', async () => {
+        const paintedPages = new Set<number>();
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: page => paintedPages.has(page),
+            pageCount: 100,
+        });
+        const nextMandatoryRaster = async (afterId: number) => {
+            let id = 0;
+            await vi.waitFor(() => {
+                const mandatory = fixture.viewport.demand.value.mandatoryRaster;
+                expect(mandatory?.id).toBeGreaterThan(afterId);
+                expect(mandatory?.range).toEqual({
+                    start: 64,
+                    end: 64,
+                });
+                id = mandatory!.id;
+            });
+            return id;
+        };
+        try {
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(64));
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
+
+            // The pass discarded its raster: Fit Width moved the scale under it.
+            const discardedId = await nextMandatoryRaster(0);
+            fixture.viewport.settleMandatoryRaster(discardedId, false);
+
+            const paintedId = await nextMandatoryRaster(discardedId);
+            paintedPages.add(64);
+            fixture.viewport.settleMandatoryRaster(paintedId, true);
+            await vi.waitFor(() => {
+                expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('settled');
+            });
+            expect(fixture.viewport.currentPage.value).toBe(64);
+            expect(fixture.viewport.demand.value.mandatoryRaster).toBeNull();
+        } finally {
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            fixture.app.unmount();
+        }
+    });
+
+    it('keeps asking for a navigation target whose raster was discarded at a stale scale', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: () => false,
+            pageCount: 100,
+            rasterScheduler: createDiscardingRasterScheduler(),
+        });
+        appendRasterTarget(fixture.container, 64);
+        const requests = recordMandatoryRasterRequests(fixture.viewport);
+        try {
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(64));
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
+
+            await vi.waitFor(() => expect(requests.ids.size).toBeGreaterThan(1));
+            expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('awaiting-visual');
+        } finally {
+            requests.stop();
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            await fixture.dispose();
+        }
+    });
+
+    it('asks once for a navigation target whose page awaits its rotated revision', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: () => false,
+            pageCount: 100,
+            rasterScheduler: createDiscardingRasterScheduler(),
+        });
+        // Page 64 was rotated; its raster waits for the rewritten revision.
+        fixture.documentSession.pendingPageMutationRevisionSwap = {
+            revision: 'revision-2',
+            invalidatedPages: [64],
+            preservePageMetrics: true,
+        };
+        appendRasterTarget(fixture.container, 64);
+        const requests = recordMandatoryRasterRequests(fixture.viewport);
+        try {
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(64));
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
+
+            await vi.waitFor(() => {
+                expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('settled');
+            });
+            expect(requests.ids.size).toBe(1);
+        } finally {
+            requests.stop();
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            await fixture.dispose();
+        }
+    });
+
+    it('asks once for a navigation target that has no mounted raster target', async () => {
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            isPageFreshlyRenderedForNavigation: () => false,
+            pageCount: 100,
+            rasterScheduler: createDiscardingRasterScheduler(),
+        });
+        // Page 64 is in the layout, but no page container for it is in the DOM.
+        const requests = recordMandatoryRasterRequests(fixture.viewport);
+        try {
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(64));
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
+
+            await vi.waitFor(() => {
+                expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('settled');
+            });
+            expect(requests.ids.size).toBe(1);
+        } finally {
+            requests.stop();
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            await fixture.dispose();
         }
     });
 
@@ -956,14 +1201,14 @@ describe('PdfViewportSession behavior', () => {
                     expect(mandatory?.options.suppressResidentRasterDemand).toBe(true);
                     rasterId = mandatory!.id;
                 });
-                fixture.viewport.settleMandatoryRaster(rasterId);
+                fixture.viewport.settleMandatoryRaster(rasterId, true);
                 await vi.waitFor(() => {
                     const mandatory = fixture.viewport.demand.value.mandatoryRaster;
                     expect(mandatory?.id).toBeGreaterThan(rasterId);
                     expect(mandatory?.options.suppressResidentRasterDemand).toBe(true);
                     rasterId = mandatory!.id;
                 });
-                fixture.viewport.settleMandatoryRaster(rasterId);
+                fixture.viewport.settleMandatoryRaster(rasterId, true);
                 await ready;
             };
             setCurrentPage(fixture.viewport, 200);
@@ -1018,13 +1263,13 @@ describe('PdfViewportSession behavior', () => {
                 expect(mandatory).not.toBeNull();
                 rasterId = mandatory!.id;
             });
-            fixture.viewport.settleMandatoryRaster(rasterId);
+            fixture.viewport.settleMandatoryRaster(rasterId, true);
             await vi.waitFor(() => {
                 const mandatory = fixture.viewport.demand.value.mandatoryRaster;
                 expect(mandatory?.id).toBeGreaterThan(rasterId);
                 rasterId = mandatory!.id;
             });
-            fixture.viewport.settleMandatoryRaster(rasterId);
+            fixture.viewport.settleMandatoryRaster(rasterId, true);
             await ready;
             expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledTimes(1);
         } finally {

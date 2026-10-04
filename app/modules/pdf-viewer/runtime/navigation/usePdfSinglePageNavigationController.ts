@@ -439,9 +439,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 });
                 return;
             }
-            // Mandatory raster is latest-wins: an opening or reload pass can
-            // supersede this request before the target paints. The deliberate
-            // navigation still owns its target, so request it again rather
+            // A mandatory raster settles only on painted or failed pixels. A newer pass can
+            // supersede it, and Fit Width can move the scale under its raster. The navigation
+            // still owns its target, so it requests it again at the current scale rather
             // than reporting an unrendered page as a failed transition.
             while (!await options.renderVisiblePages(range, {
                 authoritativeRaster: true,
