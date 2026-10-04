@@ -3192,10 +3192,9 @@ describe('Scan cleanup components', () => {
             expect(canvasNotice()).toBe('');
 
             // The pinned frame is intentionally stale while the later
-            // replan is rejected. Geometry controls stay unavailable until a
-            // new presentation identity is committed.
-            expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
-            expect(harness.host.querySelector('.cutter-control')).toBeNull();
+            // replan is rejected. Geometry controls stay on screen but take no
+            // input until a new presentation identity is committed.
+            expect(harness.host.querySelector('.drag-overlay-layer')?.hasAttribute('inert')).toBe(true);
             expect(frameWidth()).toBe('800');
             expect(displayedUrl()).toBe(settledUrl);
 
@@ -4187,11 +4186,11 @@ describe('Scan cleanup components', () => {
                 viewMode: 'cleaned',
             });
             await loadPendingCleanedFrame(harness.host);
-            expect(harness.host.querySelector('.drag-overlay-layer')).not.toBeNull();
+            expect(harness.host.querySelector('.drag-overlay-layer')?.hasAttribute('inert')).toBe(false);
 
             resultCurrent.value = false;
             await nextTick();
-            expect(harness.host.querySelector('.drag-overlay-layer')).toBeNull();
+            expect(harness.host.querySelector('.drag-overlay-layer')?.hasAttribute('inert')).toBe(true);
 
             harness.surface.dispatchEvent(previewZoomWheel({
                 bubbles: true,
@@ -4655,6 +4654,55 @@ describe('Scan cleanup components', () => {
             kind: 'picture',
             index: 0,
         });
+        expect(updateManualZones).not.toHaveBeenCalled();
+    });
+
+    it('drops a zone drawn across the moment edits become disabled', async () => {
+        const disabled = ref(false);
+        const updateManualZones = vi.fn<(value: IScanCleanupManualZones) => void>();
+        const harness = mount(defineComponent({setup: () => () => h(ZoneEditorOverlay, {
+            disabled: disabled.value,
+            frame: {
+                height: 300,
+                left: 0,
+                top: 0,
+                width: 200,
+            },
+            rotationDegrees: 0,
+            selected: null,
+            zoneKind: 'picture',
+            'onUpdate:manualZones': updateManualZones,
+        })}));
+        const editor = harness.host.querySelector<HTMLElement>('.zone-editor-overlay')!;
+        vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue(domRect(0, 0, 200, 300));
+        const capture = mockPointerCapture(editor);
+        harness.host.querySelector<SVGElement>('.zone-editor-polygons')!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 54,
+        }));
+        editor.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            clientX: 120,
+            clientY: 160,
+            pointerId: 54,
+        }));
+        await nextTick();
+        expect(harness.host.querySelector('.zone-editor-polygon.is-draft')).not.toBeNull();
+
+        disabled.value = true;
+        await nextTick();
+        editor.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            clientX: 120,
+            clientY: 160,
+            pointerId: 54,
+        }));
+
+        expect(harness.host.querySelector('.zone-editor-polygon.is-draft')).toBeNull();
+        expect(capture.hasPointerCapture(54)).toBe(false);
         expect(updateManualZones).not.toHaveBeenCalled();
     });
 

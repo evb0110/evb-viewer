@@ -105,11 +105,22 @@ describe('scan cleanup copied spread evidence', () => {
         await session.page.mouse.down();
         await session.page.mouse.move(zoneRect!.x + zoneRect!.width * 0.5, zoneRect!.y + zoneRect!.height * 0.7, {steps: 12});
         await session.page.mouse.up();
-        // The new zone refreshes the preview, and the zone editor stays hidden
-        // until that preview is current, so wait as long as any other refresh.
+        // The new zone refreshes the preview. The zone stays on screen through
+        // that refresh, and a drag made before the refresh finishes adds nothing.
         await waitForFunctionInPage(session.page, () => (
-            document.querySelectorAll('.zone-editor-polygon:not(.is-draft)').length > 0
+            document.querySelectorAll('.zone-editor-polygon:not(.is-draft)').length === 1
+                && /Preview updating|Updating preview/i.test(document.body.innerText)
+        ), {timeout: 10_000});
+        await session.page.mouse.move(zoneRect!.x + zoneRect!.width * 0.6, zoneRect!.y + zoneRect!.height * 0.2);
+        await session.page.mouse.down();
+        await session.page.mouse.move(zoneRect!.x + zoneRect!.width * 0.8, zoneRect!.y + zoneRect!.height * 0.3, {steps: 12});
+        await session.page.mouse.up();
+        expect(await session.page.evaluate(() => /Preview updating|Updating preview/i.test(document.body.innerText))).toBe(true);
+        await waitForFunctionInPage(session.page, () => (
+            !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText)
+                && !document.querySelector('.drag-overlay-layer')?.hasAttribute('inert')
         ), {timeout: 120_000});
+        expect(await session.page.$$eval('.zone-editor-polygon:not(.is-draft)', polygons => polygons.length)).toBe(1);
 
         await clickAsUser(session.page, 'button[aria-label="Edit picture and fill zones"]');
         await clickText(session, 'button', 'Copy this page\'s settings to…');

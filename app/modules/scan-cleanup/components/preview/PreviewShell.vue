@@ -340,8 +340,9 @@
                 </div>
             </div>
             <div
-                v-if="previewEditsEnabled"
+                v-if="previewEditsShown"
                 class="drag-overlay-layer"
+                :inert="!previewEditsEnabled"
                 :style="[dragOverlayStyle, previewTransformStyle]"
             >
                 <div
@@ -371,6 +372,7 @@
 
                 <ZoneEditorOverlay
                     v-if="zoneEditing"
+                    :disabled="!previewEditsEnabled"
                     :frame="cutterSourceFitPlacement"
                     :manual-zones="manualZones"
                     :rotation-degrees="rotationDegrees ?? 0"
@@ -381,7 +383,8 @@
                 />
             </div>
             <ZoneEditorControls
-                v-if="previewEditsEnabled && zoneEditing && outputMode !== undefined"
+                v-if="previewEditsShown && zoneEditing && outputMode !== undefined"
+                :inert="!previewEditsEnabled"
                 :output-mode="outputMode"
                 :selected-layer="selectedPictureLayer"
                 :zone-count="zoneCount"
@@ -734,11 +737,13 @@ const previewPresentationCurrent = computed(() => (props.resultCurrent === undef
 const previewPresentationNoticeCurrent = computed(() => (props.resultCurrent === undefined || props.resultCurrent === true)
     && (props.resultPresentationKey === undefined
         || displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value));
-const previewEditsEnabled = computed(() => presentationResult.value?.pageNumber === props.pageNumber
-    && previewPresentationCurrent.value
-    && displayedFrameIdentityCurrent.value
+// The source-frame editors stay on screen while a same-page edit refreshes the
+// preview, so a zone or cut the user just placed does not vanish, but they take
+// input only once the shown frame is current.
+const previewEditsShown = computed(() => presentationResult.value?.pageNumber === props.pageNumber
     && effectiveError.value === ''
     && !props.disabled);
+const previewEditsEnabled = computed(() => previewEditsShown.value && previewPresentationCurrent.value);
 const {
     canPanPreview,
     canZoomIn,
@@ -1706,6 +1711,7 @@ watch([
     () => props.pageNumber,
     () => props.resultPresentationKey,
     () => displayedCleanedFrame.value?.result,
+    previewEditsEnabled,
 ], () => {
     dragTransaction.cancel();
 });

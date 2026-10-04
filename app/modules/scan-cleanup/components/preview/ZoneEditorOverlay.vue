@@ -122,6 +122,7 @@ interface IRenderedZone {
 type TZoneDrag = IDrawingZoneDrag | IMovingZoneDrag | IResizingZoneDrag;
 
 const props = defineProps<{
+    disabled?: boolean;
     frame: IScanCleanupZonePreviewFrame;
     manualZones?: IScanCleanupManualZones | undefined;
     rotationDegrees: TScanCleanupPageRotation;
@@ -434,6 +435,11 @@ function handleStyle(corner: TScanCleanupZoneCorner): CSSProperties {
 watch(() => props.rotationDegrees, () => {
     cancelDrag();
     emit('update:selected', null);
+});
+watch(() => props.disabled, disabled => {
+    if (disabled) {
+        cancelDrag();
+    }
 });
 </script>
 
