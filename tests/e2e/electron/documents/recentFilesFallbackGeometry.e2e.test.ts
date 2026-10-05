@@ -29,6 +29,8 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 import {
     goToPageViaToolbar,
     openPdfInApp,
+    readDrawnPage,
+    readHeldShell,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -40,43 +42,6 @@ import { requireWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceEx
 
 const TIMEOUT_MS = 15_000;
 const ARTIFACT_DIR = join(process.cwd(), '.devkit', 'e2e-artifacts', 'recent-fallback-geometry');
-
-interface IRect {
-    page: number;
-    top: number;
-    left: number;
-    width: number;
-    height: number;
-}
-
-function readHeldShell(session: IElectronE2ESession) {
-    return evaluateInPage(session.page, (): IRect | null => {
-        const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
-        const rect = shell?.getBoundingClientRect();
-        return shell && rect ? {
-            page: Number(shell.dataset.pageNumber),
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-        } : null;
-    });
-}
-
-function readDrawnPage(session: IElectronE2ESession, pageNumber: number) {
-    return evaluateInPage(session.page, (page: number): IRect | null => {
-        const rect = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
-        )?.getBoundingClientRect();
-        return rect ? {
-            page,
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-        } : null;
-    }, pageNumber);
-}
 
 async function waitForRecentFileRow(session: IElectronE2ESession, sourcePath: string) {
     await waitForFunctionInPage(session.page, (target: string) => Array.from(

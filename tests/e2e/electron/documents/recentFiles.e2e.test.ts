@@ -38,6 +38,8 @@ import {
     goToPageViaToolbar,
     openDjvuInApp,
     openPdfInApp,
+    readDrawnPage,
+    readHeldShell,
     waitForToolbarCurrentPage,
     waitForDjvuLoaded,
     waitForActiveDocumentSource,
@@ -221,36 +223,6 @@ async function stopToolbarTransitionSampling(session: IElectronE2ESession) {
         delete transitionWindow.__evbToolbarOpenTransitionInterval;
         return transitionWindow.__evbToolbarOpenTransitionSamples ?? [];
     });
-}
-
-// The held opening page shell, and a drawn page, as rects in the window.
-function readHeldShell(session: IElectronE2ESession) {
-    return evaluateInPage(session.page, () => {
-        const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
-        const rect = shell?.getBoundingClientRect();
-        return shell && rect ? {
-            page: Number(shell.dataset.pageNumber),
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-        } : null;
-    });
-}
-
-function readDrawnPage(session: IElectronE2ESession, pageNumber: number) {
-    return evaluateInPage(session.page, (page: number) => {
-        const rect = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
-        )?.getBoundingClientRect();
-        return rect ? {
-            page,
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-        } : null;
-    }, pageNumber);
 }
 
 // A drawn page sits where its shell sat, within the committed surface

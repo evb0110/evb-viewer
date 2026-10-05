@@ -4,6 +4,7 @@ import type {
 } from 'puppeteer-core';
 import {realpath} from 'node:fs/promises';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { delay } from 'es-toolkit/promise';
 import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 import {
@@ -206,6 +207,36 @@ async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_M
         ? `openFileDirect=${lastState.openFileDirect}, electronAPI=${lastState.electronAPI}, nuxtRootChildren=${lastState.nuxtRootChildren}, url=${lastState.url}`
         : 'renderer state unavailable';
     throw new Error(`Renderer bindings did not become ready within ${timeoutMs}ms (${detail})`);
+}
+
+// The held opening page shell, and a drawn page, as rects in the window.
+export function readHeldShell(session: IElectronE2ESession) {
+    return evaluateInPage(session.page, () => {
+        const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
+        const rect = shell?.getBoundingClientRect();
+        return shell && rect ? {
+            page: Number(shell.dataset.pageNumber),
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+        } : null;
+    });
+}
+
+export function readDrawnPage(session: IElectronE2ESession, pageNumber: number) {
+    return evaluateInPage(session.page, (page: number) => {
+        const rect = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
+        )?.getBoundingClientRect();
+        return rect ? {
+            page,
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+        } : null;
+    }, pageNumber);
 }
 
 export async function waitForActiveDocumentSource(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
