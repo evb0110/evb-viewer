@@ -1145,12 +1145,21 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 && document.querySelector('#pdf-viewer .page_container[data-page="2"]') === null
             )
         ), {timeout: 60_000});
-        const failurePanel = await page.$eval('.workspace-host', host => (
-            host.querySelector<HTMLElement>('.workspace-host__loading[role="alert"]')?.innerText ?? null
-        ));
+        // A failure panel ends the wait early; the assertion names what is on screen.
+        const surface = await page.evaluate(() => ({
+            failurePanel: document.querySelector<HTMLElement>('.workspace-host__loading[role="alert"]')?.innerText ?? null,
+            thumbnails: document.querySelectorAll('.pdf-thumbnails [data-thumbnail-page]').length,
+            firstPagePainted: document.querySelector('#pdf-viewer .page_container[data-page="1"] canvas') !== null,
+            secondPageMounted: document.querySelector('#pdf-viewer .page_container[data-page="2"]') !== null,
+        }));
         const report = await errors.collect();
         errors.dispose();
-        expect(failurePanel).toBeNull();
+        expect(surface).toEqual({
+            failurePanel: null,
+            thumbnails: 1,
+            firstPagePainted: true,
+            secondPageMounted: false,
+        });
         expect(report.pageErrors).toEqual([]);
         expect(report.unhandledRejections).toEqual([]);
         expect(report.visibleErrorSurfaces).toEqual([]);
