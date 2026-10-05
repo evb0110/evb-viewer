@@ -938,9 +938,6 @@ export function createDocumentOpenFlow(
             });
             throw new DocumentOpenRefusalError('invalid-pdf', `Staged PDF failed ${validation.tool} validation`);
         }
-        if (!isCurrent()) {
-            return;
-        }
         await opts?.admit?.();
         if (!isCurrent()) {
             return;

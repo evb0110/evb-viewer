@@ -12,7 +12,7 @@ interface IAppShellResilienceOptions {
 }
 
 export const useAppShellResilience = (options: IAppShellResilienceOptions) => {
-    useWorkspaceCrashCheckpoint({
+    const crashCheckpoint = useWorkspaceCrashCheckpoint({
         ...options.editorPanesManager,
         enabled: options.enabled,
         documentSessionsByTabId: options.documentSessionsByTabId,
@@ -22,4 +22,5 @@ export const useAppShellResilience = (options: IAppShellResilienceOptions) => {
         enabled: options.browserEnabled,
         documentSessionsByTabId: options.documentSessionsByTabId,
     });
+    return crashCheckpoint;
 };

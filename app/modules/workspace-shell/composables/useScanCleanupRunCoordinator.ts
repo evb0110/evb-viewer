@@ -91,14 +91,10 @@ function discardUnclaimedGeneratedOpen(result: TOpenFileResult | null) {
 }
 
 export async function openScanCleanupGeneratedPdf(
-    path: string,
+    documentRef: TDocumentRef,
     signal: AbortSignal,
     handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
 ) {
-    const documentRef = parseDocumentRef(path);
-    if (documentRef === null) {
-        return false;
-    }
     const documentOpen = getDocumentOpenCapability();
     const requestId = createRequestId('scan-cleanup-open');
     const cancelOpen = () => {
@@ -161,13 +157,14 @@ export const useScanCleanupRunCoordinator = (
     t: TTranslateFn,
     documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentController>>,
     activateTab: (tabId: string) => void,
+    persistCheckpointNow: () => Promise<void>,
 ) => {
     const toast = useToast();
     const cleanup = installScanCleanupRunCoordinator({
         // An output reopened after a reload may be back in its tab from the
         // workspace checkpoint already; that tab is the output. A replayed
         // output keeps the reader's tab in front: it is placed behind it and
-        // opens when its tab is shown.
+        // opens when its tab is shown, reopened once its tab is checkpointed.
         openGeneratedPdf: async (path, signal, foreground) => {
             await until(isStartupOpenClaimPending).toBe(false);
             const documentRef = parseDocumentRef(path);
@@ -182,8 +179,8 @@ export const useScanCleanupRunCoordinator = (
                 return true;
             }
             return foreground
-                ? openScanCleanupGeneratedPdf(path, signal, handleOpenInNewTab)
-                : handleOpenInNewTab(documentRef, undefined, {activate: false});
+                ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
+                : await handleOpenInNewTab(documentRef, undefined, {activate: false}) && persistCheckpointNow().then(() => true, () => false);
         },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(

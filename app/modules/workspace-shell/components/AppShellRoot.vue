@@ -606,7 +606,7 @@ const {
     handoffActiveTabBeforeClose,
 });
 const {
-    createTabInPane: createTabInPaneFromRouting,
+    createTabInPane,
     handleFallbackToolbarOpenFile,
     handleOpenInNewTab,
     openResultInAppropriateTab,
@@ -628,17 +628,6 @@ const {
     moveTabToWindow,
     mergeWindowInto,
 });
-useScanCleanupRunCoordinator(
-    activeWorkspace,
-    handleOpenInNewTab,
-    isStartupOpenClaimPending,
-    t,
-    documentSessionsByTabId,
-    activateTabById,
-);
-function createTabInPane(paneId: string) {
-    createTabInPaneFromRouting(paneId);
-}
 function setTabStartSection(tabId: string, section: TStartSection) {
     startSectionByTabId.value = {
         ...startSectionByTabId.value,
@@ -743,12 +732,21 @@ useAgentWorkspaceSnapshot({
     activateTab,
 });
 
-useAppShellResilience({
+const {persistCheckpointNow} = useAppShellResilience({
     enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
     browserEnabled: computed(() => isBrowserRuntime.value && !isStartupOpenClaimPending.value),
     editorPanesManager,
     documentSessionsByTabId,
 });
+useScanCleanupRunCoordinator(
+    activeWorkspace,
+    handleOpenInNewTab,
+    isStartupOpenClaimPending,
+    t,
+    documentSessionsByTabId,
+    activateTabById,
+    persistCheckpointNow,
+);
 
 const {
     closeToolPage,

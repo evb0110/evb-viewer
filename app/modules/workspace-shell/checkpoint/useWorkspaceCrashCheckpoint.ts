@@ -98,6 +98,36 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         });
     }
 
+    /**
+     * Saves the workspace as it is now, ahead of the debounce, and resolves once
+     * a checkpoint holding it is written; it rejects if that write fails. A
+     * write already running queues this one as the latest, so the drains are
+     * awaited until none is left. Without crash checkpoints there is nothing
+     * to make durable.
+     */
+    async function persistCheckpointNow() {
+        if (!options.enabled.value || disposed) {
+            return;
+        }
+        if (timer) {
+            clearTimeout(timer);
+            timer = null;
+        }
+        persistCheckpoint(buildWorkspaceCheckpoint(options));
+        let failure: Error | null = null;
+        while (inFlight) {
+            try {
+                await inFlight;
+                failure = null;
+            } catch (error) {
+                failure = error instanceof Error ? error : new Error(getErrorMessage(error));
+            }
+        }
+        if (failure !== null) {
+            throw failure;
+        }
+    }
+
     function hasDirtyTabs() {
         return Object.values(options.documentSessionsByTabId.value).some(session => session.snapshot.value.dirty);
     }
@@ -158,4 +188,6 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         }
         captureRetryAttempt = 0;
     });
+
+    return {persistCheckpointNow};
 };
