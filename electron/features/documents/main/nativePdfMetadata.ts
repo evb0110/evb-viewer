@@ -138,9 +138,9 @@ function normalizePdfOpeningIdentity(value: {
 }
 
 /**
- * Reads the opening page (the first unless named) and the widest page from
- * `pdfinfo -f 1 -l N` output. The widest page sets PDF.js's document-wide
- * Fit Width, so the opening skeleton uses it to match the first PDF.js layout.
+ * Reads the opening page (the first unless named) and the widest and tallest
+ * pages from `pdfinfo -f 1 -l N` output. They set PDF.js's document-wide Fit
+ * Width in either view turn, so the opening skeleton matches its first layout.
  */
 export function parsePdfOpeningGeometryMetadata(
     pdfInfoOutput: string,
@@ -156,6 +156,7 @@ export function parsePdfOpeningGeometryMetadata(
     const fallbackPageSize = parseDefaultPageSize(pdfInfoOutput);
     let firstPage: IPdfNativePageSize | null = null;
     let widestPageWidth = 0;
+    let tallestPageHeight = 0;
     PAGE_SIZE_RE.lastIndex = 0;
     for (const match of pdfInfoOutput.matchAll(PAGE_SIZE_RE)) {
         const pageNumber = Number.parseInt(match[1] ?? '', 10);
@@ -166,6 +167,7 @@ export function parsePdfOpeningGeometryMetadata(
         }
         const displayed = displayedPageSize(width, height, isQuarterTurn(rawRotations.get(pageNumber)));
         widestPageWidth = Math.max(widestPageWidth, displayed.width);
+        tallestPageHeight = Math.max(tallestPageHeight, displayed.height);
         if (pageNumber === openingPage) {
             firstPage = displayed;
         }
@@ -184,6 +186,7 @@ export function parsePdfOpeningGeometryMetadata(
         height: firstPage.height,
         rotation,
         widestPageWidth: Math.max(widestPageWidth, firstPage.width),
+        tallestPageHeight: Math.max(tallestPageHeight, firstPage.height),
         size: identity.size,
         modifiedAt: identity.modifiedAt,
     };
@@ -567,7 +570,14 @@ export async function handlePdfOpeningGeometry(
         const read = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
         return read && readingView ? {
             ...read,
-            pages: await readOpeningPages(context, resolvedPath),
+            pages: await readExactPageGeometry(context, resolvedPath, null, {
+                group: 'pdf-opening-pages',
+                canceled: 'PDF opening page geometry canceled',
+                navigation: 'Renderer navigation canceled PDF opening page geometry',
+            }).catch((error: unknown) => {
+                logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
+                return null;
+            }),
         } : read;
     }, readingPage, readingView !== null);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
@@ -580,18 +590,6 @@ export async function handlePdfOpeningGeometry(
         ...shape,
         readingView: matched ? readingView : null,
     } : null;
-}
-
-/** Every page's exact shape for an opening; none where the native reader is not installed or fails. */
-function readOpeningPages(context: IDocumentsSenderIdContext, resolvedPath: string) {
-    return readExactPageGeometry(context, resolvedPath, null, {
-        group: 'pdf-opening-pages',
-        canceled: 'PDF opening page geometry canceled',
-        navigation: 'Renderer navigation canceled PDF opening page geometry',
-    }).catch((error: unknown) => {
-        logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
-        return null;
-    });
 }
 
 async function readPdfOpeningGeometry(

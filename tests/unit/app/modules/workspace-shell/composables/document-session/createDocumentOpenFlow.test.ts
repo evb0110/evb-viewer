@@ -451,6 +451,7 @@ describe('createDocumentOpenFlow', () => {
             height: 792,
             rotation: 0,
             widestPageWidth: 612,
+            tallestPageHeight: 792,
             size: 1,
             modifiedAt: 1,
         });
@@ -903,6 +904,7 @@ const pageShape = {
     height: 640,
     rotation: 0 as const,
     widestPageWidth: 420,
+    tallestPageHeight: 640,
     size: 12_000_000,
     modifiedAt: requireEpochMs(1),
 };

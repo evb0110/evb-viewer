@@ -27,6 +27,8 @@ export interface IDocumentOpenSurfacePageGeometry {
     readonly rotation: number;
     /** Widest displayed page width, when the source reports its document-wide Fit Width. */
     readonly widestPageWidth?: number;
+    /** Tallest displayed page height: the document-wide Fit Width of a quarter-turned view. */
+    readonly tallestPageHeight?: number;
     readonly size?: number;
     readonly modifiedAt?: number;
     /** Where the reader left these bytes; the opening frame shows that view. */

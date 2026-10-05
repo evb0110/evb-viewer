@@ -69,6 +69,7 @@ Page    1 rot:   -90
             height: 612,
             rotation: 270,
             widestPageWidth: 792,
+            tallestPageHeight: 612,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         });
@@ -90,6 +91,7 @@ Page    9 size:  900 x 792 pts
             height: 500,
             rotation: 90,
             widestPageWidth: 900,
+            tallestPageHeight: 792,
         });
     });
 
@@ -109,6 +111,26 @@ Page  135 rot:   0
             width: 481.92,
             height: 765.36,
             widestPageWidth: 765.36,
+            tallestPageHeight: 765.36,
+        });
+    });
+
+    it('reports the tallest displayed page from another page, after its own rotation', () => {
+        expect(parsePdfOpeningGeometryMetadata(`
+Pages:           3
+Page    1 size:  612 x 900 pts
+Page    1 rot:   90
+Page    2 size:  612 x 792 pts
+Page    3 size:  612 x 820 pts
+Page    3 rot:   0
+`, {
+            size: 1,
+            modifiedAt: requireEpochMs(0),
+        }, 3)).toMatchObject({
+            width: 612,
+            height: 820,
+            widestPageWidth: 900,
+            tallestPageHeight: 820,
         });
     });
 
@@ -141,6 +163,7 @@ describe('PDF page-shape store', () => {
         height: 792,
         rotation: 0 as const,
         widestPageWidth: width,
+        tallestPageHeight: 792,
         ...identity,
     });
 

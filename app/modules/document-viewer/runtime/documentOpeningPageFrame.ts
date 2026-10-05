@@ -125,9 +125,13 @@ function resolvePdfOpeningPageFrameStyle(
     // The page as the view shows it: a quarter-turned view swaps its sides.
     const shown = projectPdfPageMetricForView(geometry, policy.viewRotation ?? 0);
     // Continuous Fit Width uses one scale for the whole document, set by its
-    // widest page (ADR 0006), so the skeleton matches PDF.js's first layout.
+    // widest page as the view shows it (ADR 0006), so the skeleton matches
+    // PDF.js's first layout: a quarter-turned view's widest is its tallest.
     const fitWidthBase = policy.continuousScroll
-        ? Math.max(shown.width, geometry.widestPageWidth ?? shown.width)
+        ? Math.max(shown.width, projectPdfPageMetricForView({
+            width: geometry.widestPageWidth ?? geometry.width,
+            height: geometry.tallestPageHeight ?? geometry.height,
+        }, policy.viewRotation ?? 0).width)
         : shown.width;
     const fitScale = policy.zoomMode === 'fit-height'
         ? (viewport.height - pageMargin * 2) / shown.height

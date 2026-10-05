@@ -473,6 +473,7 @@ describe('feature IPC codec maps', () => {
             height: 792,
             rotation: 90,
             widestPageWidth: 792,
+            tallestPageHeight: 792,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         };
@@ -481,6 +482,10 @@ describe('feature IPC codec maps', () => {
         expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
             ...validGeometry,
             widestPageWidth: 500,
+        })).toThrow('invalid PDF opening geometry result');
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
+            ...validGeometry,
+            tallestPageHeight: 700,
         })).toThrow('invalid PDF opening geometry result');
         expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
             kind: 'pdf',

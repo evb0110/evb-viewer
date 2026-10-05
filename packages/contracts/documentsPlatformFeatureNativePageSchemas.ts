@@ -49,6 +49,7 @@ const pdfOpeningGeometryDataSchema = v.pipe(
         height: positiveFiniteNumber,
         rotation: pdfRotationSchema,
         widestPageWidth: positiveFiniteNumber,
+        tallestPageHeight: positiveFiniteNumber,
         size: nonNegativeSafeInteger,
         modifiedAt: epochMsSchema,
         // Where the reader left these unchanged bytes, when Recent has it;
@@ -64,7 +65,7 @@ const pdfOpeningGeometryDataSchema = v.pipe(
         })))),
     }),
     v.check(value => !value.pages || value.pages.length === value.pageCount, 'invalid PDF opening geometry result'),
-    v.check(value => value.widestPageWidth >= value.width, 'invalid PDF opening geometry result'),
+    v.check(value => value.widestPageWidth >= value.width && value.tallestPageHeight >= value.height, 'invalid PDF opening geometry result'),
     // The first page's shape, or that of the page the reader left these bytes at.
     v.check(value => (value.readingView
         ? value.readingView.pageCount === value.pageCount

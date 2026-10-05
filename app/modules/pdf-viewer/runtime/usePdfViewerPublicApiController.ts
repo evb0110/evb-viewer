@@ -17,7 +17,7 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
-import {cloneSparsePageMetrics} from '@app/modules/document-viewer/public';
+import { cloneSparsePageMetrics } from '@app/modules/document-viewer/public';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 

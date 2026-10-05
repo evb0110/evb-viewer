@@ -316,6 +316,64 @@ describe('documentOpeningPageFrame', () => {
         });
     });
 
+    // Pages 612x900 and 612x820: the tallest page is the widest a quarter-turned view shows.
+    it.each([
+        // Upright: 960 / 612 wide. Quarter-turned: 960 / 900, the tallest page.
+        [
+            0,
+            960,
+            820 * 960 / 612,
+        ],
+        [
+            180,
+            960,
+            820 * 960 / 612,
+        ],
+        [
+            90,
+            820 * 960 / 900,
+            612 * 960 / 900,
+        ],
+        [
+            270,
+            820 * 960 / 900,
+            612 * 960 / 900,
+        ],
+    ] as const)('sizes a continuous Fit Width shell turned %i by the widest page the view shows', (viewRotation, width, height) => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            pageNumber: 3,
+            pageCount: 3,
+            width: 612,
+            height: 820,
+            widestPageWidth: 612,
+            tallestPageHeight: 900,
+        });
+        createDocumentOpeningPageFrame({
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 1,
+                zoomMode: 'fit-width',
+                continuousScroll: true,
+                viewRotation,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation);
+
+        const style = surface.snapshot.value.openingPageFrame?.style;
+        expect(Number.parseFloat(style?.width ?? '')).toBeCloseTo(width, 6);
+        expect(Number.parseFloat(style?.height ?? '')).toBeCloseTo(height, 6);
+    });
+
     it('does not need source or working-copy completion to present the shell', async () => {
         const surface = createDocumentOpenSurfaceSession();
         let releaseSource!: () => void;
