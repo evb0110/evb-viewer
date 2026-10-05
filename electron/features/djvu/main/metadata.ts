@@ -114,15 +114,32 @@ export async function getDjvuMetadata(
     }
 }
 
+const DJVU_INFO_REGEX = /\bINFO\b.*?(\d+)x(\d+).*?(\d+)\s*dpi/u;
+
+/** Reads a page's pixel size and DPI from a djvudump INFO line. */
+export function parseDjvuInfoLine(line: string) {
+    const match = line.match(DJVU_INFO_REGEX);
+    if (!match?.[1] || !match[2] || !match[3]) {
+        return null;
+    }
+    return {
+        width: Number.parseInt(match[1], 10),
+        height: Number.parseInt(match[2], 10),
+        dpi: Number.parseInt(match[3], 10),
+    };
+}
+
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
         const result = await runDjvused([
             filePath,
             '-e',
-            'select 1; print-dpi',
+            'select 1; dump',
         ], options);
-        const dpi = parseInt(result.stdout.trim(), 10);
-        return Number.isFinite(dpi) && dpi > 0 ? dpi : 300;
+        const dpi = result.stdout.split(/\r?\n/u)
+            .map(parseDjvuInfoLine)
+            .find(info => info !== null)?.dpi;
+        return dpi !== undefined && dpi > 0 ? dpi : 300;
     } catch (error) {
         if (isAbortError(error)) {
             throw error;

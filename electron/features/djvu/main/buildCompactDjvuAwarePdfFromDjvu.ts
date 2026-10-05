@@ -26,6 +26,7 @@ import type {
 } from '@contracts/djvuConversionPolicy';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
+import { parseDjvuInfoLine } from '@electron/features/djvu/main/metadata';
 import {
     renderDjvuPageToImage,
     runRegisteredDjvuProcess,
@@ -172,7 +173,6 @@ const DJVU_NATIVE_LAYER_DEFAULT_SUBSAMPLE = 1;
 const DJVU_COMPACT_MIN_SUBSAMPLE = 1;
 const DJVU_COMPACT_MAX_SUBSAMPLE = 64;
 const DJVU_COMPACT_LAYER_DIMENSION_MATCH_TOLERANCE = 0.25;
-const DJVU_COMPACT_INFO_REGEX = /\bINFO\b.*?(\d+)x(\d+).*?(\d+)\s*dpi/u;
 const DJVU_COMPACT_CHUNK_REGEX = /^\s+([A-Za-z0-9]{4})\s+\[(\d+)\]/u;
 const DJVU_COMPACT_DIMENSIONS_REGEX = /(\d+)x(\d+)/gu;
 const DJVU_COMPACT_FORM_PAGE_REGEX = /\bFORM:DJVU\b\s+\[(\d+)\](?:.*?\[P(\d+)\])?(?:.*?\((\d+)\))?/u;
@@ -584,13 +584,9 @@ function createDjvuPageStructureParser(onPage: (structure: IDjvuPageStructure) =
                 return;
             }
 
-            const infoMatch = line.match(DJVU_COMPACT_INFO_REGEX);
-            if (infoMatch?.[1] && infoMatch[2] && infoMatch[3]) {
-                current.info = {
-                    width: Number.parseInt(infoMatch[1], 10),
-                    height: Number.parseInt(infoMatch[2], 10),
-                    dpi: Number.parseInt(infoMatch[3], 10),
-                };
+            const info = parseDjvuInfoLine(line);
+            if (info) {
+                current.info = info;
                 return;
             }
 

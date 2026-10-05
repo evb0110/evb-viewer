@@ -1,7 +1,9 @@
+import {createHash} from 'node:crypto';
 import {
     existsSync,
     mkdirSync,
     readdirSync,
+    readFileSync,
     rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -31,6 +33,8 @@ import {
 
 // Thousands of sparse pages keep the conversion running long enough to end it midway.
 const sourcePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-cancellation-5010-pages.djvu');
+// Page 1 is encoded at 72 DPI and page 2 at 300 DPI.
+const mixedDpiPath = resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu');
 
 // The scratch lives in the app's temp namespace below the temp root.
 function listExportScratch(tempRoot: string) {
@@ -63,6 +67,7 @@ describe('DjVu conversion scratch', () => {
     const suiteRoot = join(tmpdir(), `evb-e2e-djvu-scratch-${Date.now()}`);
     const cancelRoot = join(suiteRoot, 'cancel');
     const quitRoot = join(suiteRoot, 'quit');
+    const resolutionRoot = join(suiteRoot, 'resolution');
     const scratchEnv = (tempRoot: string) => ({
         TMPDIR: tempRoot,
         TMP: tempRoot,
@@ -73,6 +78,7 @@ describe('DjVu conversion scratch', () => {
     beforeAll(() => {
         mkdirSync(cancelRoot, {recursive: true});
         mkdirSync(quitRoot, {recursive: true});
+        mkdirSync(resolutionRoot, {recursive: true});
     });
     const sessions = createElectronE2ESessionFixture({
         sessionName: () => `e2e-djvu-convert-scratch-${Date.now()}`,
@@ -111,5 +117,30 @@ describe('DjVu conversion scratch', () => {
         // does; a plain session stop wipes it and would hide what the quit left.
         await stopSingleSession(session.name, {preserveWorkspaceCheckpoint: true});
         expect(listExportScratch(quitRoot)).toEqual([]);
+    }, 300_000);
+
+    it('shows the first page\'s encoded resolution in the conversion dialog', async () => {
+        const sourceHash = () => createHash('sha256').update(readFileSync(mixedDpiPath)).digest('hex');
+        const hashBefore = sourceHash();
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-convert-resolution-${Date.now()}`,
+            extraEnv: scratchEnv(resolutionRoot),
+        });
+        await openDjvuInApp(session.page, mixedDpiPath, 120_000);
+        await waitForDjvuLoaded(session.page, 120_000);
+        await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
+        const readSourceResolution = () => session.page.evaluate(() => document
+            .querySelector('[role="dialog"] .convert-info-row:nth-child(3) .convert-info-value')
+            ?.textContent?.trim() ?? null);
+        await expect.poll(readSourceResolution, {timeout: 60_000}).toMatch(/\d/u);
+        expect(await readSourceResolution()).toBe('72 DPI');
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(candidate => candidate.textContent?.trim() === 'Cancel'), null, {
+            description: 'Cancel of the DjVu conversion dialog',
+            timeoutMs: 30_000,
+        });
+        await expect.poll(() => session.page.evaluate(() => document.querySelector('[role="dialog"] .convert-info-row')), {timeout: 30_000}).toBeNull();
+        expect(sourceHash()).toBe(hashBefore);
     }, 300_000);
 });
