@@ -24,6 +24,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import type {Page} from 'puppeteer-core';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
@@ -48,6 +49,13 @@ function listExportScratch(tempRoot: string) {
         encoding: 'utf8',
     })
         .filter(entry => basename(entry).startsWith('djvu-export-'));
+}
+
+// The conversion dialog's source resolution, found by its rendered label.
+function readSourceResolution(page: Page) {
+    return page.evaluate(() => Array.from(document.querySelectorAll('[role="dialog"] .convert-info-row'))
+        .find(row => row.querySelector('.convert-info-label')?.textContent?.trim() === 'Source resolution')
+        ?.querySelector('.convert-info-value')?.textContent?.trim() ?? null);
 }
 
 async function startConversion(session: IElectronE2ESession, tempRoot: string) {
@@ -137,11 +145,8 @@ describe('DjVu conversion scratch', () => {
         await openDjvuInApp(session.page, mixedDpiPath, 120_000);
         await waitForDjvuLoaded(session.page, 120_000);
         await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-        const readSourceResolution = () => session.page.evaluate(() => Array.from(document.querySelectorAll('[role="dialog"] .convert-info-row'))
-            .find(row => row.querySelector('.convert-info-label')?.textContent?.trim() === 'Source resolution')
-            ?.querySelector('.convert-info-value')?.textContent?.trim() ?? null);
-        await expect.poll(readSourceResolution, {timeout: 60_000}).toMatch(/\d/u);
-        expect(await readSourceResolution()).toBe('72 DPI');
+        await expect.poll(() => readSourceResolution(session.page), {timeout: 60_000}).toMatch(/\d/u);
+        expect(await readSourceResolution(session.page)).toBe('72 DPI');
         await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
             .find(candidate => candidate.textContent?.trim() === 'Cancel'), null, {
             description: 'Cancel of the DjVu conversion dialog',
@@ -179,11 +184,8 @@ describe('DjVu conversion scratch', () => {
         expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain('2');
 
         await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-        const readSourceResolution = () => session.page.evaluate(() => Array.from(document.querySelectorAll('[role="dialog"] .convert-info-row'))
-            .find(row => row.querySelector('.convert-info-label')?.textContent?.trim() === 'Source resolution')
-            ?.querySelector('.convert-info-value')?.textContent?.trim() ?? null);
-        await expect.poll(readSourceResolution, {timeout: 60_000}).toMatch(/\d/u);
-        expect(await readSourceResolution()).toBe('72 DPI');
+        await expect.poll(() => readSourceResolution(session.page), {timeout: 60_000}).toMatch(/\d/u);
+        expect(await readSourceResolution(session.page)).toBe('72 DPI');
         await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
             .find(element => element.textContent?.includes('Convert DjVu to PDF'))
             ?.querySelectorAll<HTMLButtonElement>('button') ?? [])

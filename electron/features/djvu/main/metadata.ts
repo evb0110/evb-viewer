@@ -118,17 +118,15 @@ export async function getDjvuMetadata(
 
 const DJVU_INFO_REGEX = /\bINFO\b.*?(\d+)x(\d+).*?(\d+)\s*dpi/u;
 
-/** Reads a page's pixel size and DPI from a djvudump INFO line. */
+/** Reads a page's pixel size and DPI from a djvudump INFO line, if all three are positive safe integers. */
 export function parseDjvuInfoLine(line: string) {
     const match = line.match(DJVU_INFO_REGEX);
-    if (!match?.[1] || !match[2] || !match[3]) {
-        return null;
-    }
-    return {
-        width: Number.parseInt(match[1], 10),
-        height: Number.parseInt(match[2], 10),
-        dpi: Number.parseInt(match[3], 10),
+    const info = {
+        width: Number(match?.[1]),
+        height: Number(match?.[2]),
+        dpi: Number(match?.[3]),
     };
+    return Object.values(info).every(value => Number.isSafeInteger(value) && value > 0) ? info : null;
 }
 
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
@@ -138,10 +136,9 @@ export async function getDjvuResolution(filePath: string, options: IDjvuMetadata
             '-e',
             'select 1; dump',
         ], options);
-        const dpi = result.stdout.split(/\r?\n/u)
+        return result.stdout.split(/\r?\n/u)
             .map(parseDjvuInfoLine)
-            .find(info => info !== null)?.dpi;
-        return dpi !== undefined && dpi > 0 ? dpi : 300;
+            .find(info => info !== null)?.dpi ?? 300;
     } catch (error) {
         if (isAbortError(error)) {
             throw error;
