@@ -263,6 +263,16 @@ export function clampPageNumber(value: number, pageCount?: number): TPageNumber 
     return toPageNumber(Math.max(1, Math.min(withinDocument, Number.MAX_SAFE_INTEGER)));
 }
 
+// The same live reading for a range: both ends clamped, the end never first.
+export function clampPageRange(range: Readonly<Record<'start' | 'end', number>>, pageCount?: number) {
+    const start = clampPageNumber(range.start, pageCount);
+    const end = clampPageNumber(range.end, pageCount);
+    return {
+        start,
+        end: end < start ? start : end,
+    };
+}
+
 export function pageIndexToPageNumber(pageIndex: TPageIndex): TPageNumber {
     return toPageNumber(pageIndex + 1);
 }
