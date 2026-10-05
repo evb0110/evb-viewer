@@ -223,6 +223,53 @@ async function stopToolbarTransitionSampling(session: IElectronE2ESession) {
     });
 }
 
+// The held opening page shell, and a drawn page, as rects in the window.
+function readHeldShell(session: IElectronE2ESession) {
+    return evaluateInPage(session.page, () => {
+        const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
+        const rect = shell?.getBoundingClientRect();
+        return shell && rect ? {
+            page: Number(shell.dataset.pageNumber),
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+        } : null;
+    });
+}
+
+function readDrawnPage(session: IElectronE2ESession, pageNumber: number) {
+    return evaluateInPage(session.page, (page: number) => {
+        const rect = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
+        )?.getBoundingClientRect();
+        return rect ? {
+            page,
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+        } : null;
+    }, pageNumber);
+}
+
+// A drawn page sits where its shell sat, within the committed surface
+// contract's one CSS pixel (scroll positions snap to device pixels).
+function expectSameRect(actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) {
+    expect(actual?.page).toBe(expected?.page);
+    for (const key of [
+        'top',
+        'left',
+        'width',
+        'height',
+    ] as const) {
+        expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
+            actual,
+            expected,
+        })}`).toBeLessThanOrEqual(1);
+    }
+}
+
 function assertToolbarTransitionStable(
     samples: IToolbarTransitionSample[],
     openClickAtPageMs: number | null,
@@ -1460,46 +1507,6 @@ describe('Electron E2E - Recent Files', () => {
         const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
-        // The held opening page shell, and a drawn page, as rects in the window.
-        const readHeldShell = () => evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
-            const rect = shell?.getBoundingClientRect();
-            return shell && rect ? {
-                page: Number(shell.dataset.pageNumber),
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        });
-        const readDrawnPage = (pageNumber: number) => evaluateInPage(session.page, (page: number) => {
-            const rect = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
-            )?.getBoundingClientRect();
-            return rect ? {
-                page,
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        }, pageNumber);
-        // A drawn page sits where its shell sat, within the committed surface
-        // contract's one CSS pixel (scroll positions snap to device pixels).
-        const expectSameRect = (actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) => {
-            expect(actual?.page).toBe(expected?.page);
-            for (const key of [
-                'top',
-                'left',
-                'width',
-                'height',
-            ] as const) {
-                expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
-                    actual,
-                    expected,
-                })}`).toBeLessThanOrEqual(1);
-            }
-        };
 
         // Hold the open before its working copy exists, as a slow disk does.
         // The held view already shows the place the reader left: page 27 at
@@ -1509,20 +1516,20 @@ describe('Electron E2E - Recent Files', () => {
         ), fixtureDocumentRef)).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
-        const held = await readHeldShell();
+        const held = await readHeldShell(session);
         expect(held?.page).toBe(27);
 
 
         // A plain press moves nothing: the held view stays exactly as shown,
         // and the open presents that place, not the defaults.
         await clickAsUser(session.page, '.editor-pane.is-active [data-document-viewer-chassis-viewport]');
-        expect(await readHeldShell()).toEqual(held);
+        expect(await readHeldShell(session)).toEqual(held);
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef)).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
         await expectReadingPlace(session, 27, readingZoomLabel);
-        expectSameRect(await readDrawnPage(27), held);
+        expectSameRect(await readDrawnPage(session, 27), held);
 
         // Closing remembers that place; the next reopen returns there.
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
@@ -1592,46 +1599,6 @@ describe('Electron E2E - Recent Files', () => {
         const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
-        // The held opening page shell, and a drawn page, as rects in the window.
-        const readHeldShell = () => evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
-            const rect = shell?.getBoundingClientRect();
-            return shell && rect ? {
-                page: Number(shell.dataset.pageNumber),
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        });
-        const readDrawnPage = (pageNumber: number) => evaluateInPage(session.page, (page: number) => {
-            const rect = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
-            )?.getBoundingClientRect();
-            return rect ? {
-                page,
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        }, pageNumber);
-        // A drawn page sits where its shell sat, within the committed surface
-        // contract's one CSS pixel (scroll positions snap to device pixels).
-        const expectSameRect = (actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) => {
-            expect(actual?.page).toBe(expected?.page);
-            for (const key of [
-                'top',
-                'left',
-                'width',
-                'height',
-            ] as const) {
-                expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
-                    actual,
-                    expected,
-                })}`).toBeLessThanOrEqual(1);
-            }
-        };
 
         // Hold the open before its working copy exists, as a slow disk does.
         // The held view already shows the place the reader left: page 27 at
@@ -1641,7 +1608,7 @@ describe('Electron E2E - Recent Files', () => {
         ), fixtureDocumentRef)).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
-        const held = await readHeldShell();
+        const held = await readHeldShell(session);
         expect(held?.page).toBe(27);
 
 
@@ -1671,7 +1638,7 @@ describe('Electron E2E - Recent Files', () => {
             const width = document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]')?.getBoundingClientRect().width;
             return width !== undefined && width > heldWidth;
         }, {timeout: RECENT_OPEN_TIMEOUT_MS}, held!.width);
-        const zoomed = await readHeldShell();
+        const zoomed = await readHeldShell(session);
         expect(zoomed?.page).toBe(27);
         expect(pointOn(zoomed!).x).toBeCloseTo(pointOn(held!).x, 2);
         expect(pointOn(zoomed!).y).toBeCloseTo(pointOn(held!).y, 2);
@@ -1686,7 +1653,7 @@ describe('Electron E2E - Recent Files', () => {
         const zoomedLabel = await readZoomLabel(session);
         expect(Number.parseFloat(zoomedLabel)).toBeGreaterThan(Number.parseFloat(readingZoomLabel));
         await expectReadingPlace(session, 27, zoomedLabel);
-        expectSameRect(await readDrawnPage(27), zoomed);
+        expectSameRect(await readDrawnPage(session, 27), zoomed);
     });
 
     it('leaves a quarter-turned reopening view where the reader wheel-zoomed it while the open was held', async () => {
@@ -1707,46 +1674,6 @@ describe('Electron E2E - Recent Files', () => {
         const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
-        // The held opening page shell, and a drawn page, as rects in the window.
-        const readHeldShell = () => evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
-            const rect = shell?.getBoundingClientRect();
-            return shell && rect ? {
-                page: Number(shell.dataset.pageNumber),
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        });
-        const readDrawnPage = (pageNumber: number) => evaluateInPage(session.page, (page: number) => {
-            const rect = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
-            )?.getBoundingClientRect();
-            return rect ? {
-                page,
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        }, pageNumber);
-        // A drawn page sits where its shell sat, within the committed surface
-        // contract's one CSS pixel (scroll positions snap to device pixels).
-        const expectSameRect = (actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) => {
-            expect(actual?.page).toBe(expected?.page);
-            for (const key of [
-                'top',
-                'left',
-                'width',
-                'height',
-            ] as const) {
-                expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
-                    actual,
-                    expected,
-                })}`).toBeLessThanOrEqual(1);
-            }
-        };
 
         // Hold the open before its working copy exists, as a slow disk does.
         // The held view already shows the place the reader left: page 27 at
@@ -1756,7 +1683,7 @@ describe('Electron E2E - Recent Files', () => {
         ), fixtureDocumentRef)).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
-        const held = await readHeldShell();
+        const held = await readHeldShell(session);
         expect(held?.page).toBe(27);
 
 
@@ -1786,7 +1713,7 @@ describe('Electron E2E - Recent Files', () => {
             const width = document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]')?.getBoundingClientRect().width;
             return width !== undefined && width > heldWidth;
         }, {timeout: RECENT_OPEN_TIMEOUT_MS}, held!.width);
-        const zoomed = await readHeldShell();
+        const zoomed = await readHeldShell(session);
         expect(zoomed?.page).toBe(27);
         expect(pointOn(zoomed!).x).toBeCloseTo(pointOn(held!).x, 2);
         expect(pointOn(zoomed!).y).toBeCloseTo(pointOn(held!).y, 2);
@@ -1801,11 +1728,11 @@ describe('Electron E2E - Recent Files', () => {
         const zoomedLabel = await readZoomLabel(session);
         expect(Number.parseFloat(zoomedLabel)).toBeGreaterThan(Number.parseFloat(readingZoomLabel));
         await expectReadingPlace(session, 27, zoomedLabel);
-        expectSameRect(await readDrawnPage(27), zoomed);
+        expectSameRect(await readDrawnPage(session, 27), zoomed);
 
         // The held view zoomed by the step the shown view zooms by: the same
         // packet over the drawn page scales it as it scaled the held one.
-        const drawnBefore = await readDrawnPage(27);
+        const drawnBefore = await readDrawnPage(session, 27);
         await session.page.keyboard.down(zoomModifier);
         await session.page.mouse.wheel({deltaY: -40});
         await session.page.keyboard.up(zoomModifier);
@@ -1813,7 +1740,7 @@ describe('Electron E2E - Recent Files', () => {
             const drawnWidth = document.querySelector('.editor-pane.is-active #pdf-viewer .page_container[data-page="27"]')?.getBoundingClientRect().width;
             return drawnWidth !== undefined && Math.abs(drawnWidth - width) > 1;
         }, {timeout: RECENT_OPEN_TIMEOUT_MS}, drawnBefore!.width);
-        const drawnAfter = await readDrawnPage(27);
+        const drawnAfter = await readDrawnPage(session, 27);
         expect(zoomed!.width / held!.width).toBeCloseTo(drawnAfter!.width / drawnBefore!.width, 2);
     });
 
@@ -1842,17 +1769,7 @@ describe('Electron E2E - Recent Files', () => {
         ), fixtureDocumentRef)).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
-        const held = await evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
-            const rect = shell?.getBoundingClientRect();
-            return shell && rect ? {
-                page: Number(shell.dataset.pageNumber),
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        });
+        const held = await readHeldShell(session);
         expect(held?.page, JSON.stringify(left)).toBe(pageNumber);
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
@@ -1862,18 +1779,7 @@ describe('Electron E2E - Recent Files', () => {
         await waitForFunctionInPage(session.page, (page: number) => Boolean(document.querySelector(
             `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"] canvas`,
         )), {timeout: RECENT_OPEN_TIMEOUT_MS}, pageNumber);
-        const drawn = await evaluateInPage(session.page, (page: number) => {
-            const rect = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
-            )?.getBoundingClientRect();
-            return rect ? {
-                page,
-                top: rect.top,
-                left: rect.left,
-                width: rect.width,
-                height: rect.height,
-            } : null;
-        }, pageNumber);
+        const drawn = await readDrawnPage(session, pageNumber);
         // Within the committed surface contract's one CSS pixel.
         for (const key of [
             'top',
