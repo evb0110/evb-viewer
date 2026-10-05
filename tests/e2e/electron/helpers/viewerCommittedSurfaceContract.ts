@@ -217,9 +217,26 @@ export function selectClaimedOpenTrace(trace: ICommittedSurfaceTrace): ICommitte
         && frame.openSurfaceDiagnostic?.openSurfaceGeneration === '0'
         && frame.openSurfaceDiagnostic.openSurfaceDocumentId === ''
     ));
+    if (claimIndex >= 0) {
+        return {
+            ...trace,
+            frames: trace.frames.slice(claimIndex),
+        };
+    }
+    // Never claimed: keep the evidence and name the cause, so the scanner
+    // fails on it instead of on a generic short trace.
+    const lastFrame = trace.frames.at(-1);
     return {
         ...trace,
-        frames: claimIndex < 0 ? [] : trace.frames.slice(claimIndex),
+        errors: [
+            ...trace.errors ?? [],
+            {
+                checkpoint: null,
+                elapsedMs: lastFrame?.elapsedMs ?? 0,
+                frame: lastFrame?.frame ?? 0,
+                message: 'open never claimed',
+            },
+        ],
     };
 }
 
@@ -233,7 +250,10 @@ export function findCommittedSurfaceContractViolations(
     )) ?? [];
     const frames = trace.frames;
     if (frames.length < 2) {
-        return ['fewer than two animation frames were sampled'];
+        return [
+            ...violations,
+            'fewer than two animation frames were sampled',
+        ];
     }
 
     // An open never goes back a step: once it has shown its page shape, the
