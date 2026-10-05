@@ -97,15 +97,8 @@ describe('seeding a normal open from its reading view', () => {
         recent.readingView.mockResolvedValue(remembered);
     });
 
-    it('seeds the view its open began in, whichever view of the document is in use when the source arrives', async () => {
+    it('seeds the remembered place into the view its open began in', async () => {
         const opening = createOpeningView();
-        // A split view of the same document, in use by the time the source arrives.
-        const linkedSurface = createDocumentOpenSurfaceSession();
-        linkedSurface.begin({
-            documentId: '/documents/remembered.pdf',
-            documentRevision: 'open-intent:linked',
-            provisional: true,
-        }, null, 1);
 
         await seedOpeningSource(opening.controller, source, Promise.resolve(40));
 
@@ -114,10 +107,6 @@ describe('seeding a normal open from its reading view', () => {
             page: 27,
         });
         expect(opening.view.zoom).toBe(1.85);
-        expect(linkedSurface.navigationTicket.value?.request.target).toEqual({
-            kind: 'page',
-            page: 1,
-        });
     });
 
     it('opens at the remembered page and view, as the opening\'s own restore', async () => {

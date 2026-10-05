@@ -344,7 +344,7 @@ describe('document page-source presentation lifecycle', () => {
         expect(harness.emit).toHaveBeenCalledWith('loadError', expect.any(Error));
     });
 
-    it('fails a page the raster limit refuses on its first render, with the refusal', async () => {
+    it('presents a raster-limit refusal and keeps the page failed on another render request', async () => {
         const harness = createPresentationHarness();
         const render = vi.mocked(harness.source.renderPage);
         const refusal = new SerializableError({
@@ -359,7 +359,7 @@ describe('document page-source presentation lifecycle', () => {
         expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
         expect(harness.emit).toHaveBeenCalledWith('loadError', refusal);
 
-        // A refused page stays failed rather than retrying into another state.
+        // Another render request leaves the refused page failed.
         await harness.presentation.renderPage(1);
         expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
     });

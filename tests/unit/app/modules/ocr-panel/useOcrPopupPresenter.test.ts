@@ -725,7 +725,7 @@ describe('useOcrPopupPresenter', () => {
     });
 
     // #969: a view closes its dialog while a seeded running OCR state settles; the run's results and settings stay.
-    it('keeps a dialog closed by its view while the run is still settling, without dropping the run', async () => {
+    it('keeps a view-closed dialog closed while seeded OCR results and settings settle', async () => {
         const harness = createPresenterHarness();
 
         try {

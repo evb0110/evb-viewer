@@ -72,18 +72,23 @@ async function stopOwnedProcessGroup(pid: number) {
  */
 export type TOwnedHelperCleanup = 'process-group' | 'live-root-tree' | 'root-exited-helpers-unverified';
 
-async function stopOwnedProcesses(pid: number | undefined, force: boolean): Promise<TOwnedHelperCleanup> {
+async function stopOwnedProcesses(child: ChildProcess, force: boolean): Promise<TOwnedHelperCleanup> {
+    const {pid} = child;
+    // Until Node observes the exit, the unreaped child (POSIX) or its open
+    // handle (Windows) keeps the PID from naming another process. After it,
+    // the PID may be reused, so it is never probed or killed as ours.
+    const rootRunning = () => child.exitCode === null && child.signalCode === null;
     let treeStopped = false;
     let treeStopError: Error | undefined;
     try {
-        if (pid) treeStopped = await killProcessTree(pid, 1_500, {force});
+        if (pid && rootRunning()) treeStopped = await killProcessTree(pid, 1_500, {force});
     } catch (error) {
         treeStopError = error instanceof Error ? error : new Error(String(error));
         console.error('Process-tree shutdown failed; continuing owned-group cleanup.', error);
     }
     if (pid && process.platform !== 'win32') await stopOwnedProcessGroup(pid);
     if (treeStopError && process.platform === 'win32') throw treeStopError;
-    if (pid && isProcessAlive(pid)) {
+    if (pid && rootRunning() && isProcessAlive(pid)) {
         throw new Error('Packaged automation remained alive after cleanup; preserving its bundle.');
     }
     if (process.platform !== 'win32') return 'process-group';
@@ -239,7 +244,7 @@ export async function startOwnedPackagedProcess(options: {
         exited,
         stop(stopOptions = {}) {
             finalStop ??= (async () => {
-                const cleanup = await stopOwnedProcesses(child.pid, stopOptions.force === true);
+                const cleanup = await stopOwnedProcesses(child, stopOptions.force === true);
                 if (launch.bundleDirectory) {
                     await rm(launch.bundleDirectory, {
                         recursive: true,

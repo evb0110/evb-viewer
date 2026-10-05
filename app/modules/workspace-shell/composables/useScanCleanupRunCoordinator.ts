@@ -172,15 +172,13 @@ export const useScanCleanupRunCoordinator = (
                 return false;
             }
             const tabId = findDocumentTabId(path, documentSessionsByTabId.value);
-            if (tabId) {
-                if (foreground) {
-                    activateTab(tabId);
-                }
+            if (foreground && tabId) {
+                activateTab(tabId);
                 return true;
             }
             return foreground
                 ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
-                : await handleOpenInNewTab(documentRef, undefined, {activate: false}) && persistCheckpointNow().then(() => true, () => false);
+                : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
         },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(

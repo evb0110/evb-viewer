@@ -289,7 +289,7 @@ describe('useDjvu', () => {
             ).rejects.toThrow('File corrupted');
         });
 
-        it('refuses a classified open with its typed reason and main receipt, captured once', async () => {
+        it('refuses a classified open with its typed reason and main receipt', async () => {
             const mainReceipt: FailureReceipt = {
                 ...conversionFailureReceipt,
                 eventId: 'fedcba9876543210fedcba9876543210' as FailureReceipt['eventId'],

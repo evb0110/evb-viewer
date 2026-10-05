@@ -213,7 +213,7 @@ describe('useSidebarResize', () => {
             showSidebar,
             initialWidth: 372,
         });
-        resize.setSidebarContainerWidth(SIDEBAR.MIN_VIEWER_WIDTH + 220);
+        resize.setSidebarContainerWidth(SIDEBAR.MIN_VIEWER_WIDTH + SIDEBAR.MIN_WIDTH);
 
         resize.startSidebarResize(createPointerEventFixture({
             clientX: 400,

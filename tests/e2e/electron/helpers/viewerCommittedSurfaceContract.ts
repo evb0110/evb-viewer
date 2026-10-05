@@ -1022,7 +1022,24 @@ export async function installCommittedSurfaceSampler(
                     '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
                 ) ?? [])
                     .filter(isVisible);
-                const page = visiblePages.find(ownsVisibleCenter) ?? visiblePages.find(candidate => {
+                const pdfViewerHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
+                const requestedTargetPage = Number(
+                    chassis?.dataset.viewportRequestedPage
+                ?? pdfViewerHost?.dataset.pdfNavigationHandoffTarget
+                ?? 0,
+                ) || null;
+                // The requested page is the reading place the viewer committed
+                // to. A partially visible neighbor earlier in DOM order also
+                // owns its own clipped center, so track the requested page
+                // whenever it is on screen; neighbors stay checked through
+                // visiblePdfPageVisuals.
+                const requestedVisiblePage = requestedTargetPage === null
+                    ? null
+                    : visiblePages.find(candidate => (
+                        Number(candidate.dataset.page ?? candidate.dataset.pageNumber ?? 0) === requestedTargetPage
+                        && ownsVisibleCenter(candidate)
+                    )) ?? null;
+                const page = requestedVisiblePage ?? visiblePages.find(ownsVisibleCenter) ?? visiblePages.find(candidate => {
                     const rect = candidate.getBoundingClientRect();
                     return rect.top < window.innerHeight && rect.bottom > 0;
                 }) ?? visiblePages[0] ?? null;
@@ -1165,12 +1182,6 @@ export async function installCommittedSurfaceSampler(
                     : null;
 
                 const pdfOpeningDiagnostic = document.querySelector<HTMLElement>('[data-pdf-opening-diagnostic="true"]');
-                const pdfViewerHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
-                const requestedTargetPage = Number(
-                    chassis?.dataset.viewportRequestedPage
-                ?? pdfViewerHost?.dataset.pdfNavigationHandoffTarget
-                ?? 0,
-                ) || null;
                 const targetPage = requestedTargetPage === null
                     ? null
                     : host?.querySelector<HTMLElement>(`.page_container[data-page="${String(requestedTargetPage)}"]`) ?? null;

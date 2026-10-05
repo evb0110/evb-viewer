@@ -27,6 +27,7 @@ import {
 import {
     isProcessAlive,
     killProcessTree,
+    waitForProcessExit,
 } from '@scripts/electron-run/electronRunProcessTree';
 import {
     isOutsideRoot,
@@ -68,19 +69,30 @@ describe('process tree termination receipt', () => {
             'setInterval(() => {}, 1000)',
         ], {stdio: 'ignore'});
         const pid = child.pid!;
-        const exited = new Promise(resolveExit => child.once('exit', resolveExit));
-
+        let failure: unknown;
         try {
             expect(await killProcessTree(pid, 300)).toBe(true);
-            await exited;
+            // Bounded, so a kill that reports success without an exit fails here instead of hanging.
+            expect(await waitForProcessExit(pid, 2_000)).toBe(true);
             expect(isProcessAlive(pid)).toBe(false);
             expect(await killProcessTree(pid, 300)).toBe(false);
-        } finally {
-            // The test owns this child: end it even when an assertion or the kill failed.
-            if (child.exitCode === null && child.signalCode === null) {
-                child.kill('SIGKILL');
-                await exited;
+        } catch (error) {
+            failure = error;
+        }
+        // The test owns this child: end it even when an assertion or the kill
+        // failed, and report a child that would not exit beside that failure.
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill('SIGKILL');
+            if (!await waitForProcessExit(pid, 2_000)) {
+                const leaked = new Error(`Owned test child ${String(pid)} did not exit after SIGKILL`);
+                failure = failure === undefined ? leaked : new AggregateError([
+                    failure,
+                    leaked,
+                ], 'Receipt test failed and its child did not exit');
             }
+        }
+        if (failure !== undefined) {
+            throw failure;
         }
     });
 });

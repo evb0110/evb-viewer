@@ -849,6 +849,7 @@ async function run() {
     let browser: Browser | null = null;
     let verified = false;
     let helperCleanup: TOwnedHelperCleanup | null = null;
+    const failures: unknown[] = [];
     try {
         await copyFile(args.sourcePath, sourceCopyPath);
         // A second logical document exercises pane switching without asking the
@@ -971,29 +972,43 @@ async function run() {
             verified = true;
             await delay(500);
         }
-    } finally {
-        // Evidence capture may fail (a full disk); the owned stop still runs
-        // and the capture error still propagates.
+    } catch (error) {
+        failures.push(error);
+    }
+    // Every teardown step runs; no failure replaces another. A single failure
+    // is thrown unchanged, several together.
+    for (const teardownStep of [
+        () => stopResourceSampling(),
+        () => writeFile(path.join(args.artifactDir, 'packaged-stdout.log'), stdout),
+        () => writeFile(path.join(args.artifactDir, 'packaged-stderr.log'), stderr),
+        () => browser?.disconnect(),
+    ]) {
         try {
-            await stopResourceSampling();
-            await writeFile(path.join(args.artifactDir, 'packaged-stdout.log'), stdout);
-            await writeFile(path.join(args.artifactDir, 'packaged-stderr.log'), stderr);
-            await browser?.disconnect().catch(() => {});
-        } finally {
-            // Closing the browser asks every deliberately dirty harness tab to
-            // save and turns teardown into an unrelated Save As workflow, so the
-            // owned processes are killed outright.
-            try {
-                helperCleanup = await owned.stop({force: true});
-            } finally {
-                process.off('SIGINT', stopOnSignal);
-                process.off('SIGTERM', stopOnSignal);
-            }
+            await teardownStep();
+        } catch (error) {
+            failures.push(error);
         }
+    }
+    // Closing the browser asks every deliberately dirty harness tab to
+    // save and turns teardown into an unrelated Save As workflow, so the
+    // owned processes are killed outright.
+    try {
+        helperCleanup = await owned.stop({force: true});
         await writeFile(
             path.join(args.artifactDir, 'packaged-process-cleanup.json'),
             `${JSON.stringify({helperCleanup}, null, 2)}\n`,
         );
+    } catch (error) {
+        failures.push(error);
+    } finally {
+        process.off('SIGINT', stopOnSignal);
+        process.off('SIGTERM', stopOnSignal);
+    }
+    if (failures.length > 1) {
+        throw new AggregateError(failures, 'Packaged scan-cleanup verification and its teardown failed');
+    }
+    if (failures.length === 1) {
+        throw failures[0];
     }
     if (verified && helperCleanup === 'root-exited-helpers-unverified') {
         throw new Error('The packaged main process exited before cleanup; its helpers cannot be shown stopped on Windows.');
