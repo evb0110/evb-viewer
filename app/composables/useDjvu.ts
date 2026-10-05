@@ -221,7 +221,16 @@ function createTrustedRasterDjvuPdfDisplayProfile(
         : null;
 }
 
-export const useDjvu = (config: {getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined} = {}) => {
+export const useDjvu = (config: {
+    getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
+    /** Names the document's file for its tabs, which open it when shown. */
+    assignDocument?: ((document: {
+        fileName: string | null;
+        originalPath: TDocumentRef;
+        isDjvu: boolean;
+        isDirty: boolean;
+    }) => void) | undefined;
+} = {}) => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const {presentFailureToast} = useFailureToast();
@@ -724,6 +733,18 @@ export const useDjvu = (config: {getOpenSurface?: (() => IDocumentOpenSurfaceSes
 
             if (!isCurrent()) {
                 return null;
+            }
+            // With no view of the document shown, the saved PDF becomes its
+            // file, as a tab not shown is given one: the tab opens it when shown,
+            // and nothing is presented or focused now.
+            if (!config.getOpenSurface?.() && config.assignDocument) {
+                config.assignDocument({
+                    fileName: getDocumentRefBaseName(result.pdfPath) ?? null,
+                    originalPath: result.pdfPath,
+                    isDjvu: false,
+                    isDirty: false,
+                });
+                return result.pdfPath;
             }
 
             registerPdfRasterDisplayProfile(savePath, rasterDisplayProfile);

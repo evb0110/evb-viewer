@@ -258,6 +258,34 @@ describe('documentOpeningPageFrame', () => {
         });
     });
 
+    it('sizes a quarter-turned page by the sides the view shows, without the other pages', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, pdfGeometry);
+        createDocumentOpeningPageFrame({
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 1,
+                zoomMode: 'custom',
+                continuousScroll: true,
+                viewRotation: 90,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation);
+
+        expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
+            width: '800px',
+            height: '600px',
+        });
+    });
+
     it('turns every page with a quarter-turned view before laying them out', () => {
         const pages = Array.from({length: 2}, () => ({
             widthPoints: 300,

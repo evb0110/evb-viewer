@@ -126,12 +126,14 @@ const {
     isWorkspaceLayoutResizing?: boolean | undefined;
 }>();
 
-provideDocumentContextRegistry();
-// A document is hosted while any tab that views it keeps a mounted workspace.
+const documentContexts = provideDocumentContextRegistry();
+// A document is hosted while any tab that views it keeps a mounted workspace,
+// and while it converts: the conversion is the document's work, not its view's.
 const hostedDocumentControllers = computed(() => [...new Set(Object.entries(documentSessionsByTabId).flatMap(([
     tabId,
     controller,
-]) => (tabLifecycleById[tabId]?.shouldMountHost === false ? [] : [controller])))]);
+]) => (tabLifecycleById[tabId]?.shouldMountHost === false
+    && !documentContexts.get(controller)?.file.conversionState.value.isConverting ? [] : [controller])))]);
 // A document that fails in its host fails for every view of it; the tabs
 // then show why, as they do for a workspace crash.
 onErrorCaptured((error, instance, info) => {

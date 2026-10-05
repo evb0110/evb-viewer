@@ -9,7 +9,10 @@ import type {
 } from '@contracts/shared';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { buildPageLayoutMetrics } from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
-import { normalizePageMetrics } from '@app/modules/document-viewer/layout/normalizePageMetrics';
+import {
+    normalizePageMetrics,
+    projectPdfPageMetricForView,
+} from '@app/modules/document-viewer/layout/normalizePageMetrics';
 import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
 import { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
 import { resolvePdfFitWidthDimensions } from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
@@ -119,20 +122,22 @@ function resolvePdfOpeningPageFrameStyle(
         return null;
     }
     const columns = getViewColumnCount(policy.viewMode, geometry.pageCount);
+    // The page as the view shows it: a quarter-turned view swaps its sides.
+    const shown = projectPdfPageMetricForView(geometry, policy.viewRotation ?? 0);
     // Continuous Fit Width uses one scale for the whole document, set by its
     // widest page (ADR 0006), so the skeleton matches PDF.js's first layout.
     const fitWidthBase = policy.continuousScroll
-        ? Math.max(geometry.width, geometry.widestPageWidth ?? geometry.width)
-        : geometry.width;
+        ? Math.max(shown.width, geometry.widestPageWidth ?? shown.width)
+        : shown.width;
     const fitScale = policy.zoomMode === 'fit-height'
-        ? (viewport.height - pageMargin * 2) / geometry.height
+        ? (viewport.height - pageMargin * 2) / shown.height
         : (viewport.width - pageMargin * (columns + 1)) / (fitWidthBase * columns);
     const scale = policy.zoomMode === 'custom'
         ? clampDocumentManualZoom(policy.zoom)
         : clampDocumentFitScale(fitScale);
     const placed = geometry.pages ? placeOnPageLayout(geometry, geometry.pages, policy, anchor, viewport) : null;
-    const width = placed?.width ?? geometry.width * scale;
-    const height = placed?.height ?? geometry.height * scale;
+    const width = placed?.width ?? shown.width * scale;
+    const height = placed?.height ?? shown.height * scale;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
         return null;
     }
@@ -305,6 +310,20 @@ export function createDocumentOpeningPageFrame(
     options: ICreateDocumentOpeningPageFrameOptions,
 ): IDocumentOpeningPageFrame {
     const ownerId = `document-viewer-runtime:${String(++nextOpeningPageFrameId)}`;
+    // An open that starts where its reader left it shows that view.
+    function readFramePolicy(geometry: IDocumentOpenSurfacePageGeometry): IDocumentOpeningPageFramePolicy {
+        const reading = geometry.readingView;
+        return reading
+            ? {
+                ...options.readPolicy(),
+                zoom: reading.zoom,
+                zoomMode: reading.zoomMode,
+                viewMode: reading.viewMode,
+                continuousScroll: reading.continuousScroll,
+                viewRotation: reading.viewRotation,
+            }
+            : options.readPolicy();
+    }
     const readViewportSize = () => ({
         ...options.readViewportSize(),
         scrollbar: readScrollbar(options.readViewport?.()),
@@ -314,9 +333,12 @@ export function createDocumentOpeningPageFrame(
     // then places that point, and the frame follows both.
     const zoomOpeningShell = createDocumentWheelZoomHandler(
         {get value() {
+            // The shell's scale: its width over the page's width as the view shows it.
             const geometry = options.openSurface.snapshot.value.openingPageGeometry;
             const width = options.readShell?.()?.getBoundingClientRect().width ?? 0;
-            return geometry && width > 0 ? width / geometry.width : 1;
+            return geometry && width > 0
+                ? width / projectPdfPageMetricForView(geometry, readFramePolicy(geometry).viewRotation ?? 0).width
+                : 1;
         }},
         {get value() {
             return options.readPolicy().zoomMode;
@@ -365,18 +387,7 @@ export function createDocumentOpeningPageFrame(
             }
             // Read the revision only as a reactive invalidation signal.
             options.readLayoutRevision?.();
-            // An open that starts where its reader left it shows that view.
-            const reading = geometry.readingView;
-            const policy = reading
-                ? {
-                    ...options.readPolicy(),
-                    zoom: reading.zoom,
-                    zoomMode: reading.zoomMode,
-                    viewMode: reading.viewMode,
-                    continuousScroll: reading.continuousScroll,
-                    viewRotation: reading.viewRotation,
-                }
-                : options.readPolicy();
+            const policy = readFramePolicy(geometry);
             // The open's restore navigation carries the point its page is placed at.
             const target = options.openSurface.navigationTicket.value?.request.target;
             const anchor = target?.kind === 'page' ? target.anchor : undefined;

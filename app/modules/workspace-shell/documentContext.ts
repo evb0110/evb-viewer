@@ -43,6 +43,7 @@ import {
     type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/public';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
+import { EMPTY_SOURCE_CAPABILITIES } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
@@ -133,6 +134,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
+        assignDocument: controller.assign,
     });
     const {
         workingCopyPath,
@@ -146,14 +148,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         save: saveSettings,
         updateSetting,
     } = useSettings();
-    const sourceCapabilities = ref<IDocumentSourceCapabilities>({
-        annotations: false,
-        directImageExport: false,
-        outline: false,
-        pageEdits: false,
-        search: false,
-        text: false,
-    });
+    const sourceCapabilities = ref<IDocumentSourceCapabilities>(EMPTY_SOURCE_CAPABILITIES);
     const commandCanUndo = computed(() => commandView.value?.navigation.canUndo.value ?? false);
     const commandCanRedo = computed(() => commandView.value?.navigation.canRedo.value ?? false);
     const isSaving = ref(false);
@@ -295,14 +290,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         if (active?.view.defaultSourceCapabilities) {
             sourceCapabilities.value = active.view.defaultSourceCapabilities;
         } else if (!active) {
-            sourceCapabilities.value = {
-                annotations: false,
-                directImageExport: false,
-                outline: false,
-                pageEdits: false,
-                search: false,
-                text: false,
-            };
+            sourceCapabilities.value = EMPTY_SOURCE_CAPABILITIES;
         }
     }, {immediate: true});
     const saveThroughDriver = (action: 'save' | 'save-as') => (

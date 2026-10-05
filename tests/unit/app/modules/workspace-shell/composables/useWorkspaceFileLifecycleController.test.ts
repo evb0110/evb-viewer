@@ -131,6 +131,7 @@ function createController() {
             return hooks ? [hooks] : [];
         },
         runDocumentOpen: (_request, run) => run(),
+        assignDocument: () => undefined,
     });
 }
 
@@ -188,6 +189,30 @@ describe('useWorkspaceFileLifecycleController', () => {
 
         expect(mocks.convertToPdf).toHaveBeenCalledWith(2, true, 'compact-djvu-aware', expect.any(Function));
         expect(mocks.openFileDirect).toHaveBeenCalledWith('/tmp/output.pdf', undefined);
+    });
+
+    it('stops the document\'s conversion before a close releases its source', async () => {
+        const cancelled = createDeferred();
+        mocks.cancelActiveJobs.mockImplementation(async () => {
+            await cancelled.promise;
+            return true;
+        });
+        state.djvuSourcePath.value = '/docs/scan.djvu';
+        state.isDjvuMode.value = true;
+        state.activeDjvuActivation = {
+            generation: 1,
+            kind: 'djvu',
+            documentRef: '/docs/scan.djvu',
+        };
+
+        const closing = createController().closeFileWithViewerLifecycle();
+        await Promise.resolve();
+        // The conversion has not stopped yet: the source is still the document's.
+        expect(state.djvuSourcePath.value).toBe('/docs/scan.djvu');
+
+        cancelled.resolve();
+        await closing;
+        expect(state.djvuSourcePath.value).toBeNull();
     });
 
     it('keeps the lifecycle transaction pending until its DjVu source is activated exactly once', async () => {
@@ -362,7 +387,7 @@ describe('useWorkspaceFileLifecycleController', () => {
         const ensurePromise = controller.ensureDjvuPdfProjection('edit');
         await vi.waitFor(() => expect(projectionSignal).toBeInstanceOf(AbortSignal));
 
-        controller.handleDjvuCancel();
+        void controller.handleDjvuCancel();
 
         expect(projectionSignal?.aborted).toBe(true);
         expect(mocks.cancelActiveJobs).toHaveBeenCalledOnce();

@@ -23,7 +23,10 @@ import {
     describeDocumentTarget,
     describeOpenResult,
 } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
-import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {
+    IWorkspaceDocumentController,
+    IWorkspaceOpenRequest,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
@@ -36,12 +39,13 @@ interface IUseWorkspaceFileLifecycleControllerOptions {
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
+    /** Names the document's file for its tabs, which open it when shown. */
+    assignDocument: IWorkspaceDocumentController['assign'];
 }
 
 function createWorkspaceFileSwitch(deps: {
     workingCopyPath: Ref<TDocumentRef | null>;
     getViewerLifecycleHooks: () => IWorkspaceViewerLifecycleHooks[];
-    pickFileToOpen: () => Promise<TOpenFileResult | null>;
     openFile: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirect: (path: TDocumentRef, options?: TDocumentDirectOpenOptions) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatch: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
@@ -98,7 +102,6 @@ function createWorkspaceFileSwitch(deps: {
     }
 
     return {
-        pickFileToOpen: deps.pickFileToOpen,
         openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => openWithViewerLifecycle(
             () => deps.openFile(preSelected),
         ),
@@ -165,8 +168,6 @@ export const useWorkspaceFileLifecycleController = (
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         markDirty,
-        canUndo: canUndoFile,
-        canRedo: canRedoFile,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         setWorkspaceCommandSink,
@@ -178,8 +179,6 @@ export const useWorkspaceFileLifecycleController = (
         isDjvuMode,
         djvuSourcePath,
         conversionState,
-        isLoadingPages: djvuIsLoadingPages,
-        loadingProgress: djvuLoadingProgress,
         showBanner: djvuShowBanner,
         showConvertDialog,
         sourceError: djvuError,
@@ -195,7 +194,10 @@ export const useWorkspaceFileLifecycleController = (
         exitDjvuMode,
         openConvertDialog,
         dismissBanner: djvuDismissBanner,
-    } = useDjvu({getOpenSurface: options.getOpenSurface});
+    } = useDjvu({
+        getOpenSurface: options.getOpenSurface,
+        assignDocument: options.assignDocument,
+    });
 
     let djvuProjectionAbortController = new AbortController();
 
@@ -325,7 +327,6 @@ export const useWorkspaceFileLifecycleController = (
     } = createWorkspaceFileSwitch({
         workingCopyPath,
         getViewerLifecycleHooks,
-        pickFileToOpen: pickPdfFileToOpen,
         openFile,
         openFileDirect,
         openFileDirectBatch,
@@ -381,15 +382,17 @@ export const useWorkspaceFileLifecycleController = (
         );
     }
 
-    function handleDjvuCancel() {
+    // Cancel and Close stop the document's conversion the same way, and a
+    // close waits until it has stopped before releasing the source.
+    async function handleDjvuCancel() {
         cancelDjvuProjection();
         if (djvuSourcePath.value) {
-            void cancelDjvuJobs();
+            await cancelDjvuJobs();
         }
     }
 
     async function closeFileWithViewerLifecycle() {
-        cancelDjvuProjection();
+        await handleDjvuCancel();
         await closeFileWithViewerLifecycleBase();
     }
 
@@ -451,8 +454,6 @@ export const useWorkspaceFileLifecycleController = (
         trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs,
         markDirty,
-        canUndoFile,
-        canRedoFile,
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         setWorkspaceCommandSink,
@@ -462,8 +463,6 @@ export const useWorkspaceFileLifecycleController = (
         isDjvuMode,
         djvuSourcePath,
         conversionState,
-        djvuIsLoadingPages,
-        djvuLoadingProgress,
         djvuShowBanner,
         showConvertDialog,
         djvuError,

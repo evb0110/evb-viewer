@@ -747,6 +747,8 @@ async function runProcess(
             commandOptions.onStderr = options.onStderr;
         }
         if (options.onStdout !== undefined) {
+            // The stream consumer owns stdout; this wrapper never returns it.
+            commandOptions.longLived = true;
             commandOptions.onStdout = options.onStdout;
         }
         await runNativeCommand(command, args, commandOptions);

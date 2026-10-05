@@ -814,6 +814,36 @@ describe('useDjvu', () => {
             expect(djvu.conversionState.value.isConverting).toBe(false);
         });
 
+        it('names the converted PDF as the document\'s file when no view shows the document', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: requireJobId('view-1'),
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockResolvedValue({
+                success: true,
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
+            });
+            const assigned: unknown[] = [];
+
+            const djvu = useDjvu({
+                getOpenSurface: () => null,
+                assignDocument: document => assigned.push(document),
+            });
+            await djvu.openDjvuFile('/tmp/input.djvu');
+
+            await expect(djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen())).resolves.toBe('/tmp/out.pdf');
+            expect(assigned).toEqual([{
+                fileName: 'out.pdf',
+                originalPath: '/tmp/out.pdf',
+                isDjvu: false,
+                isDirty: false,
+            }]);
+            expect(djvu.conversionState.value.isConverting).toBe(false);
+        });
+
         it('opens trusted raster DjVu PDFs with source page pixel caps', async () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
