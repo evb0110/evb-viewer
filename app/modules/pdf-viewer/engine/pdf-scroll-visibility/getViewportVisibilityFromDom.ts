@@ -10,14 +10,14 @@ import type {
     IViewportVisibilityResult,
     IVisiblePageRange,
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
+    type IPdfPageLayoutMetrics,
     getLayoutPageHeight,
     getLayoutPageTop as getResolvedLayoutPageTop,
     getLayoutPageWidth,
     getLayoutRowHeight,
     getLayoutRowTop as getResolvedLayoutRowTop,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+} from '@app/modules/document-viewer/public';
 
 interface IVisiblePageMetrics {
     range: IVisiblePageRange | null;

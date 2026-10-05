@@ -1,6 +1,8 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
-import type { IDocumentViewportFlingBackdrop } from '@app/modules/document-viewer/public';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type {
+    IDocumentViewportFlingBackdrop,
+    IPdfPageLayoutMetrics,
+} from '@app/modules/document-viewer/public';
 import { resolvePdfLayoutRowShape } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfLayoutRowShape';
 
 /**

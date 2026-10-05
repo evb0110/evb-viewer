@@ -23,6 +23,12 @@ interface INativeWindowModel {
     frameWidth: number;
     frameHeight: number;
     minimumContentWidth: number;
+    /** A maximized window keeps the window manager's size whatever it is asked. */
+    maximized: boolean;
+    /** Whether the window manager honors leaving maximized. */
+    honorsRestore: boolean;
+    normalContentWidth: number;
+    normalContentHeight: number;
     resizeRequests: Array<{
         width: number;
         height: number;
@@ -36,6 +42,10 @@ function createNativeWindowModel(overrides: Partial<INativeWindowModel> = {}): I
         frameWidth: 0,
         frameHeight: 32,
         minimumContentWidth: 0,
+        maximized: false,
+        honorsRestore: true,
+        normalContentWidth: 1024,
+        normalContentHeight: 700,
         resizeRequests: [],
         ...overrides,
     };
@@ -56,11 +66,26 @@ function stubRendererWindow(model: INativeWindowModel) {
             return model.contentHeight + model.frameHeight;
         },
         devicePixelRatio: 2,
+        electronAPI: {host: {restoreNormalWindow() {
+            if (model.maximized && model.honorsRestore) {
+                model.maximized = false;
+                model.contentWidth = model.normalContentWidth;
+                model.contentHeight = model.normalContentHeight;
+            }
+            return Promise.resolve({
+                fullScreen: false,
+                maximized: model.maximized,
+                supported: true,
+            });
+        }}},
         resizeTo(width: number, height: number) {
             model.resizeRequests.push({
                 width,
                 height,
             });
+            if (model.maximized) {
+                return;
+            }
             model.contentWidth = Math.max(model.minimumContentWidth, width - model.frameWidth);
             model.contentHeight = height - model.frameHeight;
         },
@@ -134,6 +159,46 @@ describe('electron run window resize command', () => {
             height: 480,
         });
         expect(result.settled).toBe(true);
+    });
+
+    it('leaves maximized first so the requested size is the one the window keeps', async () => {
+        const model = createNativeWindowModel({
+            contentWidth: 1280,
+            contentHeight: 692,
+            maximized: true,
+        });
+        const {handleCommand} = createHandlerForModel(model);
+
+        const result = await handleCommand('windowResize', [
+            '900',
+            '672',
+        ]) as {windowState: {maximized: boolean;};};
+
+        expect(result.windowState.maximized).toBe(false);
+        expect(model.maximized).toBe(false);
+        expect({
+            width: model.contentWidth,
+            height: model.contentHeight,
+        }).toEqual({
+            width: 900,
+            height: 672,
+        });
+    });
+
+    it('refuses to resize a window that stays maximized', async () => {
+        const model = createNativeWindowModel({
+            contentWidth: 1280,
+            contentHeight: 692,
+            maximized: true,
+            honorsRestore: false,
+        });
+        const {handleCommand} = createHandlerForModel(model);
+
+        await expect(handleCommand('windowResize', [
+            '900',
+            '672',
+        ])).rejects.toThrow(/did not leave its native placement.*maximized=true/u);
+        expect(model.contentWidth).toBe(1280);
     });
 
     it('refuses a size the native window did not reach', async () => {

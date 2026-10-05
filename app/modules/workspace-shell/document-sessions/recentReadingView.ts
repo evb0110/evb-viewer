@@ -21,7 +21,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 export interface IWorkspaceReaderFollow {
     moved(): boolean;
     /** Sets the open's admitted reading seed, which stands in for that source's defaults while the open runs. */
-    seed(state: Parameters<IWorkspaceExpose['restoreViewState']>[0], source: TDocumentRef): void;
+    seed(state: Parameters<IWorkspaceExpose['restoreViewState']>[0], source: TDocumentRef | null): void;
     /** Once the open settles, stops following and brings `anchor` to the view's center unless the reader moved. */
     finish(anchor: IPdfSemanticAnchor | null): Promise<void>;
 }
@@ -110,7 +110,6 @@ interface IOpeningReader {
     openSurface: TOpeningSurface;
     reader: IWorkspaceReaderFollow;
     workspace: TOpeningWorkspace;
-    anchor: IPdfSemanticAnchor | null;
 }
 
 // A document's normal open, with the surface of the view it began in and that
@@ -125,12 +124,26 @@ export function followOpeningReader(controller: IWorkspaceDocumentController, op
         openSurface,
         reader,
         workspace,
-        anchor: null,
     } : null;
     if (opening) {
         openingReaders.set(controller, opening);
     }
     return opening;
+}
+
+/**
+ * Seeds a normal open, before its source exists, from where main found its
+ * reader left these bytes; its admission checks it against the admitted
+ * source. A reader who moved first keeps their view.
+ */
+export function seedOpeningPreflight(controller: IWorkspaceDocumentController, view: IRecentReadingView) {
+    const opening = openingReaders.get(controller);
+    if (opening && !opening.reader.moved()) {
+        opening.reader.seed({
+            ...view,
+            currentPage: null,
+        }, null);
+    }
 }
 
 /**
@@ -164,14 +177,13 @@ export async function seedOpeningSource(
         ...reading,
         currentPage: null,
     }, sourceRef);
-    opening.openSurface.navigate(createPageNavigationRequest(reading.anchor?.page ?? reading.currentPage, 'restore'));
-    opening.anchor = reading.anchor ?? null;
+    opening.openSurface.navigate(createPageNavigationRequest(reading.anchor?.page ?? reading.currentPage, 'restore', reading.anchor));
 }
 
-/** Ends the open's following; a presented seeded open takes its anchor. */
-export async function finishOpeningReader(controller: IWorkspaceDocumentController, opening: IOpeningReader, presented: boolean) {
+/** Ends the open's following. */
+export async function finishOpeningReader(controller: IWorkspaceDocumentController, opening: IOpeningReader) {
     if (openingReaders.get(controller) === opening) {
         openingReaders.delete(controller);
     }
-    await opening.reader.finish(presented ? opening.anchor : null);
+    await opening.reader.finish(null);
 }

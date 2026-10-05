@@ -32,6 +32,15 @@ interface IUseWorkspaceViewerDefaultsOptions {
     viewRotation?: Ref<TPdfViewRotation>;
 }
 
+// A saved view of nulls: applied, it keeps every setting as shown.
+const KEEP_SHOWN_VIEW: TSavedView = {
+    zoom: null,
+    zoomMode: null,
+    continuousScroll: null,
+    viewMode: null,
+    viewRotation: null,
+};
+
 export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsOptions) => {
     function clampWorkspaceZoomLevel(level: number) {
         return clampPdfManualZoom(level);
@@ -93,11 +102,13 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     let shouldPreserveInitialState = options.preserveInitialStateForFirstSource === true
         || defaultsSourceKey.value !== null;
 
-    // An open's admitted reading seed, kept for the source it admitted: when
-    // that source is shown, its view is set where the source's defaults would
-    // go, through any reset between. Until then nothing shown changes, so a
-    // document still on screen keeps its own view. Any other shown source
-    // takes its defaults and ends the claim.
+    // An open's reading seed, kept for the source it names (null: the next
+    // source shown): when that source is shown, its view is set where the
+    // source's defaults would go, through any reset between. A document
+    // still on screen keeps its own view until then. With nothing shown the
+    // seed is shown at once, as the opening frame shows it; the reader's
+    // moves then change it as any shown view, and the source keeps it.
+    // Any other shown source takes its defaults and ends the claim.
     let seededView: {
         source: unknown;
         view: TSavedView;
@@ -110,7 +121,7 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
             shouldPreserveInitialState = false;
             seededView = null;
         }
-        if (seed && sourceKey !== null && sourceKey === seed.source) {
+        if (seed && sourceKey !== null && (seed.source === null || sourceKey === seed.source)) {
             applyView(seed.view);
         } else if (!keepsView) {
             applyWorkspaceViewerDefaults();
@@ -152,15 +163,20 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         setCustomZoomFromDisplay,
         applyView,
         /**
-         * Keeps an open's admitted reading seed for the source it is about to
-         * show. Being that document's own view, all of it applies when it is
-         * shown. Returns the withdrawal for when the open ends: an unshown seed
-         * is dropped; a later open's seed stays.
+         * Keeps an open's reading seed for the source it is about to show
+         * (null: whichever it shows), shown at once when nothing is shown.
+         * Being that document's own view, all of it applies when it is shown.
+         * Returns the withdrawal for when the open ends: an unshown seed is
+         * dropped; a later open's seed stays.
          */
         seedViewForSource: (view: TSavedView, source: unknown) => {
+            const showsNothing = defaultsSourceKey.value === null;
+            if (showsNothing) {
+                applyView(view);
+            }
             const seed = {
                 source,
-                view,
+                view: showsNothing ? KEEP_SHOWN_VIEW : view,
             };
             seededView = seed;
             return () => {

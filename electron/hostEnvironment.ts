@@ -11,6 +11,7 @@ import {
     HOST_ENVIRONMENT_ARGUMENT_PREFIX,
     HOST_PLATFORM_FEATURE,
     type IHostEnvironmentSnapshot,
+    type IHostWindowState,
     type IHostZenModeState,
     type THostPlatform,
 } from '@contracts/hostPlatformFeature';
@@ -23,7 +24,7 @@ import { getErrorMessage } from '@electron/utils/error';
 const logger = createLogger('host-env');
 
 const ZEN_EXIT_SETTLE_MS = 140;
-const ZEN_STATE_EVENT_TIMEOUT_MS = 220;
+const WINDOW_STATE_EVENT_TIMEOUT_MS = 220;
 
 interface IZenWindowPlacement {
     bounds: Rectangle;
@@ -170,34 +171,37 @@ function restoreZenWindowPlacement(
     }
 }
 
-async function waitForHostZenModeState(window: BrowserWindow, active: boolean) {
-    if (window.isDestroyed() || isWindowInHostZenMode(window) === active) {
+// Resolves on the native event that confirms the state, or after a bounded wait
+// when the platform never sends one; callers read the state afterwards.
+async function waitForWindowStateEvent(
+    window: BrowserWindow,
+    event: 'enter-full-screen' | 'leave-full-screen' | 'unmaximize',
+    isReached: () => boolean,
+) {
+    // Each of these events has the same argument-free listener; Electron types them per name.
+    const eventName = event as 'unmaximize';
+    if (window.isDestroyed() || isReached()) {
         return;
     }
 
     await new Promise<void>((resolve) => {
-        let settled = false;
         const finish = () => {
-            if (settled) {
-                return;
-            }
-            settled = true;
             clearTimeout(timer);
-            if (active) {
-                window.removeListener('enter-full-screen', finish);
-            } else {
-                window.removeListener('leave-full-screen', finish);
-            }
+            window.removeListener(eventName, finish);
             resolve();
         };
-        const timer = setTimeout(finish, ZEN_STATE_EVENT_TIMEOUT_MS);
+        const timer = setTimeout(finish, WINDOW_STATE_EVENT_TIMEOUT_MS);
         timer.unref();
-        if (active) {
-            window.once('enter-full-screen', finish);
-        } else {
-            window.once('leave-full-screen', finish);
-        }
+        window.once(eventName, finish);
     });
+}
+
+function waitForHostZenModeState(window: BrowserWindow, active: boolean) {
+    return waitForWindowStateEvent(
+        window,
+        active ? 'enter-full-screen' : 'leave-full-screen',
+        () => isWindowInHostZenMode(window) === active,
+    );
 }
 
 function snapshotHostZenModeForWindow(window: BrowserWindow | null): IHostZenModeState {
@@ -276,6 +280,50 @@ export async function setHostZenModeForWindow(
     return snapshot;
 }
 
+function snapshotHostWindowStateForWindow(window: BrowserWindow): IHostWindowState {
+    return {
+        fullScreen: isWindowInHostZenMode(window),
+        maximized: window.isMaximized(),
+        supported: true,
+    };
+}
+
+// Changes only this window's own state and never focuses or shows it.
+export async function restoreHostNormalWindowForWindow(window: BrowserWindow | null): Promise<IHostWindowState> {
+    if (!window || window.isDestroyed()) {
+        return {
+            fullScreen: false,
+            maximized: false,
+            supported: false,
+        };
+    }
+
+    if (isWindowInHostZenMode(window)) {
+        // The window leaves zen for a normal size, not for its pre-zen placement, so
+        // the leave event finds nothing to restore or focus.
+        zenWindowPlacementByWindow.delete(window);
+        const left = waitForHostZenModeState(window, false);
+        if (process.platform === 'darwin' && window.isSimpleFullScreen()) {
+            window.setSimpleFullScreen(false);
+        }
+        window.setFullScreen(false);
+        await left;
+    }
+    if (!window.isDestroyed() && window.isMaximized()) {
+        const unmaximized = waitForWindowStateEvent(window, 'unmaximize', () => !window.isMaximized());
+        window.unmaximize();
+        await unmaximized;
+    }
+    if (window.isDestroyed()) {
+        return {
+            fullScreen: false,
+            maximized: false,
+            supported: false,
+        };
+    }
+    return snapshotHostWindowStateForWindow(window);
+}
+
 export const hostMainBindings = {
     snapshotHostEnvironmentForWindow: context => snapshotHostEnvironmentForWindow(
         BrowserWindow.fromWebContents(context.sender),
@@ -283,6 +331,8 @@ export const hostMainBindings = {
     snapshotHostZenModeForWindow: context => snapshotHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender)),
     setHostZenModeForWindow: (context, active) =>
         setHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender), active),
+    restoreHostNormalWindowForWindow: context =>
+        restoreHostNormalWindowForWindow(BrowserWindow.fromWebContents(context.sender)),
     writeHostBugReportBundleForWindow: (context, bundle) =>
         writeHostBugReportBundle(BrowserWindow.fromWebContents(context.sender), bundle),
 } satisfies TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, Electron.IpcMainInvokeEvent>;

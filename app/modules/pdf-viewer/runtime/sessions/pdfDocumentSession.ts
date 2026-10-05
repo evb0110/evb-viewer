@@ -31,6 +31,9 @@ import {
     createDocumentTransitionChannel,
     type IDocumentTransition,
     type IDocumentViewerRuntime,
+    cloneSparsePageMetrics,
+    forEachKnownPageMetric,
+    PDF_PAGE_METRICS_DENSE_LIMIT,
 } from '@app/modules/document-viewer/public';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
@@ -52,11 +55,6 @@ import {
     resolvePostReclaimResidencyState,
     type TViewerResidencyState,
 } from '@app/modules/pdf-viewer/runtime/memory/resolvePdfViewerResidencyDecision';
-import {
-    cloneSparsePageMetrics,
-    forEachKnownPageMetric,
-    PDF_PAGE_METRICS_DENSE_LIMIT,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 
 type TPdfDocumentLoadState = TaggedUnion<'status', {
     idle: { version: number };

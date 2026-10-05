@@ -37,6 +37,14 @@ const hostZenModeStateSchema = v.object({
 }, 'invalid host zen mode state');
 export type IHostZenModeState = v.InferOutput<typeof hostZenModeStateSchema>;
 
+/** Native placement of the window: fullscreen and maximized both override its own size. */
+const hostWindowStateSchema = v.object({
+    fullScreen: v.boolean('invalid host window state'),
+    maximized: v.boolean('invalid host window state'),
+    supported: v.boolean('invalid host window state'),
+}, 'invalid host window state');
+export type IHostWindowState = v.InferOutput<typeof hostWindowStateSchema>;
+
 /** Serialized bug report. Content free by construction; see the writer. */
 export type IHostBugReportBundle = v.InferOutput<typeof hostBugReportBundleSchema>;
 /** Timestamp directory the bundle landed in, never a full path. */
@@ -100,6 +108,15 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             args: v.strictTuple([v.boolean('expected a boolean IPC result')]),
             result: hostZenModeStateSchema,
             main: 'setHostZenModeForWindow',
+        }),
+        // Leaves fullscreen and maximized, so a later size request is the window's own.
+        // Answers the state the window reached, which may still be fullscreen or maximized.
+        restoreNormalWindow: defineForwardedPlatformMethod({
+            name: 'restoreNormalWindow',
+            channel: 'host:restoreNormalWindow',
+            args: noArgs,
+            result: hostWindowStateSchema,
+            main: 'restoreHostNormalWindowForWindow',
         }),
         writeBugReportBundle: defineForwardedPlatformMethod({
             name: 'writeBugReportBundle',

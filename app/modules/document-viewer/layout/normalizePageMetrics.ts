@@ -5,9 +5,8 @@ import {
     createLazyIndexedCollection,
     isLazyIndexedCollection,
     type ILazyIndexedCollection,
-} from '@app/modules/document-viewer/public';
+} from '@app/modules/document-viewer/virtualization/pageVirtualization';
 
-export { createLazyIndexedCollection };
 
 type IPdfLazyIndexedCollection<T> = ILazyIndexedCollection<T>;
 export type { IPdfLazyIndexedCollection };

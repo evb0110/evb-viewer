@@ -1,4 +1,5 @@
 import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
 import type {
     IPdfSearchUtf16Range,
     ISearchMatchOptions,
@@ -20,7 +21,9 @@ export interface IDocumentTextAnchorNavigationOptions {
 export type TDocumentNavigationTarget =
     | {
         kind: 'page';
-        page: number
+        page: number;
+        /** A restored reading point on that page, placed where the reader left it. */
+        anchor?: IPdfSemanticAnchor;
     }
     | {
         kind: 'rect';
@@ -102,11 +105,13 @@ export type TDocumentNavigationReport =
 export function createPageNavigationRequest(
     page: number,
     source: IDocumentNavigationRequest['source'],
+    anchor?: IPdfSemanticAnchor,
 ): IDocumentNavigationRequest {
     return {
         target: {
             kind: 'page',
             page,
+            ...(anchor ? {anchor} : {}),
         },
         alignment: 'page-top',
         readiness: 'page-canvas',

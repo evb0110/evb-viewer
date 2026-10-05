@@ -149,3 +149,20 @@ export { useDocumentSidebarCapabilitySession } from '@app/modules/document-viewe
 export { useDocumentThumbnailController } from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 export { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
 export { useDocumentWheelZoomSessionBoundaries } from '@app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
+export {
+    PDF_PAGE_METRICS_CHUNK_SIZE, PDF_PAGE_METRICS_DENSE_LIMIT, cloneSparsePageMetrics, forEachKnownPageMetric, getIndexedValue, getPageMetricMaximum, isSparsePageMetricCollection, normalizePageMetrics, projectPdfPageMetricForView, type IPdfLazyIndexedCollection, type IPdfPageMetricCollection,
+} from '@app/modules/document-viewer/layout/normalizePageMetrics';
+export { buildPageLayoutMetrics } from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
+export {
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, getLayoutContentHeight, getLayoutPageHeight, getLayoutPageTop, getLayoutPageWidth, getLayoutPhysicalScrollOrigin, getLayoutPhysicalScrollSegment, getLayoutPhysicalScrollSegmentTransition, getLayoutRowHeight, getLayoutRowTop, type IPdfPageLayoutBase, type IPdfPageLayoutMetrics,
+} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+export {
+    getPageNumbersForViewMode, getPageRowBoundsForViewMode,
+} from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+export { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
+export {
+    resolvePdfFitWidthDimensions, resolvePdfFitWidthRowWidths, type IPdfFitWidthDimensions,
+} from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
+export {
+    computePdfViewportGeometry, createPdfViewportGeometryFromLayout, getViewportGeometryRowForPage, resolveAnchorFromScroll, resolveRetainedAnchorFromScroll, resolveScrollForAnchor, resolveScrollForPageRect, type IComputePdfViewportGeometryOptions, type IPdfSemanticAnchor, type IPdfViewportGeometry, type IPdfViewportPageMetric, type IPdfViewportRect,
+} from '@app/modules/document-viewer/layout/pdfViewportGeometry';

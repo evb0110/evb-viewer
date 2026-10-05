@@ -31,6 +31,29 @@ function request(overrides: Partial<IDocumentNavigationRequest> = {}): IDocument
 }
 
 describe('PDF navigation request resolver', () => {
+    it('places a restored reading point exactly where the reader left it', () => {
+        const anchor = {
+            page: 4,
+            pageXFraction: 0.25,
+            pageYFraction: 0.6,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center' as const,
+        };
+
+        expect(resolvePdfNavigationAnchor(request({
+            target: {
+                kind: 'page',
+                page: 4,
+                anchor,
+            },
+            source: 'restore',
+        }), {
+            page: 4,
+            rect: null,
+        })).toEqual(anchor);
+    });
+
     it.each([
         [
             'toolbar',

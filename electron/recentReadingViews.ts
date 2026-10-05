@@ -67,9 +67,19 @@ export async function rememberRecentReadingView(documentPath: string, view: IRec
 /** The view a reader left this document's source at, if the source is the bytes it was left on. */
 export async function getRecentReadingView(documentPath: string, senderWebContentsId: number): Promise<IRecentReadingView | null> {
     const source = await readAdmittedSource(documentPath, senderWebContentsId);
-    if (!source) {
-        return null;
-    }
+    return source ? readRecentReadingViewOf(source) : null;
+}
+
+/**
+ * The view stored for a source with the size and modification time main
+ * itself read from it: the working copy's admission, a DjVu grant, or an
+ * opening preflight's stat of the Recent original.
+ */
+export async function readRecentReadingViewOf(source: {
+    originalPath: string;
+    sourceSize: number;
+    sourceModifiedAtMs: number;
+}): Promise<IRecentReadingView | null> {
     const stored = (await readRecentFilesData()).files.find(file => file.originalPath === source.originalPath)?.readingView;
     if (stored?.sourceSize !== source.sourceSize || stored.sourceModifiedAtMs !== source.sourceModifiedAtMs) {
         return null;

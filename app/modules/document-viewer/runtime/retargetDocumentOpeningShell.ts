@@ -1,3 +1,5 @@
+import type { IRecentReadingView } from '@contracts/recentReadingView';
+
 export type TDocumentOpenSurfacePresentation = 'idle' | 'page-shell'
     | 'committed' | 'failed';
 export type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
@@ -27,6 +29,15 @@ export interface IDocumentOpenSurfacePageGeometry {
     readonly widestPageWidth?: number;
     readonly size?: number;
     readonly modifiedAt?: number;
+    /** Where the reader left these bytes; the opening frame shows that view. */
+    readonly readingView?: IRecentReadingView | null;
+    /** Every page's exact shape, in order, when the open starts at a reader's place. */
+    readonly pages?: ReadonlyArray<{
+        readonly widthPoints: number;
+        readonly heightPoints: number;
+        readonly rotation: number;
+        readonly userUnit: number;
+    }> | null | undefined;
 }
 
 export interface IDocumentOpenSurfaceVisualState {

@@ -2,10 +2,10 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/public';
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import {isSparsePageMetricCollection} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+import {isSparsePageMetricCollection} from '@app/modules/document-viewer/layout/normalizePageMetrics';
+import { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
 
 export interface IPdfFitWidthDimensions {
     readonly availableSize: number;

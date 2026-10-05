@@ -22,9 +22,11 @@ import {
     didOpenDocument,
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
-import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {
+    rememberReadingView,
+    seedOpeningPreflight,
+} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -140,7 +142,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         },
     );
 
-    function claimOpenSurface(transactionId: string, request: IWorkspaceOpenRequest) {
+    function claimOpenSurface(transactionId: string, request: IWorkspaceOpenRequest, hadDocument: boolean) {
         const surface = options.openSurface.snapshot.value;
         if (surface.phase !== 'idle' && surface.phase !== 'ready' && surface.phase !== 'failed') {
             return;
@@ -155,18 +157,14 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             documentId: String(path ?? transactionId),
             documentRevision: `open-intent:${transactionId}`,
             provisional: true,
-        }, initialPage, initialPage !== 1
-            ? null
-            : request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource));
+        }, initialPage, request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource), request.kind === 'open' && !request.carriesView ? {
+            seed: view => seedOpeningPreflight(session, view),
+            shown: !hadDocument,
+        } : null);
         if (pendingPage !== null) {
             options.openSurface.requestNavigation(pendingPage);
             pendingPage = null;
         }
-        logPdfRenderTrace('pdf-open-surface-transaction-claimed', {
-            documentId: options.openSurface.snapshot.value.identity?.documentId ?? null,
-            generation: options.openSurface.snapshot.value.generation,
-            transactionId,
-        });
     }
 
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
@@ -195,7 +193,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             presented = await session.runOpen(request, async () => {
                 transactionId = activeOpen.value?.id ?? null;
                 if (transactionId) {
-                    claimOpenSurface(transactionId, request);
+                    claimOpenSurface(transactionId, request, hadDocument);
                 }
                 const accepted = await run();
                 if (!accepted) {

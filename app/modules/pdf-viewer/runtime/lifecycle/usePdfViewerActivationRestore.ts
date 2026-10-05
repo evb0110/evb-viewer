@@ -8,11 +8,11 @@ import type {
 } from 'vue';
 import type {TPdfViewMode} from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import {
+    getPageRowBoundsForViewMode,
     createDocumentViewerActivationRunGuard,
     runDocumentViewerActivationPresentation,
-    waitForDocumentViewerVisibleLayout, 
+    waitForDocumentViewerVisibleLayout,
 } from '@app/modules/document-viewer/public';
 import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';

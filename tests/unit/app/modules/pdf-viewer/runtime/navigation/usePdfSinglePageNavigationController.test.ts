@@ -13,9 +13,11 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
-import { getLayoutPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    buildPageLayoutMetrics,
+    getLayoutPageTop,
+    type IPdfPageLayoutMetrics,
+} from '@app/modules/document-viewer/public';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';

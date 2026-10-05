@@ -91,6 +91,7 @@ import type {
 import {
     FIT_WIDTH_ZOOM_STATE,
     getZoomMode,
+    type TPdfViewRotation,
     type TPdfZoomState,
 } from '@contracts/shared';
 import { getHostCapability } from '@app/utils/getHostCapability';
@@ -106,7 +107,7 @@ import {
     resolveDocumentOpeningPageMargin,
     resolveDocumentOpeningPageShellId, resolveDocumentPageSourceOpeningFrame , observeDocumentViewportWheelInteraction,
     captureDocumentViewportResizeAnchor,
-    resolveDocumentViewportResizeAnchorPosition, 
+    resolveDocumentViewportResizeAnchorPosition,
 } from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
@@ -163,7 +164,6 @@ const rendererKind = computed<TDocumentViewerRendererKind>(() => (
 ));
 const viewportId = computed(() => viewportIds[rendererKind.value]);
 const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
-const sourceViewerRef = computed(() => activeFeaturePackRef.value);
 const openingFrameLayoutRevision = ref(0);
 let openingFrameResizeObserver: ResizeObserver | null = null;
 const retainedResizeAnchor = shallowRef<IDocumentViewportResizeAnchor | null>(null);
@@ -293,6 +293,11 @@ function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     if (owner === 'command-residue') {
         return;
     }
+    if (interaction.intent === 'zoom' && isOpening.value && chassisOpeningPageShell.value) {
+        interaction.event.preventDefault();
+        openingPageFrameAuthority.zoomOpeningShell(interaction);
+        return;
+    }
     chassisAuthority.dispatchViewportWheel(interaction);
 }
 
@@ -341,8 +346,12 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
             'facing-first-single',
         ] as const, 'single'),
         continuousScroll: attrs.continuousScroll !== false,
+        viewRotation: attrs.viewRotation as TPdfViewRotation | undefined,
     }),
     readViewportSize: readOpeningViewportSize,
+    readViewport: () => chassisAuthority.viewportElement.value,
+    readShell: () => document.getElementById(chassisOpeningPageShell.value?.id ?? ''),
+    emitZoomState: state => (attrs['onUpdate:zoomState'] as ((zoomState: TPdfZoomState) => void) | undefined)?.(state),
 });
 watch(
     () => chassisAuthority.viewportElement.value,
@@ -455,16 +464,9 @@ const chassisOpeningPageShell = computed(() => {
     if (style === null) {
         return null;
     }
+    // Both frames hold a positive, finite page size.
     const liveWidth = Number.parseFloat(style.width);
     const liveHeight = Number.parseFloat(style.height);
-    if (
-        ![
-            liveWidth,
-            liveHeight,
-        ].every(value => Number.isFinite(value) && value > 0)
-    ) {
-        return null;
-    }
     const margin = resolveDocumentOpeningPageMargin(geometry, rendererKind.value);
     return {
         generation: snapshot.generation,
@@ -472,10 +474,11 @@ const chassisOpeningPageShell = computed(() => {
         id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
         ownerId: frame?.ownerId ?? 'chassis-provisional',
         pageNumber: openingPage,
+        // A frame placed at its reader's point keeps that place.
         style: {
-            ...style,
             top: `${String(margin)}px`,
             left: `max(${String(margin)}px, calc(50% - ${String(liveWidth / 2)}px))`,
+            ...style,
         },
     };
 });
@@ -487,6 +490,7 @@ watch(
         () => chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? '',
         () => chassisAuthority.openSurface.snapshot.value.phase,
         () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
+        () => chassisAuthority.openSurface.navigationTicket.value,
         () => attrs.zoomState,
         () => attrs.viewMode,
         () => attrs.continuousScroll,
@@ -496,28 +500,7 @@ watch(
         // measure, so the layout revision is the retry signal that lands the frame.
         () => openingFrameLayoutRevision.value,
     ],
-    ([
-        generation,
-        documentId,
-        phase,
-    ]) => {
-        if (
-            ![
-                'pending',
-                'geometry-committed',
-                'canvas-committed',
-                'viewport-committed',
-            ].includes(phase)
-            || !documentId
-        ) {
-            return;
-        }
-        if (
-            chassisAuthority.openSurface.snapshot.value.openingPageGeometry?.pageNumber
-            !== chassisAuthority.openSurface.viewportSession.value.requestedPage
-        ) {
-            return;
-        }
+    ([generation]) => {
         openingPageFrameAuthority.prepareOpeningPageFrame(generation);
     },
     {
@@ -606,7 +589,7 @@ watch(() => [
         return;
     }
     const generation = ++handoffGeneration;
-    const previousViewer = sourceViewerRef.value as {
+    const previousViewer = activeFeaturePackRef.value as {
         captureScrollSnapshot?: () => unknown;
         getCurrentPage?: () => number;
     } | null;
@@ -616,13 +599,13 @@ watch(() => [
     if (generation !== handoffGeneration) {
         return;
     }
-    const nextViewer = sourceViewerRef.value as {
+    const nextViewer = activeFeaturePackRef.value as {
         waitForViewerLoadSettled?: () => Promise<void>;
         restoreScrollSnapshot?: (snapshot: unknown, options: {fallbackPage: number}) => void;
         scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
     } | null;
     await nextViewer?.waitForViewerLoadSettled?.();
-    if (generation !== handoffGeneration || sourceViewerRef.value !== nextViewer) {
+    if (generation !== handoffGeneration || activeFeaturePackRef.value !== nextViewer) {
         return;
     }
     const viewportSession = chassisAuthority.openSurface.viewportSession.value;
@@ -645,7 +628,7 @@ watch(() => [
 // the async feature pack is absent or swapping. When a renderer is mounted it
 // must also project that request into the viewport; recording the requested
 // page alone does not create or commit a scroll intent.
-defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
+defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
     getCurrentPage: () => chassisAuthority.currentPage.value,
     getReaderInteractionEpoch: () => chassisAuthority.viewportWritePort.getInteractionEpoch(),
     observeReaderCommand: () => chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined),

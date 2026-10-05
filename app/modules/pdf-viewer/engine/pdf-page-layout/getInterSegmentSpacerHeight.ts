@@ -3,11 +3,11 @@ import {
     requirePageNumber,
 } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
+    type IPdfPageLayoutMetrics,
     getLayoutPageTop,
     getLayoutRowHeight,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+} from '@app/modules/document-viewer/public';
 
 /**
  * Returns the physical spacer height between two non-contiguous mounted rows.

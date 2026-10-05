@@ -25,6 +25,7 @@ import {
 import {
     createFixturePath,
     createLargeScannedFixturePdf,
+    createMixedPageSizeTextFixturePdf,
     createMultiPageTextFixturePdf,
     createScannedTextFixturePdf,
     resolveDjvuFixturePath,
@@ -51,7 +52,10 @@ import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
-import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    callWorkspaceCommand,
+    requireWorkspaceCommand,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     findCommittedSurfaceCausalOpenViolations,
     installCommittedSurfaceSampler,
@@ -1453,32 +1457,79 @@ describe('Electron E2E - Recent Files', () => {
         await waitForPdfLoaded(session.page);
         const defaultZoomLabel = await readZoomLabel(session);
         await goToPageViaToolbar(session.page, 27);
-        await zoomInTwiceAsReader(session, defaultZoomLabel);
+        const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
+        // The held opening page shell, and a drawn page, as rects in the window.
+        const readHeldShell = () => evaluateInPage(session.page, () => {
+            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
+            const rect = shell?.getBoundingClientRect();
+            return shell && rect ? {
+                page: Number(shell.dataset.pageNumber),
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+            } : null;
+        });
+        const readDrawnPage = (pageNumber: number) => evaluateInPage(session.page, (page: number) => {
+            const rect = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
+            )?.getBoundingClientRect();
+            return rect ? {
+                page,
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+            } : null;
+        }, pageNumber);
+        // A drawn page sits where its shell sat, within the committed surface
+        // contract's one CSS pixel (scroll positions snap to device pixels).
+        const expectSameRect = (actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) => {
+            expect(actual?.page).toBe(expected?.page);
+            for (const key of [
+                'top',
+                'left',
+                'width',
+                'height',
+            ] as const) {
+                expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
+                    actual,
+                    expected,
+                })}`).toBeLessThanOrEqual(1);
+            }
+        };
 
-        // Hold the open before its working copy exists, as a slow disk does,
-        // and press the opening view meanwhile: the reader's move outranks
-        // the remembered place.
+        // Hold the open before its working copy exists, as a slow disk does.
+        // The held view already shows the place the reader left: page 27 at
+        // the reading zoom.
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__deferDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef)).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
+        const held = await readHeldShell();
+        expect(held?.page).toBe(27);
+
+
+        // A plain press moves nothing: the held view stays exactly as shown,
+        // and the open presents that place, not the defaults.
         await clickAsUser(session.page, '.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+        expect(await readHeldShell()).toEqual(held);
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef)).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
-        await expectReadingPlace(session, 1, defaultZoomLabel);
+        await expectReadingPlace(session, 27, readingZoomLabel);
+        expectSameRect(await readDrawnPage(27), held);
 
-        // The place the reader kept is now the last reading: closing remembers
-        // it, and the next reopen returns there, not to the older place.
+        // Closing remembers that place; the next reopen returns there.
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
         await clickRecentFile(session, fixturePath);
         await waitForRecentPdfOpen(session, fixturePath);
-        await expectReadingPlace(session, 1, defaultZoomLabel);
+        await expectReadingPlace(session, 27, readingZoomLabel);
     });
 
     it('reopens a PDF where it was left in the view it began in, when the reader splits it while the open is held', async () => {
@@ -1531,42 +1582,252 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-reading-zoom-intent-${Date.now()}`,
         });
+        // The clean restart clears session fixtures, so the file is made after it.
         const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-zoom-intent-${Date.now()}.pdf`, 40);
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
         const defaultZoomLabel = await readZoomLabel(session);
         await goToPageViaToolbar(session.page, 27);
-        await zoomInTwiceAsReader(session, defaultZoomLabel);
+        const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
+        // The held opening page shell, and a drawn page, as rects in the window.
+        const readHeldShell = () => evaluateInPage(session.page, () => {
+            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
+            const rect = shell?.getBoundingClientRect();
+            return shell && rect ? {
+                page: Number(shell.dataset.pageNumber),
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+            } : null;
+        });
+        const readDrawnPage = (pageNumber: number) => evaluateInPage(session.page, (page: number) => {
+            const rect = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
+            )?.getBoundingClientRect();
+            return rect ? {
+                page,
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+            } : null;
+        }, pageNumber);
+        // A drawn page sits where its shell sat, within the committed surface
+        // contract's one CSS pixel (scroll positions snap to device pixels).
+        const expectSameRect = (actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) => {
+            expect(actual?.page).toBe(expected?.page);
+            for (const key of [
+                'top',
+                'left',
+                'width',
+                'height',
+            ] as const) {
+                expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
+                    actual,
+                    expected,
+                })}`).toBeLessThanOrEqual(1);
+            }
+        };
 
-        // Hold the open and zoom with the wheel over the opening view (Command
-        // on macOS, where Control and the wheel scroll; Control elsewhere): a
-        // zoom of the reader's outranks the remembered place too.
+        // Hold the open before its working copy exists, as a slow disk does.
+        // The held view already shows the place the reader left: page 27 at
+        // the reading zoom.
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__deferDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef)).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
-        const centre = await evaluateInPage(session.page, () => {
-            const rect = document.querySelector('.editor-pane.is-active [data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
-            return rect ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            } : null;
+        const held = await readHeldShell();
+        expect(held?.page).toBe(27);
+
+
+        // Zoom with the wheel over the held view (Command on macOS, where
+        // Control and the wheel scroll; Control elsewhere). The zoom starts
+        // from the shown reading scale and keeps the page point under the
+        // pointer; the open then presents that zoom and point.
+        const pointer = {
+            x: held!.left + held!.width / 2,
+            y: held!.top + held!.height * 0.25,
+        };
+        const pointOn = (rect: {
+            top: number;
+            left: number;
+            width: number;
+            height: number
+        }) => ({
+            x: (pointer.x - rect.left) / rect.width,
+            y: (pointer.y - rect.top) / rect.height,
         });
-        expect(centre).not.toBeNull();
-        await session.page.mouse.move(centre!.x, centre!.y);
+        await session.page.mouse.move(pointer.x, pointer.y);
         const zoomModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
         await session.page.keyboard.down(zoomModifier);
         await session.page.mouse.wheel({deltaY: -40});
         await session.page.keyboard.up(zoomModifier);
+        await waitForFunctionInPage(session.page, (heldWidth: number) => {
+            const width = document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]')?.getBoundingClientRect().width;
+            return width !== undefined && width > heldWidth;
+        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, held!.width);
+        const zoomed = await readHeldShell();
+        expect(zoomed?.page).toBe(27);
+        expect(pointOn(zoomed!).x).toBeCloseTo(pointOn(held!).x, 2);
+        expect(pointOn(zoomed!).y).toBeCloseTo(pointOn(held!).y, 2);
+
         expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef)).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
-        await waitForToolbarCurrentPage(session.page, 1);
+        // The page is drawn at the zoomed shell's rect, so at its scale; the
+        // zoom shown is above the reading zoom the open started from.
+        await waitForToolbarCurrentPage(session.page, 27);
+        const zoomedLabel = await readZoomLabel(session);
+        expect(Number.parseFloat(zoomedLabel)).toBeGreaterThan(Number.parseFloat(readingZoomLabel));
+        await expectReadingPlace(session, 27, zoomedLabel);
+        expectSameRect(await readDrawnPage(27), zoomed);
+    });
+
+    // A reopened place is shown at once at the rect the drawn page takes, in
+    // every layout the viewer has: the exact pages around it, each view mode,
+    // paged and continuous scroll, and a quarter-turned view.
+    async function expectHeldReopenOnDrawnRect(session: IElectronE2ESession, fixturePath: string, pageNumber: number) {
+        const fixtureDocumentRef = requireDocumentRef(fixturePath);
+        const readView = async () => {
+            const snapshot = await requireWorkspaceCommand<{
+                viewMode: string;
+                continuousScroll: boolean;
+                viewRotation: number
+            }>(session.page, 'getToolbarSnapshot');
+            return {
+                viewMode: snapshot?.viewMode,
+                continuousScroll: snapshot?.continuousScroll,
+                viewRotation: snapshot?.viewRotation,
+            };
+        };
+        const left = await readView();
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForRecentFileRow(session, fixturePath);
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__deferDocumentOpenForAutomation?.(path) ?? false
+        ), fixtureDocumentRef)).toBe(true);
+        await clickRecentFile(session, fixturePath);
+        await waitForOpeningSkeletonWhileOpenHeld(session);
+        const held = await evaluateInPage(session.page, () => {
+            const shell = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-opening-shell-id]');
+            const rect = shell?.getBoundingClientRect();
+            return shell && rect ? {
+                page: Number(shell.dataset.pageNumber),
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+            } : null;
+        });
+        expect(held?.page, JSON.stringify(left)).toBe(pageNumber);
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__releaseDocumentOpenForAutomation?.(path) ?? false
+        ), fixtureDocumentRef)).toBe(true);
+        await waitForRecentPdfOpen(session, fixturePath);
+        await waitForToolbarCurrentPage(session.page, pageNumber);
+        await waitForFunctionInPage(session.page, (page: number) => Boolean(document.querySelector(
+            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"] canvas`,
+        )), {timeout: RECENT_OPEN_TIMEOUT_MS}, pageNumber);
+        const drawn = await evaluateInPage(session.page, (page: number) => {
+            const rect = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
+            )?.getBoundingClientRect();
+            return rect ? {
+                page,
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+            } : null;
+        }, pageNumber);
+        // Within the committed surface contract's one CSS pixel.
+        for (const key of [
+            'top',
+            'left',
+            'width',
+            'height',
+        ] as const) {
+            expect(Math.abs((drawn?.[key] ?? Number.NaN) - (held?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
+                left,
+                held,
+                drawn,
+            })}`).toBeLessThanOrEqual(1);
+        }
+        expect(await readView()).toEqual(left);
+    }
+
+    it('reopens a mixed-size PDF in each laid-out view on the rect its page is drawn at', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-reading-layouts-${Date.now()}`,
+        });
+        const views: Array<{
+            name: string;
+            commands: string[];
+            page: number
+        }> = [
+            {
+                name: 'continuous-last',
+                commands: [],
+                page: 3,
+            },
+            {
+                name: 'paged-single',
+                commands: ['handleToggleContinuousScroll'],
+                page: 2,
+            },
+            {
+                name: 'facing',
+                commands: ['handleViewModeFacing'],
+                page: 3,
+            },
+            {
+                name: 'facing-first-single',
+                commands: ['handleViewModeFacingFirstSingle'],
+                page: 2,
+            },
+            {
+                name: 'turned-90',
+                commands: ['handleViewRotationCw'],
+                page: 3,
+            },
+            {
+                name: 'turned-270',
+                commands: ['handleViewRotationCcw'],
+                page: 2,
+            },
+        ];
+        for (const view of views) {
+            // Each view its own file: a reopen keeps the view its file was left in.
+            const fixturePath = await createMixedPageSizeTextFixturePdf(`recent-reading-${view.name}-${Date.now()}.pdf`);
+            await openPdfInApp(session.page, fixturePath);
+            await waitForPdfLoaded(session.page);
+            for (const command of view.commands) {
+                await requireWorkspaceCommand(session.page, command);
+            }
+            await goToPageViaToolbar(session.page, view.page);
+            await expectHeldReopenOnDrawnRect(session, fixturePath, view.page);
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            await waitForRecentFileRow(session, fixturePath);
+        }
+    });
+
+    it('reopens a PDF at a page past the five-thousandth on the rect its page is drawn at', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-reading-5001-${Date.now()}`,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-5001-${Date.now()}.pdf`, 5001);
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 5001);
+        await expectHeldReopenOnDrawnRect(session, fixturePath, 5001);
     });
 });
 

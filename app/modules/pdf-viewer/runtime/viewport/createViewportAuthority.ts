@@ -1,5 +1,5 @@
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
+    IPdfSemanticAnchor,
     IDocumentNavigationRequest,
     IDocumentNavigationTicket,
     TDocumentNavigationReport,

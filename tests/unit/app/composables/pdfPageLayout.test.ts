@@ -4,23 +4,21 @@ import {
     it,
     vi,
 } from 'vitest';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import {
+    buildPageLayoutMetrics,
     getLayoutContentHeight,
     getLayoutPageHeight,
     getLayoutPageTop,
     getLayoutRowHeight,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
-import {
     cloneSparsePageMetrics,
     getPageMetricMaximum,
     isSparsePageMetricCollection,
     normalizePageMetrics,
     projectPdfPageMetricForView,
     PDF_PAGE_METRICS_DENSE_LIMIT,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+} from '@app/modules/document-viewer/public';
+import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import {requirePageIndex} from '@contracts/pageNumbers';

@@ -860,6 +860,13 @@ describe('createElectronApi', () => {
                         osScaleFactor: 0,
                     };
                 }
+                if (channel === HOST_PLATFORM_FEATURE.invokeChannels.restoreNormalWindow) {
+                    return {
+                        fullScreen: false,
+                        maximized: false,
+                        supported: true,
+                    };
+                }
                 return undefined;
             }),
             on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
@@ -954,6 +961,11 @@ describe('createElectronApi', () => {
         await expect(api.host.getEnvironment()).resolves.toEqual({
             platform: 'linux',
             osScaleFactor: 0,
+        });
+        await expect(api.host.restoreNormalWindow()).resolves.toEqual({
+            fullScreen: false,
+            maximized: false,
+            supported: true,
         });
     });
 

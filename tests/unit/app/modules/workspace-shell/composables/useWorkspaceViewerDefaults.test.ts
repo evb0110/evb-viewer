@@ -173,6 +173,45 @@ describe('useWorkspaceViewerDefaults', () => {
         }
     });
 
+    it('shows a seed at once when nothing is shown, and keeps the reader\'s later zoom when the source arrives', async () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
+
+        try {
+            // A normal open's reading view, before its source exists.
+            setup.defaults.seedViewForSource({
+                zoom: 1.85,
+                zoomMode: 'custom',
+                viewMode: 'single',
+                continuousScroll: true,
+                viewRotation: 0,
+            }, null);
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+            ]).toEqual([
+                'custom',
+                1.85,
+            ]);
+
+            // The reader zooms the opening view, then the source is shown.
+            setup.defaults.handleZoomIn();
+            const readerZoom = setup.zoom.value;
+            setup.documentSourceKey.value = '/tmp/remembered-working.pdf';
+            await nextTick();
+
+            expect(readerZoom).toBeGreaterThan(1.85);
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+            ]).toEqual([
+                'custom',
+                readerZoom,
+            ]);
+        } finally {
+            setup.stop();
+        }
+    });
+
     it('defaults a source reopened after the open that seeded it ended without showing it', async () => {
         const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
 

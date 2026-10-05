@@ -2,7 +2,10 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import {clamp} from 'es-toolkit/math';
-import type {IPdfSemanticAnchor} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import {
+    resolveScrollForPageRect,
+    type IPdfSemanticAnchor,
+} from '@app/modules/document-viewer/public';
 import {getRequestAnchor} from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 
 function getMountedPageElement(container: HTMLElement, pageNumber: TPageNumber) {
@@ -57,21 +60,16 @@ export function resolvePagedScrollForAnchor(
     }
     const viewportRect = container.getBoundingClientRect();
     const pageRect = element.getBoundingClientRect();
-    const pageContentLeft = container.scrollLeft + pageRect.left - viewportRect.left;
-    const pageContentTop = container.scrollTop + pageRect.top - viewportRect.top;
-    return {
-        left: clamp(
-            pageContentLeft + clamp(anchor.pageXFraction, 0, 1) * pageRect.width
-                - clamp(anchor.viewportXFraction, 0, 1) * container.clientWidth,
-            0,
-            Math.max(0, container.scrollWidth - container.clientWidth),
-        ),
-        top: clamp(
-            pageContentTop + clamp(anchor.pageYFraction, 0, 1) * pageRect.height
-                - clamp(anchor.viewportYFraction, 0, 1) * container.clientHeight
-                - (anchor.affinity === 'start' ? scaledMargin : 0),
-            0,
-            Math.max(0, container.scrollHeight - container.clientHeight),
-        ),
-    };
+    return resolveScrollForPageRect({
+        left: container.scrollLeft + pageRect.left - viewportRect.left,
+        top: container.scrollTop + pageRect.top - viewportRect.top,
+        width: pageRect.width,
+        height: pageRect.height,
+    }, anchor, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+    }, {
+        width: container.scrollWidth,
+        height: container.scrollHeight,
+    }, scaledMargin);
 }

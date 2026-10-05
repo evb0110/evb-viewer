@@ -17,6 +17,7 @@ describe('host platform feature schemas', () => {
             getEnvironment: 'host:getEnvironment',
             getZenModeState: 'host:getZenModeState',
             setZenMode: 'host:setZenMode',
+            restoreNormalWindow: 'host:restoreNormalWindow',
             writeBugReportBundle: 'host:writeBugReportBundle',
         });
         expect(HOST_PLATFORM_FEATURE.eventChannels).toEqual({
@@ -33,6 +34,7 @@ describe('host platform feature schemas', () => {
                 kind: 'sync',
                 browserLazy: 'direct',
             }),
+            expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
@@ -58,6 +60,12 @@ describe('host platform feature schemas', () => {
         expect(codecs[channels.setZenMode]!.decodeArgs([true])).toEqual([true]);
         expect(decodeHostEnvironmentSnapshot(environment)).toEqual(environment);
         expect(codecs[channels.getZenModeState]!.decodeResult(zenMode)).toEqual(zenMode);
+        const windowState = {
+            fullScreen: false,
+            maximized: true,
+            supported: true,
+        };
+        expect(codecs[channels.restoreNormalWindow]!.decodeResult(windowState)).toEqual(windowState);
         expect(HOST_PLATFORM_FEATURE.events.onWheelScrollSequenceChange.payload).toBeDefined();
     });
 
@@ -72,6 +80,10 @@ describe('host platform feature schemas', () => {
             active: false,
             supported: 'yes',
         })).toThrow('invalid host zen mode state');
+        expect(() => codecs[channels.restoreNormalWindow]!.decodeResult({
+            fullScreen: false,
+            supported: true,
+        })).toThrow('invalid host window state');
         expect(decodeHostEnvironmentSnapshot({
             platform: 'linux',
             osScaleFactor: 0,

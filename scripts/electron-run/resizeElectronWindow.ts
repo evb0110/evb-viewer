@@ -1,4 +1,8 @@
 import type { Page } from 'puppeteer-core';
+import type {
+    IHostCapability,
+    IHostWindowState,
+} from '@contracts/hostPlatformFeature';
 import { delay } from 'es-toolkit/promise';
 
 // Viewport emulation changes the numbers the renderer reports and leaves the
@@ -7,6 +11,8 @@ import { delay } from 'es-toolkit/promise';
 // which Electron routes to the native window in the main process, so the
 // window manager, the frame, and the renderer all move together. It works for
 // a hidden window because nothing here needs the window on screen.
+// A fullscreen or maximized window keeps the size the window manager gives it,
+// so the window first leaves those states through its main process.
 
 export interface IElectronWindowSize {
     width: number;
@@ -23,6 +29,8 @@ interface IElectronWindowMetrics {
 
 export interface IResizeElectronWindowResult {
     requestedContentSize: IElectronWindowSize;
+    /** Native state after the window was asked to leave fullscreen and maximized. */
+    windowState: IHostWindowState;
     before: IElectronWindowMetrics;
     after: IElectronWindowMetrics;
     settled: boolean;
@@ -60,6 +68,17 @@ export async function resizeElectronWindowContentArea(
         metrics.contentSize.width === contentSize.width && metrics.contentSize.height === contentSize.height
     );
 
+    const windowState = await page.evaluate(() => (
+        (window as Window & {electronAPI: {host: IHostCapability;};}).electronAPI.host.restoreNormalWindow()
+    ));
+    if (!windowState.supported || windowState.fullScreen || windowState.maximized) {
+        throw new Error(
+            'The window did not leave its native placement before the resize '
+            + `(supported=${String(windowState.supported)}, fullScreen=${String(windowState.fullScreen)}, `
+            + `maximized=${String(windowState.maximized)}), so the window manager would keep overriding its size.`,
+        );
+    }
+
     const before = await readElectronWindowMetrics(page);
     await page.evaluate((requested: IElectronWindowSize) => {
         window.resizeTo(requested.width, requested.height);
@@ -77,6 +96,7 @@ export async function resizeElectronWindowContentArea(
 
     return {
         requestedContentSize: contentSize,
+        windowState,
         before,
         after,
         settled: hasContentSize(after),

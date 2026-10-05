@@ -111,13 +111,11 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
         const opening = request.kind === 'open' && !request.carriesView && workspace
             ? followOpeningReader(controller, port.openSurface, workspace)
             : null;
-        let presented = false;
         try {
-            presented = await port.runDocumentOpen(request, run);
-            return presented;
+            return await port.runDocumentOpen(request, run);
         } finally {
             if (opening) {
-                await finishOpeningReader(controller, opening, presented);
+                await finishOpeningReader(controller, opening);
             }
         }
     }

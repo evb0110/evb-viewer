@@ -8,6 +8,13 @@ import {
     vi,
 } from 'vitest';
 
+interface IHostZenEscapeTestBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 interface IHostZenEscapeTestWindow {
     id: number;
     webContents: {
@@ -17,7 +24,7 @@ interface IHostZenEscapeTestWindow {
         send: ReturnType<typeof vi.fn>;
     };
     focus: ReturnType<typeof vi.fn>;
-    getBounds: ReturnType<typeof vi.fn>;
+    getBounds: ReturnType<typeof vi.fn<() => IHostZenEscapeTestBounds>>;
     isDestroyed: ReturnType<typeof vi.fn>;
     isFocused: ReturnType<typeof vi.fn>;
     isFullScreen: ReturnType<typeof vi.fn>;
@@ -26,9 +33,13 @@ interface IHostZenEscapeTestWindow {
     on: ReturnType<typeof vi.fn>;
     once: ReturnType<typeof vi.fn>;
     removeListener: ReturnType<typeof vi.fn>;
-    setBounds: ReturnType<typeof vi.fn>;
+    setBounds: ReturnType<typeof vi.fn<(bounds: IHostZenEscapeTestBounds) => void>>;
     setFullScreen: ReturnType<typeof vi.fn>;
     setSimpleFullScreen: ReturnType<typeof vi.fn>;
+    unmaximize: ReturnType<typeof vi.fn>;
+    maximized: boolean;
+    /** Whether the window manager honors an unmaximize request. */
+    honorsUnmaximize: boolean;
 }
 
 interface IBeforeInputTestEvent { preventDefault: () => void; }
@@ -55,6 +66,23 @@ vi.mock('electron', () => {
     mocks.createWindow = (id: number): IHostZenEscapeTestWindow => {
         let fullScreen = false;
         let simpleFullScreen = false;
+        const onceListeners: Record<string, Array<() => void>> = {};
+        const listeners: Record<string, Array<() => void>> = {};
+        let bounds: IHostZenEscapeTestBounds = {
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+        };
+        // Native state events arrive after the request, as the window manager sends them.
+        const emit = (event: string) => queueMicrotask(() => {
+            for (const listener of [
+                ...(listeners[event] ?? []),
+                ...(onceListeners[event]?.splice(0) ?? []),
+            ]) {
+                listener();
+            }
+        });
         const window: IHostZenEscapeTestWindow = {
             id,
             webContents: {
@@ -63,28 +91,53 @@ vi.mock('electron', () => {
                 removeListener: vi.fn(),
                 send: vi.fn(),
             },
-            focus: vi.fn(),
-            getBounds: vi.fn(() => ({
-                x: 0,
-                y: 0,
-                width: 800,
-                height: 600,
-            })),
+            focus: vi.fn(() => {
+                mocks.focusedWindow = window;
+            }),
+            getBounds: vi.fn(() => bounds),
             isDestroyed: vi.fn(() => false),
             isFocused: vi.fn(() => mocks.focusedWindow === window),
             isFullScreen: vi.fn(() => fullScreen),
-            isMaximized: vi.fn(() => false),
+            isMaximized: vi.fn(() => window.maximized),
             isSimpleFullScreen: vi.fn(() => simpleFullScreen),
-            on: vi.fn(),
-            once: vi.fn(),
+            on: vi.fn((event: string, listener: () => void) => {
+                (listeners[event] ??= []).push(listener);
+            }),
+            once: vi.fn((event: string, listener: () => void) => {
+                (onceListeners[event] ??= []).push(listener);
+            }),
             removeListener: vi.fn(),
-            setBounds: vi.fn(),
+            setBounds: vi.fn((next: IHostZenEscapeTestBounds) => {
+                bounds = next;
+            }),
             setFullScreen: vi.fn((active: boolean) => {
+                if (fullScreen === active) {
+                    return;
+                }
                 fullScreen = active;
+                bounds = active
+                    ? {
+                        x: 0,
+                        y: 0,
+                        width: 1280,
+                        height: 800,
+                    }
+                    : bounds;
+                emit(active ? 'enter-full-screen' : 'leave-full-screen');
             }),
             setSimpleFullScreen: vi.fn((active: boolean) => {
                 simpleFullScreen = active;
             }),
+            // The native event arrives after the request, as a window manager sends it.
+            unmaximize: vi.fn(() => {
+                if (!window.honorsUnmaximize) {
+                    return;
+                }
+                window.maximized = false;
+                emit('unmaximize');
+            }),
+            maximized: false,
+            honorsUnmaximize: true,
         };
         return window;
     };
@@ -121,6 +174,17 @@ vi.mock('@electron/utils/error', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getErrorMessage: (error: unknown) => String(error),
 }));
+
+// Linux and Windows fullscreen is the path whose native leave event restores placement.
+async function withEventEmittingFullScreen(run: () => Promise<void>) {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', {value: 'linux'});
+    try {
+        await run();
+    } finally {
+        Object.defineProperty(process, 'platform', platform);
+    }
+}
 
 function getBeforeInputHandler(window: IHostZenEscapeTestWindow) {
     return window.webContents.on.mock.calls
@@ -251,5 +315,101 @@ describe('host environment startup argument', () => {
 
         expect(readStartupScaleFactor({x: 2400})).toBe(2);
         expect(readStartupScaleFactor({x: 100})).toBe(1);
+    });
+
+    it('leaves maximized before answering, and reports a window that stays maximized', async () => {
+        const { restoreHostNormalWindowForWindow } = await import('@electron/hostEnvironment');
+        const window = mocks.createWindow(4);
+        window.maximized = true;
+
+        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
+            fullScreen: false,
+            maximized: false,
+            supported: true,
+        });
+        // Already normal: nothing to leave, same answer.
+        await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
+            fullScreen: false,
+            maximized: false,
+            supported: true,
+        });
+        expect(window.focus).not.toHaveBeenCalled();
+
+        const stuck = mocks.createWindow(5);
+        stuck.maximized = true;
+        stuck.honorsUnmaximize = false;
+        await expect(restoreHostNormalWindowForWindow(stuck as never)).resolves.toEqual({
+            fullScreen: false,
+            maximized: true,
+            supported: true,
+        });
+        await expect(restoreHostNormalWindowForWindow(null)).resolves.toEqual({
+            fullScreen: false,
+            maximized: false,
+            supported: false,
+        });
+    });
+
+    it('leaves zen for the normal window without restoring or focusing its pre-zen placement', async () => {
+        await withEventEmittingFullScreen(async () => {
+            const {
+                attachHostEnvironmentToWindow,
+                restoreHostNormalWindowForWindow,
+                setHostZenModeForWindow,
+            } = await import('@electron/hostEnvironment');
+            const window = mocks.createWindow(6);
+            attachHostEnvironmentToWindow(window as never);
+            await setHostZenModeForWindow(window as never, true);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            mocks.focusedWindow = null;
+            // The window moved while in zen; that is the bounds the resize measures from.
+            window.setBounds({
+                x: 10,
+                y: 10,
+                width: 1000,
+                height: 700,
+            });
+
+            await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual({
+                fullScreen: false,
+                maximized: false,
+                supported: true,
+            });
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(mocks.focusedWindow).toBeNull();
+            expect(window.getBounds()).toEqual({
+                x: 10,
+                y: 10,
+                width: 1000,
+                height: 700,
+            });
+        });
+    });
+
+    it('still restores and focuses the pre-zen placement on an ordinary zen exit', async () => {
+        await withEventEmittingFullScreen(async () => {
+            const {
+                attachHostEnvironmentToWindow,
+                setHostZenModeForWindow,
+            } = await import('@electron/hostEnvironment');
+            const window = mocks.createWindow(7);
+            attachHostEnvironmentToWindow(window as never);
+            await setHostZenModeForWindow(window as never, true);
+            mocks.focusedWindow = null;
+
+            await expect(setHostZenModeForWindow(window as never, false)).resolves.toEqual({
+                active: false,
+                supported: true,
+            });
+
+            expect(mocks.focusedWindow).toBe(window);
+            expect(window.getBounds()).toEqual({
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+            });
+        });
     });
 });

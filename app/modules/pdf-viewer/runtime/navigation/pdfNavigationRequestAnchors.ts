@@ -1,5 +1,7 @@
-import type { IDocumentNavigationRequest } from '@app/modules/document-viewer/public';
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import type {
+    IDocumentNavigationRequest,
+    IPdfSemanticAnchor,
+} from '@app/modules/document-viewer/public';
 
 export function getRequestPage(request: IDocumentNavigationRequest | undefined, fallback: number) {
     const target = request?.target;

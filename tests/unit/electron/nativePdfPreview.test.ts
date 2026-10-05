@@ -74,6 +74,25 @@ Page    1 rot:   -90
         });
     });
 
+    it('reads the shape of the page an open starts at, keeping the document-wide widest page', () => {
+        expect(parsePdfOpeningGeometryMetadata(`
+Pages:           40
+Page    1 size:  612 x 792 pts (letter)
+Page    4 size:  500 x 700 pts
+Page    4 rot:   90
+Page    9 size:  900 x 792 pts
+`, {
+            size: 1,
+            modifiedAt: requireEpochMs(0),
+        }, 4)).toMatchObject({
+            pageNumber: 4,
+            width: 700,
+            height: 500,
+            rotation: 90,
+            widestPageWidth: 900,
+        });
+    });
+
     it('reports the widest displayed page so the opening skeleton uses the document-wide Fit Width', () => {
         expect(parsePdfOpeningGeometryMetadata(`
 Pages:           882
@@ -132,6 +151,18 @@ describe('PDF page-shape store', () => {
         await expect(answerPdfPageShape('/books/unchanged.pdf', revision, read)).resolves.toMatchObject({width: 612});
 
         expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads again when an open needs another page\'s shape of an unchanged file', async () => {
+        await answerPdfPageShape('/books/reread.pdf', revision, async () => shapeAt(revision, 612));
+
+        await expect(answerPdfPageShape('/books/reread.pdf', revision, async () => ({
+            ...shapeAt(revision, 500),
+            pageNumber: requirePageNumber(3),
+        }), 3)).resolves.toMatchObject({
+            pageNumber: 3,
+            width: 500,
+        });
     });
 
     it('evicts the file read longest ago, not the one answered most', async () => {

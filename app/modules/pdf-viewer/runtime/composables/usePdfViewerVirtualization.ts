@@ -14,30 +14,28 @@ import type {
     TPdfViewMode,
     TPdfViewRotation,
 } from '@contracts/shared';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
-import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
-import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBounds';
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
-import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
-import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import {
+    buildPageLayoutMetrics,
+    getPageRowBoundsForViewMode,
     getIndexedValue,
     getPageMetricMaximum,
     normalizePageMetrics,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import {
     getLayoutContentHeight,
     getLayoutPhysicalScrollSegment,
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+    createAnchorPageWindow,
+} from '@app/modules/document-viewer/public';
+import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
+import { getPageRowBounds } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBounds';
+import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
+import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
+import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import {
     buildPdfPageScaleStyle,
     createPdfPageScale,
 } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
-import { createAnchorPageWindow } from '@app/modules/document-viewer/public';
 
 export interface IPdfVirtualPageSegment {
     end: number;

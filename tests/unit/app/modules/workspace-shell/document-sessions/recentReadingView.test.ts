@@ -147,19 +147,23 @@ describe('seeding a normal open from its reading view', () => {
         expect(opening.view.zoomMode).toBe('fit-width');
     });
 
-    it('places a remembered anchor once a seeded open is presented, and none for a failed one', async () => {
+    it('places a remembered anchor with the opening\'s restore navigation, not after the page is shown', async () => {
         recent.readingView.mockResolvedValue({
             ...remembered,
             anchor,
         });
-        const presented = createOpeningView();
-        await seedOpeningSource(presented.controller, source, Promise.resolve(40));
-        await finishOpeningReader(presented.controller, presented.opening, true);
-        const failed = createOpeningView();
-        await seedOpeningSource(failed.controller, source, Promise.resolve(40));
-        await finishOpeningReader(failed.controller, failed.opening, false);
+        const opening = createOpeningView();
+        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+        await finishOpeningReader(opening.controller, opening.opening);
 
-        expect(presented.view.placedAnchor).toEqual(anchor);
-        expect(failed.view.placedAnchor).toBeNull();
+        expect(opening.readTarget()).toEqual({
+            source: 'restore',
+            target: {
+                kind: 'page',
+                page: 27,
+                anchor,
+            },
+        });
+        expect(opening.view.placedAnchor).toBeNull();
     });
 });

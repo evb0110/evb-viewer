@@ -82,7 +82,7 @@ const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime
 const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
 const {createDocumentOpenSurfaceSession} = await import('@app/modules/document-viewer/runtime/documentOpenSurfaceSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
-const {PDF_PAGE_METRICS_DENSE_LIMIT} = await import('@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics');
+const {PDF_PAGE_METRICS_DENSE_LIMIT} = await import('@app/modules/document-viewer/public');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
 
 // This test copies two 1 MiB ranges and runs alongside the complete six-project

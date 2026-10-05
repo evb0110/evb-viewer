@@ -15,14 +15,16 @@ import type { ICropSelectionResult } from '@app/types/crop';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import type {
+    IPdfSemanticAnchor,
+    TDocumentSidebarTab,
+} from '@app/modules/document-viewer/public';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
-import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
