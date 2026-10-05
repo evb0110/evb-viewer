@@ -70,10 +70,18 @@ describe('process tree termination receipt', () => {
         const pid = child.pid!;
         const exited = new Promise(resolveExit => child.once('exit', resolveExit));
 
-        expect(await killProcessTree(pid, 300)).toBe(true);
-        await exited;
-        expect(isProcessAlive(pid)).toBe(false);
-        expect(await killProcessTree(pid, 300)).toBe(false);
+        try {
+            expect(await killProcessTree(pid, 300)).toBe(true);
+            await exited;
+            expect(isProcessAlive(pid)).toBe(false);
+            expect(await killProcessTree(pid, 300)).toBe(false);
+        } finally {
+            // The test owns this child: end it even when an assertion or the kill failed.
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill('SIGKILL');
+                await exited;
+            }
+        }
     });
 });
 

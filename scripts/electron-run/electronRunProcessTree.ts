@@ -2,6 +2,7 @@ import { createServer as createNetServer } from 'node:net';
 import {
     execFileSync,
     execSync,
+    spawnSync,
     type ChildProcess,
 } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -150,7 +151,7 @@ export function findPidsByCommandSubstring(substring: string) {
 
 /**
  * Resolves true when it found the root alive and terminated its tree, false
- * when the root was already gone and nothing was issued.
+ * when the root was already gone or Windows refused to terminate the tree.
  */
 export async function killProcessTree(
     pid: number,
@@ -162,13 +163,17 @@ export async function killProcessTree(
     }
 
     if (process.platform === 'win32') {
-        try {
-            execSync(`taskkill /PID ${pid} /T /F >NUL 2>&1`);
-        } catch {}
+        const {status} = spawnSync('taskkill', [
+            '/PID',
+            String(pid),
+            '/T',
+            '/F',
+        ], {stdio: 'ignore'});
         // TerminateProcess is asynchronous like SIGKILL, so the process stays
         // visible to the liveness check callers read straight afterwards.
         await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
-        return true;
+        // A root that exits on its own does not show its helpers were stopped.
+        return status === 0;
     }
 
     const descendants = collectDescendantPidsUnix(pid);
