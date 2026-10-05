@@ -205,6 +205,24 @@ export function isOpeningBeforePageGeometry(frame: ICommittedSurfaceFrame) {
         && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false';
 }
 
+/**
+ * The sampler is armed before the open is claimed, so its leading frames show
+ * whatever preceded the claim. Drops only that prefix while the chassis still
+ * reports no open at all; from the first frame of any other state on, every
+ * frame stays in the trace, including a blank before the chassis mounts.
+ */
+export function selectClaimedOpenTrace(trace: ICommittedSurfaceTrace): ICommittedSurfaceTrace {
+    const claimIndex = trace.frames.findIndex(frame => !(
+        frame.openSurfacePhase === 'idle'
+        && frame.openSurfaceDiagnostic?.openSurfaceGeneration === '0'
+        && frame.openSurfaceDiagnostic.openSurfaceDocumentId === ''
+    ));
+    return {
+        ...trace,
+        frames: claimIndex < 0 ? [] : trace.frames.slice(claimIndex),
+    };
+}
+
 /** Returns release-blocking contract violations, keeping Vitest assertions out of the helper. */
 export function findCommittedSurfaceContractViolations(
     trace: ICommittedSurfaceTrace,
@@ -1367,7 +1385,7 @@ export async function installCommittedSurfaceSampler(
                 testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
             }
         };
-        capture();
+        testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
     }, options.sampleCanvasPixels !== false);
 }
 

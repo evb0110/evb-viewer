@@ -47,6 +47,7 @@ import {
     findCommittedSurfaceCausalOpenViolations,
     type ICommittedSurfaceTrace,
     installCommittedSurfaceSampler,
+    selectClaimedOpenTrace,
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
     waitForCommittedSurfaceSamples,
@@ -89,6 +90,12 @@ const RENDER_SETTLE_TIMEOUT_MS = 45_000;
 // 1,927-1,929ms when Fit Height mounted every row between the stale and the
 // re-anchored scroll position.
 const FIT_CHANGE_FREEZE_BUDGET_MS = 750;
+const FIT_PROBE_CHECKPOINTS = [
+    'before-fit',
+    'fit-height',
+    'fit-width',
+    'settled',
+] as const;
 
 interface IVisibleSidebarSample {
     ownerTabId: string | null;
@@ -118,6 +125,7 @@ interface IFitProbeWindow {
     __evbFitProbe?: {
         checkpoint: string;
         frames: IFitFrameSample[];
+        sample: () => void;
         stop: () => void;
     } | undefined;
     __evbOpenGenerationProbe?: {
@@ -718,6 +726,7 @@ async function startFitProbe(session: IElectronE2ESession, anchorPage: number) {
         const probe = {
             checkpoint: 'before-fit',
             frames,
+            sample: () => {},
             stop: () => {
                 running = false;
                 window.clearInterval(sampleTimer);
@@ -762,7 +771,9 @@ async function startFitProbe(session: IElectronE2ESession, anchorPage: number) {
                 topVisiblePage: topVisible,
             });
         };
+        probe.sample = sample;
         probeWindow.__evbFitProbe = probe;
+        sample();
         sampleTimer = window.setInterval(sample, 16);
     }, anchorPage);
 }
@@ -772,6 +783,9 @@ async function markFitProbeCheckpoint(session: IElectronE2ESession, checkpoint: 
         const probeWindow = window as Window & IFitProbeWindow;
         if (probeWindow.__evbFitProbe) {
             probeWindow.__evbFitProbe.checkpoint = value;
+            // Each boundary is observed when it is crossed, so a fit that
+            // finishes between two interval samples is still on record.
+            probeWindow.__evbFitProbe.sample();
         }
     }, checkpoint);
 }
@@ -1117,7 +1131,7 @@ describe('standard PDF.js fit-mode continuity', () => {
                 minimumSamples: 12,
             });
         } finally {
-            openTrace = await stopCommittedSurfaceSampler(session.page);
+            openTrace = selectClaimedOpenTrace(await stopCommittedSurfaceSampler(session.page));
         }
         const openTiming = summarizeCommittedSurfaceTiming(openTrace);
         const openPhaseLedger = await readOpenPhaseLedger(session);
@@ -1330,7 +1344,13 @@ describe('standard PDF.js fit-mode continuity', () => {
             frames = await stopFitProbe(session);
         }
 
-        expect(frames.length).toBeGreaterThan(10);
+        // Every boundary has to be on record: the page before Fit Height, the
+        // page Fit Height settled on as Fit Width starts, and the page after
+        // Fit Width settled. The interval samples cover the transitions.
+        expect(
+            FIT_PROBE_CHECKPOINTS.filter(checkpoint => !frames.some(frame => frame.checkpoint === checkpoint)),
+            JSON.stringify(frames),
+        ).toEqual([]);
         const skeletonFrames = frames.filter(frame => frame.anchorSkeletonVisible);
         const uncommittedFrames = frames.filter(frame => frame.anchorCanvasCount === 0);
         const strayPageFrames = frames.filter(frame => (
