@@ -288,12 +288,15 @@ export const djvuConvertResultSchema = v.pipe(v.object({
     jobId: v.optional(jobIdSchema),
     requestId: v.optional(requestIdSchema()),
     documentRef: v.optional(documentRefSchema),
+    // The source page sizes the conversion read, so its PDF opens without reading them again.
+    pageSizes: v.optional(v.pipe(v.array(djvuPageSizeSchema, error), v.maxLength(10_000, 'pageSizes exceeds maximum item count (10000)'))),
     error: v.optional(v.string(error)),
     failure: v.optional(failureReceiptSchema),
     expected: v.optional(expectedOutcomeSchema),
 }, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined), error), v.transform(value => ({
     success: value.success,
     ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
+    ...(value.pageSizes === undefined ? {} : {pageSizes: value.pageSizes}),
     ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
     ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
     ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),

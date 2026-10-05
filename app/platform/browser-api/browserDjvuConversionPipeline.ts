@@ -1067,6 +1067,7 @@ export async function runBrowserDjvuConversion(
             success: true as const,
             pdfPath,
             jobId,
+            pageSizes,
         };
     } catch (error) {
         const expected = classifyBrowserDjvuExpectedOutcome(error);

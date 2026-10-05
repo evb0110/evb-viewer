@@ -154,6 +154,29 @@ describe('DjVu platform feature', () => {
             .toBe(false);
     });
 
+    it('carries the conversion page sizes in the completed conversion within the dense page bound', () => {
+        const convertComplete = DJVU_PLATFORM_FEATURE.events.onConvertComplete.payload;
+        const pageSize = {
+            width: 5100,
+            height: 6600,
+            dpi: 600,
+        };
+        expect(v.parse(convertComplete, {
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+            pageSizes: [pageSize],
+        })).toEqual({
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+            pageSizes: [pageSize],
+        });
+        expect(v.safeParse(convertComplete, {
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+            pageSizes: Array.from({length: 10_001}, () => pageSize),
+        }).success).toBe(false);
+    });
+
     it('keeps the typed reason of a refused open, its receipt and expected cancellation in the open result contract', () => {
         const openResult = DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload;
         const nativeMessage = 'djvused failed with exit code 10. Unrecognized DjVu Message';

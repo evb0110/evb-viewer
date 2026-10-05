@@ -60,7 +60,6 @@ import {
     evaluateDjvuPdfConversionPolicy,
     resolveDjvuCompactFidelityPreset,
     resolveDjvuPdfExportStrategy,
-    type IDjvuConversionPageMetrics,
     type IDjvuPdfConversionPolicyDecision,
     type TDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
@@ -313,8 +312,7 @@ async function getDjvuConversionPageSizes(
     }
 
     try {
-        const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
-        return pageSizes;
+        return await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
     } catch (error) {
         if (signal.aborted) {
             throw signal.reason instanceof Error
@@ -1194,6 +1192,7 @@ async function runDjvuConvertToPdf(
                     pdfPath: requireDocumentRef(normalizedOutputPath),
                     jobId,
                     ...progressScope,
+                    ...(pageSizes ? {pageSizes} : {}),
                 };
             });
             if (!result.success) {

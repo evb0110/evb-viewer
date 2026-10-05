@@ -825,12 +825,12 @@ describe('useDjvu', () => {
                 success: true,
                 pdfPath: requireDocumentRef('/tmp/out.pdf'),
                 jobId: requireJobId('convert-1'),
+                pageSizes: [{
+                    width: 1293,
+                    height: 1966,
+                    dpi: 300,
+                }],
             });
-            mockElectronAPI.djvu.getPageSizes.mockResolvedValue([{
-                width: 1293,
-                height: 1966,
-                dpi: 300,
-            }]);
             const openConvertedPdf = vi.fn(async () => ({
                 status: 'opened' as const,
                 result: {

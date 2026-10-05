@@ -715,25 +715,12 @@ export const useDjvu = (config: {
                 pdfPath: result.pdfPath,
             });
 
-            let rasterDisplayProfile: TPdfRasterDisplayProfile | null = null;
-            try {
-                rasterDisplayProfile = createTrustedRasterDjvuPdfDisplayProfile(
-                    await getDjvuCapability().getPageSizes(sourcePath),
-                    {
-                        pdfStrategy,
-                        subsample,
-                    },
-                );
-            } catch (profileError) {
-                BrowserLogger.warn('djvu', 'Failed to resolve trusted raster PDF display profile', {
-                    path: sourcePath,
-                    error: profileError,
-                });
-            }
-
-            if (!isCurrent()) {
-                return null;
-            }
+            const rasterDisplayProfile = createTrustedRasterDjvuPdfDisplayProfile(result.pageSizes ?? [], {
+                pdfStrategy,
+                subsample,
+            });
+            registerPdfRasterDisplayProfile(savePath, rasterDisplayProfile);
+            registerPdfRasterDisplayProfile(result.pdfPath, rasterDisplayProfile);
             // With no view of the document shown, the saved PDF becomes its
             // file, as a tab not shown is given one: the tab opens it when shown,
             // and nothing is presented or focused now.
@@ -747,8 +734,6 @@ export const useDjvu = (config: {
                 return result.pdfPath;
             }
 
-            registerPdfRasterDisplayProfile(savePath, rasterDisplayProfile);
-            registerPdfRasterDisplayProfile(result.pdfPath, rasterDisplayProfile);
             let openResult: TDocumentOpenOutcome;
             try {
                 openResult = rasterDisplayProfile
