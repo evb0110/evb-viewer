@@ -5,7 +5,10 @@ import {
 } from 'fs/promises';
 import { limitAsync } from 'es-toolkit/promise';
 import { clamp } from 'es-toolkit/math';
-import { dirname } from 'node:path';
+import {
+    dirname,
+    toNamespacedPath,
+} from 'node:path';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -642,7 +645,9 @@ export async function renderDjvuPageToImage(
         args.push(`-subsample=${options.subsample}`);
     }
 
-    args.push(inputPath, outputPath);
+    // ddjvu.exe cannot open Windows output paths beyond MAX_PATH unless they
+    // use the extended-length form; elsewhere this is the unchanged path.
+    args.push(inputPath, toNamespacedPath(outputPath));
 
     const result = await runProcess(jobId, ddjvu, args, {
         env: buildDjvuRuntimeEnv(),
