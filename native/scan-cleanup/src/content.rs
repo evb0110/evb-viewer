@@ -288,10 +288,6 @@ fn detect_content_at_analysis_scale(
         let height = component.bottom - component.top + 1;
         let solid_rule =
             (width > height * 25 && height <= 3) || (height > width * 25 && width <= 3);
-        let border_attached = component.left == 0
-            || component.top == 0
-            || component.right + 1 == working.width()
-            || component.bottom + 1 == working.height();
         let nearby_components = centers.neighbor_count(map.components(), index);
         let mut maximum_inscribed_radius_squared = 0u32;
         for y in component.top..=component.bottom {
@@ -305,8 +301,7 @@ fn detect_content_at_analysis_scale(
         let isolated_thick_dirt = nearby_components == 0
             && maximum_inscribed_radius_squared > dirt_radius_squared
             && component.area < working.width().saturating_mul(working.height()) / 20;
-        let border_shadow =
-            border_attached && component.area > working.width().max(working.height()) / 3;
+        let border_shadow = is_scanner_border_shadow(component, working.width(), working.height());
         let picture_mask_overlap_pixels =
             component_mask_overlap(&map, component, analysis_picture_mask);
         let grayscale_supported =
@@ -451,6 +446,23 @@ fn detect_content_at_analysis_scale(
         text.mask,
         text.vicinity_mask,
     )
+}
+
+/// Rasterizing a page whose size is not a whole number of pixels leaves a
+/// pixel of paper along its edges, so an object that close still touches one.
+const RASTER_EDGE_SLIVER_PX: usize = 2;
+
+fn touches_raster_edge(component: &Component, width: usize, height: usize) -> bool {
+    component.left <= RASTER_EDGE_SLIVER_PX
+        || component.top <= RASTER_EDGE_SLIVER_PX
+        || component.right + 1 + RASTER_EDGE_SLIVER_PX >= width
+        || component.bottom + 1 + RASTER_EDGE_SLIVER_PX >= height
+}
+
+/// A scanner bed, border rail or edge shadow is one large component attached
+/// to the raster edge. It is never page content or line art.
+pub(crate) fn is_scanner_border_shadow(component: &Component, width: usize, height: usize) -> bool {
+    touches_raster_edge(component, width, height) && component.area > width.max(height) / 3
 }
 
 /// A leaf with no page content on it still carries a fold shadow, a scanner
@@ -652,27 +664,48 @@ fn border_artifact_mask_from_binary(working: &GrayImage, binary: &BinaryImage) -
     let retained = ComponentMap::from_binary(&border_candidates).retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
-        let attached = component.left == 0
-            || component.top == 0
-            || component.right + 1 == working.width()
-            || component.bottom + 1 == working.height();
-        attached && (width * 2 >= working.width() || height * 2 >= working.height())
+        touches_raster_edge(component, working.width(), working.height())
+            && (width * 2 >= working.width() || height * 2 >= working.height())
     });
-    // A scanner border is a thin band hugging the page edge. Threshold bloom
-    // on a normalized raster can bridge such a band to the nearest authored
-    // structure (observed: a top bar swallowing the running head and its
-    // rule through geodesic reconstruction), so the artifact mask is clipped
-    // to the same 1/40 edge zone the mode selector uses for border shapes —
-    // nothing deeper into the page may be removed as a border.
-    let horizontal_zone = working.width().div_ceil(40).max(1);
-    let vertical_zone = working.height().div_ceil(40).max(1);
-    BinaryImage::from_fn_parallel(working.width(), working.height(), |x, y| {
-        retained.get(x, y)
-            && (x < horizontal_zone
-                || x + horizontal_zone >= working.width()
-                || y < vertical_zone
-                || y + vertical_zone >= working.height())
+    // A scanner border is usually a thin band hugging the page edge. Threshold
+    // bloom on a normalized raster can bridge such a band to the nearest
+    // authored structure (observed: a top bar swallowing the running head and
+    // its rule through geodesic reconstruction), so the artifact mask is
+    // clipped to the same 1/40 edge zone the mode selector uses for border
+    // shapes. A solid scanner bed is the exception: rows or columns it covers
+    // edge to edge are no authored structure, so the mask follows the bed and
+    // its stippled fringe instead of leaving the bed's inner part as content.
+    let (width, height) = (working.width(), working.height());
+    let row_coverage =
+        |y: usize| (0..width).filter(|&x| retained.get(x, y)).count() as f64 / width as f64;
+    let column_coverage =
+        |x: usize| (0..height).filter(|&y| retained.get(x, y)).count() as f64 / height as f64;
+    let left = scanner_bed_depth(width, column_coverage);
+    let right = scanner_bed_depth(width, |depth| column_coverage(width - 1 - depth));
+    let top = scanner_bed_depth(height, row_coverage);
+    let bottom = scanner_bed_depth(height, |depth| row_coverage(height - 1 - depth));
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        retained.get(x, y) && (x < left || x + right >= width || y < top || y + bottom >= height)
     })
+}
+
+/// How far from one edge the border mask may reach: the 1/40 edge zone, or a
+/// solid scanner bed (lines at least 90% covered by the border component,
+/// starting inside that zone) and the stippled fringe after it, whichever is
+/// deeper. A bed never claims more than a fifth of the page.
+fn scanner_bed_depth(extent: usize, coverage_at_depth: impl Fn(usize) -> f64) -> usize {
+    let zone = extent.div_ceil(40).max(1);
+    let limit = extent / 5;
+    let Some(start) = (0..zone.min(limit)).find(|&depth| coverage_at_depth(depth) >= 0.9) else {
+        return zone;
+    };
+    let solid_end = (start..limit)
+        .find(|&depth| coverage_at_depth(depth) < 0.9)
+        .unwrap_or(limit);
+    let fringe_end = (solid_end..limit)
+        .find(|&depth| coverage_at_depth(depth) < 0.2)
+        .unwrap_or(limit);
+    zone.max(fringe_end)
 }
 
 #[derive(Clone, Copy)]
@@ -3075,6 +3108,58 @@ mod tests {
         assert!(
             bounds.right() >= 640.0,
             "running-head underline was trimmed: {bounds:?}"
+        );
+    }
+
+    /// A bilevel scan of a bound thesis: the scanner bed lies along the top
+    /// and the outer edge far deeper than the 1/40 edge zone, its outermost
+    /// row is lighter, and a stippled fringe leads to the paper.
+    fn deep_scanner_bed_page() -> GrayImage {
+        let mut image = GrayImage::new(700, 1_000, 236);
+        for y in 0..70 {
+            for x in 0..700 {
+                if y > 0 || x % 2 == 0 {
+                    image.set(x, y, 0);
+                }
+            }
+        }
+        for y in 0..1_000 {
+            for x in 610..700 {
+                image.set(x, y, 0);
+            }
+        }
+        for y in 70..80 {
+            for x in 0..610 {
+                if (x + y) % 3 == 0 {
+                    image.set(x, y, 0);
+                }
+            }
+        }
+        for row in 0..22 {
+            let top = 200 + row * 21;
+            draw_glyph_line(&mut image, 62, top, 15, 6, 11, 4);
+            draw_glyph_line(&mut image, 330, top, 15, 6, 11, 4);
+        }
+        image
+    }
+
+    #[test]
+    fn a_scanner_bed_deeper_than_the_edge_zone_is_not_content() {
+        let result =
+            detect_content_and_margins(&deep_scanner_bed_page(), 150.0, None, Some([0.0; 4]));
+        let bounds = result.content.expect("the body is content");
+
+        assert!(
+            bounds.y >= 80.0,
+            "scanner bed survived above the body: {bounds:?}"
+        );
+        assert!(
+            bounds.right() <= 610.0,
+            "scanner bed survived beside the body: {bounds:?}"
+        );
+        assert!(
+            bounds.y <= 200.0 && bounds.x <= 62.0,
+            "the body was trimmed: {bounds:?}"
         );
     }
 
