@@ -362,18 +362,24 @@ describe('Electron E2E - dialog layout stability', () => {
         await page.setViewport(DIALOG_VIEWPORT);
         const malformedPath = createTruncatedPdf();
 
-        await setSavedLocale(page, 'ru');
-        await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
-        await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
-            .toContain('Не удалось открыть файл');
-        const russian = await readFailureToast(page);
-        expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
-        expect(russian?.buttons).toContain('Копировать подробности');
-        expect(russian?.text).not.toContain('Error ID');
-        expect(russian?.text).not.toContain('Copy details');
-        await clickToastButton(page, 'Копировать подробности');
-        await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
-            .toContain('Скопировано');
+        try {
+            await setSavedLocale(page, 'ru');
+            await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
+            await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+                .toContain('Не удалось открыть файл');
+            const russian = await readFailureToast(page);
+            expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
+            expect(russian?.buttons).toContain('Копировать подробности');
+            expect(russian?.text).not.toContain('Error ID');
+            expect(russian?.text).not.toContain('Copy details');
+            await clickToastButton(page, 'Копировать подробности');
+            await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
+                .toContain('Скопировано');
+        } catch (error) {
+            // Later tests share this session; leave it in English.
+            await setSavedLocale(page, 'en').catch(() => undefined);
+            throw error;
+        }
 
         // English control: the same failure in English reads in English.
         await setSavedLocale(page, 'en');

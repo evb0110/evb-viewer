@@ -261,15 +261,20 @@ describe('scan cleanup toolbar contract', () => {
             window.innerHeight,
         ]);
         expectDetectionLayout(await readDetectionLayout(session.page));
-        for (const width of [
-            690,
-            600,
-        ]) {
-            await session.command('windowResize', [
-                width,
-                naturalSize[1],
-            ]);
-            expectDetectionLayout(await readDetectionLayout(session.page));
+        try {
+            for (const width of [
+                690,
+                600,
+            ]) {
+                await session.command('windowResize', [
+                    width,
+                    naturalSize[1],
+                ]);
+                expectDetectionLayout(await readDetectionLayout(session.page));
+            }
+        } catch (error) {
+            await session.command('windowResize', naturalSize).catch(() => undefined);
+            throw error;
         }
         await session.command('windowResize', naturalSize);
 
