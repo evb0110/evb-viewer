@@ -1,6 +1,8 @@
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import {
+    getDjvuNativeToolPaths,
+    runDjvuSourceCommand,
+} from '@electron/features/djvu/main/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { isAbortError } from '@electron/utils/abort';
 import {getCachedDjvuHasText} from '@electron/features/djvu/main/getCachedDjvuHasText';
@@ -31,7 +33,7 @@ async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): P
         windowsHide: true,
         ...(options.signal ? { signal: options.signal } : {}),
     };
-    const result = await runNativeCommand(djvused, args, commandOptions);
+    const result = await runDjvuSourceCommand(djvused, args, 0, commandOptions);
 
     return {
         stdout: result.stdout,

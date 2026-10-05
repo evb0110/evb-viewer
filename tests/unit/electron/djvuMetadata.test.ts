@@ -1,3 +1,4 @@
+import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
     describe,
@@ -9,7 +10,10 @@ import {
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
 vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
+    getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'}),
+}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 vi.mock('@electron/features/djvu/main/getCachedDjvuHasText', () => ({getCachedDjvuHasText: vi.fn()}));
@@ -45,7 +49,7 @@ describe('DjVu metadata', () => {
             .rejects.toThrow('Invalid page count from djvused');
     });
 
-    it('reads the first page\'s resolution from its INFO chunk', async () => {
+    it('reads the resolution from the selected page\'s INFO chunk', async () => {
         mocks.runNativeCommand.mockResolvedValue({
             stdout: [
                 '  FORM:DJVU [815] ',
@@ -56,6 +60,6 @@ describe('DjVu metadata', () => {
             exitCode: 0,
         });
 
-        await expect(getDjvuResolution('/tmp/mixed-dpi.djvu')).resolves.toBe(72);
+        await expect(getDjvuResolution('/tmp/document.djvu')).resolves.toBe(72);
     });
 });

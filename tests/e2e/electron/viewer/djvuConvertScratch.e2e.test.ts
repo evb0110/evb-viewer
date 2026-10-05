@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {
+    copyFileSync,
     existsSync,
     mkdirSync,
     readdirSync,
@@ -25,10 +26,14 @@ import {
 } from 'vitest';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
     openDjvuInApp,
+    waitForActiveDocumentSource,
     waitForDjvuLoaded,
+    waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 
 // Thousands of sparse pages keep the conversion running long enough to end it midway.
@@ -68,6 +73,7 @@ describe('DjVu conversion scratch', () => {
     const cancelRoot = join(suiteRoot, 'cancel');
     const quitRoot = join(suiteRoot, 'quit');
     const resolutionRoot = join(suiteRoot, 'resolution');
+    const longPathRoot = join(suiteRoot, 'long-path');
     const scratchEnv = (tempRoot: string) => ({
         TMPDIR: tempRoot,
         TMP: tempRoot,
@@ -79,6 +85,7 @@ describe('DjVu conversion scratch', () => {
         mkdirSync(cancelRoot, {recursive: true});
         mkdirSync(quitRoot, {recursive: true});
         mkdirSync(resolutionRoot, {recursive: true});
+        mkdirSync(longPathRoot, {recursive: true});
     });
     const sessions = createElectronE2ESessionFixture({
         sessionName: () => `e2e-djvu-convert-scratch-${Date.now()}`,
@@ -130,9 +137,9 @@ describe('DjVu conversion scratch', () => {
         await openDjvuInApp(session.page, mixedDpiPath, 120_000);
         await waitForDjvuLoaded(session.page, 120_000);
         await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-        const readSourceResolution = () => session.page.evaluate(() => document
-            .querySelector('[role="dialog"] .convert-info-row:nth-child(3) .convert-info-value')
-            ?.textContent?.trim() ?? null);
+        const readSourceResolution = () => session.page.evaluate(() => Array.from(document.querySelectorAll('[role="dialog"] .convert-info-row'))
+            .find(row => row.querySelector('.convert-info-label')?.textContent?.trim() === 'Source resolution')
+            ?.querySelector('.convert-info-value')?.textContent?.trim() ?? null);
         await expect.poll(readSourceResolution, {timeout: 60_000}).toMatch(/\d/u);
         expect(await readSourceResolution()).toBe('72 DPI');
         await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
@@ -141,6 +148,58 @@ describe('DjVu conversion scratch', () => {
             timeoutMs: 30_000,
         });
         await expect.poll(() => session.page.evaluate(() => document.querySelector('[role="dialog"] .convert-info-row')), {timeout: 30_000}).toBeNull();
+        expect(sourceHash()).toBe(hashBefore);
+    }, 300_000);
+    // Issue 987: DjVuLibre on Windows cannot read a source path of 260 or more characters.
+    it('opens, converts and saves a DjVu whose path is longer than 260 characters', async () => {
+        const longSourcePath = join(
+            longPathRoot,
+            ...Array.from({length: 4}, (_, index) => `long-djvu-source-folder-${index}-${'x'.repeat(40)}`),
+            `mixed-dpi-${'y'.repeat(20)}.djvu`,
+        );
+        expect(longSourcePath.length).toBeGreaterThan(260);
+        mkdirSync(join(longSourcePath, '..'), {recursive: true});
+        copyFileSync(mixedDpiPath, longSourcePath);
+        const sourceHash = () => createHash('sha256').update(readFileSync(longSourcePath)).digest('hex');
+        const hashBefore = sourceHash();
+        const savePath = join(longPathRoot, 'converted.pdf');
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-convert-long-path-${Date.now()}`,
+            extraEnv: {
+                ...scratchEnv(longPathRoot),
+                EVB_E2E_OPEN_DIALOG_PATH: longSourcePath,
+            },
+        });
+        await session.page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {timeout: 60_000});
+        await session.page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
+        await clickAsUser(session.page, '.start-open-panel .open-panel-cta');
+        await waitForActiveDocumentSource(session.page, longSourcePath, 120_000);
+        await waitForDjvuLoaded(session.page, 120_000);
+        expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain('2');
+
+        await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
+        const readSourceResolution = () => session.page.evaluate(() => Array.from(document.querySelectorAll('[role="dialog"] .convert-info-row'))
+            .find(row => row.querySelector('.convert-info-label')?.textContent?.trim() === 'Source resolution')
+            ?.querySelector('.convert-info-value')?.textContent?.trim() ?? null);
+        await expect.poll(readSourceResolution, {timeout: 60_000}).toMatch(/\d/u);
+        expect(await readSourceResolution()).toBe('72 DPI');
+        await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .find(element => element.textContent?.includes('Convert DjVu to PDF'))
+            ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+            .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
+            description: 'Convert in the DjVu conversion dialog',
+            timeoutMs: 60_000,
+        });
+
+        // The tab adopts the saved PDF once the conversion finishes.
+        await waitForActiveDocumentSource(session.page, savePath, 180_000);
+        await waitForPdfLoaded(session.page, 120_000);
+        expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain('2');
+        const savedBytes = readFileSync(savePath);
+        expect(savedBytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+        expect((await readPdfAnnotationIndex(savePath)).pageCount).toBe(2);
+        expect(listExportScratch(longPathRoot)).toEqual([]);
         expect(sourceHash()).toBe(hashBefore);
     }, 300_000);
 });

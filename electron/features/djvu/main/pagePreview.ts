@@ -19,8 +19,10 @@ import {
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import {
+    getDjvuNativeToolPaths,
+    runDjvuSourceCommand,
+} from '@electron/features/djvu/main/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
     isNativePdfImageCombineDisabled,
@@ -276,11 +278,11 @@ async function probeDjvuPageSize(
     const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
-    const result = await runNativeCommand(djvused, [
+    const result = await runDjvuSourceCommand(djvused, [
         djvuPath,
         '-e',
         `select ${pageNumber}; size`,
-    ], {
+    ], 0, {
         env: buildDjvuRuntimeEnv(),
         timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
         maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,
@@ -425,11 +427,11 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
 
     const runWindow = async (firstPage: number, lastPage: number) => {
         throwIfAborted(options.signal);
-        const result = await runNativeCommand(djvused, [
+        const result = await runDjvuSourceCommand(djvused, [
             djvuPath,
             '-e',
             createPageSizeWindowScript(firstPage, lastPage),
-        ], {
+        ], 0, {
             env: buildDjvuRuntimeEnv(),
             timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
             maxStdoutBytes: DJVU_PAGE_SIZE_MAX_STDOUT_BYTES,

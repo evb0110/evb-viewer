@@ -10,7 +10,10 @@ import {
     toNamespacedPath,
 } from 'node:path';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
+import {
+    getDjvuNativeToolPaths,
+    runDjvuSourceCommand,
+} from '@electron/features/djvu/main/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -389,6 +392,7 @@ async function _convertDjvuToPdfSingleProcess(
             {
                 env: buildDjvuRuntimeEnv(),
                 signal: quotaMonitor.signal,
+                sourceIndex: args.length - 2,
                 onStderr: (chunk) => {
                     if (!options.onProgress || totalPages <= 0) {
                         return;
@@ -502,6 +506,7 @@ async function convertPageRangeToPdf(
         args,
         {
             env: buildDjvuRuntimeEnv(),
+            sourceIndex: args.length - 2,
             ...(signal ? { signal } : {}),
         },
     );
@@ -651,6 +656,7 @@ export async function renderDjvuPageToImage(
 
     const result = await runProcess(jobId, ddjvu, args, {
         env: buildDjvuRuntimeEnv(),
+        sourceIndex: args.length - 2,
         ...(options.signal ? { signal: options.signal } : {}),
         timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
     });
@@ -710,15 +716,8 @@ export async function cancelConversion(jobId: string) {
     return canceled;
 }
 
-interface IRunProcessOptions {
-    env?: NodeJS.ProcessEnv;
-    timeoutResetsOnStdout?: boolean;
-    onStderr?: (chunk: string) => void;
-    onStdout?: (chunk: string) => void;
-    timeoutMs?: number;
-    maxStderrBytes?: number;
-    signal?: AbortSignal;
-}
+// `sourceIndex` is the position of the DjVu source in `args`, for commands that read one.
+interface IRunProcessOptions extends IRegisteredDjvuProcessOptions {sourceIndex?: number;}
 
 async function runProcess(
     processId: string,
@@ -756,7 +755,9 @@ async function runProcess(
             commandOptions.longLived = true;
             commandOptions.onStdout = options.onStdout;
         }
-        await runNativeCommand(command, args, commandOptions);
+        await (options.sourceIndex === undefined
+            ? runNativeCommand(command, args, commandOptions)
+            : runDjvuSourceCommand(command, args, options.sourceIndex, commandOptions));
         return { success: true };
     } catch (error) {
         if (canceledProcessIds.has(processId)) {

@@ -25,14 +25,16 @@ import type {
     TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
+import {
+    getDjvuNativeToolPaths,
+    runDjvuSourceCommand,
+} from '@electron/features/djvu/main/nativeToolPaths';
 import { parseDjvuInfoLine } from '@electron/features/djvu/main/metadata';
 import {
     renderDjvuPageToImage,
     runRegisteredDjvuProcess,
     withDjvuNativeResourceLease,
 } from '@electron/features/djvu/main/ddjvuConversion';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
@@ -496,7 +498,7 @@ async function readDjvuPageStructures(
             }
             structureCount += 1;
         });
-        await runNativeCommand(djvudump, [djvuPath], {
+        await runDjvuSourceCommand(djvudump, [djvuPath], 0, {
             env: buildDjvuRuntimeEnv(),
             timeoutMs: DJVU_COMPACT_DUMP_TIMEOUT_MS,
             maxStdoutBytes: DJVU_COMPACT_DUMP_MAX_STDOUT_BYTES,

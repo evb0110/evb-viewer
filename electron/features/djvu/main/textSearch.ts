@@ -1,12 +1,14 @@
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
+import {
+    getDjvuNativeToolPaths,
+    runDjvuSourceCommand,
+} from '@electron/features/djvu/main/nativeToolPaths';
 import { createHash } from 'node:crypto';
 import {
     mkdir,
     stat,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import type { IPdfSearchResult } from '@contracts/search';
 import { assembleSearchablePageText } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
@@ -405,11 +407,11 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
         return shouldContinue;
     }});
     try {
-        await runNativeCommand(djvused, [
+        await runDjvuSourceCommand(djvused, [
             filePath,
             '-e',
             options.script ?? 'print-txt',
-        ], {
+        ], 0, {
             env: buildDjvuRuntimeEnv(),
             timeoutMs: DJVU_TEXT_TIMEOUT_MS,
             maxStdoutBytes: DJVU_TEXT_CAPTURED_STDOUT_BYTES,
