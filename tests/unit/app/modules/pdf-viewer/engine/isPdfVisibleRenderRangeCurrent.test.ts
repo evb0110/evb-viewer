@@ -141,4 +141,19 @@ describe('isPdfVisibleRenderRangeCurrent', () => {
             end: 12,
         });
     });
+
+    it('keeps a navigation target from a longer document inside the shorter one', () => {
+        expect(resolvePdfProtectedVisibleRange({
+            visibleRange: {
+                start: 1,
+                end: 1,
+            },
+            navigationTargetPage: 2,
+            viewMode: 'single',
+            totalPages: 1,
+        })).toEqual({
+            start: 1,
+            end: 1,
+        });
+    });
 });

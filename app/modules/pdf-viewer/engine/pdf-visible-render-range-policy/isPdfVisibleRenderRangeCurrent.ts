@@ -1,4 +1,7 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    clampPageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {TPdfViewMode} from '@contracts/shared';
@@ -65,7 +68,7 @@ export function resolvePdfProtectedVisibleRange(
     const visibleRows = expandRangeToCompleteRows(options);
     if (options.navigationTargetPage !== null && options.totalPages > 0) {
         const targetRow = getPageRowBoundsForViewMode({
-            pageNumber: requirePageNumber(options.navigationTargetPage, options.totalPages),
+            pageNumber: clampPageNumber(options.navigationTargetPage, options.totalPages),
             viewMode: options.viewMode,
             totalPages: options.totalPages,
         });
@@ -88,7 +91,7 @@ export function isPdfVisibleRenderRangeCurrent(
         return pageRangesIntersect(options.range, targetRowBounds)
             || pageRangeContainsPage(
                 options.range,
-                requirePageNumber(options.navigationTargetPage, options.totalPages),
+                clampPageNumber(options.navigationTargetPage, options.totalPages),
             );
     }
 
