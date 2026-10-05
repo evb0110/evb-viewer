@@ -96,13 +96,10 @@ export async function rememberReadingView(controller: IWorkspaceDocumentControll
  * replaces the document remembers it before it claims the view, while the
  * view still shows the old place.)
  */
-export function createReadingViewLifecycleHooks(
-    controller: IWorkspaceDocumentController,
-    getOpenSurface: () => IDocumentOpenSurfaceSession | null,
-): IWorkspaceViewerLifecycleHooks {
+export function createReadingViewLifecycleHooks(controller: IWorkspaceDocumentController): IWorkspaceViewerLifecycleHooks {
     return {
         beforeClose: () => rememberReadingView(controller),
-        beforeSourcePresented: (source, pageCount) => seedOpeningSource(getOpenSurface(), source, pageCount),
+        beforeSourcePresented: (source, pageCount) => seedOpeningSource(controller, source, pageCount),
     };
 }
 
@@ -110,25 +107,28 @@ type TOpeningSurface = Pick<IDocumentOpenSurfaceSession, 'navigate'>;
 type TOpeningWorkspace = Pick<IWorkspaceExpose, 'followReader'>;
 
 interface IOpeningReader {
+    openSurface: TOpeningSurface;
     reader: IWorkspaceReaderFollow;
     workspace: TOpeningWorkspace;
     anchor: IPdfSemanticAnchor | null;
 }
 
-// The normal open a view's surface is claimed for, with its reader followed
-// from the open's start. The open's source admission seeds it.
-const openingReaders = new WeakMap<TOpeningSurface, IOpeningReader>();
+// A document's normal open, with the surface of the view it began in and that
+// view's reader, followed from the open's start. Its source admission seeds
+// that view, whichever view of the document is in use by then.
+const openingReaders = new WeakMap<IWorkspaceDocumentController, IOpeningReader>();
 
 /** A normal open starts following its view's reader; a newer open replaces it. */
-export function followOpeningReader(openSurface: TOpeningSurface, workspace: TOpeningWorkspace) {
+export function followOpeningReader(controller: IWorkspaceDocumentController, openSurface: TOpeningSurface, workspace: TOpeningWorkspace) {
     const reader = workspace.followReader?.();
     const opening = reader ? {
+        openSurface,
         reader,
         workspace,
         anchor: null,
     } : null;
     if (opening) {
-        openingReaders.set(openSurface, opening);
+        openingReaders.set(controller, opening);
     }
     return opening;
 }
@@ -142,12 +142,12 @@ export function followOpeningReader(openSurface: TOpeningSurface, workspace: TOp
  * drawn is the reader's.
  */
 export async function seedOpeningSource(
-    openSurface: TOpeningSurface | null,
+    controller: IWorkspaceDocumentController,
     sourceRef: TDocumentRef,
     sourcePageCount: Promise<number | null>,
 ) {
-    const opening = openSurface ? openingReaders.get(openSurface) : undefined;
-    if (!openSurface || !opening) {
+    const opening = openingReaders.get(controller);
+    if (!opening) {
         return;
     }
     let reading: IRecentReadingView | null = null;
@@ -157,21 +157,21 @@ export async function seedOpeningSource(
         BrowserLogger.warn('recent-files', 'The reading view could not be read', error);
     }
     const pageCount = await sourcePageCount;
-    if (!reading || reading.pageCount !== pageCount || opening.reader.moved() || openingReaders.get(openSurface) !== opening) {
+    if (!reading || reading.pageCount !== pageCount || opening.reader.moved() || openingReaders.get(controller) !== opening) {
         return;
     }
     opening.reader.seed({
         ...reading,
         currentPage: null,
     }, sourceRef);
-    openSurface.navigate(createPageNavigationRequest(reading.anchor?.page ?? reading.currentPage, 'restore'));
+    opening.openSurface.navigate(createPageNavigationRequest(reading.anchor?.page ?? reading.currentPage, 'restore'));
     opening.anchor = reading.anchor ?? null;
 }
 
 /** Ends the open's following; a presented seeded open takes its anchor. */
-export async function finishOpeningReader(openSurface: TOpeningSurface, opening: IOpeningReader, presented: boolean) {
-    if (openingReaders.get(openSurface) === opening) {
-        openingReaders.delete(openSurface);
+export async function finishOpeningReader(controller: IWorkspaceDocumentController, opening: IOpeningReader, presented: boolean) {
+    if (openingReaders.get(controller) === opening) {
+        openingReaders.delete(controller);
     }
     await opening.reader.finish(presented ? opening.anchor : null);
 }

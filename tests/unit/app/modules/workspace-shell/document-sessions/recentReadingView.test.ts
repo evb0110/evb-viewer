@@ -12,6 +12,7 @@ import type {
 } from '@contracts/recentReadingView';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const recent = vi.hoisted(() => ({readingView: vi.fn<(source: string) => Promise<IRecentReadingView | null>>()}));
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentRecentFilesCapability: () => ({recentFiles: recent})}));
@@ -69,10 +70,12 @@ function createOpeningView(readerMoved = () => false) {
             view.placedAnchor = placed;
         },
     })};
+    const controller = createWorkspaceDocumentController({tabId: 'tab-a'});
     return {
         openSurface,
         view,
-        opening: followOpeningReader(openSurface, workspace)!,
+        controller,
+        opening: followOpeningReader(controller, openSurface, workspace)!,
         readTarget: () => ({
             source: openSurface.navigationTicket.value?.request.source,
             target: openSurface.navigationTicket.value?.request.target,
@@ -94,10 +97,33 @@ describe('seeding a normal open from its reading view', () => {
         recent.readingView.mockResolvedValue(remembered);
     });
 
+    it('seeds the view its open began in, whichever view of the document is in use when the source arrives', async () => {
+        const opening = createOpeningView();
+        // A split view of the same document, in use by the time the source arrives.
+        const linkedSurface = createDocumentOpenSurfaceSession();
+        linkedSurface.begin({
+            documentId: '/documents/remembered.pdf',
+            documentRevision: 'open-intent:linked',
+            provisional: true,
+        }, null, 1);
+
+        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
+
+        expect(opening.readTarget().target).toEqual({
+            kind: 'page',
+            page: 27,
+        });
+        expect(opening.view.zoom).toBe(1.85);
+        expect(linkedSurface.navigationTicket.value?.request.target).toEqual({
+            kind: 'page',
+            page: 1,
+        });
+    });
+
     it('opens at the remembered page and view, as the opening\'s own restore', async () => {
         const opening = createOpeningView();
 
-        await seedOpeningSource(opening.openSurface, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
 
         expect(opening.readTarget()).toEqual({
             source: 'restore',
@@ -117,7 +143,7 @@ describe('seeding a normal open from its reading view', () => {
     it('keeps the defaults when the admitted source has another page count', async () => {
         const opening = createOpeningView();
 
-        await seedOpeningSource(opening.openSurface, source, Promise.resolve(41));
+        await seedOpeningSource(opening.controller, source, Promise.resolve(41));
 
         expect(opening.readTarget()).toEqual(openingPageOne);
         expect(opening.view.zoomMode).toBe('fit-width');
@@ -126,7 +152,7 @@ describe('seeding a normal open from its reading view', () => {
     it('keeps the view of a reader who moved it while the open ran', async () => {
         const opening = createOpeningView(() => true);
 
-        await seedOpeningSource(opening.openSurface, source, Promise.resolve(40));
+        await seedOpeningSource(opening.controller, source, Promise.resolve(40));
 
         expect(opening.readTarget()).toEqual(openingPageOne);
         expect(opening.view.zoomMode).toBe('fit-width');
@@ -138,11 +164,11 @@ describe('seeding a normal open from its reading view', () => {
             anchor,
         });
         const presented = createOpeningView();
-        await seedOpeningSource(presented.openSurface, source, Promise.resolve(40));
-        await finishOpeningReader(presented.openSurface, presented.opening, true);
+        await seedOpeningSource(presented.controller, source, Promise.resolve(40));
+        await finishOpeningReader(presented.controller, presented.opening, true);
         const failed = createOpeningView();
-        await seedOpeningSource(failed.openSurface, source, Promise.resolve(40));
-        await finishOpeningReader(failed.openSurface, failed.opening, false);
+        await seedOpeningSource(failed.controller, source, Promise.resolve(40));
+        await finishOpeningReader(failed.controller, failed.opening, false);
 
         expect(presented.view.placedAnchor).toEqual(anchor);
         expect(failed.view.placedAnchor).toBeNull();

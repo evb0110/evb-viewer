@@ -17,7 +17,7 @@ import {
 } from 'es-toolkit/array';
 import {isEqual} from 'es-toolkit/predicate';
 import type { IRecentFile } from '@contracts/shared';
-import {RECENT_READING_VIEW_SCHEMA} from '@contracts/recentReadingView';
+import {STORED_RECENT_READING_VIEW_SCHEMA} from '@contracts/recentReadingView';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     inferDocumentRefBackend,
@@ -142,11 +142,7 @@ const recentFileSchema = v.object({
     modifiedAt: v.exactOptional(v.custom<TEpochMs>(isEpochMs)),
     // The source bytes the view was left on, as their working copy was admitted.
     // An unreadable view is forgotten; the entry stays.
-    readingView: v.fallback(v.optional(v.object({
-        ...RECENT_READING_VIEW_SCHEMA.entries,
-        sourceSize: v.number(),
-        sourceModifiedAtMs: v.number(),
-    })), undefined),
+    readingView: v.fallback(v.optional(STORED_RECENT_READING_VIEW_SCHEMA), undefined),
 });
 
 const recentFilesDataSchema = v.pipe(
@@ -594,9 +590,13 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
     return cloneRecentFiles(await refreshRecentFilesCache());
 }
 
-export async function removeRecentFile(originalPath: string) {
-    await mutateRecentFiles((data) => {
-        data.files = data.files.filter(f => f.originalPath !== originalPath);
+/** Removes the entry, writing only when there was one and `isRemovable` still holds inside the operation. */
+export function removeRecentFile(originalPath: string, isRemovable: () => boolean | Promise<boolean> = () => true) {
+    return mutateRecentFiles(async (data) => {
+        if (!data.files.some(file => file.originalPath === originalPath) || !await isRemovable()) {
+            return false;
+        }
+        data.files = data.files.filter(file => file.originalPath !== originalPath);
         return true;
     });
 }
@@ -650,22 +650,12 @@ async function isVolumeMounted(filePath: string) {
  * file or a parent that is not a directory keeps the entry, as the list
  * refresh does, until the user removes it.
  */
-export async function removeRecentFileIfMissing(originalPath: string) {
-    if (!(await getRecentFiles()).some(file => file.originalPath === originalPath)) {
-        return false;
-    }
+export function removeRecentFileIfMissing(originalPath: string) {
     // The check and the removal run as one Recent operation, so a file that
     // reappears or an entry added meanwhile is not lost.
-    return mutateRecentFiles(async (data) => {
-        const inspection = await inspectPath(originalPath);
-        if (inspection.code !== 'ENOENT' || !await isVolumeMounted(originalPath)) {
-            return false;
-        }
-        const files = data.files.filter(file => file.originalPath !== originalPath);
-        const removed = files.length !== data.files.length;
-        data.files = files;
-        return removed;
-    });
+    return removeRecentFile(originalPath, async () => (
+        (await inspectPath(originalPath)).code === 'ENOENT' && await isVolumeMounted(originalPath)
+    ));
 }
 
 export async function clearRecentFiles() {

@@ -429,6 +429,18 @@ describe('native window close handshake', () => {
         expect(harness.webContentsHandlers.get('did-start-navigation')?.size ?? 0).toBe(0);
     });
 
+    it('removes its renderer listeners when the destroyed window refuses property reads', () => {
+        const harness = createHarness();
+        // Electron throws "Object has been destroyed" for getters by 'closed'.
+        Object.defineProperty(harness.window, 'webContents', {get() {
+            throw new TypeError('Object has been destroyed');
+        }});
+
+        expect(() => harness.emitWindowEvent('closed')).not.toThrow();
+        expect(harness.webContentsHandlers.get('render-process-gone')?.size ?? 0).toBe(0);
+        expect(harness.webContentsHandlers.get('did-start-navigation')?.size ?? 0).toBe(0);
+    });
+
     it('keeps the window open and logs an unavailable renderer decision', () => {
         const harness = createHarness();
 

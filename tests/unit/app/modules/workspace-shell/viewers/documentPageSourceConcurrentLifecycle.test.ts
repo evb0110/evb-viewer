@@ -159,6 +159,25 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+// A 900x700 viewport whose page images have loaded at 860x1146.
+function layOutLoadedPages() {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        bottom: 1_146,
+        height: 1_146,
+        left: 0,
+        right: 860,
+        top: 0,
+        width: 860,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+    });
+}
+
 describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     it('publishes prepared opening page count before the page source resolves', async () => {
         const documentRef = '/documents/large.djvu' as TDocumentRef;
@@ -205,21 +224,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     });
 
     it('opens a DjVu at the page its opening was sent to before the source arrived, not at page 1', async () => {
-        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
-        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
-        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
-        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-            bottom: 1_146,
-            height: 1_146,
-            left: 0,
-            right: 860,
-            top: 0,
-            width: 860,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        });
+        layOutLoadedPages();
         mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
         mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path, 5));
         const documentRef = '/documents/remembered.djvu' as TDocumentRef;
@@ -237,13 +242,14 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
                 committedPages.push(page);
             }
         }, {flush: 'sync'});
+        const settle = createWorkspaceOpenSettleHarness();
         const root = document.createElement('div');
         document.body.append(root);
         const app = createApp(createFeaturePackHost(
             surface,
             documentRef,
             ref<unknown[]>([]),
-            createWorkspaceOpenSettleHarness(),
+            settle,
             ref(false),
         ));
         app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
@@ -256,26 +262,14 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         };
         mountedApps.add(unmount);
 
-        await vi.waitFor(() => expect(committedPages.length).toBeGreaterThan(0));
+        // The opening settles on the restored page; no later commit moves it.
+        await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
         expect(committedPages[0]).toBe(3);
+        expect(surface.viewportSession.value.committedPage).toBe(3);
     });
 
     it('settles a cold second workspace after its opening image is relocated', async () => {
-        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
-        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
-        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
-        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-            bottom: 1_146,
-            height: 1_146,
-            left: 0,
-            right: 860,
-            top: 0,
-            width: 860,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        });
+        layOutLoadedPages();
         mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
         mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path));
 
@@ -382,21 +376,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     });
 
     it('restores a remounted successor after its predecessor wedges mid-open', async () => {
-        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
-        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
-        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
-        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-            bottom: 1_146,
-            height: 1_146,
-            left: 0,
-            right: 860,
-            top: 0,
-            width: 860,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        });
+        layOutLoadedPages();
         const predecessorRef = '/documents/wedged.djvu' as TDocumentRef;
         const successorRef = '/documents/successor.djvu' as TDocumentRef;
         let resolvePredecessorMetric!: () => void;

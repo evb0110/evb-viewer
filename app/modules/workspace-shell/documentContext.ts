@@ -29,10 +29,7 @@ import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type {
-    IWorkspaceDocumentController,
-    IWorkspaceOpenRequest,
-} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -82,9 +79,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const isOpeningDocument = computed(() => openingTransaction.value !== null);
     const pendingDocumentPath = computed(() => openingTransaction.value?.target?.originalPath ?? null);
     const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
-    const views = createDocumentViews();
+    const views = createDocumentViews(controller);
     const {
-        viewPorts, commandView, commandViewRef, loadedView,
+        viewPorts, commandView, commandViewRef, loadedView, runDocumentOpen,
     } = views;
     const idleOpenSurface = createDocumentOpenSurfaceSession();
     const commandOpenSurface = {
@@ -126,10 +123,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const resetSearchCaches = () => viewPorts.value.forEach(port => port.search.resetSearchCache());
     const closeSearches = () => viewPorts.value.forEach(port => port.search.closeSearch());
     registerViewInUse(controller, () => views.commandTabId.value);
-    function runDocumentOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
-        const port = commandView.value;
-        return port ? port.runDocumentOpen(request, run) : controller.runOpen(request, run);
-    }
     function emitOpenInNewTab(result: TDocumentRef | TOpenFileResult) {
         commandView.value?.emitOpenInNewTab(result);
     }
@@ -137,7 +130,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
-        createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller, () => commandView.value?.openSurface ?? null)].concat(driver.createLifecycleHooks(context)),
+        createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
     });

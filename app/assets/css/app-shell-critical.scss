@@ -169,15 +169,14 @@ body {
     color: var(--ui-text-dimmed);
 }
 
+/* The toolbar inside owns its height; an empty host still keeps one row. */
 .editor-global-toolbar-shell,
 .editor-global-toolbar-host {
     display: flex;
     box-sizing: border-box;
     flex-direction: column;
-    flex: 0 0 var(--app-toolbar-row-height, 3.5rem);
-    height: var(--app-toolbar-row-height, 3.5rem);
+    flex: 0 0 auto;
     min-height: var(--app-toolbar-row-height, 3.5rem);
-    max-height: var(--app-toolbar-row-height, 3.5rem);
 }
 
 .toolbar {

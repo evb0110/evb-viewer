@@ -39,9 +39,13 @@ export const useNativeWindowCloseHandshake = (
         return getDocuments().filter(session => session.snapshot.value.dirty);
     }
     // A close that goes ahead first remembers where each document was left,
-    // after any save has published its new source.
+    // after any save has published its new source, one document at a time in
+    // the order the window holds its tabs: of two tabs that opened one file on
+    // their own, the later one's place is the one kept.
     async function closeWith(decision: 'save' | 'discard'): Promise<TWindowCloseDecision> {
-        await Promise.all(getDocuments().map(session => rememberReadingView(session)));
+        for (const session of getDocuments()) {
+            await rememberReadingView(session);
+        }
         return decision;
     }
 

@@ -33,8 +33,10 @@ import {
 import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import { readViewportPageObservation } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
+    activatePaneByTab,
     activateWorkspaceTab,
     createNewWorkspaceTab,
+    openNewPane,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     getWorkspaceToolbarSnapshot,
@@ -1048,6 +1050,13 @@ async function waitForSidebarFitSettled(session: IElectronE2ESession) {
     await waitForFitSettlement(session, 1);
 }
 
+// A press on the resizer and a release where it was pressed, as a person
+// clicks it without dragging.
+async function pressAndReleaseActiveSidebarResizerAsUser(session: IElectronE2ESession) {
+    await clickAsUser(session.page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper:not(.is-closed) .sidebar-resizer');
+    await waitForAnimationFrames(session.page, 4);
+}
+
 async function dragActiveSidebarResizerAsUser(session: IElectronE2ESession, deltaX: number) {
     const start = await evaluateInPage(session.page, () => {
         const rect = document.querySelector<HTMLElement>(
@@ -1845,5 +1854,41 @@ describe('standard PDF.js fit-mode continuity', () => {
             reopened,
             reopenedGeometry: await readActiveFitGeometry(session),
         })).toEqual(dragged);
+    }, 180_000);
+
+    it('keeps a dragged sidebar width when a narrowed pane only presses and releases its resizer', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createMultiPageTextFixturePdf(`standard-pdf-sidebar-narrow-${Date.now()}.pdf`, 6);
+        await openPdfInApp(session.page, pdfPath, OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page, OPEN_TIMEOUT_MS);
+        await clickFitWidthWithTrustedInput(session);
+        await waitForSidebarFitSettled(session);
+        await dragActiveSidebarResizerAsUser(session, 100);
+        expect((await readActiveSidebarPresentation(session)).sidebarWidth).toBe(372);
+        const readActivePaneId = () => evaluateInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? ''
+        ));
+        const documentPaneId = await readActivePaneId();
+
+        // An empty pane beside it narrows the document's pane, which then
+        // holds the sidebar below the width the reader chose.
+        await openNewPane(session.page, 'right');
+        const emptyPaneId = await readActivePaneId();
+        await activatePaneByTab(session.page, documentPaneId);
+        await expect.poll(async () => (await readActiveSidebarPresentation(session)).sidebarWidth, {timeout: SETTLE_TIMEOUT_MS})
+            .toBeLessThan(372);
+        const narrowed = (await readActiveSidebarPresentation(session)).sidebarWidth;
+
+        // A press and release on the resizer, without moving, changes nothing.
+        await pressAndReleaseActiveSidebarResizerAsUser(session);
+        expect((await readActiveSidebarPresentation(session)).sidebarWidth).toBe(narrowed);
+
+        // With the empty pane closed the sidebar is back at the reader's width.
+        await activatePaneByTab(session.page, emptyPaneId);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForFunctionInPage(session.page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: SETTLE_TIMEOUT_MS});
+        await expect.poll(async () => (await readActiveSidebarPresentation(session)).sidebarWidth, {timeout: SETTLE_TIMEOUT_MS})
+            .toBe(372);
     }, 180_000);
 });

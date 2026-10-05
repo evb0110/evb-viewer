@@ -60,6 +60,23 @@ describe('packaged automation work root containment', () => {
     });
 });
 
+// The Windows helper receipt is 'live-root-tree' only when this result is true.
+describe('process tree termination receipt', () => {
+    it('reports termination for a live root and none once the root is gone', async () => {
+        const child = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000)',
+        ], {stdio: 'ignore'});
+        const pid = child.pid!;
+        const exited = new Promise(resolveExit => child.once('exit', resolveExit));
+
+        expect(await killProcessTree(pid, 300)).toBe(true);
+        await exited;
+        expect(isProcessAlive(pid)).toBe(false);
+        expect(await killProcessTree(pid, 300)).toBe(false);
+    });
+});
+
 // The fixture is a shell script, so Windows lifecycle is not exercised here.
 describe.skipIf(process.platform === 'win32')('packaged automation runner lifecycle', () => {
     const roots: string[] = [];

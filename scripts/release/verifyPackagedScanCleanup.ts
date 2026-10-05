@@ -779,11 +779,13 @@ async function run() {
     const {child} = owned;
     const appLogPath = path.join(owned.logDirectory, APP_LOG_FILE_NAME);
     // A signal ends the run through the same owned stop as every other path.
+    // It stays registered, so a repeated signal joins the idempotent stop
+    // instead of reaching Node's default exit mid-cleanup.
     const stopOnSignal = () => {
         void owned.stop({force: true}).catch(error => console.error(error));
     };
-    process.once('SIGINT', stopOnSignal);
-    process.once('SIGTERM', stopOnSignal);
+    process.on('SIGINT', stopOnSignal);
+    process.on('SIGTERM', stopOnSignal);
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', data => {
@@ -921,6 +923,10 @@ async function run() {
                     scaleOnly: true,
                 }, null, 2)}\n`,
             );
+            // Windows reports unsupported as a stated gap; a supported platform must measure.
+            if (resourceSummary.status === 'failed') {
+                throw new Error(`Packaged scan-cleanup resource sampling failed: ${resourceSummary.reason}`);
+            }
             console.log(
                 'Packaged scan-cleanup scale verification passed: '
                 + `${String(args.expectedPageCount)} pages analyzed, `

@@ -24,11 +24,7 @@ import {
 } from '@app/types/documentOpenOutcome';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
-import {
-    finishOpeningReader,
-    followOpeningReader,
-    rememberReadingView,
-} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -193,12 +189,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             }
         }
         const hadDocument = identityHasDocument(snapshot.value.identity);
-        // A normal open starts where its reader left it, unless they move
-        // first: its source admission seeds the reader followed from here.
-        const workspace = view.mountedWorkspace.value;
-        const opening = request.kind === 'open' && !request.carriesView && workspace
-            ? followOpeningReader(options.openSurface, workspace)
-            : null;
         let transactionId = null as string | null;
         let presented = false;
         try {
@@ -217,12 +207,9 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             });
         } finally {
             // However the open ends (shown, failed, cancelled, superseded or
-            // thrown), it gives back its surface claim and stops following.
+            // thrown), it gives back its surface claim.
             if (!presented && transactionId && options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`) {
                 options.openSurface.reset();
-            }
-            if (opening) {
-                await finishOpeningReader(options.openSurface, opening, presented);
             }
         }
         // An open that fails on an empty tab gives the tab back to Start,

@@ -264,7 +264,12 @@ export function resolveScanCleanupProcessedPages(
 type IScanCleanupToast = IFailureToastTarget;
 
 export interface IScanCleanupCoordinatorDependencies {
-    openGeneratedPdf: (path: string, signal: AbortSignal) => Promise<boolean>;
+    /**
+     * Opens a run's output. A run finishing now (`foreground`) shows it; an
+     * output replayed from the completed journal is placed behind the tab the
+     * reader is in.
+     */
+    openGeneratedPdf: (path: string, signal: AbortSignal, foreground: boolean) => Promise<boolean>;
     saveActiveDocumentAs: () => Promise<unknown>;
     openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
     t: TTranslateFn;
@@ -398,7 +403,9 @@ async function openGeneratedPdfWithHandoff(
     let opened = false;
     try {
         opened = await settleGeneratedPdfHandoff(
-            openGeneratedPdf(outputPdfPath, handoff.controller.signal),
+            // A handoff with a job is the run finishing now; without one it is
+            // the completed journal's replay.
+            openGeneratedPdf(outputPdfPath, handoff.controller.signal, jobId !== null),
             handoff.controller.signal,
         );
     } catch {

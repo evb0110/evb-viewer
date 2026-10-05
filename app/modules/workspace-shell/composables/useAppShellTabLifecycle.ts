@@ -479,8 +479,12 @@ export const useAppShellTabLifecycle = (
             return;
         }
         // The place this view was left at is remembered before the view, or a
-        // cold document no workspace will close, goes.
-        await rememberReadingView(getDocumentSession(tabId), tabId);
+        // cold document no workspace will close, goes (the hand-off below can
+        // unmount it). A document saved as it closes stays mounted, and its
+        // close remembers the place against the bytes the save wrote.
+        if (!shouldPersistBeforeClose) {
+            await rememberReadingView(getDocumentSession(tabId), tabId);
+        }
 
         if (!shouldDeferCrossPaneHandoff) {
             await handoffActiveTabBeforeClose(paneId, tabId);

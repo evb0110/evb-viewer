@@ -201,6 +201,30 @@ describe('useSidebarResize', () => {
         expect(resize.sidebarContentWidth.value).toBe(presentedWidth - 10);
     });
 
+    it('keeps the preferred width when a constrained sidebar is pressed and released without moving', async () => {
+        const handlers = new Map<string, (event: PointerEvent) => void>();
+        mocks.useEventListener.mockImplementation((_target, event, handler) => {
+            handlers.set(String(event), handler as (event: PointerEvent) => void);
+            return vi.fn();
+        });
+        const showSidebar = ref(true);
+        const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
+        const resize = useSidebarResize({
+            showSidebar,
+            initialWidth: 372,
+        });
+        resize.setSidebarContainerWidth(SIDEBAR.MIN_VIEWER_WIDTH + 220);
+
+        resize.startSidebarResize(createPointerEventFixture({
+            clientX: 400,
+            preventDefault: vi.fn(),
+        }));
+        handlers.get('pointerup')?.(createPointerEventFixture({clientX: 400}));
+        resize.setSidebarContainerWidth(1200);
+
+        expect(resize.sidebarContentWidth.value).toBe(372);
+    });
+
     it('ignores resize starts while the sidebar is closed', async () => {
         const showSidebar = ref(false);
         const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');

@@ -5,6 +5,7 @@ import {
     realpathSync,
     readdirSync,
     rmSync,
+    statSync,
     unlinkSync,
     utimesSync,
     writeFileSync,
@@ -226,6 +227,14 @@ describe('recentFiles persistence', () => {
             viewRotation: 0 as const,
         };
 
+        function recentFilesJsonPath() {
+            return join(userDataDir, 'recentFiles.json');
+        }
+
+        function storedReadingViews() {
+            return JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files.map((file: {readingView?: unknown}) => file.readingView);
+        }
+
         async function openWorkingCopy(originalPath: string, name: string) {
             const workingDir = join(userDataDir, 'evb-viewer', `pdf-work-${name}`);
             mkdirSync(workingDir, {recursive: true});
@@ -329,7 +338,7 @@ describe('recentFiles persistence', () => {
             const closeFirst = await openDjvu(djvuPath, 42);
             await recentFiles.addRecentFile(djvuPath, 42);
             await readingViews.rememberRecentReadingView(djvuPath, readingView, 7);
-            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            expect(storedReadingViews()).toEqual([undefined]);
             await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
             closeFirst();
             expect(await readingViews.getRecentReadingView(djvuPath, 42)).toBeNull();
@@ -349,7 +358,7 @@ describe('recentFiles persistence', () => {
             await recentFiles.addRecentFile(djvuPath, 42);
             writeFileSync(djvuPath, 'replaced with longer djvu bytes');
             await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
-            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            expect(storedReadingViews()).toEqual([undefined]);
             closeFirst();
 
             writeFileSync(djvuPath, 'first djvu bytes');
@@ -375,7 +384,7 @@ describe('recentFiles persistence', () => {
             expect(await readingViews.getRecentReadingView(djvuPath, 42)).toBeNull();
             closeSecond();
             await readingViews.rememberRecentReadingView(djvuPath, readingView, 42);
-            expect(await recentFiles.getRecentFiles()).toEqual([expect.not.objectContaining({readingView: expect.anything()})]);
+            expect(storedReadingViews()).toEqual([undefined]);
             closeFirst();
 
             const closeFresh = await openDjvu(djvuPath, 42);
@@ -384,29 +393,90 @@ describe('recentFiles persistence', () => {
             closeFresh();
         });
 
-        it('forgets an unreadable stored view and keeps its entry', async () => {
-            const originalPath = writeFixture('stored.pdf');
-            writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
-                version: 1,
-                files: [{
-                    originalPath,
-                    backend: 'electron',
-                    fileName: 'stored.pdf',
-                    timestamp: 1,
-                    fileSize: 10,
-                    readingView: {
-                        ...readingView,
-                        currentPage: -3,
-                    },
-                }],
-            }));
+        it.each([
+            [
+                'a negative page',
+                {currentPage: -3},
+            ],
+            [
+                'a page past the document',
+                {currentPage: 41},
+            ],
+            [
+                'an anchor past the document',
+                {anchor: {
+                    page: 41,
+                    pageXFraction: 0,
+                    pageYFraction: 0,
+                    viewportXFraction: 0,
+                    viewportYFraction: 0,
+                    affinity: 'start',
+                }},
+            ],
+        ])('forgets a stored view with %s over unchanged bytes and keeps its entry', async (_label, edit) => {
+            const originalPath = writeFixture('stored.pdf', 'stored bytes');
             const {
                 recentFiles, readingViews, workingCopyStore,
             } = await load();
             const workingPath = await openWorkingCopy(originalPath, 'stored');
+            await recentFiles.addRecentFile(workingPath, 42);
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            expect(await readingViews.getRecentReadingView(workingPath, 42)).toEqual(readingView);
 
-            expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+            // Only the page changes; the source witness still matches the bytes.
+            const stored = JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8'));
+            Object.assign(stored.files[0].readingView, edit);
+            writeFileSync(recentFilesJsonPath(), JSON.stringify(stored));
+
             expect(await readingViews.getRecentReadingView(workingPath, 42)).toBeNull();
+            expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+        });
+
+        it.each([
+            [
+                'a negative source size',
+                '"sourceSize":-1',
+            ],
+            [
+                'a fractional source size',
+                '"sourceSize":1.5',
+            ],
+            [
+                'an infinite modification time',
+                '"sourceModifiedAtMs":1e400',
+            ],
+        ])('drops a stored view with %s and keeps its entry', async (_label, witness) => {
+            const originalPath = writeFixture('witness.pdf', 'witness bytes');
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const workingPath = await openWorkingCopy(originalPath, 'witness');
+            await recentFiles.addRecentFile(workingPath, 42);
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+            const [field] = witness.split(':');
+            const stored = readFileSync(recentFilesJsonPath(), 'utf8');
+            writeFileSync(recentFilesJsonPath(), stored.replace(new RegExp(`${field}:[^,}]+`, 'u'), witness));
+
+            // The next write saves what the store admitted.
+            await recentFiles.addRecentFile(workingPath, 42);
+            expect(storedReadingViews()).toEqual([undefined]);
+            expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([originalPath]);
+            workingCopyStore.clearWorkingCopyOriginalPaths();
+        });
+
+        it('restores a view left on a source whose modification time has a fraction', async () => {
+            const originalPath = writeFixture('fractional.pdf', 'fractional bytes');
+            utimesSync(originalPath, 1_700_000_000.25, 1_700_000_000.123_456);
+            const {
+                recentFiles, readingViews, workingCopyStore,
+            } = await load();
+            const workingPath = await openWorkingCopy(originalPath, 'fractional');
+            await recentFiles.addRecentFile(workingPath, 42);
+            await readingViews.rememberRecentReadingView(workingPath, readingView, 42);
+
+            expect(Number.isInteger(JSON.parse(readFileSync(recentFilesJsonPath(), 'utf8')).files[0].readingView.sourceModifiedAtMs)).toBe(false);
+            expect(await readingViews.getRecentReadingView(workingPath, 42)).toEqual(readingView);
             workingCopyStore.clearWorkingCopyOriginalPaths();
         });
     });
@@ -696,6 +766,13 @@ describe('recentFiles persistence', () => {
             missingPath,
             visibleB,
         ]);
+
+        // Removing an entry that is not there leaves the saved file untouched.
+        const savedBytes = readFileSync(storagePath, 'utf-8');
+        utimesSync(storagePath, 1_000, 1_000);
+        await recentFiles.removeRecentFile(visibleA);
+        expect(readFileSync(storagePath, 'utf-8')).toBe(savedBytes);
+        expect(statSync(storagePath).mtimeMs).toBe(1_000_000);
     });
 
     it('shares one cold refresh across concurrent getters and cache initialization', async () => {

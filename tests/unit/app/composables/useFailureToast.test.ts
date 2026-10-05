@@ -74,6 +74,7 @@ describe('useFailureToast', () => {
     });
 
     afterEach(() => {
+        vi.doUnmock('@app/composables/useTypedI18n');
         vi.unstubAllGlobals();
     });
 

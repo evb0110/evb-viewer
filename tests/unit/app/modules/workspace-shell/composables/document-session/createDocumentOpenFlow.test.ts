@@ -397,6 +397,50 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
     });
 
+    it('admits no reading place for a staged copy that fails validation', async () => {
+        const harness = createOpenFlowHarness();
+        const admitted: unknown[] = [];
+        const openFlow = createDocumentOpenFlow(harness.state, {
+            ...harness.deps,
+            admitOpeningSource: async (source) => {
+                admitted.push(source);
+            },
+        });
+        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(null);
+        mocks.documentPdf.validatePdfPath.mockResolvedValueOnce({
+            isValid: false,
+            tool: 'qpdf',
+            errors: ['damaged xref table'],
+            warnings: [],
+        });
+
+        await expect(openFlow.openFile({
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/remembered-corrupt.pdf'),
+            workingPath: requireDocumentRef('/tmp/remembered-corrupt-working.pdf'),
+        })).resolves.toMatchObject({status: 'failed'});
+
+        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith('/tmp/remembered-corrupt-working.pdf', {purpose: 'opening'});
+        expect(admitted).toEqual([]);
+    });
+
+    it('keeps the opened document\'s source through a history step that moves to a new copy', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        // The document as an open left it.
+        state.openedWorkingCopyPath.value = requireDocumentRef('/tmp/edited-working.pdf');
+
+        await openFlow.applyLoadedPdfState(requireDocumentRef('/tmp/edited-history-copy.pdf'), {
+            pdfData: null,
+            pdfSrc: new Blob([], {type: 'application/pdf'}),
+        }, {preserveHistory: true});
+
+        expect(state.workingCopyPath.value).toBe('/tmp/edited-history-copy.pdf');
+        expect(state.openedWorkingCopyPath.value).toBe('/tmp/edited-working.pdf');
+    });
+
     it('keeps a recovered ordinary PDF dirty without requiring Save As', async () => {
         const {
             deps,

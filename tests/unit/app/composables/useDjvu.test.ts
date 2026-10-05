@@ -334,6 +334,12 @@ describe('useDjvu', () => {
             await expect(djvu.openDjvuFile('/canceled.djvu')).resolves.toBe(false);
             expect(browserLoggerMock.error).not.toHaveBeenCalled();
             expect(toastAddMock).not.toHaveBeenCalled();
+            // The cancelled open no longer shows as loading.
+            expect(djvu.isLoadingPages.value).toBe(false);
+            expect(djvu.loadingProgress.value).toEqual({
+                current: 0,
+                total: 0,
+            });
         });
 
         it('sets loading state for multi-page files', async () => {

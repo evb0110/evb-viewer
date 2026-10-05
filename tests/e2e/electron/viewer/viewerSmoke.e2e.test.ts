@@ -1,6 +1,7 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
@@ -7202,7 +7203,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(before.blue.x).toBeGreaterThan(0.6);
         const zoomBefore = (await getWorkspaceToolbarSnapshot(session.page))?.effectiveZoom;
 
-        await requireWorkspaceCommand(session.page, 'setViewRotation', [90]);
+        // View > Rotate View Clockwise, as a person chooses it.
+        await activateMenuItemAsUser(session.page, {id: 'rotate-view-clockwise'});
         await waitForFunctionInPage(session.page, () => {
             const pageElement = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .page_container[data-page="1"]',

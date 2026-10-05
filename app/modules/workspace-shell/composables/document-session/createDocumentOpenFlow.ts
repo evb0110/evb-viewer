@@ -357,18 +357,21 @@ export function createDocumentOpenFlow(
                         modifiedAt,
                     };
             }, () => null);
+        // The copy is admitted once it validates, with its own page count,
+        // read by main from the start. A recovered copy reopens at its
+        // checkpoint's view instead.
+        const {admitOpeningSource} = deps;
+        const pageCount = admitOpeningSource && result.recoveryDirtyBaseline !== true
+            ? readPdfPageShape(result.workingPath)?.answer.then(shape => shape?.pageCount ?? null) ?? Promise.resolve(null)
+            : null;
+        const admit = admitOpeningSource && pageCount ? () => admitOpeningSource(result.workingPath, pageCount) : undefined;
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
                 validationRevision,
-                // The page count is the admitted copy's own, read by main. A
-                // recovered copy reopens at its checkpoint's view instead.
-                admission: result.recoveryDirtyBaseline === true ? undefined : deps.admitOpeningSource?.(
-                    result.workingPath,
-                    readPdfPageShape(result.workingPath)?.answer.then(shape => shape?.pageCount ?? null) ?? Promise.resolve(null),
-                ),
+                admit,
                 resetSourceBeforeCommit: true,
             });
         } catch (error) {
@@ -682,7 +685,11 @@ export function createDocumentOpenFlow(
         }
 
         state.workingCopyPath.value = path;
-        state.openedWorkingCopyPath.value = path;
+        // A history step's copy is the same opened document; only a new load
+        // names the source its view defaults follow.
+        if (!options?.preserveHistory) {
+            state.openedWorkingCopyPath.value = path;
+        }
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
         state.pdfReloadSrc.value = nextState.pdfSrc;
@@ -843,7 +850,7 @@ export function createDocumentOpenFlow(
         openRequestId?: number;
         resetSourceBeforeCommit?: boolean;
         validationRevision?: Promise<IPdfValidationSourceRevision | null>;
-        admission?: Promise<void> | undefined;
+        admit?: (() => Promise<void>) | undefined;
     }) {
         const requestId = deps.loadEpoch.begin();
         const traceContext = {
@@ -931,7 +938,10 @@ export function createDocumentOpenFlow(
             });
             throw new DocumentOpenRefusalError('invalid-pdf', `Staged PDF failed ${validation.tool} validation`);
         }
-        await opts?.admission;
+        if (!isCurrent()) {
+            return;
+        }
+        await opts?.admit?.();
         if (!isCurrent()) {
             return;
         }

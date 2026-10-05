@@ -73,10 +73,10 @@ async function stopOwnedProcessGroup(pid: number) {
 export type TOwnedHelperCleanup = 'process-group' | 'live-root-tree' | 'root-exited-helpers-unverified';
 
 async function stopOwnedProcesses(pid: number | undefined, force: boolean): Promise<TOwnedHelperCleanup> {
-    const rootAliveAtStop = pid !== undefined && isProcessAlive(pid);
+    let treeStopped = false;
     let treeStopError: Error | undefined;
     try {
-        if (pid && rootAliveAtStop) await killProcessTree(pid, 1_500, {force});
+        if (pid) treeStopped = await killProcessTree(pid, 1_500, {force});
     } catch (error) {
         treeStopError = error instanceof Error ? error : new Error(String(error));
         console.error('Process-tree shutdown failed; continuing owned-group cleanup.', error);
@@ -87,7 +87,7 @@ async function stopOwnedProcesses(pid: number | undefined, force: boolean): Prom
         throw new Error('Packaged automation remained alive after cleanup; preserving its bundle.');
     }
     if (process.platform !== 'win32') return 'process-group';
-    return rootAliveAtStop ? 'live-root-tree' : 'root-exited-helpers-unverified';
+    return treeStopped ? 'live-root-tree' : 'root-exited-helpers-unverified';
 }
 
 async function resolveOwnedLogDirectory(workDirectory: string) {

@@ -63,15 +63,18 @@ export const useSidebarResize = (deps: {
         const nextWidth = resizeStartWidth + deltaX;
 
         const clampedWidth = clamp(nextWidth, SIDEBAR.MIN_WIDTH, effectiveMaxWidth.value);
-
-        if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
-            BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
-                previousWidth: Math.round(sidebarWidth.value),
-                nextWidth: Math.round(clampedWidth),
-                deltaX: Math.round(deltaX),
-                pointerX: Math.round(event.clientX),
-            });
+        // A drag that does not change the presented width (a press and release
+        // on a sidebar a narrow pane holds below its preference) leaves the
+        // preference alone.
+        if (Math.round(clampedWidth) === Math.round(sidebarContentWidth.value)) {
+            return;
         }
+        BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
+            previousWidth: Math.round(sidebarWidth.value),
+            nextWidth: Math.round(clampedWidth),
+            deltaX: Math.round(deltaX),
+            pointerX: Math.round(event.clientX),
+        });
         sidebarWidth.value = clampedWidth;
     }
 

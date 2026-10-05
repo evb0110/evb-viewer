@@ -482,7 +482,21 @@ describe('Electron E2E - OCR journey', () => {
     }, 300_000);
 
     // #913: the OCR run belongs to the document, not to the view that started it.
-    it('keeps an OCR run going when the view that started it is closed, and shows it in the other view', async () => {
+    // The narrow window reaches OCR through More tools; the running run must stay reachable there.
+    it.each([
+        {
+            width: 1440,
+            height: 900,
+            viaOverflow: false,
+        },
+        {
+            width: 900,
+            height: 672,
+            viaOverflow: true,
+        },
+    ])('keeps an OCR run going when the view that started it is closed, and shows it in the other view at $width px', async ({
+        width, height, viaOverflow,
+    }) => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
@@ -493,8 +507,8 @@ describe('Electron E2E - OCR journey', () => {
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await session.command('windowResize', [
-            1440,
-            900,
+            width,
+            height,
         ]);
         await splitActiveTabFromTabMenu(page, 'right');
         const [
@@ -534,13 +548,33 @@ describe('Electron E2E - OCR journey', () => {
             await clickAsUser(page, `${paneHost(rightPane!)} .tab.is-active .tab-close`);
             await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
 
-            // The left view shows the run under way, and it finishes.
-            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            // The left view shows the run under way.
+            if (viaOverflow) {
+                await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+                const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
+                    item.textContent?.trim() === 'OCR'
+                    && !item.hasAttribute('data-disabled')
+                    && item.getAttribute('aria-disabled') !== 'true'
+                    && item.checkVisibility()
+                )), {timeout: 30_000});
+                await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+            } else {
+                await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            }
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await waitForFunctionInPage(page, () => {
                 const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
                 return /Processing page \d+/u.test(text);
             }, {timeout: 30_000});
+            if (viaOverflow) {
+                // The user cancels the run from the narrow window, and OCR can be started again.
+                await clickVisibleButton(page, '[role="dialog"]', 'Cancel OCR');
+                await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).some(button => (
+                    button.textContent?.trim() === 'Start OCR' && !button.disabled && button.checkVisibility()
+                )), {timeout: 30_000});
+                return;
+            }
+            // It finishes.
             await waitForFunctionInPage(page, () => (
                 document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
             ), {timeout: OCR_TIMEOUT_MS});

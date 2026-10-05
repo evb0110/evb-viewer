@@ -15,6 +15,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     ISettingsData,
     TFitMode,
+    TPdfViewRotation,
     TZoomMode,
 } from '@contracts/shared';
 import {
@@ -44,6 +45,7 @@ function createDefaultsSetup(
         shapeColor: '#666666',
     });
     const viewMode = ref<ISettingsData['defaultViewMode']>('facing');
+    const viewRotation = ref<TPdfViewRotation>(0);
     const continuousScroll = ref(false);
     const fitMode = ref<TFitMode>('height');
     const zoom = ref(2);
@@ -56,6 +58,7 @@ function createDefaultsSetup(
         appSettings,
         annotationSettings,
         viewMode,
+        viewRotation,
         continuousScroll,
         fitMode,
         zoom,
@@ -74,6 +77,7 @@ function createDefaultsSetup(
         appSettings,
         annotationSettings,
         viewMode,
+        viewRotation,
         continuousScroll,
         fitMode,
         zoom,
@@ -135,7 +139,7 @@ describe('useWorkspaceViewerDefaults', () => {
             zoomMode: 'custom',
             viewMode: 'single',
             continuousScroll: true,
-            viewRotation: 0,
+            viewRotation: 90,
         }, source);
 
         try {
@@ -149,10 +153,14 @@ describe('useWorkspaceViewerDefaults', () => {
                 setup.zoomMode.value,
                 setup.zoom.value,
                 setup.viewMode.value,
+                setup.continuousScroll.value,
+                setup.viewRotation.value,
             ]).toEqual([
                 'custom',
                 1.85,
                 'single',
+                true,
+                90,
             ]);
 
             // An open seeded for one source that shows another takes that one's defaults.
@@ -193,6 +201,88 @@ describe('useWorkspaceViewerDefaults', () => {
             setup.documentSourceKey.value = '/docs/book.djvu';
             await nextTick();
             expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('leaves the shown document\'s view as it is while a seed for the next source waits, and after it is withdrawn', async () => {
+        const setup = createDefaultsSetup(
+            {defaultZoomPreset: 'fit-width'},
+            {initialDocumentSourceKey: '/tmp/shown-working.pdf'},
+        );
+
+        try {
+            const shown = [
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ];
+            const withdraw = setup.defaults.seedViewForSource({
+                zoom: 1.85,
+                zoomMode: 'custom',
+                viewMode: 'single',
+                continuousScroll: true,
+                viewRotation: 0,
+            }, '/tmp/failed-working.pdf');
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ]).toEqual(shown);
+
+            // The open failed before its source was shown.
+            withdraw();
+            await nextTick();
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ]).toEqual(shown);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('zooms from the neutral scale after a fit mode replaces a custom one, before the viewer measures the fit', () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: '150'});
+
+        try {
+            setup.defaults.handleZoomIn();
+            const customScale = setup.zoom.value;
+            setup.defaults.applyView({
+                zoom: null,
+                zoomMode: 'fit-width',
+                viewMode: null,
+                continuousScroll: null,
+                viewRotation: null,
+            });
+            setup.defaults.handleZoomIn();
+            expect(setup.zoom.value).toBeLessThan(customScale);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('keeps the scale now shown for a saved custom mode that has no scale of its own', () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
+
+        try {
+            setup.effectiveZoom.value = 1.37;
+            setup.defaults.applyView({
+                zoom: null,
+                zoomMode: 'custom',
+                viewMode: null,
+                continuousScroll: null,
+                viewRotation: null,
+            });
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+            ]).toEqual([
+                'custom',
+                1.37,
+            ]);
         } finally {
             setup.stop();
         }

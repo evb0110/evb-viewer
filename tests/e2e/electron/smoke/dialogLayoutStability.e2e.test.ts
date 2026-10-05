@@ -18,6 +18,7 @@ import {
 import type {Page} from 'puppeteer-core';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {decodeLogRecord} from '@contracts/logRecord';
 import type {TAppLocale} from '@contracts/shared';
 import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -165,17 +166,25 @@ function stopDialogFrameSampler(page: Page) {
 }
 
 // Main-process IPC rejections the app recorded for one channel, read from the
-// session's own app log.
+// session's own app log. The logger appends records while this reads, so only
+// newline-terminated records are complete; an unfinished last line is read on
+// a later call. A completed record that does not decode is broken evidence.
 function readIpcHandlerRejections(sessionName: string, channel: string) {
     const logPath = resolve(electronFileLogDir(sessionName), 'app.ndjson');
     if (!existsSync(logPath)) {
         return [];
     }
-    return readFileSync(logPath, 'utf8').split(/\r?\n/u)
+    const lines = readFileSync(logPath, 'utf8').split('\n');
+    lines.pop();
+    return lines
+        .map(line => line.replace(/\r$/u, ''))
         .filter(line => line.trim().length > 0)
-        .map(line => JSON.parse(line) as {
-            msg?: string;
-            data?: {channel?: string};
+        .map((line) => {
+            const record = decodeLogRecord(line);
+            if (!record) {
+                throw new Error(`App log ${logPath} has a malformed completed record: ${line}`);
+            }
+            return record;
         })
         .filter(record => record.msg === 'IPC handler rejected' && record.data?.channel === channel);
 }
@@ -340,7 +349,7 @@ describe('Electron E2E - dialog layout stability', () => {
         expect(readIpcHandlerRejections(session.name, 'pdf:openingGeometry')).toEqual([]);
 
         // A file that really cannot be read still reports its failure.
-        await triggerOpenPathInApp(page, createTruncatedPdf(), DIALOG_TIMEOUT_MS).catch(() => undefined);
+        await triggerOpenPathInApp(page, createTruncatedPdf(), DIALOG_TIMEOUT_MS);
         await expect.poll(
             () => readIpcHandlerRejections(session.name, 'pdf:openingGeometry').length,
             {timeout: DIALOG_TIMEOUT_MS},
@@ -353,38 +362,34 @@ describe('Electron E2E - dialog layout stability', () => {
         await page.setViewport(DIALOG_VIEWPORT);
         const malformedPath = createTruncatedPdf();
 
-        try {
-            await setSavedLocale(page, 'ru');
-            await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS).catch(() => undefined);
-            await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
-                .toContain('Не удалось открыть файл');
-            const russian = await readFailureToast(page);
-            expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
-            expect(russian?.buttons).toContain('Копировать подробности');
-            expect(russian?.text).not.toContain('Error ID');
-            expect(russian?.text).not.toContain('Copy details');
-            await clickToastButton(page, 'Копировать подробности');
-            await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
-                .toContain('Скопировано');
+        await setSavedLocale(page, 'ru');
+        await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
+        await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+            .toContain('Не удалось открыть файл');
+        const russian = await readFailureToast(page);
+        expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
+        expect(russian?.buttons).toContain('Копировать подробности');
+        expect(russian?.text).not.toContain('Error ID');
+        expect(russian?.text).not.toContain('Copy details');
+        await clickToastButton(page, 'Копировать подробности');
+        await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
+            .toContain('Скопировано');
 
-            // English control: the same failure in English reads in English.
-            await setSavedLocale(page, 'en');
-            await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS).catch(() => undefined);
-            await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
-                .toContain('Failed to open file');
-            const english = await readFailureToast(page);
-            expect(english?.errorId).toMatch(/^Error ID: [0-9a-f]{8}$/u);
-            expect(english?.buttons).toContain('Copy details');
-            await clickToastButton(page, 'Copy details');
-            await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
-                .toContain('Copied');
+        // English control: the same failure in English reads in English.
+        await setSavedLocale(page, 'en');
+        await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
+        await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+            .toContain('Failed to open file');
+        const english = await readFailureToast(page);
+        expect(english?.errorId).toMatch(/^Error ID: [0-9a-f]{8}$/u);
+        expect(english?.buttons).toContain('Copy details');
+        await clickToastButton(page, 'Copy details');
+        await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
+            .toContain('Copied');
 
-            // A good PDF still opens afterwards.
-            await openPdfInApp(page, resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'), DIALOG_TIMEOUT_MS);
-            await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-            await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
-        } finally {
-            await setSavedLocale(page, 'en');
-        }
+        // A good PDF still opens afterwards.
+        await openPdfInApp(page, resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'), DIALOG_TIMEOUT_MS);
+        await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
+        await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
     }, DIALOG_TIMEOUT_MS * 4);
 });

@@ -125,7 +125,7 @@ describe('browserDjvuCapability routing', () => {
         }
     });
 
-    it('reports the typed reason for a refused open on either worker route', async () => {
+    it('reports the typed reason for a refused open of a browser document', async () => {
         const worker = {terminate: vi.fn()};
         mocks.createWorker.mockResolvedValue(worker);
         mocks.retainViewingWorker.mockResolvedValue(worker);

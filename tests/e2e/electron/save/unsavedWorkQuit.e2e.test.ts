@@ -27,6 +27,7 @@ import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRun
 import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
+import { NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS } from '@electron/window/windowCloseHandshake';
 
 async function startQuitSession(name: string, initialOpenPaths: string[]) {
     // Linux reaches the real window through X11 input, so its Xvfb window
@@ -199,8 +200,9 @@ describe('unsaved work on app Quit', () => {
         await session.page.waitForFunction(() => Array.from(document.querySelectorAll('[role="dialog"] button'))
             .some(button => button.textContent?.trim() === 'Save changes'), {timeout: 15_000});
         // A person reading the prompt takes longer than the main process's
-        // deadline for the renderer to answer a close request (#968).
-        await new Promise(resolveWait => setTimeout(resolveWait, 13_000));
+        // deadline for the renderer to answer a close request (#968). The
+        // hold is that deadline plus a clear margin, so it follows the deadline.
+        await new Promise(resolveWait => setTimeout(resolveWait, NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS + 3_000));
         let pageClosed = false;
         session.page.once('close', () => {
             pageClosed = true;

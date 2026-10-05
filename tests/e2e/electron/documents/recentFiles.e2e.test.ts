@@ -44,6 +44,10 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
+    activatePaneByTab,
+    splitActiveTabFromTabMenu,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
@@ -349,14 +353,18 @@ function readZoomLabel(session: IElectronE2ESession) {
     ));
 }
 
+// Each Zoom In shows a new zoom before the next is pressed.
 async function zoomInTwiceAsReader(session: IElectronE2ESession, before: string) {
-    await clickVisibleToolbarButton(session.page, 'Zoom In');
-    await clickVisibleToolbarButton(session.page, 'Zoom In');
-    await waitForFunctionInPage(session.page, (previous: string) => {
-        const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
-        return Boolean(zoom) && zoom !== previous;
-    }, {timeout: RECENT_OPEN_TIMEOUT_MS}, before);
-    return readZoomLabel(session);
+    let shown = before;
+    for (let step = 0; step < 2; step += 1) {
+        await clickVisibleToolbarButton(session.page, 'Zoom In');
+        await waitForFunctionInPage(session.page, (previous: string) => {
+            const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
+            return Boolean(zoom) && zoom !== previous;
+        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, shown);
+        shown = await readZoomLabel(session);
+    }
+    return shown;
 }
 
 // From now on, the pages drawn with content (a PDF page's raster, a DjVu
@@ -1471,6 +1479,94 @@ describe('Electron E2E - Recent Files', () => {
         await clickRecentFile(session, fixturePath);
         await waitForRecentPdfOpen(session, fixturePath);
         await expectReadingPlace(session, 1, defaultZoomLabel);
+    });
+
+    it('reopens a PDF where it was left in the view it began in, when the reader splits it while the open is held', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-reading-split-${Date.now()}`,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-split-${Date.now()}.pdf`, 40);
+        const fixtureDocumentRef = requireDocumentRef(fixturePath);
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        const defaultZoomLabel = await readZoomLabel(session);
+        await goToPageViaToolbar(session.page, 27);
+        const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForRecentFileRow(session, fixturePath);
+        const openingPaneId = await evaluateInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null
+        ));
+        expect(openingPaneId).not.toBeNull();
+
+        // Hold the open, then Split Right: the new pane's linked view becomes
+        // the one in use before the source arrives.
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__deferDocumentOpenForAutomation?.(path) ?? false
+        ), fixtureDocumentRef)).toBe(true);
+        await clickRecentFile(session, fixturePath);
+        await waitForOpeningSkeletonWhileOpenHeld(session);
+        await splitActiveTabFromTabMenu(session.page, 'right');
+        const linkedPaneId = await evaluateInPage(session.page, () => (
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null
+        ));
+        expect(linkedPaneId).not.toBe(openingPaneId);
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__releaseDocumentOpenForAutomation?.(path) ?? false
+        ), fixtureDocumentRef)).toBe(true);
+
+        // The linked view shows the document from its own start, at its own
+        // pane's fit; the view the open began in returns to the place it was left.
+        await waitForPdfLoaded(session.page);
+        await waitForToolbarCurrentPage(session.page, 1);
+        await activatePaneByTab(session.page, openingPaneId!);
+        await expectReadingPlace(session, 27, readingZoomLabel);
+        await activatePaneByTab(session.page, linkedPaneId!);
+        await waitForToolbarCurrentPage(session.page, 1);
+    });
+
+    it('leaves a reopening view where the reader wheel-zoomed it while the open was held', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-recent-reading-zoom-intent-${Date.now()}`,
+        });
+        const fixturePath = await createMultiPageTextFixturePdf(`recent-reading-zoom-intent-${Date.now()}.pdf`, 40);
+        const fixtureDocumentRef = requireDocumentRef(fixturePath);
+        await openPdfInApp(session.page, fixturePath);
+        await waitForPdfLoaded(session.page);
+        const defaultZoomLabel = await readZoomLabel(session);
+        await goToPageViaToolbar(session.page, 27);
+        await zoomInTwiceAsReader(session, defaultZoomLabel);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForRecentFileRow(session, fixturePath);
+
+        // Hold the open and zoom with the wheel over the opening view (Command
+        // on macOS, where Control and the wheel scroll; Control elsewhere): a
+        // zoom of the reader's outranks the remembered place too.
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__deferDocumentOpenForAutomation?.(path) ?? false
+        ), fixtureDocumentRef)).toBe(true);
+        await clickRecentFile(session, fixturePath);
+        await waitForOpeningSkeletonWhileOpenHeld(session);
+        const centre = await evaluateInPage(session.page, () => {
+            const rect = document.querySelector('.editor-pane.is-active [data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
+            return rect ? {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            } : null;
+        });
+        expect(centre).not.toBeNull();
+        await session.page.mouse.move(centre!.x, centre!.y);
+        const zoomModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await session.page.keyboard.down(zoomModifier);
+        await session.page.mouse.wheel({deltaY: -40});
+        await session.page.keyboard.up(zoomModifier);
+        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
+            window.__releaseDocumentOpenForAutomation?.(path) ?? false
+        ), fixtureDocumentRef)).toBe(true);
+        await waitForRecentPdfOpen(session, fixturePath);
+        await waitForToolbarCurrentPage(session.page, 1);
     });
 });
 

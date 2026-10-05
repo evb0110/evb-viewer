@@ -549,7 +549,14 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(session.page);
         await openAnnotationsTab(session.page);
         await setAnnotationKeepActiveWithPointer(session.page, keepActive);
-        await callWorkspaceCommand(session.page, 'setViewRotation', [0]);
+        await callWorkspaceCommand(session.page, 'restoreViewState', [{
+            currentPage: null,
+            zoom: null,
+            zoomMode: null,
+            continuousScroll: null,
+            viewMode: null,
+            viewRotation: 0,
+        }]);
         await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [zoom]);
         await session.page.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
         if (source && process.env.EVB_MARKUP_FIXTURE_PAGE) {
@@ -832,7 +839,14 @@ describe('Electron E2E - text interaction contract', () => {
         270,
     ])('keeps the same usable text frame from press through typing at view rotation %i', async rotation => {
         const {page} = await openFixture();
-        await callWorkspaceCommand(page, 'setViewRotation', [rotation]);
+        await callWorkspaceCommand(page, 'restoreViewState', [{
+            currentPage: null,
+            zoom: null,
+            zoomMode: null,
+            continuousScroll: null,
+            viewMode: null,
+            viewRotation: rotation,
+        }]);
         await waitForViewerInteractive(page);
         await page.waitForFunction(value => document.querySelector('.editor-pane.is-active [data-pdf-annotation-editor-surface]')?.getAttribute('data-view-rotation') === String(value), {}, rotation);
         await clickAnnotationTool(page, 'Text');
@@ -1095,7 +1109,14 @@ describe('Electron E2E - text interaction contract', () => {
         270,
     ])('keeps the move grip reachable at the viewport edge at view rotation %i', async rotation => {
         const {page} = await openFixture(false, 2.92);
-        await callWorkspaceCommand(page, 'setViewRotation', [rotation]);
+        await callWorkspaceCommand(page, 'restoreViewState', [{
+            currentPage: null,
+            zoom: null,
+            zoomMode: null,
+            continuousScroll: null,
+            viewMode: null,
+            viewRotation: rotation,
+        }]);
         await waitForViewerInteractive(page);
         await clickAnnotationTool(page, 'Text');
         const point = await placementPoint(page);

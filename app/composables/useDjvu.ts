@@ -567,7 +567,12 @@ export const useDjvu = (config: {getOpenSurface?: (() => IDocumentOpenSurfaceSes
             });
             return true;
         } catch (e) {
+            // A cancelled open that is still the current one ends its loading
+            // progress; a newer open owns the progress otherwise.
             if (e instanceof JobCanceledError) {
+                if (isCurrentDjvuOpen(generation, djvuPath)) {
+                    resetViewingProgressState();
+                }
                 return false;
             }
             if (!isCurrentDjvuOpen(generation, djvuPath)) {

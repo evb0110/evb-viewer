@@ -1161,7 +1161,7 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('projects a visible final page into a document that lost it', () => {
+    it('projects a visible final page into a document that lost it', async () => {
         const fixture = createViewportFixture({pageCount: 2});
         try {
             fixture.viewport.visibleRange.value = {
@@ -1179,11 +1179,11 @@ describe('PdfViewportSession behavior', () => {
                 end: 1,
             });
         } finally {
-            fixture.app.unmount();
+            await fixture.dispose();
         }
     });
 
-    it('projects a retained navigation destination into a document that lost it', () => {
+    it('projects a retained navigation destination into a document that lost it', async () => {
         const fixture = createViewportFixture({
             continuousScroll: false,
             pageCount: 2,
@@ -1206,7 +1206,7 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.demand.value.destinationPage).toBe(1);
             metrics.resolve(false);
         } finally {
-            fixture.app.unmount();
+            await fixture.dispose();
         }
     });
 

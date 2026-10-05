@@ -356,10 +356,12 @@ describe('document page-source presentation lifecycle', () => {
         harness.presentation.beginSourceGeneration();
 
         await harness.presentation.renderPage(1);
-        await harness.presentation.renderPage(1);
-
         expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
         expect(harness.emit).toHaveBeenCalledWith('loadError', refusal);
+
+        // A refused page stays failed rather than retrying into another state.
+        await harness.presentation.renderPage(1);
+        expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
     });
 
     it('persists image-error retries until exhaustion and clears them with the source generation', async () => {

@@ -9,7 +9,10 @@ import {
     afterEach, describe, expect, it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -173,17 +176,26 @@ describe('Move Tab to New Window view state', () => {
         outputDirectory = mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-'));
         const fixture = join(outputDirectory, 'transfer-recent.pdf');
         await createTwelvePageFixture(fixture);
-        const recentRow = `.editor-pane.is-active [data-recent-source="${fixture}"] .recent-open`;
         await openPdfInApp(session.page, fixture);
         await waitForPdfLoaded(session.page);
         await goToPageViaToolbar(session.page, 3);
         // Closing the tab remembers page 3; reopening from Recent goes back there.
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
-        await session.page.waitForSelector(recentRow, {
-            visible: true,
-            timeout: 20_000,
-        });
-        await clickAsUser(session.page, recentRow);
+        // Match the native path by dataset value: a Windows path is not a
+        // safe CSS attribute literal.
+        const findRecentOpen = (source: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-recent-source]'),
+        ).find(row => row.dataset.recentSource === source)
+            ?.querySelector<HTMLButtonElement>('.recent-open');
+        await waitForFunctionInPage(session.page, (source: string) => {
+            const rect = Array.from(
+                document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-recent-source]'),
+            ).find(row => row.dataset.recentSource === source)
+                ?.querySelector<HTMLButtonElement>('.recent-open')
+                ?.getBoundingClientRect();
+            return Boolean(rect && rect.width > 0 && rect.height > 0);
+        }, {timeout: 20_000}, fixture);
+        await clickFoundAsUser(session.page, findRecentOpen, fixture, {description: `Recent open button for ${fixture}`});
         await waitForPdfLoaded(session.page);
         await waitForToolbarCurrentPage(session.page, 3);
         await goToPageViaToolbar(session.page, 7);

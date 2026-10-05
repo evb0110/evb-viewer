@@ -16,6 +16,7 @@ import {
     describe, expect, it, onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     openDjvuInApp, openPdfInApp, openDocumentSidebarTab, waitForDjvuLoaded, waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -108,6 +109,11 @@ describe('DjVu converted bookmark destinations', () => {
         ]);
 
         await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
+        // Reopening the same path before the close finishes would match the
+        // closing document instead of opening the saved file.
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{originalPath?: string | null}>(session.page, ['originalPath'])
+        ).originalPath, {timeout: 10_000}).toBeNull();
         await openPdfInApp(session.page, outputPath, 120_000);
         await waitForPdfLoaded(session.page, 120_000);
         await openDocumentSidebarTab(session.page, 'Bookmarks');

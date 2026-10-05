@@ -38,7 +38,10 @@ import { cast } from '@tests/helpers/cast';
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { seedOpeningSource } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
-const recentReadingViews = vi.hoisted(() => ({readingView: vi.fn()}));
+const recentReadingViews = vi.hoisted(() => ({
+    readingView: vi.fn(),
+    rememberReadingView: async () => undefined,
+}));
 vi.mock('@app/utils/platformDocuments', async importOriginal => ({
     ...await importOriginal<typeof PlatformDocuments>(),
     getDocumentRecentFilesCapability: () => ({recentFiles: recentReadingViews}),
@@ -465,9 +468,9 @@ describe('DocumentWorkspace navigation command', () => {
     it('ends a normal open whose admission throws as a failed open ends: its view takes no later reading seed', async () => {
         const {
             documentContext,
+            documentSession,
             expose,
         } = await mountDocumentWorkspace();
-        const port = documentContext.views.commandView.value!;
         const {
             zoom: zoomBefore,
             zoomMode: zoomModeBefore,
@@ -482,7 +485,7 @@ describe('DocumentWorkspace navigation command', () => {
             viewRotation: 0,
         });
 
-        await expect(port.runDocumentOpen({
+        await expect(documentContext.views.runDocumentOpen({
             kind: 'open',
             target: {
                 fileName: 'remembered.pdf',
@@ -490,7 +493,7 @@ describe('DocumentWorkspace navigation command', () => {
             },
         }, () => Promise.reject(new Error('admission refused')))).rejects.toThrow('admission refused');
         // A late source admission for the open that ended reaches no open.
-        await seedOpeningSource(port.openSurface, requireDocumentRef('/tmp/remembered-working.pdf'), Promise.resolve(40));
+        await seedOpeningSource(documentSession, requireDocumentRef('/tmp/remembered-working.pdf'), Promise.resolve(40));
 
         await nextTick();
         expect(expose.getToolbarSnapshot()).toMatchObject({

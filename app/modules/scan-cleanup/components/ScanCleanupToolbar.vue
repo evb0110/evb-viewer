@@ -394,14 +394,23 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
         gap: var(--app-space-3xl);
     }
 
-    /* While the meter shows, its phase, step and count keep the room they
-       need; the title gives way first, and the primary action keeps its width.
-       Idle, the settings badges keep the side room. */
+    /* While the meter shows, Done, the title and the primary action share the
+       first row and the meter takes the whole second row, so the phase, step
+       and count keep their room without squeezing Done out (#976). The title
+       gives way first. Idle, the settings badges keep the side room. */
     .scan-cleanup-toolbar-metered {
+        height: auto;
+        max-height: none;
+        flex-basis: auto;
         grid-template-columns:
             minmax(0, 1fr)
-            minmax(0, var(--app-scan-toolbar-activity-width))
-            minmax(var(--app-scan-toolbar-primary-width), 1fr);
+            minmax(var(--app-scan-toolbar-primary-width), auto);
+    }
+
+    /* Left and right fill the first row in source order. */
+    .scan-cleanup-toolbar-metered .scan-cleanup-toolbar-zone-center {
+        grid-column: 1 / -1;
+        grid-row: 2;
     }
 
     .scan-cleanup-settings-reset [data-slot='label'] {

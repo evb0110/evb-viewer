@@ -4,7 +4,7 @@ import type * as TViewingModule from '@electron/features/djvu/main/viewing';
 
 import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 import {
-    chmodSync,
+    mkdirSync,
     mkdtempSync,
     readFileSync,
     realpathSync,
@@ -1033,14 +1033,20 @@ describe('native DjVu open admission', async () => {
     async function openWithProbeFailure(
         pageCountFailure: unknown,
         source: Buffer | string = readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu')),
-        mode = 0o600,
+        options: {unreadableAfterProbe?: boolean} = {},
     ) {
         const directory = mkdtempSync(join(tmpdir(), 'djvu-open-admission-'));
         const djvuPath = join(directory, 'book.djvu');
         writeFileSync(djvuPath, source);
-        chmodSync(djvuPath, mode);
         mocks.getDjvuPageSourceInfoForViewing.mockRejectedValueOnce(pageCountFailure);
-        mocks.getDjvuPageCount.mockRejectedValueOnce(pageCountFailure);
+        mocks.getDjvuPageCount.mockImplementationOnce(() => {
+            // A directory has no bytes to read on any platform or as any user.
+            if (options.unreadableAfterProbe) {
+                rmSync(djvuPath);
+                mkdirSync(djvuPath);
+            }
+            return Promise.reject(pageCountFailure);
+        });
         try {
             return await handleDjvuOpenForViewing(createIpcEvent(91) as never, djvuPath as never, undefined, false);
         } finally {
@@ -1089,7 +1095,7 @@ describe('native DjVu open admission', async () => {
             success: false,
             error: denied,
         });
-        await expect(openWithProbeFailure(failure, readFileSync(join(DJVU_FIXTURE_SOURCES, 'corrupt-truncated.djvu')), 0o000))
+        await expect(openWithProbeFailure(failure, readFileSync(join(DJVU_FIXTURE_SOURCES, 'corrupt-truncated.djvu')), {unreadableAfterProbe: true}))
             .resolves.toEqual({
                 success: false,
                 error: denied,

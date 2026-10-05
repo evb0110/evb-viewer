@@ -148,16 +148,17 @@ export function findPidsByCommandSubstring(substring: string) {
     }
 }
 
+/**
+ * Resolves true when it found the root alive and terminated its tree, false
+ * when the root was already gone and nothing was issued.
+ */
 export async function killProcessTree(
     pid: number,
     graceMs = 1500,
     options: {force?: boolean} = {},
 ) {
-    if (!Number.isFinite(pid) || pid <= 0) {
-        return;
-    }
     if (!isProcessAlive(pid)) {
-        return;
+        return false;
     }
 
     if (process.platform === 'win32') {
@@ -167,7 +168,7 @@ export async function killProcessTree(
         // TerminateProcess is asynchronous like SIGKILL, so the process stays
         // visible to the liveness check callers read straight afterwards.
         await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
-        return;
+        return true;
     }
 
     const descendants = collectDescendantPidsUnix(pid);
@@ -178,7 +179,7 @@ export async function killProcessTree(
     if (options.force) {
         killPids(targets, { signal: 'SIGKILL' });
         await waitForProcessesExit(targets, FORCED_EXIT_TIMEOUT_MS);
-        return;
+        return true;
     }
     killPids(targets, { signal: 'SIGTERM' });
 
@@ -187,7 +188,7 @@ export async function killProcessTree(
         while (Date.now() < deadline) {
             const alive = targets.some(targetPid => isProcessAlive(targetPid));
             if (!alive) {
-                return;
+                return true;
             }
             await delay(80);
         }
@@ -198,6 +199,7 @@ export async function killProcessTree(
         killPids(remaining, { signal: 'SIGKILL' });
         await waitForProcessesExit(remaining, FORCED_EXIT_TIMEOUT_MS);
     }
+    return true;
 }
 
 export async function killProcessTrees(pids: readonly number[], graceMs = 1200) {

@@ -37,6 +37,9 @@ export function attachNativeWindowCloseHandshake(
     const timeoutMs = options.timeoutMs ?? NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS;
     const createRequestId = options.createRequestId ?? randomUUID;
     const registrationScope = `window:${window.id}`;
+    // Captured once: by 'closed' the BrowserWindow is destroyed and its
+    // webContents getter is no longer safe to read.
+    const webContents = window.webContents;
     let disposed = false;
     let approvedClose = false;
     let pendingRequestId: string | null = null;
@@ -79,7 +82,7 @@ export function attachNativeWindowCloseHandshake(
     }
 
     function handleResponse(event: IpcMainEvent, payload: unknown) {
-        if (disposed || event.sender !== window.webContents || pendingRequestId === null) {
+        if (disposed || event.sender !== webContents || pendingRequestId === null) {
             return;
         }
 
@@ -109,7 +112,7 @@ export function attachNativeWindowCloseHandshake(
             return;
         }
 
-        if (window.isDestroyed() || window.webContents.isDestroyed()) {
+        if (window.isDestroyed() || webContents.isDestroyed()) {
             options.logger.warn(
                 `[window-close] Renderer approved close after the window was destroyed (windowId=${window.id})`,
             );
@@ -152,7 +155,7 @@ export function attachNativeWindowCloseHandshake(
         if (pendingRequestId !== null) {
             return;
         }
-        if (window.isDestroyed() || window.webContents.isDestroyed()) {
+        if (window.isDestroyed() || webContents.isDestroyed()) {
             options.logger.warn(
                 `[window-close] Renderer cannot answer a close request; keeping the window open (windowId=${window.id})`,
             );
@@ -173,7 +176,7 @@ export function attachNativeWindowCloseHandshake(
         pendingTimeout.unref();
 
         try {
-            window.webContents.send(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId});
+            webContents.send(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId});
         } catch (error) {
             clearPendingRequest();
             options.logger.warn(
@@ -186,10 +189,8 @@ export function attachNativeWindowCloseHandshake(
         disposed = true;
         clearPendingRequest();
         options.ipcMain.removeListener(CORE_IPC_SEND_CHANNELS.windowCloseResponse, handleResponse);
-        if (!window.webContents.isDestroyed()) {
-            window.webContents.removeListener('render-process-gone', handleRenderProcessGone);
-            window.webContents.removeListener('did-start-navigation', handleNavigationStart);
-        }
+        webContents.removeListener('render-process-gone', handleRenderProcessGone);
+        webContents.removeListener('did-start-navigation', handleNavigationStart);
         options.rawIpcRegistrationAudit?.release('window-close-response', registrationScope);
     }
 
@@ -199,8 +200,8 @@ export function attachNativeWindowCloseHandshake(
     } else {
         register();
     }
-    window.webContents.on('render-process-gone', handleRenderProcessGone);
-    window.webContents.on('did-start-navigation', handleNavigationStart);
+    webContents.on('render-process-gone', handleRenderProcessGone);
+    webContents.on('did-start-navigation', handleNavigationStart);
     window.on('close', handleClose);
     window.once('closed', cleanup);
 
