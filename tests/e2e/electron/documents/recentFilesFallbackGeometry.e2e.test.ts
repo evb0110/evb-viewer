@@ -183,11 +183,15 @@ describe('Electron E2E - Recent reopen geometry without exact page shapes', () =
             sessionName: () => `e2e-recent-fallback-forced-${Date.now()}`,
             extraEnv: {EVB_PDF_PAGE_OPS_PATH: pageOps.wrapperPath},
         });
+        let pageOpsCalls = '';
         try {
             await expectQuarterTurnedFitWidthReopenOnDrawnRect(session, 'forced-metadata-failure');
         } finally {
-            console.log(`[fallback-geometry] page-ops calls\n${readFileSync(pageOps.callLog, 'utf8')}`);
+            pageOpsCalls = existsSync(pageOps.callLog) ? readFileSync(pageOps.callLog, 'utf8') : '';
+            console.log(existsSync(pageOps.callLog)
+                ? `[fallback-geometry] page-ops calls\n${pageOpsCalls}`
+                : `[fallback-geometry] page-ops call log missing: no wrapper call reached ${pageOps.callLog}`);
         }
-        expect(readFileSync(pageOps.callLog, 'utf8')).toContain('REJECTED');
+        expect(pageOpsCalls).toContain('REJECTED');
     });
 });

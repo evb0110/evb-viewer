@@ -119,8 +119,8 @@ Page  135 rot:   0
         expect(parsePdfOpeningGeometryMetadata(`
 Pages:           3
 Page    1 size:  612 x 900 pts
-Page    1 rot:   90
 Page    2 size:  612 x 792 pts
+Page    2 rot:   90
 Page    3 size:  612 x 820 pts
 Page    3 rot:   0
 `, {
@@ -129,8 +129,8 @@ Page    3 rot:   0
         }, 3)).toMatchObject({
             width: 612,
             height: 820,
-            widestPageWidth: 900,
-            tallestPageHeight: 820,
+            widestPageWidth: 792,
+            tallestPageHeight: 900,
         });
     });
 

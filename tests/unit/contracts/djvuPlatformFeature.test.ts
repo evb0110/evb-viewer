@@ -154,7 +154,7 @@ describe('DjVu platform feature', () => {
             .toBe(false);
     });
 
-    it('carries the conversion page sizes in the completed conversion within the dense page bound', () => {
+    it('carries usable conversion page sizes in the completed conversion and drops unusable ones without failing it', () => {
         const convertComplete = DJVU_PLATFORM_FEATURE.events.onConvertComplete.payload;
         const pageSize = {
             width: 5100,
@@ -170,11 +170,41 @@ describe('DjVu platform feature', () => {
             pdfPath: '/tmp/book.pdf',
             pageSizes: [pageSize],
         });
-        expect(v.safeParse(convertComplete, {
+        for (const pageSizes of [
+            [{
+                ...pageSize,
+                width: 0,
+            }],
+            [{
+                ...pageSize,
+                height: -1,
+            }],
+            [{
+                ...pageSize,
+                dpi: Number.NaN,
+            }],
+            [{
+                ...pageSize,
+                width: Number.POSITIVE_INFINITY,
+            }],
+            Array.from({length: 10_001}, () => pageSize),
+        ]) {
+            expect(v.parse(convertComplete, {
+                success: true,
+                pdfPath: '/tmp/book.pdf',
+                pageSizes,
+            })).toEqual({
+                success: true,
+                pdfPath: '/tmp/book.pdf',
+            });
+        }
+        expect(v.parse(convertComplete, {
             success: true,
             pdfPath: '/tmp/book.pdf',
-            pageSizes: Array.from({length: 10_001}, () => pageSize),
-        }).success).toBe(false);
+        })).toEqual({
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+        });
     });
 
     it('keeps the typed reason of a refused open, its receipt and expected cancellation in the open result contract', () => {
