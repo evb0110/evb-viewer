@@ -498,13 +498,9 @@ export async function answerPdfPageShape(
     revision: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
     read: () => Promise<IPdfOpeningGeometry | null>,
     pageNumber = 1,
-    withPages = false,
 ): Promise<IPdfOpeningGeometry | null> {
     const known = pageShapes.get(path);
-    if (
-        known?.size === revision.size && known.modifiedAt === revision.modifiedAt
-        && known.pageNumber === pageNumber && (!withPages || Boolean(known.pages))
-    ) {
+    if (known?.size === revision.size && known.modifiedAt === revision.modifiedAt && known.pageNumber === pageNumber) {
         pageShapes.delete(path);
         pageShapes.set(path, known);
         return known;
@@ -562,13 +558,14 @@ export async function handlePdfOpeningGeometry(
         })
         : null;
     const readingPage = readingView?.anchor?.page ?? readingView?.currentPage ?? 1;
-    // A reader's place sits among its pages: the open at it also takes every
-    // page's exact shape, which the shape store keeps with it. A view whose
-    // page count these bytes do not have is not this document's: the open
-    // shows no page until the document tells its own.
+    // A reader's place sits among its pages, so every read also takes each
+    // page's exact shape: a file first read without a place has one once its
+    // reader leaves, and that next open is answered from the store. A view
+    // whose page count these bytes do not have is not this document's: the
+    // open shows no page until the document tells its own.
     const shape = await answerPdfPageShape(resolvedPath, identityBefore, async () => {
         const read = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
-        return read && readingView ? {
+        return read && {
             ...read,
             pages: await readExactPageGeometry(context, resolvedPath, null, {
                 group: 'pdf-opening-pages',
@@ -578,8 +575,8 @@ export async function handlePdfOpeningGeometry(
                 logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
                 return null;
             }),
-        } : read;
-    }, readingPage, readingView !== null);
+        };
+    }, readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
     const identityAfter = await readPdfOpeningGeometryIdentity(resolvedPath);
     if (identityAfter?.size !== identityBefore.size || identityAfter.mtimeMs !== identityBefore.mtimeMs) {
