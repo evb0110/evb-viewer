@@ -972,18 +972,23 @@ async function run() {
             await delay(500);
         }
     } finally {
-        await stopResourceSampling();
-        await writeFile(path.join(args.artifactDir, 'packaged-stdout.log'), stdout);
-        await writeFile(path.join(args.artifactDir, 'packaged-stderr.log'), stderr);
-        await browser?.disconnect().catch(() => {});
-        // Closing the browser asks every deliberately dirty harness tab to
-        // save and turns teardown into an unrelated Save As workflow, so the
-        // owned processes are killed outright.
+        // Evidence capture may fail (a full disk); the owned stop still runs
+        // and the capture error still propagates.
         try {
-            helperCleanup = await owned.stop({force: true});
+            await stopResourceSampling();
+            await writeFile(path.join(args.artifactDir, 'packaged-stdout.log'), stdout);
+            await writeFile(path.join(args.artifactDir, 'packaged-stderr.log'), stderr);
+            await browser?.disconnect().catch(() => {});
         } finally {
-            process.off('SIGINT', stopOnSignal);
-            process.off('SIGTERM', stopOnSignal);
+            // Closing the browser asks every deliberately dirty harness tab to
+            // save and turns teardown into an unrelated Save As workflow, so the
+            // owned processes are killed outright.
+            try {
+                helperCleanup = await owned.stop({force: true});
+            } finally {
+                process.off('SIGINT', stopOnSignal);
+                process.off('SIGTERM', stopOnSignal);
+            }
         }
         await writeFile(
             path.join(args.artifactDir, 'packaged-process-cleanup.json'),

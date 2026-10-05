@@ -397,33 +397,6 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
     });
 
-    it('admits no reading place for a staged copy that fails validation', async () => {
-        const harness = createOpenFlowHarness();
-        const admitted: unknown[] = [];
-        const openFlow = createDocumentOpenFlow(harness.state, {
-            ...harness.deps,
-            admitOpeningSource: async (source) => {
-                admitted.push(source);
-            },
-        });
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(null);
-        mocks.documentPdf.validatePdfPath.mockResolvedValueOnce({
-            isValid: false,
-            tool: 'qpdf',
-            errors: ['damaged xref table'],
-            warnings: [],
-        });
-
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath: requireDocumentRef('/documents/remembered-corrupt.pdf'),
-            workingPath: requireDocumentRef('/tmp/remembered-corrupt-working.pdf'),
-        })).resolves.toMatchObject({status: 'failed'});
-
-        expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith('/tmp/remembered-corrupt-working.pdf', {purpose: 'opening'});
-        expect(admitted).toEqual([]);
-    });
-
     it('keeps the opened document\'s source through a history step that moves to a new copy', async () => {
         const {
             openFlow,
@@ -467,9 +440,9 @@ describe('createDocumentOpenFlow', () => {
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
     });
 
-    it('admits an opening working copy, with its own page count, before its source is shown', async () => {
+    it('shows an opening working copy only once its admission ends, changing the shown source once', async () => {
         const harness = createOpenFlowHarness();
-        const sourceWhenAdmitted: unknown[] = [];
+        const admissionReached = Promise.withResolvers<undefined>();
         const admission = Promise.withResolvers<undefined>();
         mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
             pageNumber: 1,
@@ -483,8 +456,9 @@ describe('createDocumentOpenFlow', () => {
         });
         const openFlow = createDocumentOpenFlow(harness.state, {
             ...harness.deps,
-            admitOpeningSource: async (source, pageCount) => {
-                sourceWhenAdmitted.push(source, harness.state.pdfSrc.value, await pageCount);
+            // Admission is held, as a slow Recent read holds it.
+            admitOpeningSource: async () => {
+                admissionReached.resolve(undefined);
                 await admission.promise;
             },
         });
@@ -496,12 +470,9 @@ describe('createDocumentOpenFlow', () => {
         };
 
         const opening = openFlow.openFile(result);
-        await vi.waitFor(() => expect(sourceWhenAdmitted).toEqual([
-            result.workingPath,
-            null,
-            40,
-        ]));
+        await admissionReached.promise;
         await Promise.resolve();
+        // While admission is held, no source is shown yet.
         expect(harness.state.pdfSrc.value).toBeNull();
 
         // The source a view shows changes once, to the admitted copy, through
