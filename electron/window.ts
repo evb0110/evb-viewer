@@ -200,25 +200,20 @@ function showAndFocusMaximizedWindow(window: BrowserWindow) {
         return;
     }
 
+    if (config.automation.noFocus) {
+        // E2E windows stay out of focus and keep their opening placement: the
+        // runner owns their size, and undoing a maximize races the renderer.
+        if (!window.isVisible()) {
+            window.showInactive();
+        }
+        return;
+    }
+
     if (!window.isMaximized()) {
         window.maximize();
     }
     if (!window.isVisible()) {
-        if (config.automation.noFocus) {
-            // Keep E2E windows out of focus so local work is not interrupted.
-            const showInactive = (window as BrowserWindow & { showInactive?: () => void; }).showInactive;
-            if (typeof showInactive === 'function') {
-                showInactive.call(window);
-            } else {
-                window.show();
-            }
-        } else {
-            window.show();
-        }
-    }
-
-    if (config.automation.noFocus) {
-        return;
+        window.show();
     }
 
     if (process.platform === 'darwin') {
