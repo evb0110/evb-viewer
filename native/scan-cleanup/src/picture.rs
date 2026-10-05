@@ -1488,12 +1488,15 @@ fn extend_mask_for_content(
         (8.0 * calibration.effective_dpi / 150.0).max(4.0)
     };
     let long_span = (8.0 * nominal_height).round().max(24.0) as usize;
-    // The scanner bed spans the raster, so its cluster would claim the whole page.
+    // A scanner bed spans the raster, so its cluster would claim the whole
+    // page. It is solid, thicker on average than a line of text; an authored
+    // frame on the page edge is thin line art and stays an anchor.
     let anchors = component_map.retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
-        (width >= long_span || height >= long_span)
-            && !is_scanner_border_shadow(component, source.width(), source.height())
+        let scanner_bed = is_scanner_border_shadow(component, source.width(), source.height())
+            && component.area as f64 >= nominal_height * (width + height) as f64;
+        (width >= long_span || height >= long_span) && !scanner_bed
     });
     let cluster_radius = (3.0 * nominal_height).round().max(8.0) as usize;
     let cluster_map = ComponentMap::from_binary(&dilate(&anchors, cluster_radius, cluster_radius));
@@ -2765,6 +2768,44 @@ mod tests {
         assert!(
             !content.get(300, 400),
             "a scanner bed one pixel inside the raster made the page body a picture"
+        );
+    }
+
+    #[test]
+    fn content_picture_extension_keeps_an_authored_frame_on_the_page_edge() {
+        let mut image = GrayImage::new(400, 300, 242);
+        for x in 0..400 {
+            image.set(x, 0, 24);
+            image.set(x, 1, 24);
+            image.set(x, 298, 24);
+            image.set(x, 299, 24);
+        }
+        for y in 0..300 {
+            image.set(0, y, 24);
+            image.set(1, y, 24);
+            image.set(398, y, 24);
+            image.set(399, y, 24);
+        }
+        for row in 0..12 {
+            let y = 40 + row * 18;
+            for x in 40..360 {
+                image.set(x, y + (x / 7) % 3, 24);
+            }
+        }
+        let calibration = PageCalibration {
+            effective_dpi: 150.0,
+            stroke_width_px: 2.0,
+            x_height_px: 6.0,
+            valid: true,
+            config: CalibrationConfig::default(),
+        };
+        let empty = BinaryImage::new(image.width(), image.height());
+
+        let content = extend_picture_mask_for_content(&image, &empty, calibration);
+
+        assert!(
+            content.get(200, 150),
+            "an authored frame on the page edge lost its line-art anchor"
         );
     }
 
