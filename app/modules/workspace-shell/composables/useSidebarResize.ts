@@ -69,8 +69,8 @@ export const useSidebarResize = (deps: {
         if (Math.round(clampedWidth) === Math.round(sidebarContentWidth.value)) {
             return;
         }
-        BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
-            previousWidth: Math.round(sidebarWidth.value),
+        BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarContentWidth.value)}->${Math.round(clampedWidth)}`, {
+            previousWidth: Math.round(sidebarContentWidth.value),
             nextWidth: Math.round(clampedWidth),
             deltaX: Math.round(deltaX),
             pointerX: Math.round(event.clientX),
