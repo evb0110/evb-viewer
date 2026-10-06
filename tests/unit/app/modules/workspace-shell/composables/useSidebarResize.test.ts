@@ -199,6 +199,15 @@ describe('useSidebarResize', () => {
 
         expect(resize.sidebarWidth.value).toBe(presentedWidth - 10);
         expect(resize.sidebarContentWidth.value).toBe(presentedWidth - 10);
+        const { BrowserLogger } = await import('@app/utils/browserLogger');
+        expect(BrowserLogger.diagnostic).toHaveBeenCalledWith(
+            'pdf-nav',
+            `[sidebar-resize] width ${presentedWidth}->${presentedWidth - 10}`,
+            expect.objectContaining({
+                previousWidth: presentedWidth,
+                nextWidth: presentedWidth - 10,
+            }),
+        );
     });
 
     it('keeps the preferred width when a constrained sidebar is pressed and released without moving', async () => {
