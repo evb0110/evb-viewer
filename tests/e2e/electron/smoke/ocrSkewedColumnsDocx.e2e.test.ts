@@ -169,7 +169,11 @@ describe('DOCX export of an OCR layer on a skewed two-column scan', () => {
         const lineIndexes = SOURCE_LINES.map((line) => {
             const lineWords = line.split(' ');
             const label = lineWords.slice(-2).join(' ');
-            return words.findIndex(paragraph => paragraph.startsWith(lineWords[0]!) && paragraph.endsWith(label));
+            // One paragraph holds exactly one printed line; recognition may
+            // misread a word inside it, but not merge or split lines.
+            return words.findIndex(paragraph => paragraph.split(' ').length === lineWords.length
+                && paragraph.startsWith(`${lineWords[0]!} `)
+                && paragraph.endsWith(` ${label}`));
         });
         const recovered = lineIndexes.filter(index => index >= 0);
         // Recognition may misread a word, but a line stays one paragraph

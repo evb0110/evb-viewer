@@ -8,6 +8,7 @@ import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import { inspectPdfPageTextVisibility } from '@electron/pdf/inspectPdfPageTextVisibility';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -20,6 +21,7 @@ import * as v from 'valibot';
 
 const PDF_TEXT_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-text'].fileName;
 const POPPLER_TEXT_PAGE_WINDOW_SIZE = 256;
+const log = createLogger('search-page-text');
 
 const PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA = v.object({
     type: v.literal('page'),
@@ -159,7 +161,7 @@ async function readOcrLayersInContentOrder(
     signal?: AbortSignal,
 ) {
     const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
-    const {visibility} = await inspectPdfPageTextVisibility({
+    const inspection = await inspectPdfPageTextVisibility({
         pdfPath,
         pageNumbers: textPageNumbers,
         pdfPageOpsBinary: resolvePageOpsBinary(),
@@ -167,21 +169,20 @@ async function readOcrLayersInContentOrder(
         tempDir: getAppTempDir(),
         ...(signal === undefined ? {} : {signal}),
     });
+    if (inspection.status === 'degraded') {
+        log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
+    }
     const ocrLayerPages = textPageNumbers.filter((pageNumber) => {
-        const page = visibility.get(pageNumber);
+        const page = inspection.visibility.get(pageNumber);
         return page !== undefined && (page.evbOcrLayer || page.hiddenText) && !page.paintedText;
     });
-    const indexByPage = new Map(pages.map((page, index) => [
-        page.pageNumber,
-        index,
-    ]));
+    const rereadPages = new Map<number, IPageText>();
     for (const range of groupContiguousPages(ocrLayerPages)) {
         for (const page of await readPopplerPageTexts(pdfPath, range, signal, true) ?? []) {
-            const index = indexByPage.get(page.pageNumber);
-            if (index !== undefined) pages[index] = page;
+            rereadPages.set(page.pageNumber, page);
         }
     }
-    return pages;
+    return pages.map(page => rereadPages.get(page.pageNumber) ?? page);
 }
 
 /**
