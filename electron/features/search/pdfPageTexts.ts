@@ -139,7 +139,7 @@ function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: Ab
 
 function resolvePageOpsBinary() {
     try {
-        return resolveNativePageOpsPath();
+        return resolveNativePageOpsPath() ?? undefined;
     } catch {
         return undefined;
     }
@@ -171,10 +171,14 @@ async function readOcrLayersInContentOrder(
         const page = visibility.get(pageNumber);
         return page !== undefined && (page.evbOcrLayer || page.hiddenText) && !page.paintedText;
     });
+    const indexByPage = new Map(pages.map((page, index) => [
+        page.pageNumber,
+        index,
+    ]));
     for (const range of groupContiguousPages(ocrLayerPages)) {
         for (const page of await readPopplerPageTexts(pdfPath, range, signal, true) ?? []) {
-            const index = pages.findIndex(candidate => candidate.pageNumber === page.pageNumber);
-            if (index >= 0) pages[index] = page;
+            const index = indexByPage.get(page.pageNumber);
+            if (index !== undefined) pages[index] = page;
         }
     }
     return pages;

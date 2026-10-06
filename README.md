@@ -52,8 +52,9 @@ can search.
 - **Clean** scanned pages: deskew, despeckle, binarize, crop, and split
   two-page spreads. This runs in a native Rust engine, not a filter chain.
 - **OCR** the pages with Tesseract and `tessdata-best` models. English and
-  Russian are bundled for offline use; 28 more languages download on demand,
-  including Ancient Greek, Hebrew, Arabic, and Syriac.
+  Russian are bundled for offline use; 29 more languages download on demand,
+  including Ancient Greek, Hebrew, Arabic, Syriac and Latin, with early print
+  variants for Latin, Italian and Spanish.
 - **Export** a searchable PDF, or DOCX, PNG, JPG, and multi-page TIFF.
 - **Annotate** with free text, ink, highlight, shapes, arrows, notes, and
   placed images. Edit bookmarks, page labels, and page order from the sidebar.

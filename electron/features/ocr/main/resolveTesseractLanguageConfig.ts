@@ -47,7 +47,7 @@ export function resolveTesseractLanguageConfig(
     languages: string[],
     options: ITesseractLanguageConfigOptions = {},
 ): ITesseractLanguageConfig {
-    const deduped = uniq(compact(languages).flatMap(language => (
+    const deduped = uniq(compact(languages).flatMap((language): readonly string[] => (
         isAvailableOcrLanguageCode(language) ? resolveOcrLanguageModels(language) : [language]
     )));
     // The Cyrillic model asks Tesseract to load srp_latn implicitly. EVB exposes

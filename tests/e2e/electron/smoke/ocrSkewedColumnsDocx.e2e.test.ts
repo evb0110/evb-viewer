@@ -17,6 +17,7 @@ import type {
     Page,
 } from 'puppeteer-core';
 import {
+    afterAll,
     describe,
     expect,
     it,
@@ -76,6 +77,11 @@ const SOURCE_LINES = [
 const tempRoot = mkdtempSync(join(tmpdir(), 'evb-e2e-ocr-columns-docx-'));
 const docxPath = join(tempRoot, 'columns.docx');
 
+afterAll(() => rm(tempRoot, {
+    recursive: true,
+    force: true,
+}));
+
 const sessionFixture = createElectronE2ESessionFixture({
     sessionName: () => `e2e-ocr-columns-docx-${Date.now()}`,
     extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: docxPath},
@@ -134,48 +140,41 @@ describe('DOCX export of an OCR layer on a skewed two-column scan', () => {
     it('keeps every recognized line whole and in column order', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;
-        try {
-            const sourcePath = join(tempRoot, 'skewed-two-column-scan.pdf');
-            await createSkewedTwoColumnScanPdf(sourcePath);
-            await openPdfInApp(page, sourcePath, 90_000);
-            await waitForViewerInteractive(page, 90_000);
-            await session.command('windowResize', [
-                1440,
-                900,
-            ]);
+        const sourcePath = join(tempRoot, 'skewed-two-column-scan.pdf');
+        await createSkewedTwoColumnScanPdf(sourcePath);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
 
-            // English is the preselected recognition language.
-            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
-            await page.waitForSelector('[role="dialog"]', {visible: true});
-            await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-            await waitForFunctionInPage(page, () => (
-                document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-            ), {timeout: OCR_TIMEOUT_MS});
-            await clickVisibleButton(page, '[role="dialog"]', 'Close');
-            await page.waitForSelector('[role="dialog"]', {hidden: true});
+        // English is the preselected recognition language.
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+        ), {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
 
-            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Shift+E'});
-            await waitForFunctionInPage(page, () => document.body.innerText.includes('DOCX saved'), {timeout: 60_000});
-            expect(existsSync(docxPath)).toBe(true);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Shift+E'});
+        await waitForFunctionInPage(page, () => document.body.innerText.includes('DOCX saved'), {timeout: 60_000});
+        expect(existsSync(docxPath)).toBe(true);
 
-            const paragraphs = readDocxParagraphs(docxPath);
-            console.log('ocr-columns-docx-paragraphs', JSON.stringify(paragraphs));
-            const words = paragraphs.map(paragraph => paragraph.toLowerCase().split(/\s+/u).join(' '));
-            const lineIndexes = SOURCE_LINES.map((line) => {
-                const lineWords = line.split(' ');
-                const label = lineWords.slice(-2).join(' ');
-                return words.findIndex(paragraph => paragraph.startsWith(lineWords[0]!) && paragraph.endsWith(label));
-            });
-            const recovered = lineIndexes.filter(index => index >= 0);
-            // Recognition may misread a word, but a line stays one paragraph
-            // and the left column precedes the right one.
-            expect(recovered.length).toBeGreaterThanOrEqual(SOURCE_LINES.length * 0.8);
-            expect(lineIndexes.filter(index => index >= 0)).toEqual([...recovered].sort((left, right) => left - right));
-        } finally {
-            await rm(tempRoot, {
-                recursive: true,
-                force: true,
-            });
-        }
+        const paragraphs = readDocxParagraphs(docxPath);
+        console.log('ocr-columns-docx-paragraphs', JSON.stringify(paragraphs));
+        const words = paragraphs.map(paragraph => paragraph.toLowerCase().split(/\s+/u).join(' '));
+        const lineIndexes = SOURCE_LINES.map((line) => {
+            const lineWords = line.split(' ');
+            const label = lineWords.slice(-2).join(' ');
+            return words.findIndex(paragraph => paragraph.startsWith(lineWords[0]!) && paragraph.endsWith(label));
+        });
+        const recovered = lineIndexes.filter(index => index >= 0);
+        // Recognition may misread a word, but a line stays one paragraph
+        // and the left column precedes the right one.
+        expect(recovered.length).toBeGreaterThanOrEqual(SOURCE_LINES.length * 0.8);
+        expect(lineIndexes.filter(index => index >= 0)).toEqual([...recovered].sort((left, right) => left - right));
     }, 420_000);
 });
