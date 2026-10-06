@@ -6,7 +6,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TARGET_ARCH="${TARGET_ARCH:-x64}"
 case "$TARGET_ARCH" in
   x64) target=win32-x64; triplet=x64-windows-static; vs_arch=x64; vs_generator='Visual Studio 18 2026' ;;
-  arm64) target=win32-arm64; triplet=arm64-windows-static; vs_arch=ARM64; vs_generator='Visual Studio 17 2022' ;;
+  arm64) target=win32-arm64; triplet=arm64-windows-static; vs_arch=ARM64; vs_generator='Visual Studio 18 2026' ;;
   *) echo "Error: Unsupported Windows architecture: $TARGET_ARCH" >&2; exit 2 ;;
 esac
 TMP_ROOT="${TMPDIR:-$PROJECT_ROOT/.devkit/tmp}"

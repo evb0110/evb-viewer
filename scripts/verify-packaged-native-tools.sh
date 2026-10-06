@@ -440,7 +440,7 @@ windows_pe_allowed_machines_for_release_arch() {
       echo "arm64"
       ;;
     x64)
-      echo "ia32,x64"
+      echo "x64"
       ;;
     *)
       echo "Error: Unsupported Windows release architecture for PE verification: $1"
