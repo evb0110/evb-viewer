@@ -159,6 +159,17 @@ describe('DOCX export of an OCR layer on a skewed two-column scan', () => {
         await clickVisibleButton(page, '[role="dialog"]', 'Close');
         await page.waitForSelector('[role="dialog"]', {hidden: true});
 
+        // The document reopens with its new text layer after OCR; Export DOCX
+        // stays disabled until it is interactive again.
+        await waitForViewerInteractive(page, 90_000);
+        await waitForFunctionInPage(page, () => {
+            const toolbar = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
+                canExportDocx: boolean;
+                isAnySaving: boolean;
+                isHistoryBusy: boolean;
+            } | null}}).__evbTestApi?.getActiveToolbarSnapshot?.();
+            return toolbar?.canExportDocx === true && !toolbar.isAnySaving && !toolbar.isHistoryBusy;
+        }, {timeout: 60_000});
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Shift+E'});
         await waitForFunctionInPage(page, () => document.body.innerText.includes('DOCX saved'), {timeout: 60_000});
         expect(existsSync(docxPath)).toBe(true);
