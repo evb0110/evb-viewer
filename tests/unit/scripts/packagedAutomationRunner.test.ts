@@ -63,6 +63,11 @@ describe('packaged automation work root containment', () => {
 
 // The Windows helper receipt is 'live-root-tree' only when this result is true.
 describe('process tree termination receipt', () => {
+    it.skipIf(process.platform === 'win32')('reports failure when its protected caller remains alive', async () => {
+        expect(await killProcessTree(process.pid, 0, {force: true})).toBe(false);
+        expect(isProcessAlive(process.pid)).toBe(true);
+    });
+
     it('reports termination for a live root and none once the root is gone', async () => {
         const child = spawn(process.execPath, [
             '-e',
@@ -282,6 +287,8 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
                     join(root, 'source.pdf'),
                     '--artifact-dir',
                     artifactDirectory,
+                    '--expected-pages',
+                    '4',
                     '--scale-only',
                 ];
             },
@@ -290,6 +297,33 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         expect(run.output()).toContain('EACCES');
         expect((await readdir(artifactDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     }, 30_000);
+
+    it.each([
+        undefined,
+        '1.5',
+        '4junk',
+    ])('rejects an absent or invalid expected page count (%s) before launching', async (expectedPages) => {
+        const run = await launch('exit 7\n', {}, undefined, {
+            script: 'scripts/release/verifyPackagedScanCleanup.ts',
+            scriptArguments: root => {
+                writeFileSync(join(root, 'source.pdf'), 'source');
+                return [
+                    '--source',
+                    join(root, 'source.pdf'),
+                    '--artifact-dir',
+                    join(root, 'artifacts'),
+                    '--scale-only',
+                    ...expectedPages === undefined ? [] : [
+                        '--expected-pages',
+                        expectedPages,
+                    ],
+                ];
+            },
+        });
+        expect(await run.exited).toBe(1);
+        expect(run.output()).toContain('--expected-pages <count> is required and must be a positive integer');
+        expect(await readdir(join(run.workDirectory, '..'))).not.toContain('artifacts');
+    });
 
     it('refuses a scan-cleanup rerun without touching the earlier run\'s evidence', async () => {
         const evidence = {
@@ -319,6 +353,8 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
                     join(root, 'new-source.pdf'),
                     '--artifact-dir',
                     artifactDirectory,
+                    '--expected-pages',
+                    '4',
                     '--scale-only',
                 ];
             },

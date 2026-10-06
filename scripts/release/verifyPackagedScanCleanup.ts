@@ -60,7 +60,6 @@ import {
 const STARTUP_TIMEOUT_MS = 90_000;
 const DETECTION_TIMEOUT_MS = 30 * 60_000;
 const CLEANUP_TIMEOUT_MS = 45 * 60_000;
-const DEFAULT_EXPECTED_PAGE_COUNT = 392;
 const DEVICE_SCALE_FACTOR = 1;
 const execFileAsync = promisify(execFile);
 
@@ -236,17 +235,18 @@ function parseArguments(argv: string[]): IArguments {
         if (!result) {
             throw new Error(
                 'Usage: verifyPackagedScanCleanup.ts '
-                + '--executable <path> --source <pdf> --artifact-dir <directory>',
+                + '--executable <path> --source <pdf> --artifact-dir <directory> '
+                + '--expected-pages <count>',
             );
         }
         return path.resolve(result);
     };
     const expectedPageCountIndex = argv.indexOf('--expected-pages');
     const expectedPageCount = expectedPageCountIndex >= 0
-        ? Number.parseInt(argv[expectedPageCountIndex + 1] ?? '', 10)
-        : DEFAULT_EXPECTED_PAGE_COUNT;
+        ? Number(argv[expectedPageCountIndex + 1])
+        : Number.NaN;
     if (!Number.isInteger(expectedPageCount) || expectedPageCount < 1) {
-        throw new Error('--expected-pages must be a positive integer');
+        throw new Error('--expected-pages <count> is required and must be a positive integer');
     }
     const optionalValue = (name: string) => {
         const index = argv.indexOf(name);
@@ -778,10 +778,12 @@ async function run() {
     });
     const {child} = owned;
     const appLogPath = path.join(owned.logDirectory, APP_LOG_FILE_NAME);
+    const failures: unknown[] = [];
     // A signal ends the run through the same owned stop as every other path.
     // It stays registered, so a repeated signal joins the idempotent stop
     // instead of reaching Node's default exit mid-cleanup.
-    const stopOnSignal = () => {
+    const stopOnSignal = (signal: NodeJS.Signals) => {
+        failures.push(new Error(`Packaged scan-cleanup verification interrupted by ${signal}`));
         void owned.stop({force: true}).catch(error => console.error(error));
     };
     process.on('SIGINT', stopOnSignal);
@@ -849,7 +851,6 @@ async function run() {
     let browser: Browser | null = null;
     let verified = false;
     let helperCleanup: TOwnedHelperCleanup | null = null;
-    const failures: unknown[] = [];
     try {
         await copyFile(args.sourcePath, sourceCopyPath);
         // A second logical document exercises pane switching without asking the
