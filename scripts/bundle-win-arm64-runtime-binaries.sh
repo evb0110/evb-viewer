@@ -20,7 +20,6 @@ PINNED_PACKAGES=(
   "mingw-w64-clang-aarch64-ca-certificates-20260816-1-any.pkg.tar.zst fb4cb5b5eab39f5ccce18a00faef6d2d6039465e5946735bb9bf85857ae353c8"
   "mingw-w64-clang-aarch64-cairo-1.18.6-2-any.pkg.tar.zst 4f13aec1744dd5c19bb6549785811e36a1a57fea0527a41e6fc9240aeab34679"
   "mingw-w64-clang-aarch64-curl-8.22.0-1-any.pkg.tar.zst 2506a30acccad307e6fb9b5ebc1049d563f22cf100f5f0f30e84ee860a676a9d"
-  "mingw-w64-clang-aarch64-djvulibre-3.5.30-1-any.pkg.tar.zst e5afdc3c9377d88fd14be185018964b45e8318524e748067418fd6a1fdbaabfd"
   "mingw-w64-clang-aarch64-expat-2.8.5-1-any.pkg.tar.zst 274e713d76f3d6cdefd6819465414fe2d2ccabf39510e904be67f3005ff422ce"
   "mingw-w64-clang-aarch64-fontconfig-2.18.3-1-any.pkg.tar.zst f37fa96e3a7965015d0337ad44ad30187129f63cd3c06afb1bc88ad2853e44f0"
   "mingw-w64-clang-aarch64-freetype-2.14.3-1-any.pkg.tar.zst 0f7b1dc85889b861aefbb2e0fa0ad6b93b36039147c05dbdc13d160981dcd86f"
@@ -106,7 +105,7 @@ copy_runtime_dlls() {
 }
 
 STAGING_BIN="$STAGING/clangarm64/bin"
-for family in poppler qpdf djvulibre; do
+for family in poppler qpdf; do
   rm -rf "$PROJECT_ROOT/resources/$family/$TARGET"
   mkdir -p "$PROJECT_ROOT/resources/$family/$TARGET/bin"
 done
@@ -119,10 +118,7 @@ if [ -d "$STAGING/clangarm64/etc/fonts" ]; then
   cp -R "$STAGING/clangarm64/etc/fonts" "$PROJECT_ROOT/resources/poppler/$TARGET/etc/"
 fi
 cp "$STAGING_BIN/qpdf.exe" "$PROJECT_ROOT/resources/qpdf/$TARGET/bin/"
-for tool in ddjvu djvused djvudump; do
-  cp "$STAGING_BIN/$tool.exe" "$PROJECT_ROOT/resources/djvulibre/$TARGET/bin/"
-done
-for family in poppler qpdf djvulibre; do
+for family in poppler qpdf; do
   copy_runtime_dlls "$STAGING_BIN" "$PROJECT_ROOT/resources/$family/$TARGET/bin"
   find "$PROJECT_ROOT/resources/$family/$TARGET/bin" -maxdepth 1 -type f \( -iname '*.exe' -o -iname '*.dll' \) > "$BUILD_DIR/$family-pe-files.txt"
   node "$SCRIPT_DIR/release/windows-pe-dependencies.mjs" verify \

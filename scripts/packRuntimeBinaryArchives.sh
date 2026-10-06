@@ -29,11 +29,15 @@ pack_tree() {
   if [ "$family" = tesseract ]; then
     archive_name="tesseract-$TARGET-5.5.3"
   fi
+  # Versioned so the earlier unpatched Windows DjVuLibre assets stay byte-identical.
+  case "$family:$TARGET" in
+    djvulibre:win32-*) archive_name="djvulibre-$TARGET-3.5.30-r2" ;;
+  esac
   if [ ! -d "$PROJECT_ROOT/resources/$relative_root" ]; then
     echo "Error: runtime resource tree is missing: resources/$relative_root" >&2
     exit 1
   fi
-  if [ "$family" != tesseract ] && { [ "$TARGET" = darwin-arm64 ] || [ "$TARGET" = win32-x64 ]; }; then
+  if [ "$family" != tesseract ] && { [ "$TARGET" = darwin-arm64 ] || { [ "$TARGET" = win32-x64 ] && [ "$family" != djvulibre ]; }; }; then
     local cached_archive
     cached_archive="$(find "$PROJECT_ROOT/.cache/runtime-binaries" -maxdepth 1 -type f \
       -name "$family-$TARGET-*.tar-gz" -print -quit 2>/dev/null || true)"
