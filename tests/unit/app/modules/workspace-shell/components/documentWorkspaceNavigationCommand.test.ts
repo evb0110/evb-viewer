@@ -168,6 +168,7 @@ afterEach(() => {
     surfaceRenders.restoreReadingAnchor = null;
     surfaceRenders.interactionEpoch.value = 0;
     nuxtState.clear();
+    recentReadingViews.readingView.mockReset();
 });
 
 function readToolbarAttrs() {

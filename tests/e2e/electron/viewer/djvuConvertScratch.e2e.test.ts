@@ -145,8 +145,7 @@ describe('DjVu conversion scratch', () => {
         await openDjvuInApp(session.page, mixedDpiPath, 120_000);
         await waitForDjvuLoaded(session.page, 120_000);
         await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-        await expect.poll(() => readSourceResolution(session.page), {timeout: 60_000}).toMatch(/\d/u);
-        expect(await readSourceResolution(session.page)).toBe('72 DPI');
+        await expect.poll(() => readSourceResolution(session.page), {timeout: 60_000}).toBe('72 DPI');
         await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
             .find(candidate => candidate.textContent?.trim() === 'Cancel'), null, {
             description: 'Cancel of the DjVu conversion dialog',
@@ -184,8 +183,7 @@ describe('DjVu conversion scratch', () => {
         expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain('2');
 
         await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-        await expect.poll(() => readSourceResolution(session.page), {timeout: 60_000}).toMatch(/\d/u);
-        expect(await readSourceResolution(session.page)).toBe('72 DPI');
+        await expect.poll(() => readSourceResolution(session.page), {timeout: 60_000}).toBe('72 DPI');
         await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
             .find(element => element.textContent?.includes('Convert DjVu to PDF'))
             ?.querySelectorAll<HTMLButtonElement>('button') ?? [])

@@ -1087,7 +1087,7 @@ describe('native DjVu open admission', async () => {
         }
     });
 
-    it('does not call a valid DjVu invalid when djvused exits 10 because it cannot read the source', async () => {
+    it('reports an unreadable DjVu source when djvused exits 10', async () => {
         const denied = 'djvused failed with exit code 10. Failed to open \'book.djvu\': Permission denied.';
         const failure = new NativeProcessError('exit-code', 10, null, denied);
 
@@ -1102,7 +1102,7 @@ describe('native DjVu open admission', async () => {
             });
     });
 
-    it('does not call a DjVu header variant it does not recognize invalid when djvused exits 10', async () => {
+    it('preserves an unknown-header native refusal as unclassified', async () => {
         const layered = readFileSync(join(DJVU_FIXTURE_SOURCES, 'layered.djvu'));
         const failure = new NativeProcessError('exit-code', 10, null, nativeRejection);
         const truncatedForm = (prefix: string, type: string) => {

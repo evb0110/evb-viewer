@@ -154,7 +154,7 @@ describe('DjVu platform feature', () => {
             .toBe(false);
     });
 
-    it('carries usable conversion page sizes in the completed conversion and drops unusable ones without failing it', () => {
+    it('carries usable conversion page sizes and drops the entire array when any tuple is unusable', () => {
         const convertComplete = DJVU_PLATFORM_FEATURE.events.onConvertComplete.payload;
         const pageSize = {
             width: 5100,
@@ -171,6 +171,13 @@ describe('DjVu platform feature', () => {
             pageSizes: [pageSize],
         });
         for (const pageSizes of [
+            [
+                pageSize,
+                {
+                    ...pageSize,
+                    width: 0,
+                },
+            ],
             [{
                 ...pageSize,
                 width: 0,

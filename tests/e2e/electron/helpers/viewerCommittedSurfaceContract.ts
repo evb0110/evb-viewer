@@ -1069,8 +1069,10 @@ export async function installCommittedSurfaceSampler(
                 // The requested page is the reading place the viewer committed
                 // to. A partially visible neighbor earlier in DOM order also
                 // owns its own clipped center, so track the requested page
-                // whenever it is on screen; neighbors stay checked through
-                // visiblePdfPageVisuals.
+                // whenever it owns its own clipped center. If something covers
+                // it, the page that does own the center is sampled instead, so
+                // the covering surface is reported. Neighbors stay checked
+                // through visiblePdfPageVisuals.
                 const requestedVisiblePage = requestedTargetPage === null
                     ? null
                     : visiblePages.find(candidate => (

@@ -351,7 +351,6 @@ describe('document page-source presentation lifecycle', () => {
             code: 'djvu-raster-limit',
             message: 'DjVu page 1 (10000x8001) exceeds the browser full-resolution raster budget',
         });
-        vi.spyOn(BrowserLogger, 'error');
         render.mockRejectedValue(refusal);
         harness.presentation.beginSourceGeneration();
 
