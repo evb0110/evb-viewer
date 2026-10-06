@@ -5,6 +5,7 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -77,7 +78,7 @@ async function startConversion(session: IElectronE2ESession, tempRoot: string) {
 describe('DjVu conversion scratch', () => {
     // Each test's app gets its own temp root, so one test's leftovers cannot
     // satisfy or fail the next. The fixture boots the first test's session.
-    const suiteRoot = join(tmpdir(), `evb-e2e-djvu-scratch-${Date.now()}`);
+    const suiteRoot = join(realpathSync(tmpdir()), `evb-e2e-djvu-scratch-${Date.now()}`);
     const cancelRoot = join(suiteRoot, 'cancel');
     const quitRoot = join(suiteRoot, 'quit');
     const resolutionRoot = join(suiteRoot, 'resolution');

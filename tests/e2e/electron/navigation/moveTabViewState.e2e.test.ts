@@ -1,5 +1,5 @@
 import {
-    mkdirSync, mkdtempSync, rmSync, writeFileSync,
+    mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {join} from 'node:path';
 import {
@@ -122,7 +122,7 @@ describe('Move Tab to New Window view state', () => {
         const session = sessions.getSession();
         const appTempDirectory = electronAppTempDirPath(session.name);
         mkdirSync(appTempDirectory, {recursive: true});
-        outputDirectory = mkdtempSync(join(appTempDirectory, 'tab-view-transfer-'));
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'tab-view-transfer-')));
         const fixture = join(outputDirectory, 'transfer-view.pdf');
         await createTwelvePageFixture(fixture);
         await openPdfInApp(session.page, fixture);
@@ -173,7 +173,7 @@ describe('Move Tab to New Window view state', () => {
         const session = sessions.getSession();
         const appTempDirectory = electronAppTempDirPath(session.name);
         mkdirSync(appTempDirectory, {recursive: true});
-        outputDirectory = mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-'));
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-')));
         const fixture = join(outputDirectory, 'transfer-recent.pdf');
         await createTwelvePageFixture(fixture);
         await openPdfInApp(session.page, fixture);
