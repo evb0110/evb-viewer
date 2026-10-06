@@ -148,14 +148,15 @@ function resolvePageOpsBinary() {
 }
 
 /**
- * Rereads in content stream order the pages whose only text is an invisible
- * OCR layer. The recognizer writes that layer in its own reading order, column
- * by column, while on a skewed scan each line has a rotated baseline that
- * Poppler's layout analysis breaks into short, often reversed fragments.
- * Painted text keeps the layout order: some producers omit word spaces and
- * leave them to the gaps the analysis measures.
+ * Reads the pages whose only text is an invisible OCR layer in the order the
+ * recognizer wrote it: column by column, one recognized line per line. On a
+ * skewed scan each OCR line has a rotated baseline that Poppler's layout
+ * analysis breaks into short, often reversed fragments. EVB's own layer is
+ * decoded by the writer; another tool's layer is reread with `-raw`. Painted
+ * text keeps the layout order: some producers omit word spaces and leave them
+ * to the gaps the analysis measures.
  */
-async function readOcrLayersInContentOrder(
+async function readOcrLayersInRecognitionOrder(
     pdfPath: string,
     pages: IPageText[],
     signal?: AbortSignal,
@@ -167,22 +168,32 @@ async function readOcrLayersInContentOrder(
         pdfPageOpsBinary: resolvePageOpsBinary(),
         qpdfBinary: getPdfNativeToolPaths().qpdf,
         tempDir: getAppTempDir(),
+        withEvbOcrText: true,
         ...(signal === undefined ? {} : {signal}),
     });
     if (inspection.status === 'degraded') {
         log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
     }
-    const ocrLayerPages = textPageNumbers.filter((pageNumber) => {
+    const ocrLayerTexts = new Map<number, IPageText>();
+    const foreignLayerPages: number[] = [];
+    for (const pageNumber of textPageNumbers) {
         const page = inspection.visibility.get(pageNumber);
-        return page !== undefined && (page.evbOcrLayer || page.hiddenText) && !page.paintedText;
-    });
-    const rereadPages = new Map<number, IPageText>();
-    for (const range of groupContiguousPages(ocrLayerPages)) {
-        for (const page of await readPopplerPageTexts(pdfPath, range, signal, true) ?? []) {
-            rereadPages.set(page.pageNumber, page);
+        if (page === undefined || page.paintedText) continue;
+        if (page.evbOcrLayer && page.evbOcrText !== null) {
+            ocrLayerTexts.set(pageNumber, {
+                pageNumber,
+                text: normalizePopplerPageText(page.evbOcrText),
+            });
+        } else if (page.evbOcrLayer || page.hiddenText) {
+            foreignLayerPages.push(pageNumber);
         }
     }
-    return pages.map(page => rereadPages.get(page.pageNumber) ?? page);
+    for (const range of groupContiguousPages(foreignLayerPages)) {
+        for (const page of await readPopplerPageTexts(pdfPath, range, signal, true) ?? []) {
+            ocrLayerTexts.set(page.pageNumber, page);
+        }
+    }
+    return pages.map(page => ocrLayerTexts.get(page.pageNumber) ?? page);
 }
 
 /**
@@ -218,7 +229,7 @@ export function streamPdfPageTexts(
                 yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
                 continue;
             }
-            yield* await readOcrLayersInContentOrder(pdfPath, pages, signal);
+            yield* await readOcrLayersInRecognitionOrder(pdfPath, pages, signal);
             if (pages.length < batchRange.lastPage - firstPage + 1) {
                 return;
             }

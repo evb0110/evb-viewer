@@ -89,12 +89,15 @@ drift from what the popup runs. The benchmark reports faithful
 NFC character and word error separately from compatibility normalization, and
 measures raw recognition, PDF.js and Poppler extraction.
 Search, DOCX export and the assistant read page text with `pdftotext`. A page
-whose only text is an invisible OCR layer is read with `-raw`, in content stream
-order: the recognizer wrote it in its own reading order, column by column, and
-on a skewed scan each line has a rotated baseline that Poppler's layout analysis
-breaks into short, often reversed fragments. Painted text keeps the layout
-order, because some producers omit word spaces and leave them to the gaps the
-analysis measures; `-raw` would join those words.
+whose only text is an invisible OCR layer is read in recognition order instead:
+column by column, one recognized line per line. On a skewed scan each OCR line
+has a rotated baseline that Poppler's layout analysis breaks into short, often
+reversed fragments, and only recent Poppler releases keep such lines whole in
+`-raw` mode. So `pdf-page-ops ocr-text-visibility --with-evb-ocr-text` decodes
+EVB's own layer from the Tesseract operators the writer keeps, and another
+tool's layer is reread with `-raw`. Painted text keeps the layout order, because
+some producers omit word spaces and leave them to the gaps the analysis
+measures; `-raw` would join those words.
 
 Confidence alone does not establish recognition quality. Inspect saved-PDF
 text and real-app search and copying before accepting changes to text order.
