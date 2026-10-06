@@ -3,6 +3,8 @@ import {
     copyFileSync,
     existsSync,
     mkdirSync,
+    readFileSync,
+    readdirSync,
     statSync,
     writeFileSync,
 } from 'node:fs';
@@ -17,20 +19,29 @@ import {
     it,
 } from 'vitest';
 import {sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
+import {isRecord} from '@contracts/runtimeGuards';
+import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {waitForRendererReady} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     createLargeScannedFixturePdf,
+    createMultiPageTextFixturePdf,
     readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    evaluateInPage,
+    waitForFunctionInPage,
+} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp,
+    clickVisibleToolbarButton,
+    goToPageViaToolbar,
     waitForPdfLoaded,
+    waitForToolbarCurrentPage,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
@@ -195,6 +206,31 @@ describe('scan cleanup required page ops', () => {
 describe('scan cleanup completed output recovery', () => {
     it('brings back a finished output that was never opened, behind the tab the reader is in, once the window reloads', async () => {
         const session = sessionFixture.getSession();
+        const readerPath = await createMultiPageTextFixturePdf('scan-cleanup-reading-position.pdf', 6);
+        await openPdfInApp(session.page, readerPath, 60_000);
+        await waitForPdfLoaded(session.page, 60_000);
+        const readZoom = () => evaluateInPage(session.page, () => (
+            document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? ''
+        ));
+        const defaultZoom = await readZoom();
+        await clickVisibleToolbarButton(session.page, 'Zoom In');
+        await waitForFunctionInPage(session.page, (before: string) => {
+            const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
+            return Boolean(zoom) && zoom !== before;
+        }, {timeout: 60_000}, defaultZoom);
+        const readingZoom = await readZoom();
+        await goToPageViaToolbar(session.page, 4);
+        // Recover a saved reading position, rather than racing the initial
+        // checkpoint write for a document that has only just been opened.
+        const recoveryRoot = join(sessionDir(session.name), 'electron-user-data', 'workspace-recovery');
+        await expect.poll(() => existsSync(recoveryRoot) && readdirSync(recoveryRoot)
+            .filter(name => name.endsWith('.json'))
+            .some((name) => {
+                const record: unknown = JSON.parse(readFileSync(join(recoveryRoot, name), 'utf8'));
+                const checkpoint = isRecord(record) ? decodeWorkspaceCheckpoint(record.checkpoint) : null;
+                const tab = checkpoint?.tabs.find(candidate => candidate.tabId === checkpoint.activeTabId);
+                return tab?.fileName === basename(readerPath) && tab.currentPage === 4 && tab.zoomMode === 'custom';
+            }), {timeout: 60_000}).toBe(true);
         const outputRoot = join(sessionDir(session.name), 'electron-user-data', 'scan-cleanup', 'output');
         const outputPath = join(outputRoot, randomUUID(), 'recovered — cleaned.pdf');
         mkdirSync(dirname(outputPath), {recursive: true});
@@ -214,6 +250,8 @@ describe('scan cleanup completed output recovery', () => {
         await waitForFunctionInPage(session.page, () => [...document.querySelectorAll('[role="tab"]')]
             .some(tab => tab.textContent?.includes('recovered — cleaned.pdf')), {timeout: 60_000});
         expect(await readOutputTabs()).toEqual([false]);
+        const readReaderTitle = () => session.page.$eval('[role="tab"][aria-selected="true"]', tab => tab.textContent?.trim());
+        expect(await readReaderTitle()).toContain(basename(readerPath));
 
         // Reloading again, before the reader ever chose it, keeps that one
         // background tab: it was kept, and the output is not brought back twice.
@@ -222,6 +260,19 @@ describe('scan cleanup completed output recovery', () => {
         await waitForFunctionInPage(session.page, () => [...document.querySelectorAll('[role="tab"]')]
             .some(tab => tab.textContent?.includes('recovered — cleaned.pdf')), {timeout: 60_000});
         expect(await readOutputTabs()).toEqual([false]);
+        expect(await readReaderTitle()).toContain(basename(readerPath));
+        await waitForToolbarCurrentPage(session.page, 4);
+        await waitForFunctionInPage(session.page, (zoom: string) => {
+            const container = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="4"]',
+            );
+            const viewport = container?.closest('#pdf-viewer')?.getBoundingClientRect();
+            const canvas = container?.querySelector('canvas')?.getBoundingClientRect();
+            return Boolean(viewport && canvas && canvas.width > 0 && canvas.height > 0
+                && canvas.bottom > viewport.top && canvas.top < viewport.bottom
+                && container?.querySelector('.textLayer, .text-layer')?.textContent?.includes('Page 4 sample text for annotations')
+                && document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() === zoom);
+        }, {timeout: 60_000}, readingZoom);
 
         // Choosing it then shows the output, painted.
         await clickFoundAsUser(session.page, () => [...document.querySelectorAll<HTMLElement>('[role="tab"]')]

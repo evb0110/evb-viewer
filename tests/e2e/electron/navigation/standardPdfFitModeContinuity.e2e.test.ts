@@ -22,6 +22,7 @@ import {
     ensureSidebarOpen,
     goToPageViaToolbar,
     openPdfInApp,
+    readDrawnPage,
     triggerOpenPathInApp,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
@@ -1844,6 +1845,13 @@ describe('standard PDF.js fit-mode continuity', () => {
         await createNewWorkspaceTab(session);
         await openPdfInApp(session.page, secondPdfPath, OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+
+        // The drawn-page observer must see the page the reader just opened
+        // after moving away from the first document's workspace.
+        const drawnSecondPage = await readDrawnPage(session, 1);
+        expect(drawnSecondPage, JSON.stringify(drawnSecondPage)).not.toBeNull();
+        expect(drawnSecondPage?.width, JSON.stringify(drawnSecondPage)).toBeGreaterThan(0);
+        expect(drawnSecondPage?.height, JSON.stringify(drawnSecondPage)).toBeGreaterThan(0);
 
         const returns = [];
         const returnGeometry = [];
