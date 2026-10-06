@@ -56,8 +56,7 @@ const PDFINFO_OPENING_GEOMETRY_PAGE_LIMIT = 5_000;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const PDFINFO_PER_PAGE_STDOUT_BYTES = 128;
 const logger = createLogger('native-pdf-metadata');
-// The page shapes already read, by the path read: a few numbers each. The
-// oldest read leaves once the store is full.
+// Complete reading-view geometry, by source path; the oldest read leaves at capacity.
 const PAGE_SHAPE_STORE_LIMIT = 256;
 const pageShapes = new Map<string, IPdfOpeningGeometry>();
 
@@ -487,11 +486,9 @@ function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) 
 }
 
 /**
- * Answers a file's page shape from memory while the file keeps the size and
- * modification time it was read at, and reads it otherwise. Every
- * opening-geometry answer for a file read in place comes from here, so a file
- * the app has read before costs one stat instead of a pdfinfo run over every
- * page box.
+ * Reuses complete geometry while the source identity and opening page match.
+ * First-open and fallback shapes answer their caller without entering the
+ * store, so a later restoration still reads all the page metrics it needs.
  */
 export async function answerPdfPageShape(
     path: string,
@@ -507,7 +504,7 @@ export async function answerPdfPageShape(
     }
     const shape = await read();
     pageShapes.delete(path);
-    if (shape) {
+    if (shape?.pages) {
         pageShapes.set(path, shape);
         const [oldest] = pageShapes.keys();
         if (pageShapes.size > PAGE_SHAPE_STORE_LIMIT && oldest !== undefined) {
@@ -558,14 +555,14 @@ export async function handlePdfOpeningGeometry(
         })
         : null;
     const readingPage = readingView?.anchor?.page ?? readingView?.currentPage ?? 1;
-    // A reader's place sits among its pages, so every read also takes each
-    // page's exact shape: a file first read without a place has one once its
-    // reader leaves, and that next open is answered from the store. A view
-    // whose page count these bytes do not have is not this document's: the
-    // open shows no page until the document tells its own.
+    // First opens need only their page shape. Restoration needs every page's
+    // geometry, and only complete answers enter the store for subsequent opens.
     const shape = await answerPdfPageShape(resolvedPath, identityBefore, async () => {
         const read = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
-        return read && {
+        if (!read || !readingView || read.pageCount !== readingView.pageCount) {
+            return read;
+        }
+        return {
             ...read,
             pages: await readExactPageGeometry(context, resolvedPath, null, {
                 group: 'pdf-opening-pages',

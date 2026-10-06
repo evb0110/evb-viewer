@@ -164,7 +164,33 @@ describe('PDF page-shape store', () => {
         rotation: 0 as const,
         widestPageWidth: width,
         tallestPageHeight: 792,
+        pages: Array.from({length: 3}, (_, index) => ({
+            pageNumber: requirePageNumber(index + 1, 3),
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: width,
+            heightPoints: 792,
+            rotation: 0 as const,
+            userUnit: 1,
+        })),
         ...identity,
+    });
+
+    it('replaces a first-open shape without page metrics with a complete reopen shape', async () => {
+        const path = '/books/first-open-then-reopen.pdf';
+        await answerPdfPageShape(path, revision, async () => ({
+            ...shapeAt(revision, 612),
+            pages: null,
+        }));
+
+        await expect(answerPdfPageShape(path, revision, async () => shapeAt(revision, 500))).resolves.toMatchObject({
+            width: 500,
+            pages: [
+                {widthPoints: 500},
+                {widthPoints: 500},
+                {widthPoints: 500},
+            ],
+        });
     });
 
     it('answers a file it has read from memory while the file is unchanged', async () => {

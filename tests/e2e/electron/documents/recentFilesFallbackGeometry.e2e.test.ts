@@ -4,16 +4,25 @@ import {
     it,
 } from 'vitest';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import {
     chmodSync,
+    closeSync,
+    copyFileSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
     readFileSync,
+    rmSync,
     writeFileSync,
+    writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     requireDocumentRef,
     type TDocumentRef,
@@ -130,7 +139,7 @@ async function expectQuarterTurnedFitWidthReopenOnDrawnRect(session: IElectronE2
 // The real page operations tool behind a shell wrapper that rejects only the
 // metadata page-size read and execs the tool for every other command, so
 // working copies still open. Each call is logged for the witness.
-function createMetadataRejectingPageOps() {
+function createMetadataRejectingPageOps(barrierPath?: string) {
     const realPath = join(process.cwd(), '.tmp', 'pdf-page-ops', `${process.platform}-${process.arch}`, 'bin', 'evb-pdf-page-ops');
     expect(existsSync(realPath), realPath).toBe(true);
     const dir = mkdtempSync(join(tmpdir(), 'page-ops-metadata-reject-'));
@@ -142,6 +151,7 @@ function createMetadataRejectingPageOps() {
         'if [ "$1" = page-sizes ]; then',
         '    for arg in "$@"; do',
         '        if [ "$arg" = --metadata-only ]; then',
+        ...(barrierPath ? [`            read released < '${barrierPath}'`] : []),
         '            echo \'forced test failure: page-sizes --metadata-only rejected\' >&2',
         `            printf 'REJECTED\\n' >> '${callLog}'`,
         '            exit 3',
@@ -165,6 +175,51 @@ function createMetadataRejectingPageOps() {
 
 describe('Electron E2E - Recent reopen geometry without exact page shapes', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: `e2e-recent-fallback-geometry-${Date.now()}`});
+
+    it.skipIf(process.platform === 'win32')('paints a first open without waiting for the whole-document metadata reader', async () => {
+        const barrierPath = join(mkdtempSync(join(tmpdir(), 'opening-metadata-barrier-')), 'release');
+        execFileSync('mkfifo', [barrierPath]);
+        const barrier = openSync(barrierPath, 'r+');
+        const pageOps = createMetadataRejectingPageOps(barrierPath);
+        const fixture = join(dirname(pageOps.wrapperPath), 'first-open.pdf');
+        let session: IElectronE2ESession | null = null;
+        try {
+            session = await sessionFixture.restart({
+                clean: true,
+                extraEnv: {
+                    EVB_PDF_PAGE_OPS_PATH: pageOps.wrapperPath,
+                    EVB_E2E_OPEN_DIALOG_PATH: fixture,
+                },
+            });
+            copyFileSync(await createMixedPageSizeTextFixturePdf(`first-open-metadata-${Date.now()}.pdf`), fixture);
+            await clickAsUser(session.page, '.editor-pane.is-active .start-open-panel .open-panel-cta');
+            await waitForPdfLoaded(session.page, TIMEOUT_MS);
+            const drawn = await readDrawnPage(session, 1);
+            expect(drawn?.width).toBeGreaterThan(100);
+            expect(drawn?.height).toBeGreaterThan(100);
+            mkdirSync(ARTIFACT_DIR, {recursive: true});
+            await session.page.screenshot({path: join(ARTIFACT_DIR, 'first-open-metadata-held.png')});
+        } catch (error) {
+            await session?.captureFailureArtifacts('first-open-metadata-held');
+            throw error;
+        } finally {
+            writeSync(barrier, 'release\n');
+            closeSync(barrier);
+            await sessionFixture.stop({preserveArtifacts: true});
+            await sessionFixture.start({
+                clean: true,
+                extraEnv: {},
+            });
+            rmSync(dirname(pageOps.wrapperPath), {
+                recursive: true,
+                force: true,
+            });
+            rmSync(dirname(barrierPath), {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
 
     it('reopens a quarter-turned Fit Width mixed-size PDF on its drawn rect with exact page shapes', async () => {
         const session = await sessionFixture.restart({
