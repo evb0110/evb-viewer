@@ -6,7 +6,7 @@ use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
     morphology::{
-        close, dilate, dilate_gray, erode_gray, fill_gray_holes, reconstruct_gray_by_erosion,
+        close, dilate, dilate_gray, erode_gray, fill_gray_holes, open, reconstruct_gray_by_erosion,
     },
     threshold::{
         mokji_threshold, otsu_threshold, threshold_global, DEFAULT_MOKJI_MAX_EDGE_WIDTH,
@@ -1489,13 +1489,18 @@ fn extend_mask_for_content(
     };
     let long_span = (8.0 * nominal_height).round().max(24.0) as usize;
     // A scanner bed spans the raster, so its cluster would claim the whole
-    // page. It is solid, thicker on average than a line of text; an authored
-    // frame on the page edge is thin line art and stays an anchor.
+    // page. It is solid: most of its pixels sit where both their row and their
+    // column cross at least a line of text's height of it. An authored frame
+    // on the page edge is thin line art however far it runs, and stays an
+    // anchor.
+    let solid_radius = ((nominal_height - 1.0) / 2.0).ceil().max(1.0) as usize;
+    let solid = open(&binary, solid_radius, 0).and(&open(&binary, 0, solid_radius));
+    let solid_pixels = component_map.mask_counts_by_component(&solid);
     let anchors = component_map.retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         let scanner_bed = is_scanner_border_shadow(component, source.width(), source.height())
-            && component.area as f64 >= nominal_height * (width + height) as f64;
+            && solid_pixels[component.label as usize] * 2 >= component.area;
         (width >= long_span || height >= long_span) && !scanner_bed
     });
     let cluster_radius = (3.0 * nominal_height).round().max(8.0) as usize;
@@ -2773,25 +2778,6 @@ mod tests {
 
     #[test]
     fn content_picture_extension_keeps_an_authored_frame_on_the_page_edge() {
-        let mut image = GrayImage::new(400, 300, 242);
-        for x in 0..400 {
-            image.set(x, 0, 24);
-            image.set(x, 1, 24);
-            image.set(x, 298, 24);
-            image.set(x, 299, 24);
-        }
-        for y in 0..300 {
-            image.set(0, y, 24);
-            image.set(1, y, 24);
-            image.set(398, y, 24);
-            image.set(399, y, 24);
-        }
-        for row in 0..12 {
-            let y = 40 + row * 18;
-            for x in 40..360 {
-                image.set(x, y + (x / 7) % 3, 24);
-            }
-        }
         let calibration = PageCalibration {
             effective_dpi: 150.0,
             stroke_width_px: 2.0,
@@ -2799,14 +2785,36 @@ mod tests {
             valid: true,
             config: CalibrationConfig::default(),
         };
-        let empty = BinaryImage::new(image.width(), image.height());
+        // A frame's area grows with its perimeter, so from four pixels up it
+        // outweighs a text line's height times the page's half-perimeter.
+        for frame_width in [2, 4, 6] {
+            let mut image = GrayImage::new(400, 300, 242);
+            for y in 0..300 {
+                for x in 0..400 {
+                    if x < frame_width
+                        || y < frame_width
+                        || x >= 400 - frame_width
+                        || y >= 300 - frame_width
+                    {
+                        image.set(x, y, 24);
+                    }
+                }
+            }
+            for row in 0..12 {
+                let y = 40 + row * 18;
+                for x in 40..360 {
+                    image.set(x, y + (x / 7) % 3, 24);
+                }
+            }
+            let empty = BinaryImage::new(image.width(), image.height());
 
-        let content = extend_picture_mask_for_content(&image, &empty, calibration);
+            let content = extend_picture_mask_for_content(&image, &empty, calibration);
 
-        assert!(
-            content.get(200, 150),
-            "an authored frame on the page edge lost its line-art anchor"
-        );
+            assert!(
+                content.get(frame_width / 2, 150) && content.get(200, 150),
+                "an authored {frame_width}-pixel frame on the page edge lost its line-art anchor"
+            );
+        }
     }
 
     #[test]
