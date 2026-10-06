@@ -1058,8 +1058,7 @@ async function waitForSidebarFitSettled(session: IElectronE2ESession) {
             && animation.transitionProperty === 'width'
             && animation.playState !== 'finished'
         ));
-        return !isWidthTransitioning
-            && window.getComputedStyle(wrapper).width === wrapper.style.width;
+        return !isWidthTransitioning;
     }, {timeout: SETTLE_TIMEOUT_MS});
     await waitForFitSettlement(session, 1);
 }
@@ -1833,8 +1832,8 @@ describe('standard PDF.js fit-mode continuity', () => {
         await waitForSidebarFitSettled(session);
         expect((await readActiveSidebarPresentation(session)).sidebarWidth).toBe(272);
 
-        // The reported sequence: a real drag to 372px, then tab switches.
-        await dragActiveSidebarResizerAsUser(session, 100);
+        // A fractional drag also exercises Chromium layout quantization.
+        await dragActiveSidebarResizerAsUser(session, 100 + 1 / 3);
         const dragged = await readActiveSidebarPresentation(session);
         const draggedGeometry = await readActiveFitGeometry(session);
         expect(dragged.sidebarWidth, JSON.stringify({
