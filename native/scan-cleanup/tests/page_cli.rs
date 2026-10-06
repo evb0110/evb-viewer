@@ -5360,6 +5360,7 @@ fn page_plan_content_box_excludes_a_deep_scanner_bed() {
     let x = content["xPx"].as_f64().unwrap();
     let y = content["yPx"].as_f64().unwrap();
     let right = x + content["widthPx"].as_f64().unwrap();
+    let bottom = y + content["heightPx"].as_f64().unwrap();
     assert!(
         y >= 80.0,
         "the scanner bed stayed above the body: {content}"
@@ -5368,5 +5369,8 @@ fn page_plan_content_box_excludes_a_deep_scanner_bed() {
         right <= 610.0,
         "the scanner bed stayed beside the body: {content}"
     );
-    assert!(x <= 62.0 && y <= 200.0, "the body was cropped: {content}");
+    assert!(
+        x <= 62.0 && y <= 200.0 && right >= 476.0 && bottom >= 652.0,
+        "the body was cropped: {content}"
+    );
 }
