@@ -1,5 +1,6 @@
 import {
     clampPageNumber,
+    clampPageRange,
     requirePageNumber,
 } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
@@ -180,9 +181,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     const skeletonInsets = usePdfSkeletonInsets(basePageWidth, basePageHeight, scale.effectiveScale);
     const currentPage = scroll.currentPage;
-    const visibleRange = ref({
+    // A measurement describes the document it was taken in; a deleted page or
+    // shorter replacement publishes its page count before the next measurement.
+    const measuredVisibleRange = ref<IPageRange>({
         start: 1,
         end: 1,
+    });
+    const visibleRange = computed<IPageRange>({
+        get: () => clampPageRange(measuredVisibleRange.value, Math.max(1, numPages.value)),
+        set: range => (measuredVisibleRange.value = range),
     });
     const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
     const pageLayoutScaleResolver = shallowRef<((pageNumber: TPageNumber) => number) | null>(null);
@@ -486,15 +493,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             * Math.max(1, Math.round(height * scaled));
         return Math.min(requestedPixels, options.settledMaxCanvasPixels);
     }
-    function clampedProtectedVisibleRange(): IPageRange {
-        const requested = getProtectedVisibleRange();
-        const pageCount = Math.max(1, numPages.value);
-        const start = Math.max(1, Math.min(pageCount, Math.trunc(requested.start)));
-        return {
-            start,
-            end: Math.max(start, Math.min(pageCount, Math.trunc(requested.end))),
-        };
-    }
     const demand = shallowRef<IPdfViewportDemand>({
         revision: 0,
         visibleRange: {
@@ -512,7 +510,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     function resolveDemand(): IPdfViewportDemand {
         demandRevision += 1;
-        const range = clampedProtectedVisibleRange();
+        const range = getProtectedVisibleRange();
         const operational = (options.isActive.value || pendingMandatoryRaster !== null)
             && !isLoading.value
             && pdfDocument.value !== null

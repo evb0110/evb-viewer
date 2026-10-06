@@ -31,6 +31,7 @@ import {
     requirePageIndex,
     requirePageNumber,
 } from '@pdf-core/pdfPageSelection';
+import { clampPageRange } from '@contracts/pageNumbers';
 
 describe('page number contracts', () => {
     it.each([
@@ -111,6 +112,37 @@ describe('page number contracts', () => {
         expect(clampPageNumber(Number.POSITIVE_INFINITY, 12)).toBe(12);
         expect(clampPageNumber(Number.NEGATIVE_INFINITY, 12)).toBe(1);
         expect(clampPageNumber(Number.MAX_SAFE_INTEGER * 2)).toBe(Number.MAX_SAFE_INTEGER);
+    });
+
+    it('clamps both ends of a viewport range and never lets the end come first', () => {
+        expect(clampPageRange({
+            start: 297,
+            end: 298,
+        }, 150)).toEqual({
+            start: 150,
+            end: 150,
+        });
+        expect(clampPageRange({
+            start: 2.8,
+            end: 4.2,
+        }, 10)).toEqual({
+            start: 2,
+            end: 4,
+        });
+        expect(clampPageRange({
+            start: 5,
+            end: 3,
+        }, 10)).toEqual({
+            start: 5,
+            end: 5,
+        });
+        expect(clampPageRange({
+            start: Number.NaN,
+            end: 0,
+        })).toEqual({
+            start: 1,
+            end: 1,
+        });
     });
 
     it('round-trips page index and page number conversions', () => {
