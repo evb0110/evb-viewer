@@ -151,7 +151,7 @@ export function findPidsByCommandSubstring(substring: string) {
 
 /**
  * Resolves true when it found the root alive and terminated its tree, false
- * when the root was already gone or Windows refused to terminate the tree.
+ * when the root was already gone or termination could not be confirmed.
  */
 export async function killProcessTree(
     pid: number,
@@ -171,9 +171,9 @@ export async function killProcessTree(
         ], {stdio: 'ignore'});
         // TerminateProcess is asynchronous like SIGKILL, so the process stays
         // visible to the liveness check callers read straight afterwards.
-        await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
+        const rootExited = await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
         // A root that exits on its own does not show its helpers were stopped.
-        return status === 0;
+        return status === 0 && rootExited;
     }
 
     const descendants = collectDescendantPidsUnix(pid);
@@ -183,8 +183,7 @@ export async function killProcessTree(
     ]);
     if (options.force) {
         killPids(targets, { signal: 'SIGKILL' });
-        await waitForProcessesExit(targets, FORCED_EXIT_TIMEOUT_MS);
-        return true;
+        return waitForProcessesExit(targets, FORCED_EXIT_TIMEOUT_MS);
     }
     killPids(targets, { signal: 'SIGTERM' });
 
@@ -202,7 +201,7 @@ export async function killProcessTree(
     const remaining = targets.filter(targetPid => isProcessAlive(targetPid));
     if (remaining.length > 0) {
         killPids(remaining, { signal: 'SIGKILL' });
-        await waitForProcessesExit(remaining, FORCED_EXIT_TIMEOUT_MS);
+        return waitForProcessesExit(remaining, FORCED_EXIT_TIMEOUT_MS);
     }
     return true;
 }

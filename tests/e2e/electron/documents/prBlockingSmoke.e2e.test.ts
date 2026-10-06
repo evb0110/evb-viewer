@@ -252,9 +252,14 @@ async function runPdfDiagnosticStage<T>(
         console.info(`[pdf-stage:done] ${stage}`);
         return result;
     } catch (error) {
+        const failedAt = new Date().toISOString();
+        const containedErrors = error instanceof AggregateError
+            ? error.errors.map((containedError, index) => `; contained ${String(index + 1)}: ${String(containedError)}`).join('')
+            : '';
         const diagnostics = await collectPdfStageDiagnostics(page).catch(diagnosticError => ({diagnosticError: String(diagnosticError)}));
         throw new Error(
-            `[pdf-stage:failed] ${stage}: ${String(error)}; diagnostics=${JSON.stringify(diagnostics)}`,
+            `[pdf-stage:failed] ${stage} at ${failedAt}: ${String(error)}${containedErrors}; diagnostics=${JSON.stringify(diagnostics)}`,
+            {cause: error},
         );
     }
 }
