@@ -821,7 +821,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         const resident = await waitForDjvuPreviewBytes(session, bytes => bytes > 0, DJVU_E2E_TIMEOUT_MS);
         expect(resident.reservedBytesByCategory['djvu-preview']).toBeGreaterThan(0);
 
-        const release = await session.page.evaluate(async () => {
+        const releasePromise = session.page.evaluate(async () => {
             const pressureWindow = window as IWorkspaceSurfacePressureWindow;
             if (
                 !pressureWindow.__setWorkspaceSurfacePressureForE2E
@@ -829,33 +829,40 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             ) {
                 throw new Error('Workspace surface pressure E2E hook is unavailable');
             }
-            const applyPressure = () => pressureWindow.__setWorkspaceSurfacePressureForE2E?.('moderate');
-            applyPressure();
-            const pressureTimer = window.setInterval(applyPressure, 200);
+            const setPressure = pressureWindow.__setWorkspaceSurfacePressureForE2E;
+            const getSnapshot = pressureWindow.__getWorkspaceSurfaceBudgetForE2E;
+            const tab = document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')[1];
+            if (!tab) {
+                throw new Error('Second workspace tab is unavailable');
+            }
+            // Seed pressure in the trusted click's capture phase, before deactivation.
+            const startedAt = await new Promise<number>(resolve => tab.addEventListener('click', () => {
+                setPressure('moderate');
+                resolve(performance.now());
+            }, {
+                capture: true,
+                once: true,
+            }));
             try {
-                const tabs = Array.from(document.querySelectorAll<HTMLElement>(
-                    '.tab-list .tab[data-tab-id]',
-                ));
-                tabs[1]?.click();
-                const activationDeadline = performance.now() + 1_250;
-                while (
-                    performance.now() < activationDeadline
-                    && tabs[1]?.getAttribute('aria-selected') !== 'true'
-                ) {
-                    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-                }
-                const tabActivated = tabs[1]?.getAttribute('aria-selected') === 'true';
-                applyPressure();
-                const startedAt = performance.now();
+                // The live host monitor also writes pressure. Supply and sample the
+                // test's condition atomically instead of racing a second interval.
+                const readUnderPressure = () => {
+                    setPressure('moderate');
+                    return getSnapshot();
+                };
                 const deadline = startedAt + 1_250;
-                let snapshot = pressureWindow.__getWorkspaceSurfaceBudgetForE2E();
+                let snapshot = readUnderPressure();
                 while (
                     performance.now() < deadline
-                    && (snapshot.reservedBytesByCategory['djvu-preview'] ?? 0) > 0
+                    && (
+                        tab.getAttribute('aria-selected') !== 'true'
+                        || (snapshot.reservedBytesByCategory['djvu-preview'] ?? 0) > 0
+                    )
                 ) {
                     await new Promise(resolve => setTimeout(resolve, 25));
-                    snapshot = pressureWindow.__getWorkspaceSurfaceBudgetForE2E();
+                    snapshot = readUnderPressure();
                 }
+                const tabActivated = tab.getAttribute('aria-selected') === 'true';
                 return {
                     elapsedMs: performance.now() - startedAt,
                     snapshot,
@@ -863,10 +870,11 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
                     tabActivated,
                 };
             } finally {
-                window.clearInterval(pressureTimer);
-                pressureWindow.__setWorkspaceSurfacePressureForE2E('healthy');
+                setPressure('healthy');
             }
         });
+        await activateTab(session, 1);
+        const release = await releasePromise;
 
         expect(release.switchedTabs).toBe(true);
         expect(release.tabActivated).toBe(true);
