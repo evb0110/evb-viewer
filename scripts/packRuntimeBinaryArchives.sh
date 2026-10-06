@@ -31,7 +31,7 @@ pack_tree() {
   fi
   # Versioned so the earlier unpatched Windows DjVuLibre assets stay byte-identical.
   case "$family:$TARGET" in
-    djvulibre:win32-*) archive_name="djvulibre-$TARGET-3.5.30-r1" ;;
+    djvulibre:win32-*) archive_name="djvulibre-$TARGET-3.5.30-r2" ;;
   esac
   if [ ! -d "$PROJECT_ROOT/resources/$relative_root" ]; then
     echo "Error: runtime resource tree is missing: resources/$relative_root" >&2

@@ -1,4 +1,4 @@
-Clear the Windows monitor owner when the monitor is released.
+Clear the Windows monitor owner on release, and keep the owner check race-free.
 
 GMonitor::enter() decides without the lock whether the calling thread
 already owns the monitor, by comparing `locker` with its own thread id.
@@ -8,6 +8,10 @@ another thread re-acquired the monitor in wait() and had not yet stored its
 own id. Both threads then ran inside the monitor, and the next ownership
 check threw GThreads.not_acq_*; from GMonitorLock's destructor that ends in
 std::terminate. The POSIX leave() already resets `locker`.
+
+`count` and `locker` are read without the lock, so they are atomic: a
+thread can see its own id in `locker` only after storing it itself and
+before clearing it, which makes the lock-free check exact.
 
 --- a/libdjvu/GThreads.cpp
 +++ b/libdjvu/GThreads.cpp
@@ -19,3 +23,24 @@ std::terminate. The POSIX leave() already resets `locker`.
        if (ok)
          LeaveCriticalSection(&cs);
      }
+--- a/libdjvu/GThreads.h
++++ b/libdjvu/GThreads.h
+@@ -107,6 +107,7 @@
+ #define WIN32_LEAN_AND_MEAN
+ #include "windows.h"
+ #endif
++#include <atomic>
+ #endif
+ 
+ #if POSIXTHREADS
+@@ -269,8 +270,8 @@
+ private:
+ #if WINTHREADS
+   int ok;
+-  int count;
+-  DWORD locker;
++  std::atomic<int> count;
++  std::atomic<DWORD> locker;
+   CRITICAL_SECTION cs;
+   struct thr_waiting *head;
+   struct thr_waiting *tail;
