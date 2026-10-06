@@ -723,13 +723,15 @@ fn solid_bed_depth(extent: usize, coverage_at_depth: impl Fn(usize) -> f64) -> u
 
 /// How far from one edge the border mask may reach: the 1/40 edge zone, or a
 /// solid scanner bed and the stippled fringe after it, whichever is deeper.
+/// A fringe is never deeper than the bed it frays from, so a bed beside this
+/// edge cannot carry it further into the page.
 fn scanner_bed_depth(extent: usize, coverage_at_depth: impl Fn(usize) -> f64) -> usize {
     let zone = extent.div_ceil(40).max(1);
     let solid_end = solid_bed_depth(extent, &coverage_at_depth);
     if solid_end == 0 {
         return zone;
     }
-    let limit = extent / 5;
+    let limit = (extent / 5).min(solid_end * 2);
     let fringe_end = (solid_end..limit)
         .find(|&depth| coverage_at_depth(depth) < 0.2)
         .unwrap_or(limit);
@@ -3193,6 +3195,31 @@ mod tests {
         assert!(
             !borders.get(200, 120),
             "a printed rule joined to the side bed became border"
+        );
+    }
+
+    #[test]
+    fn a_partial_side_bed_does_not_stretch_the_top_bed_over_a_rule_it_touches() {
+        let mut image = GrayImage::new(500, 1_000, 236);
+        for y in 0..1_000 {
+            for x in 0..500 {
+                if y < 40 || (x >= 400 && y < 800) {
+                    image.set(x, y, 0);
+                }
+            }
+        }
+        for y in 120..122 {
+            for x in 100..400 {
+                image.set(x, y, 0);
+            }
+        }
+
+        let borders = border_artifact_mask(&image);
+
+        assert!(borders.get(200, 20), "the top bed was not a border");
+        assert!(
+            !borders.get(200, 120),
+            "a printed rule joined to a partial side bed became border"
         );
     }
 
