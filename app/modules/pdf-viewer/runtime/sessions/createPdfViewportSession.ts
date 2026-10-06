@@ -1,5 +1,6 @@
 import {
     clampPageNumber,
+    clampPageRange,
     requirePageNumber,
 } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
@@ -178,9 +179,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     const skeletonInsets = usePdfSkeletonInsets(basePageWidth, basePageHeight, scale.effectiveScale);
     const currentPage = scroll.currentPage;
-    const visibleRange = ref({
+    // A measurement describes the document it was taken in; a deleted page or
+    // shorter replacement publishes its page count before the next measurement.
+    const measuredVisibleRange = ref<IPageRange>({
         start: 1,
         end: 1,
+    });
+    const visibleRange = computed<IPageRange>({
+        get: () => clampPageRange(measuredVisibleRange.value, Math.max(1, numPages.value)),
+        set: range => (measuredVisibleRange.value = range),
     });
     const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
     const pageLayoutScaleResolver = shallowRef<((pageNumber: TPageNumber) => number) | null>(null);
@@ -219,15 +226,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         );
     }
     function getProtectedVisibleRange(): IPageRange {
-        // The committed range is a live reading of the previous layout. A page
-        // edit replaces the document before the viewport measures again, so
-        // project it into the current page count before the row policy runs.
-        const pageCount = Math.max(1, numPages.value);
         return resolvePdfProtectedVisibleRange({
-            visibleRange: {
-                start: clampPageNumber(visibleRange.value.start, pageCount),
-                end: clampPageNumber(visibleRange.value.end, pageCount),
-            },
+            visibleRange: visibleRange.value,
             navigationTargetPage: singlePageScroll.renderTargetPage.value,
             viewMode: options.viewMode.value,
             totalPages: numPages.value,

@@ -34,8 +34,12 @@ import {
     clickToolbarButtonWhenEnabled,
     saveViaVisibleToolbar,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {expectWithinTimingBudget} from '@tests/e2e/electron/helpers/timingBudget';
+import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {waitForAnimationFrames} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -1270,4 +1274,57 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await waitForViewerInteractive(page, 90_000);
         expect(await readZoomLabel()).toBe(readerZoomLabel);
     }, 300_000);
+    // Issue #961: deleting the page in view leaves the old visible range past
+    // the new end of the document. The remaining page must stay on screen.
+    it('keeps the remaining page on screen after deleting the page in view', async () => {
+        const pdfPath = await createMultiPageTextFixturePdf(
+            `delete-visible-last-page-${Date.now()}.pdf`,
+            2,
+        );
+        session = await startElectronE2ESession(`e2e-delete-visible-last-page-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        await ensureSidebarOpen(page, 60_000);
+        await openDocumentSidebarTab(page, 'Pages', 60_000);
+        await goToPageViaToolbar(page, 2);
+        await waitForToolbarCurrentPage(page, 2, 60_000);
+
+        const errors = await observeRendererErrors(page);
+        const lastThumbnail = '.pdf-thumbnails [data-thumbnail-page="2"]';
+        await clickAsUser(page, lastThumbnail);
+        await clickAsUser(page, lastThumbnail, {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages' && item.getBoundingClientRect().width > 0), null, {description: 'Delete Pages'});
+
+        await page.waitForFunction(() => (
+            document.querySelector('.workspace-host__loading[role="alert"]') !== null
+            || (
+                document.querySelectorAll('.pdf-thumbnails [data-thumbnail-page]').length === 1
+                && document.querySelector('#pdf-viewer .page_container[data-page="1"] canvas') !== null
+                && document.querySelector('#pdf-viewer .page_container[data-page="2"]') === null
+            )
+        ), {timeout: 60_000});
+        // A failure panel ends the wait early; the assertion names what is on screen.
+        const surface = await page.evaluate(() => ({
+            failurePanel: document.querySelector<HTMLElement>('.workspace-host__loading[role="alert"]')?.innerText ?? null,
+            thumbnails: document.querySelectorAll('.pdf-thumbnails [data-thumbnail-page]').length,
+            firstPagePainted: document.querySelector('#pdf-viewer .page_container[data-page="1"] canvas') !== null,
+            secondPageMounted: document.querySelector('#pdf-viewer .page_container[data-page="2"]') !== null,
+        }));
+        const report = await errors.collect();
+        errors.dispose();
+        expect(surface).toEqual({
+            failurePanel: null,
+            thumbnails: 1,
+            firstPagePainted: true,
+            secondPageMounted: false,
+        });
+        expect(report.pageErrors).toEqual([]);
+        expect(report.unhandledRejections).toEqual([]);
+        expect(report.visibleErrorSurfaces).toEqual([]);
+    }, 180_000);
 });
