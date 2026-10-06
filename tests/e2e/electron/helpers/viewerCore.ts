@@ -227,7 +227,7 @@ export function readHeldShell(session: IElectronE2ESession) {
 export function readDrawnPage(session: IElectronE2ESession, pageNumber: number) {
     return evaluateInPage(session.page, (page: number) => {
         const rect = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"]`,
+            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${page}"]`,
         )?.getBoundingClientRect();
         return rect ? {
             page,
