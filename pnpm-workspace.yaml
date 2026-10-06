@@ -6,6 +6,10 @@ packages:
 # Hold new registry releases for seven days before they can enter the lockfile.
 # This applies to direct and transitive dependencies.
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  # Security fix for GHSA-68fv-2mgg-jv7q, published 2026-09-30. Remove this
+  # exception after source-map-js@1.2.2 has aged past the hold.
+  - source-map-js@1.2.2
 
 # Release automation and Electron smoke need the real Electron binary on every
 # fresh install. Electron 43 downloads lazily when required, so the root
