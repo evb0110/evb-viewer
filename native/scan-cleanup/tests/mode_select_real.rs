@@ -54,3 +54,31 @@ fn luther_low_resolution_scans_keep_soft_text_in_grayscale() {
         );
     }
 }
+
+#[test]
+fn a_book_fore_edge_strip_does_not_make_a_text_page_color() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/leaf-edge/prym-p00063-fore-edge-150dpi.png");
+    let decoded = decode_image(&fs::read(path).unwrap(), 10_000_000, 3_000).unwrap();
+    let result = analyze_page_with_color_and_document_prior(
+        &decoded.gray,
+        Some(&decoded.rgb),
+        &CleanupOptions {
+            dpi: 150.0,
+            output_mode: OutputMode::Auto,
+            normalize_illumination: false,
+            crop_content: false,
+            ..CleanupOptions::default()
+        },
+        None,
+    )
+    .unwrap();
+    let recommendation = result
+        .output_mode_recommendation
+        .expect("automatic mode emits a recommendation");
+    assert_eq!(recommendation.mode, OutputMode::Bw, "{recommendation:?}");
+    assert!(
+        !recommendation.diagnostics.significant_color,
+        "{recommendation:?}"
+    );
+}
