@@ -373,6 +373,10 @@ describe('findPdfSearchMatches', () => {
             startOffset: 10,
             endOffset: 13,
         }]);
+        expect(findPdfSearchMatches('Baptiſtæ venerit feſtum', 'festum')).toEqual([{
+            startOffset: 17,
+            endOffset: 23,
+        }]);
     });
     it('ignores zero-width regex matches without looping forever', () => {
         expect(findPdfSearchMatches('aaa', /(?=a)/gu)).toEqual([]);

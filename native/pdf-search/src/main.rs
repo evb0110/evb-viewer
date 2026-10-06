@@ -403,12 +403,14 @@ fn fold_search_ligature(character: char) -> Option<&'static str> {
         '\u{fb03}' => Some("ffi"),
         '\u{fb04}' => Some("ffl"),
         '\u{fb05}' | '\u{fb06}' => Some("st"),
+        // Long s, as early printed books and their OCR spell it.
+        '\u{17f}' => Some("s"),
         _ => None,
     }
 }
 
-/// Canonical composition plus the presentation ligatures PDF fonts emit;
-/// deliberately narrower than NFKC.
+/// Canonical composition plus the presentation ligatures PDF fonts emit and
+/// long s; deliberately narrower than NFKC.
 fn normalize_search_fragment(value: &str) -> String {
     let mut folded = String::with_capacity(value.len());
     for character in value.chars() {

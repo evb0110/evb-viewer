@@ -1,13 +1,13 @@
 import {
-    AVAILABLE_OCR_LANGUAGES,
     BUNDLED_OCR_LANGUAGE_CODES,
     OCR_LANGUAGE_MODEL_SHA256,
+    OCR_MODEL_CODES,
 } from '@contracts/ocrLanguages';
 
 const separator = process.argv.includes('--space') ? ' ' : '\n';
 const codes = (process.argv.includes('--bundled')
     ? [...BUNDLED_OCR_LANGUAGE_CODES]
-    : AVAILABLE_OCR_LANGUAGES.map(language => language.code))
+    : [...OCR_MODEL_CODES])
     .sort();
 
 if (codes.length === 0) {

@@ -55,7 +55,7 @@ describe('runtime binary manifest', () => {
                 `${entry.familyId}/${entry.target.platformArch}/bin/${entry.executableEntry.split('/').at(-1)}`,
             );
         }
-        expect(TESSDATA_RUNTIME_DATA_ENTRY.archiveUrl).toMatch(/\/tesseract-tessdata\.tar\.gz$/u);
+        expect(TESSDATA_RUNTIME_DATA_ENTRY.archiveUrl).toMatch(/\/tesseract-tessdata(?:-v\d+)?\.tar\.gz$/u);
     });
 
     it('rejects a changed archive URL under the fixed manifest identity', () => {

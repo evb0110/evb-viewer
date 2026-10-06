@@ -42,11 +42,16 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import { forEachConcurrent } from '@electron/utils/concurrency';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
-import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
 import { getErrorMessage } from '@electron/utils/error';
 import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
-import { OCR_LANGUAGE_MODEL_SHA256 } from '@contracts/ocrLanguages';
+import {
+    AVAILABLE_OCR_LANGUAGES,
+    isAvailableOcrLanguageCode,
+    OCR_LANGUAGE_MODEL_SHA256,
+    OCR_MODEL_CODES,
+    resolveOcrLanguageModels,
+} from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
 export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
@@ -1098,17 +1103,18 @@ export async function ensureTessdataLanguages(
         return;
     }
     throwIfAborted(options.signal);
-    for (const languageCode of requiredCodes) {
-        if (!AVAILABLE_OCR_LANGUAGE_CODES.has(languageCode)) {
+    const requiredModels = uniq(requiredCodes.flatMap((languageCode) => {
+        if (!isAvailableOcrLanguageCode(languageCode)) {
             throw new Error(`Unsupported OCR language: ${languageCode}`);
         }
-    }
+        return resolveOcrLanguageModels(languageCode);
+    }));
 
     const runtimeDir = getRuntimeTessdataDir();
     await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
-    await forEachConcurrent(requiredCodes, getModelDownloadConcurrency(), async (languageCode) => {
-        await ensureLanguageModel(languageCode, runtimeDir, options);
+    await forEachConcurrent(requiredModels, getModelDownloadConcurrency(), async (modelCode) => {
+        await ensureLanguageModel(modelCode, runtimeDir, options);
     });
 }
 
@@ -1116,12 +1122,23 @@ export async function getOcrLanguageModelStates() {
     await ensureRuntimeTessdataSeeded();
     const runtimeDir = getRuntimeTessdataDir();
     await ensureTessdataInventoryReadable(runtimeDir);
-    return Promise.all(Array.from(AVAILABLE_OCR_LANGUAGE_CODES, async languageCode => ({
-        code: languageCode,
-        state: inFlightDownloads.has(languageCode)
+    const modelStates = new Map(await Promise.all(OCR_MODEL_CODES.map(async modelCode => [
+        modelCode,
+        inFlightDownloads.has(modelCode)
             ? 'downloading' as const
-            : await verifyInstalledLanguageModel(languageCode, getModelPath(runtimeDir, languageCode))
+            : await verifyInstalledLanguageModel(modelCode, getModelPath(runtimeDir, modelCode))
                 ? 'installed' as const
                 : 'missing' as const,
-    })));
+    ] as const)));
+    return AVAILABLE_OCR_LANGUAGES.map(({code}) => {
+        const states = resolveOcrLanguageModels(code).map(modelCode => modelStates.get(modelCode));
+        return {
+            code,
+            state: states.includes('downloading')
+                ? 'downloading' as const
+                : states.every(state => state === 'installed')
+                    ? 'installed' as const
+                    : 'missing' as const,
+        };
+    });
 }

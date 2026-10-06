@@ -510,6 +510,8 @@ const SEARCH_LIGATURE_FOLDS: Readonly<Record<string, string>> = {
     '\uFB04': 'ffl',
     '\uFB05': 'st',
     '\uFB06': 'st',
+    // Long s, as early printed books and their OCR spell it.
+    '\u017F': 's',
 };
 const searchTextEncoder = new TextEncoder();
 
@@ -541,7 +543,8 @@ function normalizedTextByteLength(text: string) {
 
 /**
  * Search normalization is deliberately narrower than NFKC: canonical Unicode
- * composition plus the presentation ligatures commonly emitted by PDF fonts.
+ * composition plus the presentation ligatures commonly emitted by PDF fonts
+ * and long s.
  */
 export function normalizeSearchText(
     text: string,

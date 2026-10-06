@@ -1,6 +1,6 @@
 use crate::protocol::manifest_v3::ContentBlockEvidence;
 use crate::{calibration::PageCalibration, io::png::RgbImage, OutputMode};
-use scan_primitives::{threshold::otsu_threshold, BinaryImage, ComponentMap, GrayImage};
+use scan_primitives::{threshold::otsu_threshold, BinaryImage, Component, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
 
 const CHROMA_NOISE_FLOOR: f64 = 18.0;
@@ -38,6 +38,8 @@ const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
 /// rather than page content. Page margins at any scan resolution are wider
 /// than this, so no printed matter falls inside the band.
 const BLANK_EDGE_BAND_FRACTION: f64 = 0.04;
+/// A leaf-edge strip is at least this many times longer than it is thick.
+const LEAF_EDGE_STRIP_MIN_ELONGATION: usize = 3;
 /// Coarse grid used to find page-scale pale continuous-tone regions without
 /// promoting isolated scanner noise.
 const PALE_TONE_GRID_SIZE: usize = 64;
@@ -1603,55 +1605,72 @@ fn chroma_evidence_and_mask(
     let background_chroma = chroma_vector(background);
     let background_tint = norm(background_chroma);
     let paper_ink_model = paper_ink_model(gray, rgb, background, bright_cutoff, text_line_count);
+    let pixel_saturation = |x: usize, y: usize| {
+        let pixel = rgb.get(x, y);
+        let dark_ink = gray.get(x, y) <= DARK_LUMINANCE_CUTOFF;
+        let pixel_chroma = chroma_vector(pixel.map(f64::from));
+        let pixel_tint = norm(pixel_chroma);
+        let follows_paper_tint = dark_ink
+            && background_tint >= 8.0
+            && pixel_tint >= 8.0
+            && dot(background_chroma, pixel_chroma) / (background_tint * pixel_tint) >= 0.82;
+        let compared = if paper_ink_model
+            .is_some_and(|(paper, ink)| explained_by_paper_ink_segment(pixel, paper, ink))
+            || follows_paper_tint
+        {
+            [0.0; 3]
+        } else if dark_ink {
+            pixel.map(f64::from)
+        } else {
+            [
+                f64::from(pixel[0]) * background_mean / background[0],
+                f64::from(pixel[1]) * background_mean / background[1],
+                f64::from(pixel[2]) * background_mean / background[2],
+            ]
+        };
+        let minimum = compared.iter().copied().fold(f64::INFINITY, f64::min);
+        let maximum = compared.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let chroma = maximum - minimum;
+        let saturation = chroma / maximum.max(1.0);
+        let noise_floor = if dark_ink {
+            DARK_CHROMA_NOISE_FLOOR
+        } else {
+            CHROMA_NOISE_FLOOR
+        };
+        (chroma >= noise_floor && saturation >= CHROMA_SATURATION_FLOOR).then_some(saturation)
+    };
     let mut colored = 0usize;
     let mut saturation_sum = 0.0;
     let mut chroma_mask = BinaryImage::new(gray.width(), gray.height());
     for y in 0..gray.height() {
         for x in 0..gray.width() {
-            let pixel = rgb.get(x, y);
-            let dark_ink = gray.get(x, y) <= DARK_LUMINANCE_CUTOFF;
-            let pixel_chroma = chroma_vector(pixel.map(f64::from));
-            let pixel_tint = norm(pixel_chroma);
-            let follows_paper_tint = dark_ink
-                && background_tint >= 8.0
-                && pixel_tint >= 8.0
-                && dot(background_chroma, pixel_chroma) / (background_tint * pixel_tint) >= 0.82;
-            let compared = if paper_ink_model
-                .is_some_and(|(paper, ink)| explained_by_paper_ink_segment(pixel, paper, ink))
-                || follows_paper_tint
-            {
-                [0.0; 3]
-            } else if dark_ink {
-                pixel.map(f64::from)
-            } else {
-                [
-                    f64::from(pixel[0]) * background_mean / background[0],
-                    f64::from(pixel[1]) * background_mean / background[1],
-                    f64::from(pixel[2]) * background_mean / background[2],
-                ]
-            };
-            let minimum = compared.iter().copied().fold(f64::INFINITY, f64::min);
-            let maximum = compared.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-            let chroma = maximum - minimum;
-            let saturation = chroma / maximum.max(1.0);
-            let noise_floor = if dark_ink {
-                DARK_CHROMA_NOISE_FLOOR
-            } else {
-                CHROMA_NOISE_FLOOR
-            };
-            if chroma >= noise_floor && saturation >= CHROMA_SATURATION_FLOOR {
+            if let Some(saturation) = pixel_saturation(x, y) {
                 colored += 1;
                 saturation_sum += saturation;
                 chroma_mask.set(x, y, true);
             }
         }
     }
-    let largest_component_pixels = ComponentMap::from_binary(&chroma_mask)
-        .components()
-        .iter()
-        .map(|component| component.area)
-        .max()
-        .unwrap_or(0);
+    // A photographed book carries its fore-edge, gutter or head as a thin
+    // tinted strip along the leaf border. The strip lies outside the printed
+    // page and the content crop removes it, so it cannot own the page's color.
+    let components = ComponentMap::from_binary(&chroma_mask);
+    let mut largest_component_pixels = 0;
+    for component in components.components() {
+        if !is_leaf_edge_strip(component, gray.width(), gray.height()) {
+            largest_component_pixels = largest_component_pixels.max(component.area);
+            continue;
+        }
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if components.label_at(x, y) == component.label {
+                    colored -= 1;
+                    saturation_sum -= pixel_saturation(x, y).unwrap_or(0.0);
+                    chroma_mask.set(x, y, false);
+                }
+            }
+        }
+    }
     (
         ChromaEvidence {
             colored_fraction: colored as f64
@@ -1662,6 +1681,22 @@ fn chroma_evidence_and_mask(
         },
         Some(chroma_mask),
     )
+}
+
+/// Whether a chroma component is a thin strip confined to the leaf edge band
+/// and running along that edge, as a book's fore-edge, gutter or head does.
+/// A stamp or plate near the margin is compact, so it keeps owning its color.
+fn is_leaf_edge_strip(component: &Component, width: usize, height: usize) -> bool {
+    let band_x = (width as f64 * BLANK_EDGE_BAND_FRACTION).ceil() as usize;
+    let band_y = (height as f64 * BLANK_EDGE_BAND_FRACTION).ceil() as usize;
+    let component_width = component.right - component.left + 1;
+    let component_height = component.bottom - component.top + 1;
+    let along_side = (component.right < band_x || component.left >= width.saturating_sub(band_x))
+        && component_height >= component_width * LEAF_EDGE_STRIP_MIN_ELONGATION;
+    let along_top_or_bottom = (component.bottom < band_y
+        || component.top >= height.saturating_sub(band_y))
+        && component_width >= component_height * LEAF_EDGE_STRIP_MIN_ELONGATION;
+    along_side || along_top_or_bottom
 }
 
 fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {

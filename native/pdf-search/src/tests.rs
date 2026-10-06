@@ -341,6 +341,17 @@ fn regex_queries_match_over_normalized_text() {
 }
 
 #[test]
+fn long_s_in_early_print_matches_a_round_s_query() {
+    let index = build_index(1, &[(1, "Baptiſtæ venerit feſtum")]);
+    let mut search_options = options("festum");
+    search_options.whole_word = true;
+    assert_eq!(
+        offsets(&search_index(&index, &search_options).expect("search")),
+        vec![(1, 17, 23)],
+    );
+}
+
+#[test]
 fn whole_word_regex_backtracks_into_a_bounded_alternative() {
     let index = build_index(1, &[(1, "abc ab")]);
     let mut search_options = options("ab|abc");

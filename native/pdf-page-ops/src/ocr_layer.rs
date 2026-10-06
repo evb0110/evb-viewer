@@ -379,7 +379,7 @@ fn strip_previous_ocr_text(
 }
 
 const OCR_TEXT_VISIBILITY_FORMAT: &str = "evb-pdf-ocr-text-visibility";
-const OCR_TEXT_VISIBILITY_SCHEMA_VERSION: u32 = 1;
+const OCR_TEXT_VISIBILITY_SCHEMA_VERSION: u32 = 2;
 /// Form XObjects nest; deeper drawing is unusual and is reported as uncertain.
 const MAX_OCR_VISIBILITY_FORM_DEPTH: usize = 16;
 /// Decoded Form XObject content one page inspection reads before it stops
@@ -410,6 +410,9 @@ pub(crate) struct OcrPageTextVisibility {
     uncertain: Option<String>,
     /// Why the writer refuses to replace this page's text.
     unsupported: Option<String>,
+    /// The EVB OCR layer's text in the order Tesseract wrote it, one recognized
+    /// line per line, when the caller asked for it and the layer is inline.
+    evb_ocr_text: Option<String>,
 }
 
 /// What one page shows beyond the scan of its own content: text in the Form
@@ -511,10 +514,12 @@ fn inspect_page_text_visibility(
     inspection: &mut PageTextInspection,
     page_number: u32,
     page_id: ObjectId,
+    with_evb_ocr_text: bool,
 ) -> Result<OcrPageTextVisibility> {
     let resources = page_resources(&incremental.previous_document, page_id)?;
     let mut scan = PageTextScan::default();
     let mut evb_ocr_layer = false;
+    let mut evb_ocr_text: Option<String> = None;
     for content_id in incremental.previous_document.get_page_contents(page_id) {
         let Some(bytes) = read_content_stream(
             incremental,
@@ -528,6 +533,15 @@ fn inspect_page_text_visibility(
         };
         if is_evb_ocr_layer_stream(&bytes) {
             evb_ocr_layer = true;
+            if with_evb_ocr_text {
+                if let Some(text) = evb_ocr_layer_text(&bytes) {
+                    let page_text = evb_ocr_text.get_or_insert_with(String::new);
+                    if !page_text.is_empty() {
+                        page_text.push('\n');
+                    }
+                    page_text.push_str(&text);
+                }
+            }
             continue;
         }
         let Ok(content) = Content::decode(&bytes) else {
@@ -549,7 +563,91 @@ fn inspect_page_text_visibility(
         hidden_text: scan.hidden,
         uncertain: inspection.uncertain.map(str::to_string),
         unsupported: scan.unsupported.map(str::to_string),
+        evb_ocr_text,
     })
+}
+
+/// The text of an inline EVB OCR layer in content order. Tesseract writes one
+/// text object per block and a `Td` one line height down for each next line;
+/// words on a line step by their width and a fraction of a point of baseline.
+/// The writer keeps those operators and positions each glyph with a `Tm`. Poppler's layout analysis cannot follow those lines
+/// on a skewed scan because each carries its rotation, and its content-order
+/// mode follows them only in recent releases, so the writer reads its own layer.
+/// A layer drawn as a Form XObject by earlier versions has no inline text.
+fn evb_ocr_layer_text(bytes: &[u8]) -> Option<String> {
+    let content = Content::decode(bytes).ok()?;
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut font_size = 1.0f64;
+    let break_line = |line: &mut String, lines: &mut Vec<String>| {
+        let trimmed = line.trim_end();
+        if !trimmed.is_empty() {
+            lines.push(trimmed.to_string());
+        }
+        line.clear();
+    };
+    // Tesseract shows Unicode through Identity-H, so every string is UTF-16BE.
+    let push_utf16 = |bytes: &[u8], line: &mut String| {
+        line.extend(
+            char::decode_utf16(
+                bytes
+                    .chunks_exact(2)
+                    .map(|unit| u16::from_be_bytes([unit[0], unit[1]])),
+            )
+            .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER)),
+        );
+    };
+    let shown = |object: &Object, line: &mut String| match object {
+        Object::String(bytes, _) => push_utf16(bytes, line),
+        Object::Array(items) => {
+            for item in items {
+                if let Object::String(bytes, _) = item {
+                    push_utf16(bytes, line);
+                }
+            }
+        }
+        _ => {}
+    };
+    for operation in &content.operations {
+        match operation.operator.as_str() {
+            // The writer positions every glyph with its own `Tm`, so only
+            // Tesseract's text objects and line steps separate lines.
+            "BT" | "T*" => break_line(&mut line, &mut lines),
+            "Tf" => {
+                if let Some(size) = operation
+                    .operands
+                    .get(1)
+                    .and_then(|size| size.as_float().ok())
+                {
+                    font_size = f64::from(size).abs().max(f64::EPSILON);
+                }
+            }
+            "Td" | "TD" => {
+                let step = operation
+                    .operands
+                    .get(1)
+                    .and_then(|step| step.as_float().ok())
+                    .map_or(0.0, f64::from);
+                if step.abs() > font_size * 0.5 {
+                    break_line(&mut line, &mut lines);
+                }
+            }
+            "Tj" | "TJ" => {
+                if let Some(text) = operation.operands.first() {
+                    shown(text, &mut line);
+                }
+            }
+            "'" | "\"" => {
+                break_line(&mut line, &mut lines);
+                if let Some(text) = operation.operands.last() {
+                    shown(text, &mut line);
+                }
+            }
+            _ => {}
+        }
+    }
+    break_line(&mut line, &mut lines);
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// Reports, per requested page, the evidence OCR page selection needs about
@@ -557,6 +655,7 @@ fn inspect_page_text_visibility(
 pub(crate) fn write_ocr_text_visibility(
     input_path: &Path,
     page_numbers: &[u32],
+    with_evb_ocr_text: bool,
     qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
@@ -583,6 +682,7 @@ pub(crate) fn write_ocr_text_visibility(
             &mut inspection,
             page_number,
             page_id,
+            with_evb_ocr_text,
         )?);
     }
     serde_json::to_writer(
@@ -807,6 +907,29 @@ mod tests {
         ] {
             assert!(!is_evb_ocr_layer_stream(not_a_layer));
         }
+    }
+
+    #[test]
+    fn reads_an_evb_layer_one_recognized_line_per_line() {
+        // The writer's shape: per-glyph `Tm` on a rotated line, Tesseract's
+        // word step with a sub-point baseline shift, a `Td` one line down, and
+        // a second block.
+        let layer = b"% EVB_VIEWER_OCR_LAYER_BEGIN\nq\nBT\n3 Tr\n/F 34 Tf\n\
+0.999 0.038 -0.038 0.999 233 2863 Tm\n<006300750020> Tj\n\
+0.999 0.038 -0.038 0.999 260 2864 Tm\n<0052006500660020> Tj\n\
+73.061 -0.276 Td\n0.999 0.038 -0.038 0.999 310 2866 Tm\n<0066007500200020> Tj\n\
+-663.739 -34.014 Td\n0.999 0.038 -0.038 0.999 236 2829 Tm\n[<0054002E> -200 <0061>] TJ\nET\n\
+BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n";
+        assert_eq!(
+            evb_ocr_layer_text(layer).as_deref(),
+            Some("cu Ref fu\nT.a\n\u{17f}i")
+        );
+        assert_eq!(
+            evb_ocr_layer_text(
+                b"% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END\n"
+            ),
+            None
+        );
     }
 
     #[test]

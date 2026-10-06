@@ -711,6 +711,8 @@ pub(crate) enum Operation {
     },
     OcrTextVisibility {
         pages_file: PathBuf,
+        /// Also report the text of each page's EVB OCR layer.
+        with_evb_ocr_text: bool,
     },
     Crop {
         pages_file: PathBuf,

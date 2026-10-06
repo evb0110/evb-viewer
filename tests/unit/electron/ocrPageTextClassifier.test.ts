@@ -22,6 +22,7 @@ function visibility(overrides: Partial<IPdfOcrPageTextVisibility> = {}): IPdfOcr
         hiddenText: false,
         uncertain: null,
         unsupported: null,
+        evbOcrText: null,
         ...overrides,
     };
 }
@@ -42,7 +43,7 @@ describe('OCR page text classification and supersession', () => {
         ]);
         expect(() => decodePdfOcrTextVisibilityReport({
             ...(fixture as object),
-            schemaVersion: 2,
+            schemaVersion: 1,
         })).toThrow();
         expect(() => decodePdfOcrTextVisibilityReport({
             ...(fixture as object),

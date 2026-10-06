@@ -100,8 +100,9 @@ the recognized text: search, text export and the assistant read it from the
 PDF, and the search index is a cache rebuilt whenever the document revision
 changes.
 
-English and Russian are bundled. The other 28 languages download from a pinned
-upstream revision and are verified by SHA-256 before use.
+English and Russian are bundled. The other 29 languages and the early print
+variants of Latin, Italian and Spanish download from a pinned upstream revision
+and are verified by SHA-256 before use.
 
 ## The assistant and MCP
 

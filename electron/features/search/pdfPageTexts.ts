@@ -5,6 +5,10 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { normalizeSearchablePageText } from '@pdf-core/pdfSearchCore';
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
+import { inspectPdfPageTextVisibility } from '@electron/pdf/inspectPdfPageTextVisibility';
+import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     resolveUnpackedWorkerPath,
     runResultWorkerTask,
@@ -17,6 +21,7 @@ import * as v from 'valibot';
 
 const PDF_TEXT_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-text'].fileName;
 const POPPLER_TEXT_PAGE_WINDOW_SIZE = 256;
+const log = createLogger('search-page-text');
 
 const PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA = v.object({
     type: v.literal('page'),
@@ -61,14 +66,21 @@ export async function readPdfPageCount(pdfPath: string, signal?: AbortSignal) {
  * Reads the requested pages with one pdftotext process. Returns null when
  * Poppler could not map a font for lack of its CJK data, so the text is
  * incomplete. pdftotext ends every page, empty or not, with a form feed.
+ * `contentOrder` reads with `-raw`, in content stream order.
  */
-async function readPopplerPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
+async function readPopplerPageTexts(
+    pdfPath: string,
+    range: IPdfPageRange,
+    signal?: AbortSignal,
+    contentOrder = false,
+) {
     const paths = getPdfNativeToolPaths();
     const env = buildPopplerEnv(paths);
     const pages: IPageText[] = [];
     let pageNumber = (range.firstPage ?? 1) - 1;
     let pending = '';
     const result = await runNativeToolCommand(paths.pdftotext, [
+        ...(contentOrder ? ['-raw'] : []),
         ...(range.firstPage === undefined ? [] : [
             '-f',
             String(range.firstPage),
@@ -127,6 +139,63 @@ function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: Ab
     }), signal);
 }
 
+function resolvePageOpsBinary() {
+    try {
+        return resolveNativePageOpsPath() ?? undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Reads the pages whose only text is an invisible OCR layer in the order the
+ * recognizer wrote it: column by column, one recognized line per line. On a
+ * skewed scan each OCR line has a rotated baseline that Poppler's layout
+ * analysis breaks into short, often reversed fragments. EVB's own layer is
+ * decoded by the writer; another tool's layer is reread with `-raw`. Painted
+ * text keeps the layout order: some producers omit word spaces and leave them
+ * to the gaps the analysis measures.
+ */
+async function readOcrLayersInRecognitionOrder(
+    pdfPath: string,
+    pages: IPageText[],
+    signal?: AbortSignal,
+) {
+    const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
+    const inspection = await inspectPdfPageTextVisibility({
+        pdfPath,
+        pageNumbers: textPageNumbers,
+        pdfPageOpsBinary: resolvePageOpsBinary(),
+        qpdfBinary: getPdfNativeToolPaths().qpdf,
+        tempDir: getAppTempDir(),
+        withEvbOcrText: true,
+        ...(signal === undefined ? {} : {signal}),
+    });
+    if (inspection.status === 'degraded') {
+        log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
+    }
+    const ocrLayerTexts = new Map<number, IPageText>();
+    const foreignLayerPages: number[] = [];
+    for (const pageNumber of textPageNumbers) {
+        const page = inspection.visibility.get(pageNumber);
+        if (page === undefined || page.paintedText) continue;
+        if (page.evbOcrLayer && page.evbOcrText !== null) {
+            ocrLayerTexts.set(pageNumber, {
+                pageNumber,
+                text: normalizePopplerPageText(page.evbOcrText),
+            });
+        } else if (page.evbOcrLayer || page.hiddenText) {
+            foreignLayerPages.push(pageNumber);
+        }
+    }
+    for (const range of groupContiguousPages(foreignLayerPages)) {
+        for (const page of await readPopplerPageTexts(pdfPath, range, signal, true) ?? []) {
+            ocrLayerTexts.set(page.pageNumber, page);
+        }
+    }
+    return pages.map(page => ocrLayerTexts.get(page.pageNumber) ?? page);
+}
+
 /**
  * Streams the PDF text layer page by page, in reading order. pdftotext reads
  * it in windows whose pages wait until it finishes, since only then does it
@@ -160,7 +229,7 @@ export function streamPdfPageTexts(
                 yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
                 continue;
             }
-            yield* pages;
+            yield* await readOcrLayersInRecognitionOrder(pdfPath, pages, signal);
             if (pages.length < batchRange.lastPage - firstPage + 1) {
                 return;
             }
