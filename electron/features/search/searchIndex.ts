@@ -58,7 +58,7 @@ export interface ISearchQueryOptions {
  * Names how page text is extracted. Changing extraction changes this, so
  * indexes built the old way no longer match their document and are rebuilt.
  */
-const INDEX_TEXT_VERSION = 'text-3';
+const INDEX_TEXT_VERSION = 'text-4';
 
 function indexRevision(document: ISearchIndexedDocument) {
     return `${INDEX_TEXT_VERSION}:${document.documentRevision}`;

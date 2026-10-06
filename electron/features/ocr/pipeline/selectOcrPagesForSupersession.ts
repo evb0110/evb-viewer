@@ -9,9 +9,9 @@ import type {
 import { iterateOcrPageRanges } from '@electron/features/ocr/contracts';
 import {
     classifyOcrPageText,
-    inspectPdfPageTextVisibility,
     shouldOcrClassifiedPage,
 } from '@electron/features/ocr/pipeline/pageTextClassifier';
+import {inspectPdfPageTextVisibility} from '@electron/pdf/inspectPdfPageTextVisibility';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
     groupContiguousPages,
