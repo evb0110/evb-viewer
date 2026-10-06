@@ -1,6 +1,6 @@
 {
   "format": "evb-pdf-ocr-text-visibility",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "pages": [
     {
       "pageNumber": 1,
@@ -8,7 +8,8 @@
       "paintedText": true,
       "hiddenText": true,
       "uncertain": null,
-      "unsupported": null
+      "unsupported": null,
+      "evbOcrText": null
     },
     {
       "pageNumber": 3,
@@ -16,7 +17,8 @@
       "paintedText": false,
       "hiddenText": false,
       "uncertain": "hidden text inside a Form XObject is not removed by OCR replacement",
-      "unsupported": "text clipping rendering modes cannot be replaced safely"
+      "unsupported": "text clipping rendering modes cannot be replaced safely",
+      "evbOcrText": "Rubricae generales Breviarii\ncum Responsorio suo"
     }
   ]
 }

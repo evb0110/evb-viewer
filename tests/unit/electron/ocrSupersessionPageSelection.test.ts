@@ -34,7 +34,7 @@ const probe = vi.hoisted(() => {
             return {
                 stdout: JSON.stringify({
                     format: 'evb-pdf-ocr-text-visibility',
-                    schemaVersion: 1,
+                    schemaVersion: 2,
                     pages: pagesFile.trim().split('\n').map(Number).map(pageNumber => ({
                         pageNumber,
                         evbOcrLayer: false,
@@ -42,6 +42,7 @@ const probe = vi.hoisted(() => {
                         hiddenText: false,
                         uncertain: null,
                         unsupported: null,
+                        evbOcrText: null,
                         ...state.visibilityByPage.get(pageNumber),
                     })),
                 }),

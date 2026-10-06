@@ -15,6 +15,8 @@ import {
 const OCR_TEXT_VISIBILITY_TIMEOUT_MS = 2 * 60 * 1000;
 // A request batch holds at most a few thousand pages of fixed-size records.
 const OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES = 4 * 1024 * 1024;
+// With the layers' text, a record carries the page's recognized text too.
+const OCR_TEXT_VISIBILITY_WITH_TEXT_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 
 export type TOcrPdfTextVisibilityAnalysis =
     | {
@@ -39,6 +41,7 @@ export async function inspectPdfPageTextVisibility(input: {
     qpdfBinary?: string | undefined;
     tempDir: string;
     signal?: AbortSignal;
+    withEvbOcrText?: boolean;
 }): Promise<TOcrPdfTextVisibilityAnalysis> {
     if (input.pdfPageOpsBinary === undefined) {
         return {
@@ -67,10 +70,13 @@ export async function inspectPdfPageTextVisibility(input: {
                 '--qpdf',
                 input.qpdfBinary,
             ]),
+            ...(input.withEvbOcrText === true ? ['--with-evb-ocr-text'] : []),
         ], {
             commandLabel: 'evb-pdf-page-ops(ocr-text-visibility)',
             timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
-            maxStdoutBytes: OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES,
+            maxStdoutBytes: input.withEvbOcrText === true
+                ? OCR_TEXT_VISIBILITY_WITH_TEXT_MAX_STDOUT_BYTES
+                : OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES,
             rejectOnStdoutTruncation: true,
             ...(input.signal ? {signal: input.signal} : {}),
         });

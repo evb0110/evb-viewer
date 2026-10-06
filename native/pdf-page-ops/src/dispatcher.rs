@@ -31,12 +31,16 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
-        Operation::OcrTextVisibility { pages_file } => {
+        Operation::OcrTextVisibility {
+            pages_file,
+            with_evb_ocr_text,
+        } => {
             let pages = read_pages_file(pages_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_ocr_text_visibility(
                 &config.input_path,
                 &pages,
+                *with_evb_ocr_text,
                 config.qpdf_path.as_deref(),
                 &mut std::io::stdout().lock(),
             );

@@ -26,6 +26,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut page_number = None;
     let mut qpdf_path = None;
     let mut append = false;
+    let mut with_evb_ocr_text = false;
     let mut append_in_place = false;
     let mut metadata_only = false;
     let mut view_mode = None;
@@ -116,6 +117,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--qpdf" | "--qpdf-path" => {
                 qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?))
             }
+            "--with-evb-ocr-text" => {
+                with_evb_ocr_text = true;
+            }
             "--append" => {
                 append = true;
             }
@@ -176,6 +180,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "ocr-text-visibility" => Operation::OcrTextVisibility {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
+            with_evb_ocr_text,
         },
         "crop" => Operation::Crop {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
