@@ -108,16 +108,26 @@ patch -d "$DJVULIBRE_DIR" -p1 < "$SCRIPT_DIR/patches/djvulibre-$DJVULIBRE_VERSIO
   make -j"$JOBS" -C tools ddjvu.exe djvused.exe djvudump.exe LDFLAGS="-all-static -Wl,--no-insert-timestamp"
 )
 
-DESTINATION="$PROJECT_ROOT/resources/djvulibre/$TARGET/bin"
-rm -rf "$PROJECT_ROOT/resources/djvulibre/$TARGET"
-mkdir -p "$DESTINATION"
+# Verify the complete tree in scratch, then swap it in; the previous tree
+# stays in place if anything before the swap fails.
+STAGE="$BUILD_DIR/stage"
+mkdir -p "$STAGE/bin"
 for tool in ddjvu djvused djvudump; do
-  cp "$DJVULIBRE_DIR/tools/$tool.exe" "$DESTINATION/"
+  cp "$DJVULIBRE_DIR/tools/$tool.exe" "$STAGE/bin/"
 done
-find "$DESTINATION" -maxdepth 1 -type f -iname '*.exe' > "$BUILD_DIR/pe-files.txt"
+find "$STAGE/bin" -maxdepth 1 -type f -iname '*.exe' > "$BUILD_DIR/pe-files.txt"
 node "$SCRIPT_DIR/release/windows-pe-dependencies.mjs" verify \
   --allowed-machines "$MACHINE" \
   --system-dll-pattern-file "$SCRIPT_DIR/win-system-dll-pattern.sh" \
   --file-list "$BUILD_DIR/pe-files.txt"
+DESTINATION="$PROJECT_ROOT/resources/djvulibre/$TARGET"
+mkdir -p "$(dirname "$DESTINATION")"
+if [ -e "$DESTINATION" ]; then
+  mv "$DESTINATION" "$BUILD_DIR/previous"
+fi
+if ! mv "$STAGE" "$DESTINATION"; then
+  [ -e "$BUILD_DIR/previous" ] && mv "$BUILD_DIR/previous" "$DESTINATION"
+  exit 1
+fi
 
 echo "Built patched DjVuLibre $DJVULIBRE_VERSION for $TARGET."

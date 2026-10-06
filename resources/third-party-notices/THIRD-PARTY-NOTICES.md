@@ -55,6 +55,8 @@ texts are included in the `licenses/` directory alongside this file.
 - License: libtiff license (`licenses/libtiff.txt`), IJG and BSD licenses
   (`licenses/libjpeg-turbo.txt`), zlib license (`licenses/zlib.txt`).
 - This software is based in part on the work of the Independent JPEG Group.
+- libtiff's LZW codec includes software developed by the University of
+  California, Berkeley.
 
 ## Microsoft Visual C++ runtime (Windows)
 
