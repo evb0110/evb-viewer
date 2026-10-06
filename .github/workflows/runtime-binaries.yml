@@ -13,8 +13,41 @@ env:
   TSX_TSCONFIG_PATH: tsconfig.base.json
 
 jobs:
+  windows_djvulibre:
+    name: Windows DjVuLibre (cross-built)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build patched DjVuLibre for Windows x64 and arm64
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp
+          export TMPDIR="$PWD/.devkit/tmp"
+          bash scripts/build-djvulibre-windows.sh win32-x64
+          bash scripts/build-djvulibre-windows.sh win32-arm64
+
+      - name: Upload Windows DjVuLibre trees
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-djvulibre
+          path: resources/djvulibre/
+          if-no-files-found: error
+          retention-days: 7
+
   build:
     name: Runtime binaries (${{ matrix.target }})
+    needs: windows_djvulibre
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -79,7 +112,7 @@ jobs:
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
           node --import tsx scripts/fetchRuntimeBinaries.ts --target win32-x64 \
-            --family poppler --family qpdf --family djvulibre
+            --family poppler --family qpdf
 
       - name: Download Linux x64 Tesseract baseline
         if: matrix.target == 'linux-x64'
@@ -150,6 +183,13 @@ jobs:
         run: |
           export TMPDIR="$PWD/.devkit/tmp"
           bash scripts/bundle-win-arm64-runtime-binaries.sh
+
+      - name: Use the cross-built Windows DjVuLibre
+        if: startsWith(matrix.target, 'win32-')
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows-djvulibre
+          path: resources/djvulibre
 
       - name: Compare Linux Tesseract OCR accuracy
         if: matrix.target == 'linux-x64'

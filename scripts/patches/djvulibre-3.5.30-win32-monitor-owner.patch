@@ -1,0 +1,21 @@
+Clear the Windows monitor owner when the monitor is released.
+
+GMonitor::enter() decides without the lock whether the calling thread
+already owns the monitor, by comparing `locker` with its own thread id.
+The Windows leave() kept the last owner's id in `locker` after releasing
+the critical section, so that thread could take the lock-free path while
+another thread re-acquired the monitor in wait() and had not yet stored its
+own id. Both threads then ran inside the monitor, and the next ownership
+check threw GThreads.not_acq_*; from GMonitorLock's destructor that ends in
+std::terminate. The POSIX leave() already resets `locker`.
+
+--- a/libdjvu/GThreads.cpp
++++ b/libdjvu/GThreads.cpp
+@@ -236,6 +236,7 @@
+   if (count > 0)
+     {
+       count = 1;
++      locker = 0;
+       if (ok)
+         LeaveCriticalSection(&cs);
+     }

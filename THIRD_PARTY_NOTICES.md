@@ -12,7 +12,7 @@ This file is a practical index of the major third-party components and assets th
 - Tesseract OCR binaries, the `tessdata_best` language models, and Tesseract's glyphless PDF font are bundled under `resources/tesseract/`. The exact `pdf.ttf` source and SHA-256 are recorded in `resources/third-party-notices/Tesseract-pdf-source.txt`.
 - Poppler binaries and poppler-data resources are bundled under `resources/poppler/`; Windows poppler-data license files are retained under `resources/poppler/win32-x64/share/poppler/`.
 - qpdf binaries are bundled under `resources/qpdf/`.
-- DjVuLibre binaries are bundled under `resources/djvulibre/`.
+- DjVuLibre binaries are bundled under `resources/djvulibre/`. The Windows builds carry the one-line fix in `scripts/patches/djvulibre-3.5.30-win32-monitor-owner.patch` and statically include libtiff, libjpeg-turbo and zlib; their license texts are in `resources/third-party-notices/licenses/`.
 - On Windows, the Microsoft Visual C++ runtime DLLs are bundled unmodified beside each native tool that imports them, copied at packaging time from the build host's installed redistributable.
 
 ## Annotation font

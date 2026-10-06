@@ -22,13 +22,17 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: 'ad1a0b8ecf48e27a1d9ac9dcd8acc0a338794697e1647edc82cc6ba09d986a88',
     },
     'djvulibre-win32-x64': {
-        archiveBytes: 744199,
-        archiveSha256: 'df70594d1fab95c1616411c3dbbf566188d91bdff00b99f6f39d699a282b35f1',
+        // DjVuLibre 3.5.30 with the Windows monitor ownership fix (#991).
+        releaseName: 'runtime-binaries-v2',
+        assetName: 'djvulibre-win32-x64-3.5.30-r1',
+        archiveBytes: 2347028,
+        archiveSha256: '82504895f5e599a571bb2fbf0339e6874da9f8bb218a5d90f2114c22310ff455',
     },
     'djvulibre-win32-arm64': {
         releaseName: 'runtime-binaries-v2',
-        archiveBytes: 27857136,
-        archiveSha256: '29cf605759ec9e67024878e7834e599e029e81381dce7b2ce0af8579e362a510',
+        assetName: 'djvulibre-win32-arm64-3.5.30-r1',
+        archiveBytes: 2118642,
+        archiveSha256: 'a410193aaba5e1754c66198de80e89d081d5b60ab1166214b1956ad460865a6b',
     },
     'poppler-darwin-arm64': {
         archiveBytes: 5062527,
@@ -163,5 +167,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'bc8b1c224b0c7d00f663ca2958cf6b27ef1aea93639e3282f6c18488f06bb5f4',
+    manifestSha256: '1948046f6fe4ed3c86fca1552c0cfa87825cb3dd0d3227a564fa0cac8f8aea33',
 };

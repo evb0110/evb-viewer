@@ -43,6 +43,18 @@ texts are included in the `licenses/` directory alongside this file.
 - License: GNU General Public License, version 2 or later
   (`licenses/GPL-2.0.txt`)
 - Bundled as: `djvulibre/<platform>-<arch>` binaries and support libraries.
+- Windows builds are DjVuLibre 3.5.30 with one change, the patch
+  `scripts/patches/djvulibre-3.5.30-win32-monitor-owner.patch` in the EVB
+  Viewer repository, built by `scripts/build-djvulibre-windows.sh`. They
+  statically include libtiff, libjpeg-turbo and zlib.
+
+## libtiff, libjpeg-turbo and zlib (Windows DjVuLibre)
+
+- Upstream: https://libtiff.gitlab.io/libtiff/,
+  https://libjpeg-turbo.org/, https://zlib.net/
+- License: libtiff license (`licenses/libtiff.txt`), IJG and BSD licenses
+  (`licenses/libjpeg-turbo.txt`), zlib license (`licenses/zlib.txt`).
+- This software is based in part on the work of the Independent JPEG Group.
 
 ## Microsoft Visual C++ runtime (Windows)
 
@@ -62,8 +74,9 @@ texts are included in the `licenses/` directory alongside this file.
 ## Source availability
 
 Poppler and DjVuLibre are distributed under the GNU GPL. EVB Viewer bundles
-unmodified upstream builds of these tools and invokes them as separate
-processes. Their complete corresponding source code is available from the
-upstream project pages listed above, and requests about the exact source of
-the bundled builds can be filed at
-https://github.com/evb0110/evb-viewer.
+unmodified upstream builds of these tools, except the Windows DjVuLibre
+build described above, and invokes them as separate processes. Their complete
+corresponding source code is available from the upstream project pages listed
+above; the Windows DjVuLibre patch and build script are in the EVB Viewer
+repository. Requests about the exact source of the bundled builds can be filed
+at https://github.com/evb0110/evb-viewer.
