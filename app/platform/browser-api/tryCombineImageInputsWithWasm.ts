@@ -58,6 +58,7 @@ const WASM_PATH = '/wasm/evb-pdf-image-combine.wasm';
 const WASM_IMAGE_EXTENSIONS = new Set([
     '.jpeg',
     '.jpg',
+    '.jp2',
     '.pgm',
     '.png',
     '.ppm',

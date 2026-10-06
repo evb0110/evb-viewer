@@ -21,6 +21,7 @@ const OPEN_DJVU_ACCEPT = '.djvu,.djv';
 const OPEN_PDF_IMAGE_ACCEPT = [
     OPEN_PDF_ACCEPT,
     ...SUPPORTED_IMAGE_EXTENSIONS,
+    '.jp2',
 ].join(',');
 const OPEN_INPUT_ACCEPT = [
     OPEN_PDF_IMAGE_ACCEPT,
@@ -71,6 +72,7 @@ function buildOpenPdfPickerTypes(): IFilePickerAcceptType[] {
                 '.djv',
             ],
             'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
+            'image/jp2': ['.jp2'],
         },
     }];
 }
@@ -81,6 +83,7 @@ function buildOpenPdfImagePickerTypes(): IFilePickerAcceptType[] {
         accept: {
             'application/pdf': ['.pdf'],
             'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
+            'image/jp2': ['.jp2'],
         },
     }];
 }

@@ -72,6 +72,7 @@ const SUPPORTED_NATIVE_BITMAP_EXTENSIONS = new Set([
     '.png',
     '.jpg',
     '.jpeg',
+    '.jp2',
     '.tif',
     '.tiff',
 ]);

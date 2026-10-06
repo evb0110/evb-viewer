@@ -20,7 +20,8 @@ capabilities need the desktop app.
 
 - PDF: `.pdf`
 - DjVu: `.djvu`, `.djv`
-- Image-to-PDF inputs: `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.bmp`, `.webp`, `.gif`
+- Image-to-PDF inputs: `.png`, `.jpg`, `.jpeg`, `.jp2`, `.tif`, `.tiff`, `.bmp`, `.webp`, `.gif`
+- JPEG 2000 (`.jp2`): 8-bit grayscale or RGB without transparency. Original compressed bytes are preserved in the PDF.
 - Desktop image insertion also supports file and clipboard-based image workflows through the app menu
 
 ### Export

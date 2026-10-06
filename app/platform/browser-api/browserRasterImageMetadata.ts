@@ -245,6 +245,55 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
     } : null;
 }
 
+function readJp2(data: Uint8Array): IBrowserRasterImageMetadata | null {
+    const signature = [
+        0,
+        0,
+        0,
+        12,
+        0x6a,
+        0x50,
+        0x20,
+        0x20,
+        13,
+        10,
+        0x87,
+        10,
+    ];
+    if (!signature.every((value, index) => data[index] === value)) return null;
+    // Only inspect dimensions for browser resource admission. The native WASM
+    // reader owns profile support and complete codestream validation.
+    function readBoxes(start: number, end: number): IBrowserRasterImageMetadata | null {
+        for (let offset = start; offset + 8 <= end;) {
+            let length = u32be(data, offset);
+            let headerLength = 8;
+            if (length === 1) {
+                if (offset + 16 > end) return null;
+                length = u32be(data, offset + 8) * 0x1_0000_0000 + u32be(data, offset + 12);
+                headerLength = 16;
+            } else if (length === 0) {
+                length = end - offset;
+            }
+            if (!Number.isSafeInteger(length) || length < headerLength || length > end - offset) return null;
+            const type = String.fromCharCode(...data.subarray(offset + 4, offset + 8));
+            const payload = offset + headerLength;
+            if (type === 'jp2h' && start === signature.length) return readBoxes(payload, offset + length);
+            if (type === 'ihdr' && start !== signature.length) {
+                if (length - headerLength < 14) return null;
+                return {
+                    height: u32be(data, payload),
+                    width: u32be(data, payload + 4),
+                    dpi: DEFAULT_DPI,
+                    orientation: 1,
+                };
+            }
+            offset += length;
+        }
+        return null;
+    }
+    return readBoxes(signature.length, data.length);
+}
+
 function readSimple(data: Uint8Array, extension: string): IBrowserRasterImageMetadata | null {
     let width = 0;
     let height = 0;
@@ -282,6 +331,9 @@ function readSimple(data: Uint8Array, extension: string): IBrowserRasterImageMet
 }
 
 export function readBrowserRasterImageMetadata(data: Uint8Array, extension: string) {
+    if (extension === '.jp2') {
+        return readJp2(data);
+    }
     if (extension === '.png') {
         return readPng(data);
     }

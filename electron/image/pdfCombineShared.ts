@@ -65,6 +65,7 @@ export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
     '.png',
     '.jpg',
     '.jpeg',
+    '.jp2',
     '.tif',
     '.tiff',
     '.bmp',

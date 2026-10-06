@@ -17,6 +17,7 @@ const SUPPORTED_EXTENSIONS = new Set([
     '.png',
     '.jpg',
     '.jpeg',
+    '.jp2',
     '.tif',
     '.tiff',
     '.bmp',

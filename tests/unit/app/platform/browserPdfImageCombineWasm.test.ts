@@ -412,6 +412,62 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(tiff).toEqual(createTwoFrameTiffBytes());
     });
 
+    it('combines JP2 and grayscale pages through real WASM without re-encoding the JP2', async () => {
+        await stubSuccessfulImageCombineWasmFetch();
+        const jp2 = new Uint8Array(Buffer.from((await readFile(join(process.cwd(), 'tests/fixtures/electron/jp2-rgb-scan.jp2.b64'), 'utf8')).trim(), 'base64'));
+        const response = await runBrowserPdfCombineWorker([
+            {
+                fileName: 'scan.JP2',
+                data: jp2,
+            },
+            {
+                fileName: 'gray.pgm',
+                data: createPgmBytes(80),
+            },
+        ]);
+        expect(response).toMatchObject({ok: true});
+        if (!response || typeof response !== 'object' || !('data' in response) || !(response.data instanceof Uint8Array)) {
+            throw new Error('Expected JP2 PDF bytes');
+        }
+        const combined = await PDFDocument.load(response.data);
+        expect(combined.getPages().map(page => page.getSize())).toEqual([
+            {
+                width: 64,
+                height: 40,
+            },
+            {
+                width: 1,
+                height: 1,
+            },
+        ]);
+        expect(Buffer.from(response.data).includes(Buffer.from(jp2))).toBe(true);
+    });
+
+    it('rejects malformed and oversized JP2 headers before decoding', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        const jp2 = new Uint8Array(Buffer.from((await readFile(join(process.cwd(), 'tests/fixtures/electron/jp2-rgb-scan.jp2.b64'), 'utf8')).trim(), 'base64'));
+        const oversized = jp2.slice();
+        const header = Buffer.from(oversized).indexOf('ihdr');
+        new DataView(oversized.buffer).setUint32(header + 4, 100_000, false);
+        new DataView(oversized.buffer).setUint32(header + 8, 100_000, false);
+        for (const data of [
+            jp2.slice(0, header + 8),
+            oversized,
+        ]) {
+            vi.resetModules();
+            const response = await runBrowserPdfCombineWorker([{
+                fileName: 'scan.jp2',
+                data,
+            }]);
+            expect(response).toMatchObject({
+                ok: false,
+                error: expect.any(String),
+            });
+            expect(response).not.toHaveProperty('data');
+        }
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('counts TIFF frames toward the 500-page worker budget', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
         const inputs = [

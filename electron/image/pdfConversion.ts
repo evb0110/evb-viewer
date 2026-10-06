@@ -14,6 +14,7 @@ import {
 import { createLogger } from '@electron/utils/createLogger';
 import {
     isImagePath,
+    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
     stageNativeCombineInputs,
 } from '@electron/image/pdfCombineShared';
 import { getErrorMessage } from '@electron/utils/error';
@@ -127,16 +128,7 @@ const PDF_COMBINE_SMALL_MEMORY_MAX_TOTAL_INPUT_BYTES = 1024 * 1024 * 1024;
 const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 const PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
-    [
-        '.png',
-        '.jpg',
-        '.jpeg',
-        '.tif',
-        '.tiff',
-        '.bmp',
-        '.gif',
-        '.webp',
-    ],
+    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 );
 
 class PdfCombineWorkerStartupError extends Error {

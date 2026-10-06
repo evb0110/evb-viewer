@@ -3,6 +3,7 @@ const BROWSER_COMBINE_IMAGE_EXTENSIONS = new Set([
     '.gif',
     '.jpeg',
     '.jpg',
+    '.jp2',
     '.png',
     '.tif',
     '.tiff',

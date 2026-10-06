@@ -102,6 +102,7 @@ const COMBINE_PDF_EXTENSIONS = [
     '.png',
     '.jpg',
     '.jpeg',
+    '.jp2',
     '.tif',
     '.tiff',
     '.bmp',
