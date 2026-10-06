@@ -116,7 +116,7 @@ describe('OCR language picker ordering and filtering', () => {
 
         expect(items).toHaveLength(AVAILABLE_OCR_LANGUAGES.length);
         for (const item of items) {
-            expect(item.value).toMatch(/^[a-z]{3}$/u);
+            expect(item.value).toMatch(/^[a-z]{3}(?:_[a-z]+)?$/u);
         }
     });
 

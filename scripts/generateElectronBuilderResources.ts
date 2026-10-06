@@ -3,8 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
 import {
-    AVAILABLE_OCR_LANGUAGES,
     BUNDLED_OCR_LANGUAGE_CODES,
+    OCR_MODEL_CODES,
 } from '@contracts/ocrLanguages';
 import {
     ELECTRON_BUILDER_PLATFORM_KEYS,
@@ -102,9 +102,7 @@ export function renderElectronBuilderResources(
 }
 
 async function assertOcrRegistryMatchesResources(root: string) {
-    const registryCodes: string[] = AVAILABLE_OCR_LANGUAGES
-        .map(language => language.code)
-        .sort();
+    const registryCodes: string[] = [...OCR_MODEL_CODES].sort();
     const tessdataDirectory = path.join(root, tessdataRelativePath);
     const tessdataCodes = (await readdir(tessdataDirectory, {withFileTypes: true}))
         .filter(entry => entry.isFile() && entry.name.endsWith('.traineddata'))

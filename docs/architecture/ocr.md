@@ -30,6 +30,13 @@ implicitly, so EVB explicitly excludes that unselected Latin recognizer. Four
 clean Serbian pages had zero faithful character error with or without the Latin
 model.
 
+A registry entry names the models it recognizes with; by default that is the
+model of its own code. Latin (early print) runs `ita_old+spa_old`: on early
+modern Latin those two read the long s that `lat`, `eng` and every other modern
+model read as f. Adding `lat` to them brings the f back, because Tesseract keeps
+the more confident reading. Digests, downloads and installed
+state are per model, and an entry is installed when all its models are.
+
 Model changes must update the registry, pinned digests, development resources
 and packaging selection together. The resource generator checks those inputs.
 Portuguese uses the upstream shared Portuguese model, including Brazilian

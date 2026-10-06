@@ -76,6 +76,16 @@ demand the first time they are selected:
 - Arabic
 - Hebrew
 - Syriac
+- Latin
+- Latin (early print)
+- Italian (early print)
+- Spanish (early print)
+
+Books printed before about 1800 use the long s (ſ), ligatures and abbreviations
+that modern models read as other letters, most often ſ as f. Choose an early
+print variant for them. Latin (early print) recognizes with the Italian and
+Spanish early print models, which read early modern Latin best. The text keeps
+the long s; search matches it with an ordinary s, so `festum` finds `feſtum`.
 
 ### UI Locales
 

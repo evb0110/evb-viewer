@@ -1,8 +1,9 @@
 # EVB Viewer
 
 EVB Viewer turns raw scans and DjVu files into clean, searchable, annotatable
-PDFs: native scan cleanup, Tesseract OCR in 30 languages, annotation, and
-export. It runs offline on macOS, Windows, and Linux, and the same workspace
+PDFs: native scan cleanup, Tesseract OCR in 31 languages and for early printed
+books, annotation, and export. It runs offline on macOS, Windows, and Linux, and
+the same workspace
 runs in a browser tab with nothing to install. It is free and the source is
 MIT.
 

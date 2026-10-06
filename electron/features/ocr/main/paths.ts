@@ -10,8 +10,10 @@ import {
     ensureRuntimeTessdataSeeded,
     TESSDATA_BEST_REF,
 } from '@electron/features/ocr/languageModels';
-import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
-import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
+import {
+    BUNDLED_OCR_LANGUAGE_CODES,
+    OCR_MODEL_CODES,
+} from '@contracts/ocrLanguages';
 import type { IOcrToolValidationResult } from '@contracts/electronApiOcr';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
@@ -171,7 +173,7 @@ function getAvailableLanguages(tessdataPath: string): string[] {
 
 function getMissingSupportedLanguages(languages: string[] | undefined): string[] {
     const languageSet = new Set(languages ?? []);
-    return Array.from(AVAILABLE_OCR_LANGUAGE_CODES)
+    return OCR_MODEL_CODES
         .filter(languageCode => !languageSet.has(languageCode))
         .sort();
 }

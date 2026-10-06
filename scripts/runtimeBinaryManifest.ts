@@ -109,8 +109,9 @@ const RUNTIME_ARCHIVES = {
         archiveSha256: 'a557170f424385adb316ddb5d405a4d6e3f6944e2f412b7ce3c1fe01febd5bfa',
     },
     'tesseract-tessdata': {
-        archiveBytes: 258006852,
-        archiveSha256: '320164b0e06576afcde72f686f6de130aa4335e8e620be9e4a85435afd5d6767',
+        assetName: 'tesseract-tessdata-v2',
+        archiveBytes: 281957982,
+        archiveSha256: '8820fbd40be49f5eefddd9cf9c6f81c9dfd6481e9d2172cb2f63dfa1f3c356ab',
     },
 } as const;
 
@@ -156,12 +157,12 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
     archiveKind: 'tar.gz',
     archiveBytes: RUNTIME_ARCHIVES['tesseract-tessdata'].archiveBytes,
     archiveSha256: RUNTIME_ARCHIVES['tesseract-tessdata'].archiveSha256,
-    archiveUrl: archiveUrl('tesseract-tessdata'),
+    archiveUrl: archiveUrl(RUNTIME_ARCHIVES['tesseract-tessdata'].assetName),
     resourceRoot: 'tesseract/tessdata',
 };
 
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'bc8b1c224b0c7d00f663ca2958cf6b27ef1aea93639e3282f6c18488f06bb5f4',
+    manifestSha256: '6d092cfe1ee2d8a95cacf1b4ed72919e2e70662bad26f6f7d6ce4b7d2e9b3c97',
 };

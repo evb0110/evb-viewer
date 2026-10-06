@@ -133,6 +133,28 @@ export const AVAILABLE_OCR_LANGUAGES = [
         script: 'latin',
     },
     {
+        code: 'lat',
+        script: 'latin',
+    },
+    {
+        // Early printed Latin: the historical models read long s, æ and the
+        // et ligature, which every modern Latin-script model reads as f.
+        code: 'lat_early',
+        script: 'latin',
+        models: [
+            'ita_old',
+            'spa_old',
+        ],
+    },
+    {
+        code: 'ita_old',
+        script: 'latin',
+    },
+    {
+        code: 'spa_old',
+        script: 'latin',
+    },
+    {
         code: 'tur',
         script: 'latin',
     },
@@ -179,9 +201,13 @@ export const AVAILABLE_OCR_LANGUAGES = [
 ] as const satisfies ReadonlyArray<{
     code: string;
     script: TOcrLanguageScript;
+    models?: readonly string[];
 }>;
 
 export type TOcrLanguageCode = (typeof AVAILABLE_OCR_LANGUAGES)[number]['code'];
+type TOcrComposedLanguage = Extract<(typeof AVAILABLE_OCR_LANGUAGES)[number], {models: readonly string[]}>;
+/** A tessdata_best model file. A language without `models` is recognized by the model of its own code. */
+export type TOcrModelCode = Exclude<TOcrLanguageCode, TOcrComposedLanguage['code']>;
 
 // isAvailableOcrLanguageCode narrows to TOcrLanguageCode, so a caller able to
 // add to this set could mint that type for any string.
@@ -191,6 +217,14 @@ export const AVAILABLE_OCR_LANGUAGE_CODES: ReadonlySet<string> = new Set<string>
 
 export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguageCode {
     return typeof value === 'string' && AVAILABLE_OCR_LANGUAGE_CODES.has(value);
+}
+
+/** The tessdata_best models that recognize a language, in Tesseract's `-l` order. */
+export function resolveOcrLanguageModels(code: TOcrLanguageCode): readonly TOcrModelCode[] {
+    const language = AVAILABLE_OCR_LANGUAGES.find(candidate => candidate.code === code);
+    return language !== undefined && 'models' in language
+        ? language.models
+        : [code as TOcrModelCode];
 }
 
 /** SHA-256 digests for the exact tessdata_best commit used by runtime downloads. */
@@ -210,7 +244,9 @@ export const OCR_LANGUAGE_MODEL_SHA256 = {
     hun: '08786ad5fe25d502d1cfcdf606ba215f320409a1630109582fa1a38d93b3e32d',
     ind: '1f6596041ffb4cd5094e5f98764db43cfde04edb8f02b988f90ebc1353ac73b8',
     ita: '8df9c89176fb93f56bf4b2d4ede04c01c1f31d4b7697fbd76cc336df700f3f38',
+    ita_old: '6bba512704bc5417462435f7c98f6b2be86457d544bbb09c7f9ab5caef955b5d',
     kmr: '6017f6284e6771419f85a72218a2e84c5c6c19a4ed0ef27286cd637981293b76',
+    lat: '60054dd32ac03ebd9b4f87d0665bd491a7ffe0d3ee99ceb91aefaf348b65e94f',
     nld: '92e7a1ad4bf8082e268de57c7823316ec024935702c6ed2a1e473b3a071aa733',
     nor: '451d52ba1559aa1aecf163ccbfdeced2b9605fbd49480f5e8a53ace29b9eb0e7',
     pol: 'e80cc4cefbdface06e9223f43f089556b9dcf104020fbc0a200f6863c57d4405',
@@ -219,19 +255,22 @@ export const OCR_LANGUAGE_MODEL_SHA256 = {
     rus: 'b617eb6830ffabaaa795dd87ea7fd251adfe9cf0efe05eb9a2e8128b7728d6b6',
     slk: '3553e335f64408412c8741fec19e443b5fda81d88abe59aa1401cba4e8825bed',
     spa: 'e2c1ffdad8b30f26c45d4017a9183d3a7f9aa69e59918be4f88b126fac99ab2c',
+    spa_old: '82eda2ae145ce6560e34f8b7b037707bbd7dca109151a50e3356e2fa2ae635e8',
     srp: 'b090f9bb22366d9b4b0cb6baa2136c4f75e992ddba01ecb78240896e359e4072',
     swe: '360303308aa5d4a912ac3b3637691152b7532d9bd6e960639db1affb83db7ea9',
     syr: '7642168b7731866d0ec4c74c67780913db4a04583874fcff0078daa8430bd887',
     tur: 'e0c3338dc17503dc7d335a507c9ae01b2b46cfd07561171e1e1ac55d85e8e438',
     ukr: '1277f6e3b6f707063a92d40e7678e7f57154e8414e328e340be9ee9275eea9c8',
     vie: 'b6b49293d95d0b6dbd8780174627e82c75be957b6f4ed9862155540d6b00bb45',
-} as const satisfies Record<TOcrLanguageCode, string>;
+} as const satisfies Record<TOcrModelCode, string>;
+
+export const OCR_MODEL_CODES = Object.keys(OCR_LANGUAGE_MODEL_SHA256) as TOcrModelCode[];
 
 /** Models seeded into an offline installation; every other supported model is downloaded on demand. */
 export const BUNDLED_OCR_LANGUAGE_CODES = [
     'eng',
     'rus',
-] as const satisfies readonly TOcrLanguageCode[];
+] as const satisfies readonly TOcrModelCode[];
 
 export const BUNDLED_OCR_LANGUAGE_CODE_SET = new Set<string>(BUNDLED_OCR_LANGUAGE_CODES);
 

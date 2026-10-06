@@ -8,7 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { AVAILABLE_OCR_LANGUAGES } from '@contracts/ocrLanguages';
+import { OCR_MODEL_CODES } from '@contracts/ocrLanguages';
 
 const INSTALLED_LANGUAGE_CODES = [
     'ara',
@@ -140,8 +140,7 @@ describe('getOcrToolPaths resource base resolution', () => {
                     found: true,
                     path: '/repo/resources/tesseract/tessdata',
                     languages: [...INSTALLED_LANGUAGE_CODES],
-                    onDemandLanguages: AVAILABLE_OCR_LANGUAGES
-                        .map(language => language.code)
+                    onDemandLanguages: OCR_MODEL_CODES
                         .filter(code => !INSTALLED_LANGUAGE_CODES.includes(code))
                         .sort(),
                 },
