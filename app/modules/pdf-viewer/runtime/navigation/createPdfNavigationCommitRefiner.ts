@@ -9,7 +9,7 @@ import {
 import type {
     IPdfSemanticAnchor,
     IPdfViewportGeometry,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+} from '@app/modules/document-viewer/public';
 import type { IPdfViewportIntent } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 

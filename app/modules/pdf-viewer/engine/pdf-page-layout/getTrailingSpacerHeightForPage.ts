@@ -1,4 +1,4 @@
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
 export function getTrailingSpacerHeightForPage(
     layout: IPdfPageLayoutMetrics,

@@ -38,10 +38,10 @@ Hidden macOS sessions also pass `-AppleShowScrollBars Always`. With the
 system's automatic setting, scroll bars switch between overlay and classic as
 a mouse connects or sleeps, and every viewport width changes with them.
 
-Hidden Windows windows are never shown. Their compositor draws only while a
-copy is pending, so the main process keeps a frame subscription on them;
-without it `page.screenshot` never returns. Never show, move off-screen or
-fade a hidden window to get frames.
+Hidden Windows and Linux (X11) windows are never shown. Their compositor draws
+only while a copy is pending, so the main process keeps a frame subscription on
+them; without it `page.screenshot` never returns. Hidden macOS windows draw
+without one. Never show, move off-screen or fade a hidden window to get frames.
 
 Hidden macOS sessions render on the GPU, as the owner's app does. They used to
 pass `--disable-gpu`, which put them on a software path no person runs.

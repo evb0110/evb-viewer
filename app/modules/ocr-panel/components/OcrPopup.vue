@@ -1,5 +1,6 @@
 <template>
     <UModal
+        v-if="workingCopyPath"
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning && !isExporting"

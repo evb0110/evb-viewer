@@ -27,8 +27,9 @@ export const useSidebarResize = (deps: {
         SIDEBAR.MIN_WIDTH,
         SIDEBAR.MAX_WIDTH,
     );
+    // The requested width is the tab's preference; geometry only constrains how
+    // wide the sidebar is presented, so a hidden or narrow pane never rewrites it.
     const sidebarWidth = ref(initialWidth);
-    const lastOpenSidebarWidth = ref(initialWidth);
     const isPointerResizingSidebar = ref(false);
     // The sidebar host reports the open/close slide it animates; while either
     // a pointer drag or that slide runs, the viewer beside the sidebar is
@@ -37,11 +38,12 @@ export const useSidebarResize = (deps: {
     const isResizingSidebar = computed(() => isPointerResizingSidebar.value || isSlidingSidebar.value);
     const containerWidth = ref(Number.POSITIVE_INFINITY);
     const effectiveMaxWidth = computed(() => resolveSidebarEffectiveMaxWidth(containerWidth.value));
+    const sidebarContentWidth = computed(() => Math.min(sidebarWidth.value, effectiveMaxWidth.value));
 
     let resizeStartX = 0;
     let resizeStartWidth = 0;
     const sidebarWrapperStyle = computed(() => ({
-        width: `${sidebarWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
+        width: `${sidebarContentWidth.value + SIDEBAR.RESIZER_WIDTH}px`,
         minWidth: '0',
     }));
 
@@ -61,17 +63,19 @@ export const useSidebarResize = (deps: {
         const nextWidth = resizeStartWidth + deltaX;
 
         const clampedWidth = clamp(nextWidth, SIDEBAR.MIN_WIDTH, effectiveMaxWidth.value);
-
-        if (Math.round(clampedWidth) !== Math.round(sidebarWidth.value)) {
-            BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
-                previousWidth: Math.round(sidebarWidth.value),
-                nextWidth: Math.round(clampedWidth),
-                deltaX: Math.round(deltaX),
-                pointerX: Math.round(event.clientX),
-            });
+        // A drag that does not change the presented width (a press and release
+        // on a sidebar a narrow pane holds below its preference) leaves the
+        // preference alone.
+        if (Math.round(clampedWidth) === Math.round(sidebarContentWidth.value)) {
+            return;
         }
+        BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarWidth.value)}->${Math.round(clampedWidth)}`, {
+            previousWidth: Math.round(sidebarWidth.value),
+            nextWidth: Math.round(clampedWidth),
+            deltaX: Math.round(deltaX),
+            pointerX: Math.round(event.clientX),
+        });
         sidebarWidth.value = clampedWidth;
-        lastOpenSidebarWidth.value = clampedWidth;
     }
 
     const sidebarResize = createRafCoalescedCallback(handleSidebarResize);
@@ -99,7 +103,7 @@ export const useSidebarResize = (deps: {
 
         isPointerResizingSidebar.value = true;
         resizeStartX = event.clientX;
-        resizeStartWidth = sidebarWidth.value;
+        resizeStartWidth = sidebarContentWidth.value;
         BrowserLogger.diagnostic('pdf-nav', '[sidebar-resize] start', {
             pointerX: Math.round(event.clientX),
             startWidth: Math.round(resizeStartWidth),
@@ -131,21 +135,13 @@ export const useSidebarResize = (deps: {
         BrowserLogger.diagnostic('pdf-nav', `[sidebar-state] open=${isOpen}`, {
             isOpen,
             sidebarWidth: Math.round(sidebarWidth.value),
-            lastOpenSidebarWidth: Math.round(lastOpenSidebarWidth.value),
+            sidebarContentWidth: Math.round(sidebarContentWidth.value),
             isResizingSidebar: isResizingSidebar.value,
             isPointerResizingSidebar: isPointerResizingSidebar.value,
         });
-        if (isOpen) {
-            const width = Math.min(
-                Math.max(lastOpenSidebarWidth.value, SIDEBAR.MIN_WIDTH),
-                effectiveMaxWidth.value,
-            );
-            sidebarWidth.value = width;
-            lastOpenSidebarWidth.value = width;
-            return;
+        if (!isOpen) {
+            stopSidebarResize();
         }
-
-        stopSidebarResize();
     });
 
     watch(sidebarWidth, (next, previous) => {
@@ -163,12 +159,11 @@ export const useSidebarResize = (deps: {
 
     function setSidebarContainerWidth(width: number) {
         containerWidth.value = width;
-        sidebarWidth.value = Math.min(sidebarWidth.value, effectiveMaxWidth.value);
-        lastOpenSidebarWidth.value = Math.min(lastOpenSidebarWidth.value, effectiveMaxWidth.value);
     }
 
     return {
         sidebarWidth,
+        sidebarContentWidth,
         sidebarWrapperStyle,
         isResizingSidebar,
         isPointerResizingSidebar,

@@ -123,6 +123,7 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     // The contract's shapes, so a consumer reading them gets a list and a boolean.
     'documentRecentFiles.recentFiles.get': [],
     'documentRecentFiles.recentFiles.removeIfMissing': false,
+    'documentRecentFiles.recentFiles.readingView': null,
     'search.run': {
         results: [],
         truncated: false,

@@ -4,8 +4,15 @@ import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/p
 import type { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import type { useWorkspaceSearchSidebar } from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';
 import type { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
-import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {
+    IWorkspaceDocumentController,
+    IWorkspaceOpenRequest,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    finishOpeningReader,
+    followOpeningReader,
+} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TAnnotationTool } from '@app/types/annotations';
@@ -49,7 +56,7 @@ export interface IDocumentViewPort {
  * was last active. The document's commands run in that view; its metadata is
  * read from a view that has the document loaded.
  */
-export const createDocumentViews = () => {
+export const createDocumentViews = (controller: IWorkspaceDocumentController) => {
     const viewPorts = shallowRef(new Map<string, IDocumentViewPort>());
     const commandTabId = ref<string | null>(null);
     const commandView = computed(() => (
@@ -91,6 +98,27 @@ export const createDocumentViews = () => {
             viewPorts.value = next;
         };
     }
+    // An open runs in the view in use, whose lifecycle claims its surface; with
+    // no view mounted, the document runs it alone. A normal open starts where
+    // its reader left it, unless they move first: the reader of the view it
+    // began in is followed from here, whichever view is in use later.
+    async function runDocumentOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+        const port = commandView.value;
+        if (!port) {
+            return controller.runOpen(request, run);
+        }
+        const workspace = controller.getView(port.tabId)?.mountedWorkspace.value;
+        const opening = request.kind === 'open' && !request.carriesView && workspace
+            ? followOpeningReader(controller, port.openSurface, workspace)
+            : null;
+        try {
+            return await port.runDocumentOpen(request, run);
+        } finally {
+            if (opening) {
+                await finishOpeningReader(controller, opening);
+            }
+        }
+    }
     // Metadata is read from a view that shows the document, the one in use
     // first: a view still presenting it shows the same document.
     const loadedView = computed(() => (
@@ -125,6 +153,7 @@ export const createDocumentViews = () => {
         commandViewRef,
         attachView,
         loadedView,
+        runDocumentOpen,
     };
 };
 

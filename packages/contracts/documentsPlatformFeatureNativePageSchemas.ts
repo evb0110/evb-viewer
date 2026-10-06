@@ -9,6 +9,7 @@ import {
     parseEpochMs, type TEpochMs,
 } from '@contracts/timestamps';
 import * as v from 'valibot';
+import {RECENT_READING_VIEW_SCHEMA} from '@contracts/recentReadingView';
 
 const safeInteger = v.pipe(v.number(), v.safeInteger());
 const nonNegativeSafeInteger = v.pipe(safeInteger, v.minValue(0));
@@ -42,16 +43,34 @@ const pageNumberSchema = v.pipe(
 
 const pdfOpeningGeometryDataSchema = v.pipe(
     v.object({
-        pageNumber: v.pipe(v.literal(1), v.transform(value => requirePageNumber(value))),
+        pageNumber: pageNumberSchema,
         pageCount: positiveSafeInteger,
         width: positiveFiniteNumber,
         height: positiveFiniteNumber,
         rotation: pdfRotationSchema,
         widestPageWidth: positiveFiniteNumber,
+        tallestPageHeight: positiveFiniteNumber,
         size: nonNegativeSafeInteger,
         modifiedAt: epochMsSchema,
+        // Where the reader left these unchanged bytes, when Recent has it;
+        // the shape is that place's page.
+        readingView: v.optional(v.nullable(RECENT_READING_VIEW_SCHEMA)),
+        // Every page's exact shape, in order, when the open starts at a
+        // reader's place: the pages around it set where it sits.
+        pages: v.optional(v.nullable(v.array(v.object({
+            widthPoints: positiveFiniteNumber,
+            heightPoints: positiveFiniteNumber,
+            rotation: pdfRotationSchema,
+            userUnit: positiveFiniteNumber,
+        })))),
     }),
-    v.check(value => value.widestPageWidth >= value.width, 'invalid PDF opening geometry result'),
+    v.check(value => !value.pages || value.pages.length === value.pageCount, 'invalid PDF opening geometry result'),
+    v.check(value => value.widestPageWidth >= value.width && value.tallestPageHeight >= value.height, 'invalid PDF opening geometry result'),
+    // The first page's shape, or that of the page the reader left these bytes at.
+    v.check(value => (value.readingView
+        ? value.readingView.pageCount === value.pageCount
+            && (value.readingView.anchor?.page ?? value.readingView.currentPage) === value.pageNumber
+        : value.pageNumber === 1), 'invalid PDF opening geometry result'),
 );
 
 // Preserve the uniform IPC failure message while Valibot validates the geometry fields.

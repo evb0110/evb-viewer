@@ -7,6 +7,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
@@ -34,6 +35,158 @@ import {
     SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
     SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
 } from '@contracts/scan-cleanup/toolbarSelectors';
+
+
+// The detection meter's painted parts, measured as #967 and #976 failed:
+// each glyph box is clipped by every ancestor that clips, and the hit test
+// asks what a pointer at a control's centre would reach.
+function readDetectionLayout(page: Page) {
+    return page.evaluate((
+        toolbarCountSelector: string,
+        cancelDetectionSelector: string,
+    ) => {
+        const cancel = document.querySelector(cancelDetectionSelector)!.getBoundingClientRect();
+        const paint = (element: Element | null) => {
+            if (!element) return null;
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const glyphs = [...range.getClientRects()].filter(rect => rect.width > 0);
+            const ink = glyphs.length > 0 ? glyphs : [element.getBoundingClientRect()];
+            const left = Math.min(...ink.map(rect => rect.left));
+            const right = Math.max(...ink.map(rect => rect.right));
+            const top = Math.min(...ink.map(rect => rect.top));
+            const bottom = Math.max(...ink.map(rect => rect.bottom));
+            let shown = {
+                left,
+                right,
+                top,
+                bottom,
+            };
+            for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+                const style = getComputedStyle(parent);
+                if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+                const box = parent.getBoundingClientRect();
+                shown = {
+                    left: Math.max(shown.left, box.left),
+                    right: Math.min(shown.right, box.right),
+                    top: Math.max(shown.top, box.top),
+                    bottom: Math.min(shown.bottom, box.bottom),
+                };
+            }
+            return {
+                text: element.textContent?.trim() ?? '',
+                whole: getComputedStyle(element).visibility === 'visible'
+                    && right > left
+                    && shown.left <= left + 0.5 && shown.right >= right - 0.5
+                    && shown.top <= top + 0.5 && shown.bottom >= bottom - 0.5,
+                shownWidth: Math.max(0, shown.right - shown.left),
+                shownArea: Math.max(0, shown.right - shown.left) * Math.max(0, shown.bottom - shown.top),
+                clearOfCancel: right <= cancel.left || left >= cancel.right,
+                rect: {
+                    left,
+                    right,
+                    top,
+                    bottom,
+                },
+            };
+        };
+        return {
+            phase: paint(document.querySelector('.scan-cleanup-activity-phase')),
+            detail: paint(document.querySelector('.scan-cleanup-activity-detail')),
+            count: paint(document.querySelector(`${toolbarCountSelector} .scan-cleanup-stable-width-value`)),
+            caret: paint(document.querySelector('.scan-cleanup-activity-caret')),
+            // Done of the active workspace's toolbar, and what its centre hits.
+            done: (() => {
+                const candidates = [...document.querySelectorAll<HTMLElement>('#editor-global-toolbar-host .scan-cleanup-toolbar-done')];
+                const done = candidates[0];
+                const shown = paint(done ?? null);
+                if (!done || !shown) return null;
+                const hit = document.elementFromPoint(
+                    (shown.rect.left + shown.rect.right) / 2,
+                    (shown.rect.top + shown.rect.bottom) / 2,
+                );
+                return {
+                    ...shown,
+                    candidates: candidates.length,
+                    centreHitsDone: Boolean(hit && done.contains(hit)),
+                };
+            })(),
+            toolbar: document.querySelector('#editor-global-toolbar-host .scan-cleanup-toolbar')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
+            host: document.querySelector('#editor-global-toolbar-host')?.getBoundingClientRect().toJSON() as DOMRect | undefined,
+            viewerTop: document.querySelector('.workspace-main-shell')?.getBoundingClientRect().top,
+            pending: document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'pending'
+                && document.querySelector(cancelDetectionSelector) !== null,
+            width: window.innerWidth,
+            clock: paint(document.querySelector('.scan-cleanup-activity-time .scan-cleanup-stable-width-value')),
+            cancel: {
+                left: cancel.left,
+                right: cancel.right,
+                top: cancel.top,
+                bottom: cancel.bottom,
+            },
+        };
+    }, SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+}
+
+function expectDetectionLayout(layout: Awaited<ReturnType<typeof readDetectionLayout>>) {
+    // Measured while analysis runs; a finished detection changes the layout.
+    expect(layout.pending, JSON.stringify(layout)).toBe(true);
+    // Done stays whole and reachable beside the meter (#976).
+    expect(layout.done, JSON.stringify(layout)).toMatchObject({
+        candidates: 1,
+        whole: true,
+        centreHitsDone: true,
+    });
+    // The toolbar sits wholly in its host, and the document starts below it.
+    expect(layout.toolbar!.top, JSON.stringify(layout)).toBeGreaterThanOrEqual(layout.host!.top);
+    expect(layout.toolbar!.bottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.host!.bottom);
+    expect(layout.viewerTop!, JSON.stringify(layout)).toBeGreaterThanOrEqual(layout.host!.bottom);
+    expect(layout.phase).toMatchObject({
+        text: 'Analyze',
+        whole: true,
+        clearOfCancel: true,
+    });
+    expect(layout.count).toMatchObject({
+        whole: true,
+        clearOfCancel: true,
+    });
+    expect(layout.count?.text).toMatch(/^\d+ of 6 pages$/u);
+    expect(layout.caret).toMatchObject({
+        whole: true,
+        clearOfCancel: true,
+    });
+    const clock = layout.clock;
+    expect(clock, 'elapsed clock').toBeTruthy();
+    expect(clock!.whole || clock!.shownArea === 0, JSON.stringify(clock)).toBe(true);
+    if (clock!.whole) {
+        const overlaps = (
+            a: {
+                left: number;
+                right: number;
+                top: number;
+                bottom: number
+            },
+            b: {
+                left: number;
+                right: number;
+                top: number;
+                bottom: number
+            },
+        ) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        for (const [
+            name,
+            other,
+        ] of Object.entries({
+                cancel: layout.cancel,
+                count: layout.count!.rect,
+                caret: layout.caret!.rect,
+            })) {
+            expect(overlaps(clock!.rect, other), `clock clear of ${name}: ${JSON.stringify(layout)}`).toBe(false);
+        }
+    }
+    expect(layout.detail?.text.length).toBeGreaterThan(0);
+    expect(layout.detail?.shownWidth).toBeGreaterThan(0);
+}
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-toolbar-contract-${Date.now()}`});
 
@@ -95,6 +248,48 @@ describe('scan cleanup toolbar contract', () => {
         }, {timeout: 90_000}, 6, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
         SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
 
+        // At the default window size the meter got an action button's width:
+        // the count painted through the cancel button and the clock was cut
+        // (#967). Every painted glyph of the phase, current count and caret
+        // must sit inside the boxes that clip it and clear of the button. The
+        // clock may wrap onto the meter's hidden second row, but it is either
+        // shown whole and clear of the button, count and caret, or not at all.
+        // At the default window and at narrow windows (#976), as a person
+        // resizes it, while analysis runs.
+        const naturalSize = await session.page.evaluate(() => [
+            window.innerWidth,
+            window.innerHeight,
+        ]);
+        expectDetectionLayout(await readDetectionLayout(session.page));
+        try {
+            for (const width of [
+                690,
+                600,
+            ]) {
+                await session.command('windowResize', [
+                    width,
+                    naturalSize[1],
+                ]);
+                expectDetectionLayout(await readDetectionLayout(session.page));
+            }
+        } catch (error) {
+            await session.command('windowResize', naturalSize).catch(() => undefined);
+            throw error;
+        }
+        await session.command('windowResize', naturalSize);
+
+        // The cancel button beside the meter takes a person's click and stops
+        // detection; Re-detect then starts it again for the queue checks below.
+        await clickAsUser(session.page, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await waitForFunctionInPage(session.page, (cancelDetectionSelector: string) => {
+            const redetect = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-redetect');
+            return document.querySelector(cancelDetectionSelector) === null
+                && document.querySelector('.scan-cleanup-toolbar-error') === null
+                && redetect?.disabled === false;
+        }, {timeout: 15_000}, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        await clickAsUser(session.page, '.scan-cleanup-toolbar-redetect');
+        await session.page.waitForSelector(SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR, {timeout: 10_000});
+
         // Queue cleanup while detection is still running: the run meter must
         // appear and report the queued analysis phase as readable text,
         // and the primary action must remain enabled (it becomes cancel).
@@ -135,8 +330,11 @@ describe('scan cleanup toolbar contract', () => {
         // Let detection settle, then run the same six-page document to
         // completion. The blocking contract must cover the generated PDF,
         // not only the controls that start it.
-        // These post-cancellation waits total 345s (30 + 30 + 180 + 15 + 45 + 45),
-        // inside the existing 360s test budget.
+        // Each wait's timeout bounds one phase, not the journey. From the
+        // detection cancel on they add up to 300s (15 + 10 + 10 + 10 + 30 +
+        // 30 + 180 + 15), and with opening and detection to 670s. The 360s
+        // test timeout is the separate bound on the whole journey, so phases
+        // that each stay within their own limit can still fail it together.
         await waitForFunctionInPage(session.page, (
             primaryActionSelector: string,
             cancelDetectionSelector: string,

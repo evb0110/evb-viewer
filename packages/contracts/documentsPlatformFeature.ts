@@ -95,6 +95,7 @@ import {
 import {isRecord} from '@contracts/runtimeGuards';
 import {PDF_REVISION_OPTIONS_SCHEMA} from '@contracts/documentsPersistenceSchemas';
 import * as v from 'valibot';
+import {RECENT_READING_VIEW_SCHEMA} from '@contracts/recentReadingView';
 
 const optionalEverywhere = {
     browser: false,
@@ -702,6 +703,19 @@ export const DOCUMENT_RECENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         ),
         clear: defineIpcMethod(
             'clear', 'recentFiles:clear', noArgs, voidResult, 'clearRecentFiles', 'none',
+        ),
+        // The reference is the open document's working copy: main reads the
+        // source identity it was admitted with, never a renderer-supplied stat.
+        readingView: defineIpcMethod(
+            'readingView', 'recentFiles:readingView', v.strictTuple([documentRefResult]),
+            v.nullable(RECENT_READING_VIEW_SCHEMA), 'getRecentReadingView', 'sender',
+        ),
+        rememberReadingView: defineIpcMethod(
+            'rememberReadingView', 'recentFiles:rememberReadingView',
+            v.strictTuple([
+                documentRefResult,
+                RECENT_READING_VIEW_SCHEMA,
+            ]), voidResult, 'rememberRecentReadingView', 'sender',
         ),
     },
     events: {},

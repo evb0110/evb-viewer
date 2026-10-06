@@ -154,6 +154,122 @@ describe('DjVu platform feature', () => {
             .toBe(false);
     });
 
+    it('carries usable conversion page sizes in the completed conversion and drops unusable ones without failing it', () => {
+        const convertComplete = DJVU_PLATFORM_FEATURE.events.onConvertComplete.payload;
+        const pageSize = {
+            width: 5100,
+            height: 6600,
+            dpi: 600,
+        };
+        expect(v.parse(convertComplete, {
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+            pageSizes: [pageSize],
+        })).toEqual({
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+            pageSizes: [pageSize],
+        });
+        for (const pageSizes of [
+            [{
+                ...pageSize,
+                width: 0,
+            }],
+            [{
+                ...pageSize,
+                height: -1,
+            }],
+            [{
+                ...pageSize,
+                dpi: Number.NaN,
+            }],
+            [{
+                ...pageSize,
+                width: Number.POSITIVE_INFINITY,
+            }],
+            Array.from({length: 10_001}, () => pageSize),
+        ]) {
+            expect(v.parse(convertComplete, {
+                success: true,
+                pdfPath: '/tmp/book.pdf',
+                pageSizes,
+            })).toEqual({
+                success: true,
+                pdfPath: '/tmp/book.pdf',
+            });
+        }
+        expect(v.parse(convertComplete, {
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+        })).toEqual({
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+        });
+    });
+
+    it('keeps the typed reason of a refused open, its receipt and expected cancellation in the open result contract', () => {
+        const openResult = DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload;
+        const nativeMessage = 'djvused failed with exit code 10. Unrecognized DjVu Message';
+        const refused = {
+            success: false,
+            requestId: 'djvu-open-1',
+            error: nativeMessage,
+            errorEnvelope: {
+                code: 'invalid-djvu',
+                message: nativeMessage,
+            },
+            failure: conversionFailure,
+        };
+        const canceled = {
+            success: false,
+            requestId: 'djvu-open-2',
+            error: 'The operation was aborted',
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+        };
+
+        const admitted = {
+            success: true,
+            pageCount: 12,
+            source: {
+                sourceSize: 8,
+                sourceModifiedAt: 1_700_000_000_000,
+            },
+        };
+        expect(v.parse(openResult, admitted)).toEqual(admitted);
+        expect(v.safeParse(openResult, {
+            ...admitted,
+            source: {sourceSize: 8},
+        }).success).toBe(false);
+        expect(v.parse(openResult, refused)).toEqual(refused);
+        expect(v.parse(openResult, canceled)).toEqual(canceled);
+        expect(v.safeParse(openResult, {
+            ...canceled,
+            errorEnvelope: refused.errorEnvelope,
+        }).success).toBe(false);
+        expect(v.safeParse(openResult, {
+            ...canceled,
+            failure: conversionFailure,
+        }).success).toBe(false);
+        expect(v.safeParse(openResult, {
+            success: true,
+            pageCount: 1,
+            errorEnvelope: {
+                code: 'djvu-raster-limit',
+                message: 'x',
+            },
+        }).success).toBe(false);
+        expect(v.safeParse(openResult, {
+            ...refused,
+            errorEnvelope: {
+                code: 'native-crash',
+                message: nativeMessage,
+            },
+        }).success).toBe(false);
+    });
+
     it('normalizes bounded native text-search requests before invoking main', async () => {
         const invoke = vi.fn().mockResolvedValue({
             results: [],

@@ -2461,6 +2461,11 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
         await waitForShapeCount(page, 1);
         await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
+        // Reopening the same path before the close finishes would match the
+        // closing document instead of opening the saved file.
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])
+        ).originalPath, {timeout: 10_000}).toBeNull();
         await openPdfInApp(page, outputPath);
         await waitForPdfLoaded(page);
         await waitForShapeCount(page, 1);

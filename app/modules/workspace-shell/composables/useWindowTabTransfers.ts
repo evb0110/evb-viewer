@@ -26,6 +26,7 @@ import {
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
 interface IPaneLike {
     paneId: string;
@@ -398,26 +399,11 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
             if (payload.kind === 'pdfSnapshot' && payload.viewState) {
                 const viewState = payload.viewState;
-                if (viewState.zoomMode === 'custom') {
-                    workspace.setCustomZoomFromDisplay(viewState.zoom);
-                } else if (viewState.zoomMode === 'fit-height') {
-                    workspace.handleFitHeight();
-                } else {
-                    workspace.handleFitWidth();
-                }
-                if (viewState.viewMode === 'facing') {
-                    workspace.handleViewModeFacing();
-                } else if (viewState.viewMode === 'facing-first-single') {
-                    workspace.handleViewModeFacingFirstSingle();
-                } else {
-                    workspace.handleViewModeSingle();
-                }
-                workspace.setViewRotation(viewState.viewRotation);
-                const restoredView = workspace.getToolbarSnapshot();
-                if (restoredView.continuousScroll !== viewState.continuousScroll) {
-                    workspace.handleToggleContinuousScroll();
-                }
-                if (restoredView.showSidebar !== viewState.showSidebar) {
+                workspace.restoreViewState({
+                    ...viewState,
+                    currentPage: null,
+                });
+                if (workspace.getToolbarSnapshot().showSidebar !== viewState.showSidebar) {
                     workspace.handleToggleSidebar();
                 }
             }
@@ -476,9 +462,10 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     async function closeSourceWorkspaceWithoutPersist(paneId: string, tabId: string) {
-        await options.handoffActiveTabBeforeClose(paneId, tabId);
-
+        // The departing view's place is remembered while it and its source still exist.
         const session = getDocumentSession(tabId);
+        await rememberReadingView(session, tabId);
+        await options.handoffActiveTabBeforeClose(paneId, tabId);
         if (!session || !tabHoldsDocument(tabId) || session.views.value.size > 1) {
             return true;
         }

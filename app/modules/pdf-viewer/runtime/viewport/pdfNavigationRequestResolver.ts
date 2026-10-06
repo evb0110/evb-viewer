@@ -4,8 +4,6 @@ import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type {
     IPdfSemanticAnchor,
     IPdfViewportGeometry,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
-import type {
     IDocumentNavigationRequest,
     TDocumentNavigationTarget,
 } from '@app/modules/document-viewer/public';
@@ -85,6 +83,9 @@ export function resolvePdfNavigationAnchor(
     target: IResolvedPdfNavigationTarget,
     geometry?: IPdfViewportGeometry | null,
 ): IPdfSemanticAnchor {
+    if (request.target.kind === 'page' && request.target.anchor?.page === target.page) {
+        return request.target.anchor;
+    }
     const rect = target.rect;
     if (request.alignment === 'rect-center' && rect) {
         const pageHeight = geometry?.pageRects[target.page - 1]?.height ?? 0;

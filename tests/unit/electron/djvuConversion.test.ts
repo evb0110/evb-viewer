@@ -1,3 +1,4 @@
+import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 
 import {
@@ -195,10 +196,13 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
     tier: 'medium',
 })}));
 vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({
-    ddjvu: '/tools/ddjvu',
-    djvused: '/tools/djvused',
-})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
+    getDjvuNativeToolPaths: () => ({
+        ddjvu: '/tools/ddjvu',
+        djvused: '/tools/djvused',
+    }),
+}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({qpdf: '/tools/qpdf'}),

@@ -60,7 +60,6 @@ import {
     evaluateDjvuPdfConversionPolicy,
     resolveDjvuCompactFidelityPreset,
     resolveDjvuPdfExportStrategy,
-    type IDjvuConversionPageMetrics,
     type IDjvuPdfConversionPolicyDecision,
     type TDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
@@ -313,8 +312,7 @@ async function getDjvuConversionPageSizes(
     }
 
     try {
-        const pageSizes: IDjvuConversionPageMetrics[] = await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
-        return pageSizes;
+        return await getDjvuPageSizesForViewing(djvuPath, pageCount, { signal });
     } catch (error) {
         if (signal.aborted) {
             throw signal.reason instanceof Error
@@ -716,15 +714,12 @@ async function awaitDjvuJob(
         ...(terminal.progress.requestId ? {requestId: terminal.progress.requestId} : {}),
         ...(terminal.progress.documentRef ? {documentRef: terminal.progress.documentRef} : {}),
         error: terminal.error.message,
+        ...(terminal.error.failure === undefined ? {} : {failure: terminal.error.failure}),
+        ...(terminal.error.expected === undefined ? {} : {expected: terminal.error.expected}),
     };
-    if (kind === 'convert') {
-        return {
-            ...baseResult,
-            ...(terminal.error.failure === undefined ? {} : {failure: terminal.error.failure}),
-            ...(terminal.error.expected === undefined ? {} : {expected: terminal.error.expected}),
-        } satisfies IDjvuConvertResult;
-    }
-    return baseResult satisfies IDjvuOpenResult;
+    return kind === 'convert'
+        ? baseResult satisfies IDjvuConvertResult
+        : baseResult satisfies IDjvuOpenResult;
 }
 
 export function subscribeDjvuProgress(context: IDjvuOperationContext) {
@@ -1197,6 +1192,7 @@ async function runDjvuConvertToPdf(
                     pdfPath: requireDocumentRef(normalizedOutputPath),
                     jobId,
                     ...progressScope,
+                    ...(pageSizes ? {pageSizes} : {}),
                 };
             });
             if (!result.success) {
@@ -1414,7 +1410,7 @@ export function startDurableDjvuOpenJob(
         const value = result as IDjvuOpenResult;
         const snapshot = djvuJobs.get(jobId, {sender: context.sender});
         if (value.success && snapshot?.progress.documentRef) {
-            adoptDjvuViewingPath(context, snapshot.progress.documentRef);
+            adoptDjvuViewingPath(context, snapshot.progress.documentRef, value.source ?? null);
         }
         safeSendToWindow(
             BrowserWindow.fromWebContents(context.sender),

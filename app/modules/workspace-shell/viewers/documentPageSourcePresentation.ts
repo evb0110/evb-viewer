@@ -14,6 +14,8 @@ import {
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
+import { findSerializableErrorEnvelope } from '@contracts/serializableError';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     runDocumentViewerActivationPresentation,
@@ -577,7 +579,8 @@ export function createDocumentPageSourcePresentation(options: {
                     : current?.generation === renderAttempt.generation)
                 && !(error instanceof DOMException && error.name === 'AbortError')
             ) {
-                if (current && current.retryCount < 2) {
+                // A refused page (invalid DjVu, raster limit) fails the same way every time.
+                if (current && current.retryCount < 2 && !findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)) {
                     current.retryCount += 1;
                     if (!preserveExistingVisual) {
                         beginPending(pageNumber, current);

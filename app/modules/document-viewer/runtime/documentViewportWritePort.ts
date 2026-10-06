@@ -28,6 +28,8 @@ export interface IDocumentViewportWritePort {
     getInteractionEpoch(): number;
     observeUserInteraction(container?: HTMLElement): void;
     observeUserScroll(container: HTMLElement): void;
+    /** A zoom wheel packet: the start of a zoom gesture is one reader interaction. */
+    observeZoomPacket(packet: IWheelGesturePacket, container?: HTMLElement): void;
     /**
      * Declares an explicit command newer than any wheel gesture still emitting
      * packets. That gesture becomes residue: it can neither cancel the command
@@ -396,6 +398,12 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         },
         getInteractionEpoch: () => interactionEpoch,
         observeUserInteraction,
+        observeZoomPacket(packet, container) {
+            const previousGestureId = wheelGestures.getGestureId();
+            if (wheelGestures.observe(packet).gestureId !== previousGestureId) {
+                observeUserInteraction(container);
+            }
+        },
         observeUserScroll(container) {
             observeUserInteraction(container);
         },
@@ -522,8 +530,10 @@ export function observeDocumentViewportWheelInteraction(
 ): TDocumentWheelPacketOwner {
     // Zoom gestures need the layout lifecycle's anchor restore; bumping the
     // epoch on every streamed zoom tick would cancel that restore one frame
-    // after it was captured.
+    // after it was captured. A gesture counts once, as it starts, before the
+    // renderer captures its first anchor.
     if (interaction.intent === 'zoom') {
+        port.observeZoomPacket(interaction.event, container);
         return 'user-input';
     }
     const owner = port.observeWheelPacket(interaction.event);

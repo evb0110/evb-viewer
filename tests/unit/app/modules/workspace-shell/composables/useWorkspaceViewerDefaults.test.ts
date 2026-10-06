@@ -15,6 +15,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     ISettingsData,
     TFitMode,
+    TPdfViewRotation,
     TZoomMode,
 } from '@contracts/shared';
 import {
@@ -44,6 +45,7 @@ function createDefaultsSetup(
         shapeColor: '#666666',
     });
     const viewMode = ref<ISettingsData['defaultViewMode']>('facing');
+    const viewRotation = ref<TPdfViewRotation>(0);
     const continuousScroll = ref(false);
     const fitMode = ref<TFitMode>('height');
     const zoom = ref(2);
@@ -56,6 +58,7 @@ function createDefaultsSetup(
         appSettings,
         annotationSettings,
         viewMode,
+        viewRotation,
         continuousScroll,
         fitMode,
         zoom,
@@ -74,6 +77,7 @@ function createDefaultsSetup(
         appSettings,
         annotationSettings,
         viewMode,
+        viewRotation,
         continuousScroll,
         fitMode,
         zoom,
@@ -120,6 +124,204 @@ describe('useWorkspaceViewerDefaults', () => {
             expect(setup.zoom.value).toBe(1.5);
             expect(setup.effectiveZoom.value).toBe(1.5);
             expect(setup.zoomMode.value).toBe('custom');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('keeps a view seeded for its admitted source when that source is shown, and defaults any other', async () => {
+        const setup = createDefaultsSetup(
+            {defaultZoomPreset: 'fit-width'},
+            {initialDocumentSourceKey: '/tmp/previous-working.pdf'},
+        );
+        const seed = (source: string) => setup.defaults.seedViewForSource({
+            zoom: 1.85,
+            zoomMode: 'custom',
+            viewMode: 'single',
+            continuousScroll: true,
+            viewRotation: 90,
+        }, source);
+
+        try {
+            // A replacing open: seeded, the old source reset, the admitted one shown.
+            seed('/tmp/remembered-working.pdf');
+            setup.documentSourceKey.value = null;
+            await nextTick();
+            setup.documentSourceKey.value = '/tmp/remembered-working.pdf';
+            await nextTick();
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+                setup.continuousScroll.value,
+                setup.viewRotation.value,
+            ]).toEqual([
+                'custom',
+                1.85,
+                'single',
+                true,
+                90,
+            ]);
+
+            // An open seeded for one source that shows another takes that one's defaults.
+            seed('/tmp/seeded-working.pdf');
+            setup.documentSourceKey.value = '/tmp/unrelated-working.pdf';
+            await nextTick();
+            expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('shows a seed at once when nothing is shown, and keeps the reader\'s later zoom when the source arrives', async () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
+
+        try {
+            // A normal open's reading view, before its source exists.
+            setup.defaults.seedViewForSource({
+                zoom: 1.85,
+                zoomMode: 'custom',
+                viewMode: 'single',
+                continuousScroll: true,
+                viewRotation: 0,
+            }, null);
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+            ]).toEqual([
+                'custom',
+                1.85,
+            ]);
+
+            // The reader zooms the opening view, then the source is shown.
+            setup.defaults.handleZoomIn();
+            const readerZoom = setup.zoom.value;
+            setup.documentSourceKey.value = '/tmp/remembered-working.pdf';
+            await nextTick();
+
+            expect(readerZoom).toBeGreaterThan(1.85);
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+            ]).toEqual([
+                'custom',
+                readerZoom,
+            ]);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('defaults a source reopened after the open that seeded it ended without showing it', async () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
+
+        try {
+            const view = {
+                zoom: 1.85,
+                zoomMode: 'custom' as const,
+                viewMode: 'single' as const,
+                continuousScroll: true,
+                viewRotation: 0 as const,
+            };
+            // An older open ending does not withdraw a newer open's seed.
+            const withdrawOlder = setup.defaults.seedViewForSource(view, '/docs/older.djvu');
+            const withdrawNewer = setup.defaults.seedViewForSource(view, '/docs/book.djvu');
+            withdrawOlder();
+            setup.documentSourceKey.value = '/docs/book.djvu';
+            await nextTick();
+            expect(setup.zoom.value).toBe(1.85);
+
+            // The open failed or was cancelled: the same source reopened
+            // later, unseeded, takes its defaults.
+            withdrawNewer();
+            setup.documentSourceKey.value = null;
+            await nextTick();
+            setup.defaults.seedViewForSource(view, '/docs/book.djvu')();
+            setup.documentSourceKey.value = '/docs/book.djvu';
+            await nextTick();
+            expect(setup.zoomMode.value).toBe('fit-width');
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('leaves the shown document\'s view as it is while a seed for the next source waits, and after it is withdrawn', async () => {
+        const setup = createDefaultsSetup(
+            {defaultZoomPreset: 'fit-width'},
+            {initialDocumentSourceKey: '/tmp/shown-working.pdf'},
+        );
+
+        try {
+            const shown = [
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ];
+            const withdraw = setup.defaults.seedViewForSource({
+                zoom: 1.85,
+                zoomMode: 'custom',
+                viewMode: 'single',
+                continuousScroll: true,
+                viewRotation: 0,
+            }, '/tmp/failed-working.pdf');
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ]).toEqual(shown);
+
+            // The open failed before its source was shown.
+            withdraw();
+            await nextTick();
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+                setup.viewMode.value,
+            ]).toEqual(shown);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('zooms from the neutral scale after a fit mode replaces a custom one, before the viewer measures the fit', () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: '150'});
+
+        try {
+            setup.defaults.handleZoomIn();
+            const customScale = setup.zoom.value;
+            setup.defaults.applyView({
+                zoom: null,
+                zoomMode: 'fit-width',
+                viewMode: null,
+                continuousScroll: null,
+                viewRotation: null,
+            });
+            setup.defaults.handleZoomIn();
+            expect(setup.zoom.value).toBeLessThan(customScale);
+        } finally {
+            setup.stop();
+        }
+    });
+
+    it('keeps the scale now shown for a saved custom mode that has no scale of its own', () => {
+        const setup = createDefaultsSetup({defaultZoomPreset: 'fit-width'});
+
+        try {
+            setup.effectiveZoom.value = 1.37;
+            setup.defaults.applyView({
+                zoom: null,
+                zoomMode: 'custom',
+                viewMode: null,
+                continuousScroll: null,
+                viewRotation: null,
+            });
+            expect([
+                setup.zoomMode.value,
+                setup.zoom.value,
+            ]).toEqual([
+                'custom',
+                1.37,
+            ]);
         } finally {
             setup.stop();
         }

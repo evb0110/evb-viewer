@@ -36,10 +36,26 @@ function createHarness(options: {
 } = {}) {
     const windowHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
     const responseHandlers = options.shared?.responseHandlers ?? new Set<TResponseHandler>();
+    const webContentsHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
     const webContents = {
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
+        on(event: string, handler: (...args: unknown[]) => void) {
+            const handlers = webContentsHandlers.get(event) ?? new Set();
+            handlers.add(handler);
+            webContentsHandlers.set(event, handlers);
+            return webContents;
+        },
+        removeListener(event: string, handler: (...args: unknown[]) => void) {
+            webContentsHandlers.get(event)?.delete(handler);
+            return webContents;
+        },
     };
+    function emitWebContentsEvent(event: string, ...args: unknown[]) {
+        for (const handler of [...(webContentsHandlers.get(event) ?? [])]) {
+            handler(...args);
+        }
+    }
     const logger = {warn: vi.fn()};
     const rawIpcRegistrationAudit = options.rawIpcRegistrationAudit ?? createRawIpcRegistrationAudit();
 
@@ -120,8 +136,10 @@ function createHarness(options: {
                 handler({sender} as never, payload);
             }
         },
+        emitWebContentsEvent,
         emitWindowEvent,
         ipcMain,
+        webContentsHandlers,
         logger,
         rawIpcRegistrationAudit,
         responseHandlers,
@@ -276,6 +294,151 @@ describe('native window close handshake', () => {
             CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
             {requestId: 'close-request-3'},
         );
+    });
+
+    it.each([
+        'save',
+        'discard',
+    ] as const)('completes an acknowledged %s that arrives after the answer deadline', async decision => {
+        vi.useFakeTimers();
+        const harness = createHarness({timeoutMs: 25});
+
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            status: 'acknowledged',
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        expect(harness.webContents.send).toHaveBeenCalledOnce();
+        expect(harness.window.close).not.toHaveBeenCalled();
+
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision,
+        });
+
+        expect(harness.window.close).toHaveBeenCalledOnce();
+        expect(harness.logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('keeps the window open for a late acknowledged cancel and asks again on the next close', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness({timeoutMs: 25});
+
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            status: 'acknowledged',
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'cancel',
+        });
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+
+        expect(harness.window.close).not.toHaveBeenCalled();
+        expect(harness.webContents.send).toHaveBeenLastCalledWith(
+            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
+            {requestId: 'close-request-2'},
+        );
+    });
+
+    it('never closes on an acknowledgment and ignores one from the wrong sender or request', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness({timeoutMs: 25});
+
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            status: 'acknowledged',
+        }, {});
+        harness.emitResponse({
+            requestId: 'close-request-other',
+            status: 'acknowledged',
+        });
+        await vi.advanceTimersByTimeAsync(25);
+
+        expect(harness.window.close).not.toHaveBeenCalled();
+        expect(harness.logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('timed out after 25ms'),
+        );
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'save',
+        });
+        expect(harness.window.close).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        {
+            name: 'renderer process loss',
+            emit: (harness: ReturnType<typeof createHarness>) => harness.emitWebContentsEvent('render-process-gone', {}, {reason: 'crashed'}),
+        },
+        {
+            name: 'main-frame replacement',
+            emit: (harness: ReturnType<typeof createHarness>) => harness.emitWebContentsEvent('did-start-navigation', {}, 'app://reload', false, true),
+        },
+    ])('settles an acknowledged request on $name without closing', ({emit}) => {
+        const harness = createHarness();
+
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            status: 'acknowledged',
+        });
+        emit(harness);
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'save',
+        });
+        expect(harness.window.close).not.toHaveBeenCalled();
+
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        expect(harness.webContents.send).toHaveBeenLastCalledWith(
+            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
+            {requestId: 'close-request-2'},
+        );
+    });
+
+    it('keeps an acknowledged request through in-place and subframe navigation', () => {
+        const harness = createHarness();
+
+        harness.emitWindowEvent('close', {preventDefault: vi.fn()});
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            status: 'acknowledged',
+        });
+        harness.emitWebContentsEvent('did-start-navigation', {}, 'app://#hash', true, true);
+        harness.emitWebContentsEvent('did-start-navigation', {}, 'about:blank', false, false);
+        harness.emitResponse({
+            requestId: 'close-request-1',
+            decision: 'save',
+        });
+
+        expect(harness.window.close).toHaveBeenCalledOnce();
+    });
+
+    it('removes its renderer lifecycle listeners on cleanup', () => {
+        const harness = createHarness();
+
+        harness.cleanup();
+
+        expect(harness.webContentsHandlers.get('render-process-gone')?.size ?? 0).toBe(0);
+        expect(harness.webContentsHandlers.get('did-start-navigation')?.size ?? 0).toBe(0);
+    });
+
+    it('removes its renderer listeners when the destroyed window refuses property reads', () => {
+        const harness = createHarness();
+        // Electron throws "Object has been destroyed" for getters by 'closed'.
+        Object.defineProperty(harness.window, 'webContents', {get() {
+            throw new TypeError('Object has been destroyed');
+        }});
+
+        expect(() => harness.emitWindowEvent('closed')).not.toThrow();
+        expect(harness.webContentsHandlers.get('render-process-gone')?.size ?? 0).toBe(0);
+        expect(harness.webContentsHandlers.get('did-start-navigation')?.size ?? 0).toBe(0);
     });
 
     it('keeps the window open and logs an unavailable renderer decision', () => {

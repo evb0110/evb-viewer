@@ -459,7 +459,7 @@ function buildToolItems() {
     }
 
     if (canUseOcr && shouldShowMenuCommand('ocr', 1)) {
-        items.push(createReaderCommandItem('ocr', 'open-ocr', t('ocr.button'), {disabled: ocrDisabled || !hasInteractiveDocument.value || isDjvuMode}));
+        items.push(createReaderCommandItem('ocr', 'open-ocr', t('ocr.button'), {disabled: ocrDisabled || isDjvuMode}));
     }
 
     if (shouldShowMenuCommand('export-docx', 1)) {

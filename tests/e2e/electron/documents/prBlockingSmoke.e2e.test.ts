@@ -1445,7 +1445,14 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             270,
             0,
         ]) {
-            await requireWorkspaceCommand(session.page, 'setViewRotation', [rotation]);
+            await requireWorkspaceCommand(session.page, 'restoreViewState', [{
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+                continuousScroll: null,
+                viewMode: null,
+                viewRotation: rotation,
+            }]);
             await chooseViewMode(0);
             await waitForCommittedFitHeightGeometry(session.page, 7);
             const spread = await readSpread();
@@ -2013,29 +2020,15 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             JSON.stringify(slowNavigationTrace.frames),
         ).toEqual([]);
 
-        const closeRecentState = await evaluateInPage(session.page, (
-            targetSourcePath: string,
-        ) => new Promise<{
-            enabled: boolean;
-            found: boolean;
-            host: Record<string, string | undefined> | null;
-            rowReady: string | null;
-        }>((resolve) => {
-            document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
-            window.requestAnimationFrame(() => {
-                const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-                    .find(candidate => candidate.dataset.recentSource === targetSourcePath);
-                const host = document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]');
-                resolve({
-                    enabled: row?.dataset.recentOpenActionable === 'true',
-                    found: Boolean(row),
-                    host: host ? {...host.dataset} : null,
-                    rowReady: row?.dataset.recentOpenReady ?? null,
-                });
-            });
-        }), fixturePath);
-        expect(closeRecentState.found, JSON.stringify(closeRecentState)).toBe(true);
-        expect(closeRecentState.enabled, JSON.stringify(closeRecentState)).toBe(true);
+        // A person closes the tab; Recent then offers the document again.
+        await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
+        await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
+            Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
+                .some(row => (
+                    row.dataset.recentOpenActionable === 'true'
+                    && row.dataset.recentSource === targetSourcePath
+                ))
+        ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath);
         await stopPdfRenderTrace(session.page);
     });
 
@@ -2076,6 +2069,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 {showSidebar: true},
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
+            const closedView = await getWorkspaceToolbarSnapshot(session.page);
             await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
             await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
                 Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
@@ -2098,7 +2092,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 {showSidebar: false},
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
-            expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
+            // Recent restores the reading view the document was closed with
+            // (#963); the sidebar is not part of it and starts closed.
+            const reopenedView = await getWorkspaceToolbarSnapshot(session.page);
+            expect(reopenedView?.zoomMode).toBe('fit-height');
+            expect(reopenedView?.currentPage).toBe(closedView?.currentPage);
+            expect(reopenedView?.effectiveZoom).toBe(closedView?.effectiveZoom);
             expect(rendererExceptions).toEqual([]);
         } catch (error) {
             throw new Error(`${String(error)}; rendererExceptions=${JSON.stringify(rendererExceptions)}`);

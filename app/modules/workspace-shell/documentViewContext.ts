@@ -38,11 +38,6 @@ import {
 } from '@app/modules/document-viewer/public';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
-import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { getErrorMessage } from '@app/utils/error';
-import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
-import { copyTextToClipboard } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import {
@@ -93,7 +88,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     const initialViewState = documentView.viewState.value;
     const preserveInitialStateForFirstSource = controller.snapshot.value.phase === 'presented'
         && documentView.toolbarSnapshot.value.initialVisualReady;
-    const { t } = useTypedI18n();
     const {
         file,
         annotations,
@@ -271,13 +265,12 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         zoomMode: view.zoomMode,
         pdfSrc,
         preserveInitialStateForFirstSource,
-        documentSourceKey: computed(() => {
-            if (file.isDjvuMode.value && file.djvuSourcePath.value) {
-                return `djvu:${file.djvuSourcePath.value}`;
-            }
-            // Save As moves the working copy of the document that stays open.
-            return file.openedWorkingCopyPath.value ? `pdf:${file.openedWorkingCopyPath.value}` : pdfSrc.value;
-        }),
+        documentViewerRef: view.documentViewerRef,
+        viewRotation: view.viewRotation,
+        // The source shown: a DjVu, or the working copy a PDF opened from (which
+        // Save As does not change), committed with its pages in one step.
+        documentSourceKey: computed(() => (file.isDjvuMode.value ? file.djvuSourcePath.value : null)
+            ?? file.openedWorkingCopyPath.value ?? pdfSrc.value),
     });
     usePageShortcuts({
         isActive,
@@ -401,28 +394,9 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
                 file.pdfFailurePresentation.value = null;
                 return;
             }
-            const message = getErrorMessage(error).trim();
-            const hasPdfjsAssetMismatch = isPdfjsAssetVersionMismatch(message);
-            file.pdfError.value = message || t('errors.file.open');
-            const receipt = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'});
-            file.pdfFailurePresentation.value = {
-                failure: receipt,
-                title: t('errors.file.open'),
-                description: hasPdfjsAssetMismatch
-                    ? t('errors.file.pdfjsAssetMismatch')
-                    : t('errors.file.openDescription'),
-                ...(message ? {technicalDetails: message} : {}),
-                ...(hasPdfjsAssetMismatch
-                    ? {actions: [{
-                        label: t('errors.file.pdfjsAssetRepairAction'),
-                        onClick: () => {
-                            void copyTextToClipboard('pnpm install --frozen-lockfile').then((copied) => {
-                                failure.presentCopyFeedback(copied);
-                            });
-                        },
-                    }]}
-                    : {}),
-            };
+            const presentation = failure.describeOpenFailure(error);
+            file.pdfFailurePresentation.value = presentation;
+            file.pdfError.value = presentation.description;
         }
         function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
             if (

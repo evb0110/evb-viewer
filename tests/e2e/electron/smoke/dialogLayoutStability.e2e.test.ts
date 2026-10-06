@@ -1,10 +1,26 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
 } from 'vitest';
-import {resolve} from 'node:path';
+import {
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {
+    join, resolve,
+} from 'node:path';
 import type {Page} from 'puppeteer-core';
+import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {decodeLogRecord} from '@contracts/logRecord';
+import type {TAppLocale} from '@contracts/shared';
+import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createPasswordProtectedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -149,10 +165,92 @@ function stopDialogFrameSampler(page: Page) {
     });
 }
 
+// Main-process IPC rejections the app recorded for one channel, read from the
+// session's own app log. The logger appends records while this reads, so only
+// newline-terminated records are complete; an unfinished last line is read on
+// a later call. A completed record that does not decode is broken evidence.
+function readIpcHandlerRejections(sessionName: string, channel: string) {
+    const logPath = resolve(electronFileLogDir(sessionName), 'app.ndjson');
+    if (!existsSync(logPath)) {
+        return [];
+    }
+    const lines = readFileSync(logPath, 'utf8').split('\n');
+    lines.pop();
+    return lines
+        .map(line => line.replace(/\r$/u, ''))
+        .filter(line => line.trim().length > 0)
+        .map((line) => {
+            const record = decodeLogRecord(line);
+            if (!record) {
+                throw new Error(`App log ${logPath} has a malformed completed record: ${line}`);
+            }
+            return record;
+        })
+        .filter(record => record.msg === 'IPC handler rejected' && record.data?.channel === channel);
+}
+
+const malformedFixtureDirectories: string[] = [];
+
+// A PDF header followed by a cut-off body: it claims to be a PDF but cannot be read.
+function createTruncatedPdf() {
+    const source = readFileSync(resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'));
+    const directory = mkdtempSync(join(tmpdir(), 'evb-dialog-malformed-'));
+    malformedFixtureDirectories.push(directory);
+    const filePath = join(directory, 'malformed.pdf');
+    writeFileSync(filePath, source.subarray(0, 1024));
+    return filePath;
+}
+
+async function setSavedLocale(page: Page, locale: TAppLocale) {
+    await page.evaluate(async (value: TAppLocale) => {
+        const saveSettings = (window as IE2EWindow).electronAPI?.settings.save;
+        if (!saveSettings) {
+            throw new Error('Electron settings save bridge is unavailable');
+        }
+        await saveSettings({locale: value});
+    }, locale);
+    // The renderer starts again and applies the saved locale, as on launch.
+    await page.reload({waitUntil: 'domcontentloaded'});
+}
+
+async function readFailureToast(page: Page) {
+    return page.evaluate(() => {
+        const toast = Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
+            .find(candidate => candidate.getBoundingClientRect().width > 0);
+        if (!toast) {
+            return null;
+        }
+        return {
+            text: toast.innerText,
+            errorId: toast.querySelector<HTMLElement>('.app-toast-error-id')?.innerText.trim() ?? '',
+            buttons: Array.from(toast.querySelectorAll<HTMLButtonElement>('button'))
+                .filter(button => button.getBoundingClientRect().width > 0)
+                .map(button => button.innerText.trim())
+                .filter(Boolean),
+        };
+    });
+}
+
+async function clickToastButton(page: Page, label: string) {
+    await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
+        .find(candidate => candidate.innerText.trim() === text && candidate.getBoundingClientRect().width > 0), label, {description: `${label} toast button`});
+}
+
 describe('Electron E2E - dialog layout stability', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-dialog-layout-${Date.now()}`,
         timeoutMs: DIALOG_TIMEOUT_MS,
+    });
+
+    // The truncated input is regenerated from a tracked fixture, so removing it
+    // loses no failure evidence; the session fixture keeps a failed run's logs.
+    afterEach(() => {
+        for (const directory of malformedFixtureDirectories.splice(0)) {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('keeps its controls in place when the page range is chosen and rejected', async () => {
@@ -230,5 +328,74 @@ describe('Electron E2E - dialog layout stability', () => {
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
         await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-    }, DIALOG_TIMEOUT_MS * 2);
+        await page.waitForSelector('.workspace-host[data-workspace-active="true"] .page_container--rendered canvas', {
+            timeout: DIALOG_TIMEOUT_MS,
+            visible: true,
+        });
+
+        // Cancelling the prompt is ordinary use too.
+        const cancelledPath = await createPasswordProtectedFixturePdf(`dialog-layout-password-cancel-${Date.now()}.pdf`);
+        await triggerOpenPathInApp(page, cancelledPath, DIALOG_TIMEOUT_MS);
+        await page.waitForSelector('[role="dialog"] input[type="password"]', {
+            timeout: DIALOG_TIMEOUT_MS,
+            visible: true,
+        });
+        await waitForDialogSettled(page);
+        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(candidate => candidate.textContent?.trim() === label), 'Cancel', {description: 'Password prompt Cancel button'});
+        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+
+        // A well-formed encrypted PDF needs a password; that is not a failure (#970).
+        expect(readIpcHandlerRejections(session.name, 'pdf:openingGeometry')).toEqual([]);
+
+        // A file that really cannot be read still reports its failure.
+        await triggerOpenPathInApp(page, createTruncatedPdf(), DIALOG_TIMEOUT_MS);
+        await expect.poll(
+            () => readIpcHandlerRejections(session.name, 'pdf:openingGeometry').length,
+            {timeout: DIALOG_TIMEOUT_MS},
+        ).toBeGreaterThan(0);
+    }, DIALOG_TIMEOUT_MS * 3);
+
+    it('labels a failure toast in the saved interface language', async () => {
+        const session: IElectronE2ESession = sessionFixture.getSession();
+        const {page} = session;
+        await page.setViewport(DIALOG_VIEWPORT);
+        const malformedPath = createTruncatedPdf();
+
+        try {
+            await setSavedLocale(page, 'ru');
+            await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
+            await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+                .toContain('Не удалось открыть файл');
+            const russian = await readFailureToast(page);
+            expect(russian?.errorId).toMatch(/^Идентификатор ошибки: [0-9a-f]{8}$/u);
+            expect(russian?.buttons).toContain('Копировать подробности');
+            expect(russian?.text).not.toContain('Error ID');
+            expect(russian?.text).not.toContain('Copy details');
+            await clickToastButton(page, 'Копировать подробности');
+            await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
+                .toContain('Скопировано');
+        } catch (error) {
+            // Later tests share this session; leave it in English.
+            await setSavedLocale(page, 'en').catch(() => undefined);
+            throw error;
+        }
+
+        // English control: the same failure in English reads in English.
+        await setSavedLocale(page, 'en');
+        await triggerOpenPathInApp(page, malformedPath, DIALOG_TIMEOUT_MS);
+        await expect.poll(async () => (await readFailureToast(page))?.text ?? '', {timeout: DIALOG_TIMEOUT_MS})
+            .toContain('Failed to open file');
+        const english = await readFailureToast(page);
+        expect(english?.errorId).toMatch(/^Error ID: [0-9a-f]{8}$/u);
+        expect(english?.buttons).toContain('Copy details');
+        await clickToastButton(page, 'Copy details');
+        await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
+            .toContain('Copied');
+
+        // A good PDF still opens afterwards.
+        await openPdfInApp(page, resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'), DIALOG_TIMEOUT_MS);
+        await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
+        await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
+    }, DIALOG_TIMEOUT_MS * 4);
 });

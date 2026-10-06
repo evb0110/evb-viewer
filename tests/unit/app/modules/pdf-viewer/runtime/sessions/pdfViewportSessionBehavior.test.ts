@@ -1161,6 +1161,55 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('projects a visible final page into a document that lost it', async () => {
+        const fixture = createViewportFixture({pageCount: 2});
+        try {
+            fixture.viewport.visibleRange.value = {
+                start: 1,
+                end: 2,
+            };
+            fixture.documentSession.numPages.value = 1;
+
+            expect(fixture.viewport.getProtectedVisibleRange()).toEqual({
+                start: 1,
+                end: 1,
+            });
+            expect(fixture.viewport.demand.value.visibleRange).toEqual({
+                start: 1,
+                end: 1,
+            });
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('projects a retained navigation destination into a document that lost it', async () => {
+        const fixture = createViewportFixture({
+            continuousScroll: false,
+            pageCount: 2,
+        });
+        try {
+            const metrics = Promise.withResolvers<boolean>();
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValue(metrics.promise);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
+            expect(fixture.viewport.getProtectedVisibleRange()).toEqual({
+                start: 2,
+                end: 2,
+            });
+
+            fixture.documentSession.numPages.value = 1;
+
+            expect(fixture.viewport.getProtectedVisibleRange()).toEqual({
+                start: 1,
+                end: 1,
+            });
+            expect(fixture.viewport.demand.value.destinationPage).toBe(1);
+            metrics.resolve(false);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
     it('places the opening page before the document reports its length', async () => {
         const fixture = createViewportFixture({pageCount: 0});
         try {

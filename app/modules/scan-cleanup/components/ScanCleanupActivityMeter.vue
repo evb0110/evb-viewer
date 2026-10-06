@@ -16,27 +16,28 @@
                 class="scan-cleanup-activity-trigger"
                 :aria-label="t('scanCleanup.activity.showDetails', {status: statusSentence})"
             >
-                <span class="scan-cleanup-activity-phase">{{ t(`scanCleanup.activity.phase.${activity.phase}`) }}</span>
-                <UIcon name="i-ph-caret-right" class="scan-cleanup-activity-separator" aria-hidden="true" />
-                <span class="scan-cleanup-activity-detail">{{ notice || detailText }}</span>
-                <template v-if="countText">
-                    <span class="scan-cleanup-activity-dot" aria-hidden="true">·</span>
-                    <!-- The label carries the current count alone; the text also
-                         holds the reserved widest count. -->
+                <span class="scan-cleanup-activity-line">
+                    <span class="scan-cleanup-activity-phase">{{ t(`scanCleanup.activity.phase.${activity.phase}`) }}</span>
+                    <UIcon name="i-ph-caret-right" class="scan-cleanup-activity-separator" aria-hidden="true" />
+                    <span class="scan-cleanup-activity-detail">{{ notice || detailText }}</span>
+                    <template v-if="countText">
+                        <span class="scan-cleanup-activity-dot" aria-hidden="true">·</span>
+                        <!-- The label carries the current count alone; the text also
+                             holds the reserved widest count. -->
+                        <ScanCleanupStableWidthText
+                            class="scan-cleanup-activity-count"
+                            :class="{[SCAN_CLEANUP_TOOLBAR_COUNT_CLASS]: !activity.run}"
+                            :aria-label="countText"
+                            :text="countText"
+                            :widest="countWidestText"
+                        />
+                    </template>
                     <ScanCleanupStableWidthText
-                        class="scan-cleanup-activity-count"
-                        :class="{[SCAN_CLEANUP_TOOLBAR_COUNT_CLASS]: !activity.run}"
-                        :aria-label="countText"
-                        :text="countText"
-                        :widest="countWidestText"
+                        class="scan-cleanup-activity-time"
+                        :text="timeText"
+                        :widest="timeWidestText"
                     />
-                </template>
-                <span class="scan-cleanup-activity-spacer" aria-hidden="true" />
-                <ScanCleanupStableWidthText
-                    class="scan-cleanup-activity-time"
-                    :text="timeText"
-                    :widest="timeWidestText"
-                />
+                </span>
                 <UIcon
                     name="i-ph-caret-down"
                     class="scan-cleanup-activity-caret"
@@ -277,6 +278,21 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
     outline-offset: 1px;
 }
 
+/* A part that does not fit wraps onto a hidden second row as a whole, so the
+   clock goes before the phase and count, and nothing paints into the cancel
+   button beside the meter. The step name takes what width is left. */
+.scan-cleanup-activity-line {
+    display: flex;
+    min-width: 0;
+    height: var(--app-line-height-control);
+    line-height: var(--app-line-height-control);
+    flex: 1;
+    flex-wrap: wrap;
+    align-items: center;
+    overflow: hidden;
+    gap: var(--app-space-md);
+}
+
 .scan-cleanup-activity-phase {
     flex: none;
     color: var(--ui-text-dimmed);
@@ -289,6 +305,8 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
 
 .scan-cleanup-activity-detail {
     min-width: 0;
+    max-width: max-content;
+    flex: 1 1 0;
     overflow: hidden;
     color: var(--ui-text-highlighted);
     font-weight: var(--app-font-weight-heading);
@@ -306,8 +324,8 @@ const stepGroups = computed(() => SCAN_CLEANUP_ACTIVITY_PHASES.map(phase => ({
     font-variant-numeric: tabular-nums;
 }
 
-.scan-cleanup-activity-spacer {
-    flex: 1;
+.scan-cleanup-activity-time {
+    margin-inline-start: auto;
 }
 
 .scan-cleanup-activity-caret {

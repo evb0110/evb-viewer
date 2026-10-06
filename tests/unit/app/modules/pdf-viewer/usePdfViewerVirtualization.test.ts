@@ -13,7 +13,7 @@ import {
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
     usePdfViewerVirtualization,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/public';
 import {
     resolvePdfRenderPerformancePolicy,
     type IPdfRenderPerformancePolicy,

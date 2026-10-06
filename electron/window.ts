@@ -200,25 +200,20 @@ function showAndFocusMaximizedWindow(window: BrowserWindow) {
         return;
     }
 
+    if (config.automation.noFocus) {
+        // E2E windows stay out of focus and keep their opening placement: the
+        // runner owns their size, and undoing a maximize races the renderer.
+        if (!window.isVisible()) {
+            window.showInactive();
+        }
+        return;
+    }
+
     if (!window.isMaximized()) {
         window.maximize();
     }
     if (!window.isVisible()) {
-        if (config.automation.noFocus) {
-            // Keep E2E windows out of focus so local work is not interrupted.
-            const showInactive = (window as BrowserWindow & { showInactive?: () => void; }).showInactive;
-            if (typeof showInactive === 'function') {
-                showInactive.call(window);
-            } else {
-                window.show();
-            }
-        } else {
-            window.show();
-        }
-    }
-
-    if (config.automation.noFocus) {
-        return;
+        window.show();
     }
 
     if (process.platform === 'darwin') {
@@ -522,13 +517,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         },
     });
     const windowWebContents = window.webContents;
-    if (config.automation.hideWindow && process.platform === 'win32') {
-        // On Windows the compositor of a never-shown window draws only for a
-        // pending copy, so CDP Page.captureScreenshot, which waits for a
-        // presented frame before it copies, never returns. A frame
-        // subscription keeps a copy pending for every new frame. It stays on
-        // the render widget it was taken on, so it follows each committed
-        // main-frame navigation to the page's current widget.
+    if (config.automation.hideWindow && process.platform !== 'darwin') {
+        // On Windows and X11 a never-shown window draws only for a pending
+        // copy, so CDP screenshots hang. A frame subscription keeps one
+        // pending; it follows each main-frame navigation to the new widget.
         windowWebContents.on('did-navigate', () => windowWebContents.beginFrameSubscription(() => undefined));
     }
 

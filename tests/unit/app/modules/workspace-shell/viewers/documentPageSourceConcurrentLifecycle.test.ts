@@ -16,6 +16,7 @@ import {
     nextTick,
     provide,
     ref,
+    watch,
     type Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -30,7 +31,10 @@ import {
     createDocumentViewerRuntime,
     documentViewerRuntimeKey,
 } from '@app/modules/document-viewer/public';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
+import {
+    createPageNavigationRequest,
+    type IDocumentPageSource,
+} from '@app/modules/document-viewer/public';
 
 const mocks = vi.hoisted(() => ({
     createDjvuPagePreviewSourceFromPath: vi.fn(),
@@ -61,11 +65,11 @@ function createWorkspaceOpenSettleHarness(): IWorkspaceOpenSettleHarness {
     };
 }
 
-function createPageSource(documentRef: TDocumentRef): IDocumentPageSource {
+function createPageSource(documentRef: TDocumentRef, pageCount = 1): IDocumentPageSource {
     return {
         kind: 'djvu',
         documentRef,
-        pageCount: 1,
+        pageCount,
         getPageMetrics: vi.fn(async () => ({
             widthPoints: 600,
             heightPoints: 800,
@@ -123,10 +127,11 @@ function createFeaturePackHost(
                         ref: (element: unknown) => {
                             authority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
                         },
-                        'data-document-page-number': '1',
+                        // As the chassis's opening shell: the page the open presents.
+                        'data-document-page-number': String(surface.viewportSession.value.requestedPage),
                         'data-open-surface-frame-owner': snapshot.openingPageFrame?.ownerId ?? '',
                         'data-open-surface-generation': String(snapshot.generation),
-                        'data-page-number': '1',
+                        'data-page-number': String(surface.viewportSession.value.requestedPage),
                     }),
                     h(DocumentPageSourceFeaturePack, {
                         currentPage: 1,
@@ -153,6 +158,25 @@ afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
 });
+
+// A 900x700 viewport whose page images have loaded at 860x1146.
+function layOutLoadedPages() {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        bottom: 1_146,
+        height: 1_146,
+        left: 0,
+        right: 860,
+        top: 0,
+        width: 860,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+    });
+}
 
 describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     it('publishes prepared opening page count before the page source resolves', async () => {
@@ -199,22 +223,53 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         await vi.waitFor(() => expect(mocks.createDjvuPageSource).toHaveBeenCalled());
     });
 
+    it('opens a DjVu at the page its opening was sent to before the source arrived, not at page 1', async () => {
+        layOutLoadedPages();
+        mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
+        mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path, 5));
+        const documentRef = '/documents/remembered.djvu' as TDocumentRef;
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: documentRef,
+            documentRevision: 'open-intent:remembered',
+            provisional: true,
+        }, null, 1);
+        // The admitted reading place goes out as the opening's own restore.
+        surface.navigate(createPageNavigationRequest(3, 'restore'));
+        const committedPages: number[] = [];
+        const stop = watch(() => surface.viewportSession.value.committedPage, (page) => {
+            if (page !== null) {
+                committedPages.push(page);
+            }
+        }, {flush: 'sync'});
+        const settle = createWorkspaceOpenSettleHarness();
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp(createFeaturePackHost(
+            surface,
+            documentRef,
+            ref<unknown[]>([]),
+            settle,
+            ref(false),
+        ));
+        app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.mount(root);
+        const unmount = () => {
+            stop();
+            app.unmount();
+            root.remove();
+            mountedApps.delete(unmount);
+        };
+        mountedApps.add(unmount);
+
+        // The opening settles on the restored page; no later commit moves it.
+        await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
+        expect(committedPages[0]).toBe(3);
+        expect(surface.viewportSession.value.committedPage).toBe(3);
+    });
+
     it('settles a cold second workspace after its opening image is relocated', async () => {
-        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
-        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
-        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
-        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-            bottom: 1_146,
-            height: 1_146,
-            left: 0,
-            right: 860,
-            top: 0,
-            width: 860,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        });
+        layOutLoadedPages();
         mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
         mocks.createDjvuPageSource.mockImplementation(async (path: TDocumentRef) => createPageSource(path));
 
@@ -321,21 +376,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
     });
 
     it('restores a remounted successor after its predecessor wedges mid-open', async () => {
-        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
-        vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(700);
-        vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
-        vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(600);
-        vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-            bottom: 1_146,
-            height: 1_146,
-            left: 0,
-            right: 860,
-            top: 0,
-            width: 860,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-        });
+        layOutLoadedPages();
         const predecessorRef = '/documents/wedged.djvu' as TDocumentRef;
         const successorRef = '/documents/successor.djvu' as TDocumentRef;
         let resolvePredecessorMetric!: () => void;

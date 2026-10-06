@@ -18,7 +18,7 @@ const DJVU_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     text: false,
 };
 
-const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
+export const EMPTY_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     annotations: false,
     directImageExport: false,
     outline: false,

@@ -76,6 +76,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
 
     const {
         sidebarWidth,
+        sidebarContentWidth,
         sidebarWrapperStyle,
         isResizingSidebar,
         isPointerResizingSidebar,
@@ -115,6 +116,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         handleGoToResult,
         resetSearchCache,
         sidebarWidth,
+        sidebarContentWidth,
         sidebarWrapperStyle,
         isResizingSidebar,
         isPointerResizingSidebar,

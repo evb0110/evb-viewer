@@ -12,6 +12,7 @@ import {
     getDocumentWorkspace,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSystemCapability } from '@app/utils/getSystemCapability';
 
@@ -31,9 +32,21 @@ export const useNativeWindowCloseHandshake = (
     let closeRequestInFlight = false;
 
     // One entry per document: tabs that show the same document share it.
+    function getDocuments() {
+        return [...new Set(Object.values(options.documentSessionsByTabId.value))];
+    }
     function getDirtyTabs() {
-        return [...new Set(Object.values(options.documentSessionsByTabId.value))]
-            .filter(session => session.snapshot.value.dirty);
+        return getDocuments().filter(session => session.snapshot.value.dirty);
+    }
+    // A close that goes ahead first remembers where each document was left,
+    // after any save has published its new source, one document at a time in
+    // the order the window holds its tabs: of two tabs that opened one file on
+    // their own, the later one's place is the one kept.
+    async function closeWith(decision: 'save' | 'discard'): Promise<TWindowCloseDecision> {
+        for (const session of getDocuments()) {
+            await rememberReadingView(session);
+        }
+        return decision;
     }
 
     // Dirty tabs are save-protected, so their workspaces stay mounted.
@@ -63,12 +76,12 @@ export const useNativeWindowCloseHandshake = (
             const dirtyTabs = getDirtyTabs();
             if (dirtyTabs.length === 0) {
                 await nextTick();
-                return getDirtyTabs().length === 0 ? 'save' : 'cancel';
+                return getDirtyTabs().length === 0 ? await closeWith('save') : 'cancel';
             }
 
             const decision = await options.requestDirtyCloseConfirmation();
             if (decision !== 'save') {
-                return decision;
+                return decision === 'discard' ? await closeWith(decision) : decision;
             }
 
             for (const session of dirtyTabs) {
@@ -81,7 +94,7 @@ export const useNativeWindowCloseHandshake = (
                 return 'cancel';
             }
 
-            return getDirtyTabs().length === 0 ? 'save' : 'cancel';
+            return getDirtyTabs().length === 0 ? await closeWith('save') : 'cancel';
         } catch (error) {
             BrowserLogger.error('workspace', 'Native window close save failed', {error}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return 'cancel';

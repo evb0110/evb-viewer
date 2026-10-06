@@ -14,12 +14,12 @@ import {
     getViewportVisibilityFromLayout,
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
+    type IPdfPageLayoutMetrics,
     getLayoutPhysicalScrollOrigin,
     getLayoutPageWidth,
     getLayoutPhysicalScrollSegment,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+} from '@app/modules/document-viewer/public';
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';

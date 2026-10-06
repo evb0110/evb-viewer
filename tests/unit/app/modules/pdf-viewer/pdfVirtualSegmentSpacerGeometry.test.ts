@@ -8,12 +8,12 @@ import {
     it,
 } from 'vitest';
 import type { TPdfViewMode } from '@contracts/shared';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import {
+    buildPageLayoutMetrics,
     getLayoutContentHeight,
     getLayoutPageTop,
     getLayoutRowHeight,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+} from '@app/modules/document-viewer/public';
 import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
 import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';

@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { IHostCapability } from '@contracts/hostPlatformFeature';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import {
     shouldPreferDesktopPlatform,
@@ -64,9 +65,13 @@ describe('platform runtime detection', () => {
         vi.resetModules();
         let browserPlatformImportCount = 0;
         const openExternal = vi.fn().mockResolvedValue(undefined);
-        vi.doMock('@app/platform/browserPlatformApi', () => {
+        vi.doMock('@app/platform/browserPlatformApi', async () => {
             browserPlatformImportCount += 1;
-            return { browserPlatformApi: { shell: { openExternal } } };
+            const { browserHostCapability } = await vi.importActual<{ browserHostCapability: IHostCapability }>('@app/platform/browser-api/browserHostCapability');
+            return {browserPlatformApi: {
+                host: browserHostCapability,
+                shell: { openExternal },
+            }};
         });
         vi.stubGlobal('window', {});
 
@@ -81,6 +86,38 @@ describe('platform runtime detection', () => {
         await getPlatformAPI().shell.openExternal('https://example.com');
         expect(browserPlatformImportCount).toBe(1);
         expect(openExternal).toHaveBeenCalledWith('https://example.com');
+
+        // A page cannot leave a maximized browser window: it says so and
+        // reports fullscreen as it is, without entering or leaving it.
+        const notRestored = {
+            maximized: false,
+            supported: false,
+        };
+        await expect(getPlatformAPI().host.restoreNormalWindow()).resolves.toEqual({
+            ...notRestored,
+            fullScreen: false,
+        });
+        const exitFullscreen = vi.fn();
+        const requestFullscreen = vi.fn();
+        const document = {
+            documentElement: { requestFullscreen },
+            exitFullscreen,
+            fullscreenElement: null as object | null,
+            fullscreenEnabled: true,
+        };
+        vi.stubGlobal('document', document);
+        await expect(getPlatformAPI().host.restoreNormalWindow()).resolves.toEqual({
+            ...notRestored,
+            fullScreen: false,
+        });
+        document.fullscreenElement = document.documentElement;
+        await expect(getPlatformAPI().host.restoreNormalWindow()).resolves.toEqual({
+            ...notRestored,
+            fullScreen: true,
+        });
+        expect(document.fullscreenElement).toBe(document.documentElement);
+        expect(exitFullscreen).not.toHaveBeenCalled();
+        expect(requestFullscreen).not.toHaveBeenCalled();
 
         vi.unstubAllGlobals();
         vi.doUnmock('@app/platform/browserPlatformApi');

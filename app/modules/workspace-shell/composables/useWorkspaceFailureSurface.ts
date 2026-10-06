@@ -2,9 +2,17 @@ import type {
     IAnnotationCreationFailureReport,
     TAnnotationCreationFailureReason,
 } from '@app/modules/pdf-viewer/public';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type { TTranslateFn } from '@i18n-app';
 import {
+    getFailureReceipt,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
+import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
+import { classifyDocumentOpenError } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import {
+    copyTextToClipboard,
     useFailureToast,
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
@@ -34,6 +42,26 @@ export type TWorkspaceSaveFailureReason =
     | 'document-changed'
     | 'working-copy-missing'
     | 'unexpected-error';
+
+/**
+ * How a document that failed to open or render is described, without telling
+ * anyone: the localized reason, the failure's one receipt and its raw cause
+ * for Copy details. The document session presents it once.
+ */
+export function describeDocumentOpenFailure(
+    error: unknown,
+    t: TTranslateFn,
+): FailurePresentation & {description: string} {
+    const technicalDetails = getErrorMessage(error).trim();
+    return {
+        failure: getFailureReceipt(error) ?? BrowserLogger.error('workspace', 'Document failed to open', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'}),
+        title: t('errors.file.open'),
+        description: isPdfjsAssetVersionMismatch(technicalDetails)
+            ? t('errors.file.pdfjsAssetMismatch')
+            : classifyDocumentOpenError(error, null, t),
+        ...(technicalDetails ? {technicalDetails} : {}),
+    };
+}
 
 export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
@@ -193,6 +221,23 @@ export const useWorkspaceFailureSurface = () => {
         });
     }
 
+    /** A failed load's description, with the repair command when PDF.js assets do not match. */
+    function describeOpenFailure(error: unknown) {
+        const presentation = describeDocumentOpenFailure(error, t);
+        if (!isPdfjsAssetVersionMismatch(presentation.technicalDetails ?? '')) {
+            return presentation;
+        }
+        return {
+            ...presentation,
+            actions: [{
+                label: t('errors.file.pdfjsAssetRepairAction'),
+                onClick: () => {
+                    void copyTextToClipboard('pnpm install --frozen-lockfile').then(presentCopyFeedback);
+                },
+            }],
+        };
+    }
+
     return {
         hasSaveFailure: computed(() => hasSaveFailureState.value),
         saveFailurePresentation,
@@ -200,7 +245,7 @@ export const useWorkspaceFailureSurface = () => {
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,
-        presentCopyFeedback,
+        describeOpenFailure,
     };
 };
 

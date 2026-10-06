@@ -78,39 +78,6 @@ function applyAnnotationRecovery(
     return true;
 }
 
-function applyViewState(checkpointTab: IWorkspaceCheckpointTab, workspace: IWorkspaceExpose) {
-    const toolbar = workspace.getToolbarSnapshot();
-    if (
-        checkpointTab.continuousScroll != null
-        && toolbar.viewerCapabilities.continuousScroll
-        && toolbar.continuousScroll !== checkpointTab.continuousScroll
-    ) {
-        workspace.handleToggleContinuousScroll();
-    }
-    if (checkpointTab.viewMode != null && toolbar.viewerCapabilities.viewMode) {
-        if (checkpointTab.viewMode === 'single') {
-            workspace.handleViewModeSingle();
-        } else if (checkpointTab.viewMode === 'facing') {
-            workspace.handleViewModeFacing();
-        } else {
-            workspace.handleViewModeFacingFirstSingle();
-        }
-    }
-    if (checkpointTab.viewRotation != null && toolbar.viewerCapabilities.viewRotation) {
-        workspace.setViewRotation(checkpointTab.viewRotation);
-    }
-    if (checkpointTab.currentPage !== null) {
-        workspace.handleGoToPage(checkpointTab.currentPage);
-    }
-    if (checkpointTab.zoomMode === 'fit-width') {
-        workspace.handleFitWidth();
-    } else if (checkpointTab.zoomMode === 'fit-height') {
-        workspace.handleFitHeight();
-    } else if (checkpointTab.zoom !== null) {
-        workspace.setCustomZoomFromDisplay(checkpointTab.zoom);
-    }
-}
-
 async function restoreTab(
     checkpointTab: IWorkspaceCheckpointTab,
     session: IWorkspaceDocumentController,
@@ -134,7 +101,7 @@ async function restoreTab(
         return false;
     }
     const recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, session);
-    applyViewState(checkpointTab, workspace);
+    workspace.restoreViewState(checkpointTab);
     // The tab itself opened and keeps its view. Only an unattributable
     // recovery is withheld; reporting it keeps the checkpoint as evidence.
     return recoveryApplied;
@@ -180,7 +147,7 @@ async function restoreLinkedTab(
         return false;
     }
     await workspace.waitForDocumentOpenSettled();
-    applyViewState(checkpointTab, workspace);
+    workspace.restoreViewState(checkpointTab);
     return true;
 }
 

@@ -12,6 +12,7 @@ import {
     parsePdfOpeningGeometryMetadata,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
+import { NativeProcessError } from '@electron/native-tools/processResult';
 
 const mocks = vi.hoisted(() => ({
     resolveExistingReadablePdfPath: vi.fn(),
@@ -68,8 +69,29 @@ Page    1 rot:   -90
             height: 612,
             rotation: 270,
             widestPageWidth: 792,
+            tallestPageHeight: 612,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
+        });
+    });
+
+    it('reads the shape of the page an open starts at, keeping the document-wide widest page', () => {
+        expect(parsePdfOpeningGeometryMetadata(`
+Pages:           40
+Page    1 size:  612 x 792 pts (letter)
+Page    4 size:  500 x 700 pts
+Page    4 rot:   90
+Page    9 size:  900 x 792 pts
+`, {
+            size: 1,
+            modifiedAt: requireEpochMs(0),
+        }, 4)).toMatchObject({
+            pageNumber: 4,
+            width: 700,
+            height: 500,
+            rotation: 90,
+            widestPageWidth: 900,
+            tallestPageHeight: 792,
         });
     });
 
@@ -89,6 +111,26 @@ Page  135 rot:   0
             width: 481.92,
             height: 765.36,
             widestPageWidth: 765.36,
+            tallestPageHeight: 765.36,
+        });
+    });
+
+    it('reports the tallest displayed page from another page, after its own rotation', () => {
+        expect(parsePdfOpeningGeometryMetadata(`
+Pages:           3
+Page    1 size:  612 x 900 pts
+Page    2 size:  612 x 792 pts
+Page    2 rot:   90
+Page    3 size:  612 x 820 pts
+Page    3 rot:   0
+`, {
+            size: 1,
+            modifiedAt: requireEpochMs(0),
+        }, 3)).toMatchObject({
+            width: 612,
+            height: 820,
+            widestPageWidth: 792,
+            tallestPageHeight: 900,
         });
     });
 
@@ -121,6 +163,7 @@ describe('PDF page-shape store', () => {
         height: 792,
         rotation: 0 as const,
         widestPageWidth: width,
+        tallestPageHeight: 792,
         ...identity,
     });
 
@@ -131,6 +174,18 @@ describe('PDF page-shape store', () => {
         await expect(answerPdfPageShape('/books/unchanged.pdf', revision, read)).resolves.toMatchObject({width: 612});
 
         expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads again when an open needs another page\'s shape of an unchanged file', async () => {
+        await answerPdfPageShape('/books/reread.pdf', revision, async () => shapeAt(revision, 612));
+
+        await expect(answerPdfPageShape('/books/reread.pdf', revision, async () => ({
+            ...shapeAt(revision, 500),
+            pageNumber: requirePageNumber(3),
+        }), 3)).resolves.toMatchObject({
+            pageNumber: 3,
+            width: 500,
+        });
     });
 
     it('evicts the file read longest ago, not the one answered most', async () => {
@@ -205,5 +260,40 @@ Page    1 rot:   0
 
         await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/open-twice.pdf'))
             .rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+    });
+});
+
+describe('PDF opening geometry of an encrypted PDF before its password', () => {
+    function pdfinfoFailure(stderr: string) {
+        return new NativeProcessError('exit-code', 1, null, `pdfinfo-opening-geometry failed with exit code 1. ${stderr}`);
+    }
+
+    it('answers no geometry when pdfinfo needs the password', async () => {
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/locked.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 3_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(reader: (physicalPath: string) => Promise<T>) => reader('/books/locked.pdf'),
+        });
+        mocks.runNativeToolCommand.mockRejectedValue(pdfinfoFailure('Command Line Error: Incorrect password'));
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/locked.pdf')).resolves.toBeNull();
+    });
+
+    it('still rejects a malformed PDF', async () => {
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/broken.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 3_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(reader: (physicalPath: string) => Promise<T>) => reader('/books/broken.pdf'),
+        });
+        mocks.runNativeToolCommand.mockRejectedValue(pdfinfoFailure('Syntax Error: Couldn\'t find trailer dictionary'));
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/broken.pdf'))
+            .rejects.toBeInstanceOf(NativeProcessError);
     });
 });

@@ -1,9 +1,11 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
+import {
+    getPageRowBoundsForViewMode,
+    normalizePageMetrics,
+    resolveCurrentSpreadBaseWidth,
+} from '@app/modules/document-viewer/public';
 import type {
     TPdfViewMode,
     TPdfViewRotation,

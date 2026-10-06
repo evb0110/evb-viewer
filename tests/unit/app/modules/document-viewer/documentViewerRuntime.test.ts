@@ -204,6 +204,31 @@ describe('document viewer chassis authority', () => {
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
     });
 
+    it('counts a zoom gesture as one reader interaction when it starts, not one per streamed packet', () => {
+        const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+        const zoomPacket = (timeStamp: number) => observeDocumentViewportWheelInteraction(port, {
+            ...scrollInteraction(timeStamp, -40),
+            intent: 'zoom',
+        });
+        const before = port.getInteractionEpoch();
+
+        zoomPacket(1_000);
+        const afterFirstPacket = port.getInteractionEpoch();
+        zoomPacket(1_016);
+        zoomPacket(1_032);
+        expect([
+            afterFirstPacket,
+            port.getInteractionEpoch(),
+        ]).toEqual([
+            before + 1,
+            before + 1,
+        ]);
+
+        // A later pinch after a quiet gap is a new gesture of the reader's.
+        zoomPacket(2_000);
+        expect(port.getInteractionEpoch()).toBe(before + 2);
+    });
+
     describe('a command issued during a fling', () => {
         afterEach(() => {
             vi.useRealTimers();

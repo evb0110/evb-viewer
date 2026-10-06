@@ -507,8 +507,8 @@ describe('menu per-window document state', () => {
         expect(viewItems.find(item => item.label === 'menu.rotateViewCounterclockwise')).toMatchObject({enabled: true});
         expect(getPagesMenuSubmenu(getLastMenuTemplate())).toHaveLength(0);
 
-        viewItems.find(item => item.label === 'menu.rotateViewClockwise')?.click?.({}, window);
-        viewItems.find(item => item.label === 'menu.rotateViewCounterclockwise')?.click?.({}, window);
+        expect(activateApplicationMenuItem({id: 'rotate-view-clockwise'})).toMatchObject({activated: true});
+        expect(activateApplicationMenuItem({id: 'rotate-view-counterclockwise'})).toMatchObject({activated: true});
         expect(window.webContents.send).toHaveBeenCalledWith('menu:viewRotationCw');
         expect(window.webContents.send).toHaveBeenCalledWith('menu:viewRotationCcw');
     });

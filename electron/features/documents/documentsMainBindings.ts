@@ -145,6 +145,7 @@ import {
     removeRecentFile,
     removeRecentFileIfMissing,
 } from '@electron/recentFiles';
+import { recentReadingViewMainBindings } from '@electron/recentReadingViews';
 import {
     allowRevealPaths,
     removeAllowedRevealPath,
@@ -250,22 +251,6 @@ function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'
     }, {navigation: true});
 }
 
-function consumeRendererFileOpenToken(senderId: number, token: string) {
-    pruneRendererFileOpenTokens(senderId);
-    const tokens = rendererFileOpenTokens.get(senderId);
-    const grant = tokens?.get(token);
-    if (!tokens || !grant || grant.expiresAtMs <= Date.now()) {
-        tokens?.delete(token);
-        return false;
-    }
-
-    tokens.delete(token);
-    if (tokens.size === 0) {
-        rendererFileOpenTokens.delete(senderId);
-    }
-    return true;
-}
-
 function hasRendererFileOpenToken(senderId: number, token: string) {
     pruneRendererFileOpenTokens(senderId);
     const tokens = rendererFileOpenTokens.get(senderId);
@@ -273,6 +258,18 @@ function hasRendererFileOpenToken(senderId: number, token: string) {
     if (!tokens || !grant || grant.expiresAtMs <= Date.now()) {
         tokens?.delete(token);
         return false;
+    }
+    return true;
+}
+
+function consumeRendererFileOpenToken(senderId: number, token: string) {
+    const tokens = hasRendererFileOpenToken(senderId, token) ? rendererFileOpenTokens.get(senderId) : undefined;
+    if (!tokens) {
+        return false;
+    }
+    tokens.delete(token);
+    if (tokens.size === 0) {
+        rendererFileOpenTokens.delete(senderId);
     }
     return true;
 }
@@ -583,6 +580,7 @@ export const documentsMainBindings = {
         allowRevealPaths(files.map(file => file.originalPath), context.sender);
         return files;
     },
+    ...recentReadingViewMainBindings,
     removeRecentFile: async (originalPath) => {
         await removeRecentFile(originalPath);
         // Recent history owns reveal access; retained tabs keep their open grants.

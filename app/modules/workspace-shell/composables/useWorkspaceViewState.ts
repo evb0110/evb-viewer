@@ -92,7 +92,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         // Fit is a viewport-state intent, not a navigation cancellation. The
         // viewer authority must preserve the current/pending semantic page
         // while the new geometry is computed; cancelling here sampled the old
-        // scroll layout and could silently move page 2 to page 3.
+        // scroll layout and could silently move page 2 to page 3. It is the
+        // reader's command (toolbar, menu, keyboard), a move of the view.
+        deps.documentViewerRef.value?.observeReaderCommand?.();
         deps.zoom.value = 1;
         deps.fitMode.value = mode;
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';

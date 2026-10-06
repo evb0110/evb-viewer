@@ -636,7 +636,7 @@ export const useDocumentPageSourceRuntime = (options: {
         const target = authority.openingPageElement.value;
         return frame.generation === snapshot.generation
             && frame.pageNumber === pageNumber
-            && frame.pageNumber === authority.currentPage.value
+            && frame.pageNumber === authority.openSurface.viewportSession.value.requestedPage
             && target?.isConnected
             && target.dataset.pageNumber === String(pageNumber)
             && target.dataset.openSurfaceGeneration === String(snapshot.generation)

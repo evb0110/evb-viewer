@@ -1,4 +1,5 @@
 import { clamp } from 'es-toolkit/math';
+import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import { trackWebEvent } from '@app/utils/trackWebEvent';
 import type { TTranslateFn } from '@i18n-app';
 import {
@@ -20,6 +21,7 @@ import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisp
 import type { TPdfSource } from '@app/types/pdfUi';
 import { createRequestId } from '@contracts/shared';
 import { parseEpochMs } from '@contracts/timestamps';
+import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
 import type {
     createEpochGuard,
     IDocumentSessionState,
@@ -64,7 +66,7 @@ type TEpochGuard = ReturnType<typeof createEpochGuard>;
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
-interface ICreateDocumentOpenFlowDeps {
+export interface ICreateDocumentOpenFlowDeps {
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
     clearPdfConformanceProfile: () => void;
     cleanupPreviousWorkingCopy: (path: TDocumentRef, nextPath: TDocumentRef) => Promise<void>;
@@ -89,6 +91,8 @@ interface ICreateDocumentOpenFlowDeps {
     ) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
+    /** An open's admitted working copy and its page count, awaited before its pages are drawn. */
+    admitOpeningSource?: ((source: TDocumentRef, pageCount: Promise<number | null>) => Promise<void>) | undefined;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
@@ -118,11 +122,9 @@ export function createDocumentOpenFlow(
         closePasswordPrompt,
     } = useDocumentPasswordPrompt();
     function assertPdfHasBytes(size: number) {
-        if (size > 0) {
-            return;
+        if (!(size > 0)) {
+            throw new DocumentOpenRefusalError('empty-pdf', 'The PDF file is empty (0 bytes)');
         }
-
-        throw new Error(deps.t('errors.file.emptyPdf'));
     }
 
     function toPdfBlob(snapshot: Uint8Array) {
@@ -355,12 +357,21 @@ export function createDocumentOpenFlow(
                         modifiedAt,
                     };
             }, () => null);
+        // The copy is admitted once it validates, with its own page count,
+        // read by main from the start. A recovered copy reopens at its
+        // checkpoint's view instead.
+        const {admitOpeningSource} = deps;
+        const pageCount = admitOpeningSource && result.recoveryDirtyBaseline !== true
+            ? readPdfPageShape(result.workingPath)?.answer.then(shape => shape?.pageCount ?? null) ?? Promise.resolve(null)
+            : null;
+        const admit = admitOpeningSource && pageCount ? () => admitOpeningSource(result.workingPath, pageCount) : undefined;
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
                 validationRevision,
+                admit,
                 resetSourceBeforeCommit: true,
             });
         } catch (error) {
@@ -674,6 +685,11 @@ export function createDocumentOpenFlow(
         }
 
         state.workingCopyPath.value = path;
+        // A history step's copy is the same opened document; only a new load
+        // names the source its view defaults follow.
+        if (!options?.preserveHistory) {
+            state.openedWorkingCopyPath.value = path;
+        }
         state.pdfData.value = nextState.pdfData;
         state.pdfSrc.value = nextState.pdfSrc;
         state.pdfReloadSrc.value = nextState.pdfSrc;
@@ -834,6 +850,7 @@ export function createDocumentOpenFlow(
         openRequestId?: number;
         resetSourceBeforeCommit?: boolean;
         validationRevision?: Promise<IPdfValidationSourceRevision | null>;
+        admit?: (() => Promise<void>) | undefined;
     }) {
         const requestId = deps.loadEpoch.begin();
         const traceContext = {
@@ -919,7 +936,11 @@ export function createDocumentOpenFlow(
                 requestId,
                 validationErrors: validation.errors,
             });
-            throw new Error(deps.t('errors.file.invalid'));
+            throw new DocumentOpenRefusalError('invalid-pdf', `Staged PDF failed ${validation.tool} validation`);
+        }
+        await opts?.admit?.();
+        if (!isCurrent()) {
+            return;
         }
 
         if (opts?.resetSourceBeforeCommit && state.pdfSrc.value) {
@@ -945,9 +966,6 @@ export function createDocumentOpenFlow(
             recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,
             previousPath: state.workingCopyPath.value,
         });
-        if (didCommit) {
-            state.openedWorkingCopyPath.value = path;
-        }
         logPdfRenderTrace('pdf-open-state-commit-end', {
             path,
             ...traceContext,

@@ -31,6 +31,18 @@ describe('classifyDocumentOpenError', () => {
             'invalid-pdf',
             'errors.file.invalid',
         ],
+        [
+            'empty-pdf',
+            'errors.file.emptyPdf',
+        ],
+        [
+            'invalid-djvu',
+            'errors.file.invalid',
+        ],
+        [
+            'djvu-raster-limit',
+            'errors.file.djvuRasterLimit',
+        ],
     ])('localizes a %s open refusal through the IPC wrapping it arrives in', (code, key) => {
         const envelope = encodeSerializableErrorEnvelope({
             code,
@@ -42,6 +54,17 @@ describe('classifyDocumentOpenError', () => {
         const t = ((translationKey: string) => translationKey) as TTranslateFn;
 
         expect(classifyDocumentOpenError(error, null, t)).toBe(key);
+    });
+});
+
+describe('classifyDocumentOpenError for a failure nobody explained', () => {
+    it('says the file could not be opened instead of showing the native tool output', () => {
+        const error = new Error(
+            'djvused failed with exit code 1. *** (DjVuDocEditor.cpp:178) void DJVU::DjVuDocEditor::init(const GURL &) file://localhost/a.djvu',
+        );
+        const t = ((key: string) => key) as TTranslateFn;
+
+        expect(classifyDocumentOpenError(error, null, t)).toBe('errors.file.openDescription');
     });
 });
 

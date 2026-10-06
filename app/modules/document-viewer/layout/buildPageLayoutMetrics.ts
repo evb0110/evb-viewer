@@ -9,17 +9,17 @@ import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type {
     IPdfPageLayoutBase,
     IPdfPageLayoutMetrics,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { getPageNumbersForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import { getPageNumbersForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+import { createLazyIndexedCollection } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 import {
-    createLazyIndexedCollection,
     getIndexedValue,
     getPageMetricMaximum,
     isSparsePageMetricCollection,
     PDF_PAGE_METRICS_CHUNK_SIZE,
     PDF_PAGE_METRICS_DENSE_LIMIT,
     type IPdfLazyIndexedCollection,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+} from '@app/modules/document-viewer/layout/normalizePageMetrics';
 
 const baseCache = new WeakMap<object, Map<string, IPdfPageLayoutBase>>();
 const MAX_CACHED_BASES_PER_METRICS = 4;

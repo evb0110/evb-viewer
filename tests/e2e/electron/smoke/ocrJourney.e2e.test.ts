@@ -1,6 +1,6 @@
 import {join} from 'node:path';
 import {
-    stat, writeFile,
+    copyFile, stat, writeFile,
 } from 'node:fs/promises';
 import {
     GlobalFonts, createCanvas,
@@ -22,7 +22,10 @@ import {
 } from 'vitest';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    activateMenuItemAsUser,
+    clickAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     createFixturePath,
     createScannedTextFixturePdf,
@@ -60,7 +63,16 @@ interface ILateOcrCompletionControl {
     restore: () => void;
 }
 
-type TOcrControlWindow = Window & {__lateOcrCompletionControl?: ILateOcrCompletionControl};
+interface IClosedDocumentOcrWatch {
+    terminal: boolean;
+    dialogSeen: boolean;
+    stop: () => void;
+}
+
+type TOcrControlWindow = Window & {
+    __lateOcrCompletionControl?: ILateOcrCompletionControl;
+    __closedDocumentOcrWatch?: IClosedDocumentOcrWatch;
+};
 
 const sessionFixture = createElectronE2ESessionFixture({
     sessionName: () => `e2e-ocr-journey-${Date.now()}`,
@@ -470,7 +482,21 @@ describe('Electron E2E - OCR journey', () => {
     }, 300_000);
 
     // #913: the OCR run belongs to the document, not to the view that started it.
-    it('keeps an OCR run going when the view that started it is closed, and shows it in the other view', async () => {
+    // The narrow window reaches OCR through More tools; the running run must stay reachable there.
+    it.each([
+        {
+            width: 1440,
+            height: 900,
+            viaOverflow: false,
+        },
+        {
+            width: 900,
+            height: 672,
+            viaOverflow: true,
+        },
+    ])('keeps an OCR run going when the view that started it is closed, and shows it in the other view at $width px', async ({
+        width, height, viaOverflow,
+    }) => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
@@ -481,8 +507,8 @@ describe('Electron E2E - OCR journey', () => {
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await session.command('windowResize', [
-            1440,
-            900,
+            width,
+            height,
         ]);
         await splitActiveTabFromTabMenu(page, 'right');
         const [
@@ -522,13 +548,33 @@ describe('Electron E2E - OCR journey', () => {
             await clickAsUser(page, `${paneHost(rightPane!)} .tab.is-active .tab-close`);
             await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
 
-            // The left view shows the run under way, and it finishes.
-            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            // The left view shows the run under way.
+            if (viaOverflow) {
+                await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+                const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
+                    item.textContent?.trim() === 'OCR'
+                    && !item.hasAttribute('data-disabled')
+                    && item.getAttribute('aria-disabled') !== 'true'
+                    && item.checkVisibility()
+                )), {timeout: 30_000});
+                await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+            } else {
+                await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            }
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await waitForFunctionInPage(page, () => {
                 const text = document.querySelector('[role="dialog"]')?.textContent ?? '';
                 return /Processing page \d+/u.test(text);
             }, {timeout: 30_000});
+            if (viaOverflow) {
+                // The user cancels the run from the narrow window, and OCR can be started again.
+                await clickVisibleButton(page, '[role="dialog"]', 'Cancel OCR');
+                await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).some(button => (
+                    button.textContent?.trim() === 'Start OCR' && !button.disabled && button.checkVisibility()
+                )), {timeout: 30_000});
+                return;
+            }
+            // It finishes.
             await waitForFunctionInPage(page, () => (
                 document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
             ), {timeout: OCR_TIMEOUT_MS});
@@ -546,6 +592,90 @@ describe('Electron E2E - OCR journey', () => {
             ]).catch(() => undefined);
             await agentRunSettled;
         }
+    }, 300_000);
+
+    // #969: closing the last document while OCR runs leaves an empty, usable New Tab.
+    it('leaves no OCR dialog over New Tab when the final document closes during OCR', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-close-final-tab-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = createFixturePath('ocr-close-final-tab-scan.pdf');
+        await copyFile(join(process.cwd(), 'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf'), sourcePath);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        const allPagesOption = await page.waitForFunction(() => (
+            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
+                .find(label => label.textContent?.trim() === 'All pages (4)' && label.checkVisibility())
+        ), {timeout: 30_000});
+        await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
+
+        // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
+        await page.evaluate((host: string) => {
+            const testWindow = window as TOcrControlWindow;
+            const watch: IClosedDocumentOcrWatch = {
+                terminal: false,
+                dialogSeen: false,
+                stop: () => {},
+            };
+            let frame = 0;
+            const sample = () => {
+                watch.dialogSeen ||= document.querySelector(`${host} .page_container`) === null
+                    && Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some(dialog => dialog.checkVisibility());
+                frame = requestAnimationFrame(sample);
+            };
+            const stopObserving = window.electronAPI!.ocr.onComplete(() => {
+                watch.terminal = true;
+            });
+            watch.stop = () => {
+                cancelAnimationFrame(frame);
+                stopObserving();
+            };
+            testWindow.__closedDocumentOcrWatch = watch;
+            sample();
+        }, ACTIVE_HOST);
+        try {
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+W'});
+            await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {
+                hidden: true,
+                timeout: 30_000,
+            });
+            await waitForFunctionInPage(page, () => (
+                (window as TOcrControlWindow).__closedDocumentOcrWatch?.terminal === true
+            ), {timeout: OCR_TIMEOUT_MS});
+            await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            const dialogSeen = await page.evaluate(() => (window as TOcrControlWindow).__closedDocumentOcrWatch?.dialogSeen);
+            expect(dialogSeen, 'an OCR dialog showed over New Tab after its document closed').toBe(false);
+        } finally {
+            await page.evaluate(() => {
+                (window as TOcrControlWindow).__closedDocumentOcrWatch?.stop();
+                delete (window as TOcrControlWindow).__closedDocumentOcrWatch;
+            });
+        }
+
+        // New Tab takes real input.
+        await clickAsUser(page, `${ACTIVE_HOST} .empty-state .rail-item`);
+        await page.waitForSelector(`${ACTIVE_HOST} .empty-state .rail-item.is-active`, {visible: true});
+
+        // A good document opens untouched by the cancelled run.
+        const goodPath = await createScannedTextFixturePdf('ocr-close-final-tab-next.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
+        await openPdfInApp(page, goodPath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        expect(await page.$$eval('[role="dialog"]', dialogs => dialogs.some(dialog => (dialog as HTMLElement).checkVisibility()))).toBe(false);
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Start OCR" and not(@disabled)]', {visible: true});
+        expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent ?? '')).not.toContain('OCR complete');
     }, 300_000);
 
     // The OCR dialog belongs to the view that opened it (T4); only the run is shared.

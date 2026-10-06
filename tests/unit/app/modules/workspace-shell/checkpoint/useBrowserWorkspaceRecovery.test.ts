@@ -61,6 +61,18 @@ vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => ({
     })),
 }));
 vi.mock('@app/platform/browserWindowTabs', () => ({getBrowserWindowRecoveryOwnerId: () => 'owner-1'}));
+// The desktop crash checkpoint's boundary: the checkpoints main saved.
+const desktop = vi.hoisted(() => ({
+    saved: [] as unknown[],
+    save: async (checkpoint: unknown) => {
+        desktop.saved.push(checkpoint);
+    },
+}));
+vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({saveWorkspaceCheckpoint: (checkpoint: unknown) => desktop.save(checkpoint)})}));
+vi.mock('@app/utils/platform', async importOriginal => ({
+    ...await importOriginal<object>(),
+    waitForDesktopPlatformBridge: async () => undefined,
+}));
 vi.mock('@app/platform/browser/browserDocumentLeaseStore', () => ({
     createBrowserDocumentLiveLease: vi.fn(async () => ({generation: 1})),
     saveBrowserDocumentLiveLease: vi.fn(async () => ({generation: 1})),
@@ -69,6 +81,9 @@ vi.mock('@app/platform/browser/browserDocumentLeaseStore', () => ({
 
 const { useBrowserWorkspaceRecovery } = await import(
     '@app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery'
+);
+const { useWorkspaceCrashCheckpoint } = await import(
+    '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint'
 );
 
 const unmounts: Array<() => void> = [];
@@ -217,5 +232,121 @@ describe('browser workspace recovery', () => {
         expect(refs).toHaveLength(2);
         expect(refs[0]).not.toBeNull();
         expect(refs[1]).toBe(refs[0]);
+    });
+});
+
+describe('desktop crash checkpoint written now', () => {
+    // One pane with a reader's tab; `addBackgroundTab` places a document's tab
+    // behind it, unopened, as a recovered scan output is placed.
+    function mountCrashCheckpoint() {
+        const reader = createWorkspaceDocumentController({tabId: 'tab-1'});
+        const panes = ref<IEditorPaneState[]>([{
+            paneId: requirePaneId('pane-1'),
+            tabIds: [requireTabId('tab-1')],
+            activeTabId: requireTabId('tab-1'),
+        }]);
+        const tabs = ref<Array<{id: string}>>([{id: 'tab-1'}]);
+        const sessions = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({'tab-1': reader});
+        let checkpoint: ReturnType<typeof useWorkspaceCrashCheckpoint> | null = null;
+        const app = createApp(defineComponent({setup() {
+            checkpoint = useWorkspaceCrashCheckpoint({
+                enabled: ref(true),
+                panes,
+                tabs: cast(tabs),
+                layout: ref<TEditorLayoutNode | null>({
+                    type: 'leaf',
+                    paneId: requirePaneId('pane-1'),
+                }),
+                activePaneId: ref<string | null>('pane-1'),
+                activeTabId: ref<string | null>('tab-1'),
+                documentSessionsByTabId: sessions,
+                getPaneByTabId: () => panes.value[0] ?? null,
+            });
+            return () => h('div');
+        }}));
+        app.mount(document.createElement('div'));
+        unmounts.push(() => app.unmount());
+        return {
+            persistNow: () => checkpoint!.persistCheckpointNow(),
+            addBackgroundTab(path: string) {
+                const output = createWorkspaceDocumentController({tabId: 'tab-2'});
+                output.commitDocument({
+                    fileName: 'output.pdf',
+                    originalPath: requireDocumentRef(path),
+                    isDjvu: false,
+                    revisionInfo: null,
+                });
+                tabs.value = [
+                    ...tabs.value,
+                    {id: 'tab-2'},
+                ];
+                panes.value = [{
+                    ...panes.value[0]!,
+                    tabIds: [
+                        requireTabId('tab-1'),
+                        requireTabId('tab-2'),
+                    ],
+                }];
+                sessions.value = {
+                    ...sessions.value,
+                    'tab-2': output,
+                };
+            },
+        };
+    }
+
+    function savedSources(checkpoint: unknown) {
+        return (checkpoint as IWorkspaceCheckpoint).tabs.map(tab => tab.sourceRef);
+    }
+
+    afterEach(() => {
+        desktop.saved.length = 0;
+        desktop.save = async (checkpoint) => {
+            desktop.saved.push(checkpoint);
+        };
+    });
+
+    it('resolves only once a checkpoint holding a new background tab is saved, past a write already running', async () => {
+        vi.useFakeTimers();
+        const held = Promise.withResolvers<undefined>();
+        desktop.save = async (checkpoint) => {
+            desktop.saved.push(checkpoint);
+            if (desktop.saved.length === 1) {
+                await held.promise;
+            }
+        };
+        const workspace = mountCrashCheckpoint();
+        // An earlier write, without the tab, is still running.
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(desktop.saved.map(savedSources)).toEqual([[null]]);
+
+        workspace.addBackgroundTab('/managed/output — cleaned.pdf');
+        const durable = {value: false};
+        const persisted = workspace.persistNow().then(() => {
+            durable.value = true;
+        });
+        await Promise.resolve();
+        expect(durable.value).toBe(false);
+
+        held.resolve(undefined);
+        await persisted;
+        expect(durable.value).toBe(true);
+        expect(savedSources(desktop.saved.at(-1))).toEqual([
+            null,
+            '/managed/output — cleaned.pdf',
+        ]);
+    });
+
+    it('fails when the checkpoint holding the tab cannot be saved', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        await vi.advanceTimersByTimeAsync(2_000);
+        desktop.save = async () => {
+            throw new Error('disk full');
+        };
+
+        workspace.addBackgroundTab('/managed/output — cleaned.pdf');
+
+        await expect(workspace.persistNow()).rejects.toThrow('disk full');
     });
 });

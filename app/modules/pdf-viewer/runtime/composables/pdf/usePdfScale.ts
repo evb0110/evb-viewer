@@ -11,19 +11,19 @@ import type {
     TPdfViewRotation,
 } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
-import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import {
+    getPageRowBoundsForViewMode,
+    normalizePageMetrics,
+    resolveCurrentSpreadBaseWidth,
     resolvePdfFitWidthDimensions as resolveSharedPdfFitWidthDimensions,
     resolvePdfFitWidthRowWidths,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFitWidthDimensions';
+    DOCUMENT_PAGE_GUTTER_PX,
+} from '@app/modules/document-viewer/public';
+import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import {
     clampPdfFitScale,
     resolvePdfZoomScale,
 } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/public';
 
 interface IFitScalePageOptions {page?: number | null | undefined;}
 

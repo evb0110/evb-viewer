@@ -35,6 +35,7 @@ interface IBrowserLifecycleTestApi {
     };
     getActiveToolbarSnapshot?: () => {
         canSave: boolean;
+        initialVisualReady: boolean;
         viewerCapabilities: {save: boolean}
     } | null;
     readActiveWorkspaceStateValues?: <TValues extends Record<string, unknown> = Record<string, unknown>>(
@@ -830,21 +831,40 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
             await downloadPromise;
             // The Save As has taken effect once the document moved to a new working copy.
+            let workingCopyAfter: string | null = null;
             await expect.poll(async () => {
-                const workingCopyAfter = await readWorkingCopyPath();
+                workingCopyAfter = await readWorkingCopyPath();
                 return workingCopyAfter !== null && workingCopyAfter !== workingCopyBefore;
             }, {timeout: 30_000}).toBe(true);
-            await page.evaluate(async () => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('The saved document did not settle');
-            });
-            await page.locator(`${paneSelector(leftPane!)} .page_container--rendered canvas`).first().waitFor({state: 'visible'});
-            await page.locator(`${paneSelector(rightPane!)} .page_container--rendered canvas`).first().waitFor({state: 'visible'});
-            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+            // Each view replaces its source, so page 1 is measured only once that
+            // view shows the new working copy, reports its first visual ready and
+            // paints page 1 again. Canvases of the old source do not count.
+            const readCurrentPaintedPageWidth = async (paneId: string) => {
+                await clickCenter(page, `${paneSelector(paneId)} .tab.is-active[data-tab-id]`);
+                const renderedPage = page.locator(`${paneSelector(paneId)} .page_container--rendered[data-page="1"]`);
+                await expect.poll(async () => {
+                    const view = await page.evaluate(() => {
+                        const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                        return {
+                            workingCopyPath: api.readActiveWorkspaceStateValues?.<{workingCopyPath?: string | null}>(['workingCopyPath']).workingCopyPath ?? null,
+                            initialVisualReady: api.getActiveToolbarSnapshot?.()?.initialVisualReady === true,
+                        };
+                    });
+                    return {
+                        ...view,
+                        paintedPage: await renderedPage.locator('canvas').first().isVisible(),
+                    };
+                }, {timeout: 30_000}).toEqual({
+                    workingCopyPath: workingCopyAfter,
+                    initialVisualReady: true,
+                    paintedPage: true,
+                });
+                return renderedPage.first().evaluate(element => Math.round(element.getBoundingClientRect().width));
+            };
 
             expect({
-                left: await readPanePageWidth(page, leftPane!),
-                right: await readPanePageWidth(page, rightPane!),
+                right: await readCurrentPaintedPageWidth(rightPane!),
+                left: await readCurrentPaintedPageWidth(leftPane!),
             }).toEqual(before);
         } finally {
             await browser.close();

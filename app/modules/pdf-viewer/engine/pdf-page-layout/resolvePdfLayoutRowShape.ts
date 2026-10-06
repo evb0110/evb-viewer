@@ -9,7 +9,7 @@ import {
     getLayoutRowHeight,
     getLayoutRowTop,
     type IPdfPageLayoutMetrics,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+} from '@app/modules/document-viewer/public';
 
 export interface IPdfLayoutRowShapePage {
     height: number;

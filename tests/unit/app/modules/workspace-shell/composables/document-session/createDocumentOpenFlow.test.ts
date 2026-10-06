@@ -6,7 +6,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    watch,
+} from 'vue';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
@@ -394,6 +397,23 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/corrupt-working.pdf');
     });
 
+    it('keeps the opened document\'s source through a history step that moves to a new copy', async () => {
+        const {
+            openFlow,
+            state,
+        } = createOpenFlowHarness();
+        // The document as an open left it.
+        state.openedWorkingCopyPath.value = requireDocumentRef('/tmp/edited-working.pdf');
+
+        await openFlow.applyLoadedPdfState(requireDocumentRef('/tmp/edited-history-copy.pdf'), {
+            pdfData: null,
+            pdfSrc: new Blob([], {type: 'application/pdf'}),
+        }, {preserveHistory: true});
+
+        expect(state.workingCopyPath.value).toBe('/tmp/edited-history-copy.pdf');
+        expect(state.openedWorkingCopyPath.value).toBe('/tmp/edited-working.pdf');
+    });
+
     it('keeps a recovered ordinary PDF dirty without requiring Save As', async () => {
         const {
             deps,
@@ -418,6 +438,54 @@ describe('createDocumentOpenFlow', () => {
         expect(state.isDirty.value).toBe(true);
         expect(recoveryBaselineDuringHistoryReset).toEqual([true]);
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
+    });
+
+    it('shows an opening working copy only once its admission ends, changing the shown source once', async () => {
+        const harness = createOpenFlowHarness();
+        const admissionReached = Promise.withResolvers<undefined>();
+        const admission = Promise.withResolvers<undefined>();
+        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
+            pageNumber: 1,
+            pageCount: 40,
+            width: 612,
+            height: 792,
+            rotation: 0,
+            widestPageWidth: 612,
+            tallestPageHeight: 792,
+            size: 1,
+            modifiedAt: 1,
+        });
+        const openFlow = createDocumentOpenFlow(harness.state, {
+            ...harness.deps,
+            // Admission is held, as a slow Recent read holds it.
+            admitOpeningSource: async () => {
+                admissionReached.resolve(undefined);
+                await admission.promise;
+            },
+        });
+        const result: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/remembered.pdf'),
+            workingPath: requireDocumentRef('/tmp/remembered-working.pdf'),
+            isGenerated: false,
+        };
+
+        const opening = openFlow.openFile(result);
+        await admissionReached.promise;
+        await Promise.resolve();
+        // While admission is held, no source is shown yet.
+        expect(harness.state.pdfSrc.value).toBeNull();
+
+        // The source a view shows changes once, to the admitted copy, through
+        // the commit's awaits: its view defaults run against that one source.
+        const shownSources: unknown[] = [];
+        watch(() => harness.state.openedWorkingCopyPath.value ?? harness.state.pdfSrc.value, (shown) => {
+            shownSources.push(shown);
+        }, {flush: 'sync'});
+        admission.resolve(undefined);
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+        expect(harness.state.pdfSrc.value).not.toBeNull();
+        expect(shownSources).toEqual([result.workingPath]);
     });
 
     it('does not request cleanup when a recovered PDF fails before adoption', async () => {
@@ -836,6 +904,7 @@ const pageShape = {
     height: 640,
     rotation: 0 as const,
     widestPageWidth: 420,
+    tallestPageHeight: 640,
     size: 12_000_000,
     modifiedAt: requireEpochMs(1),
 };

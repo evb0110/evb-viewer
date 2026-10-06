@@ -106,6 +106,7 @@ interface IWindowMenuActionOptions<TChannel extends TNativeMenuChannel = TNative
     accelerator?: string;
     enabled?: boolean;
     args?: TNativeMenuArgs<TChannel>;
+    id?: string;
 }
 
 interface ITextAwareWindowMenuActionOptions<TChannel extends TNativeMenuChannel = TNativeMenuChannel>
@@ -274,16 +275,14 @@ function createWindowMenuAction<TChannel extends TNativeMenuChannel>(
     options: IWindowMenuActionOptions<TChannel>,
 ): MenuItemConstructorOptions {
     const {
-        label,
         channel,
-        accelerator,
         enabled = true,
+        args = [] as TNativeMenuArgs<TChannel>,
+        ...item
     } = options;
-    const args = options.args ?? ([] as TNativeMenuArgs<TChannel>);
 
     return {
-        label,
-        ...(accelerator ? { accelerator } : {}),
+        ...item,
         enabled,
         click: (_item, window) => {
             sendToWindow(resolveWindowFromMenuContext(window), channel, ...args);
@@ -304,17 +303,15 @@ function createTextAwareWindowMenuAction<TChannel extends TNativeMenuChannel>(
     options: ITextAwareWindowMenuActionOptions<TChannel>,
 ): MenuItemConstructorOptions {
     const {
-        label,
         channel,
-        accelerator,
         enabled = true,
+        args = [] as TNativeMenuArgs<TChannel>,
         nativeEditCommand,
+        ...item
     } = options;
-    const args = options.args ?? ([] as TNativeMenuArgs<TChannel>);
 
     return {
-        label,
-        ...(accelerator ? { accelerator } : {}),
+        ...item,
         click: (_item, window) => {
             void (async () => {
                 const targetWindow = resolveWindowFromMenuContext(window);
@@ -681,11 +678,13 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     label: te('menu.rotateViewClockwise'),
                     enabled: documentActionsEnabled,
                     channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewRotationCw,
+                    id: 'rotate-view-clockwise',
                 }),
                 createWindowMenuAction({
                     label: te('menu.rotateViewCounterclockwise'),
                     enabled: documentActionsEnabled,
                     channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewRotationCcw,
+                    id: 'rotate-view-counterclockwise',
                 }),
             ] : []),
             ...(state.canToggleAssistant ? [
@@ -697,25 +696,21 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 }),
             ] : []),
             { type: 'separator' },
-            {
-                ...createWindowMenuAction({
-                    label: te('menu.newPaneRight'),
-                    channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
-                    accelerator: 'CmdOrCtrl+\\',
-                    enabled: state.canCreatePane,
-                    args: ['right'],
-                }),
+            createWindowMenuAction({
+                label: te('menu.newPaneRight'),
+                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
+                accelerator: 'CmdOrCtrl+\\',
+                enabled: state.canCreatePane,
+                args: ['right'],
                 id: 'new-pane-right',
-            },
-            {
-                ...createWindowMenuAction({
-                    label: te('menu.newPaneDown'),
-                    channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
-                    enabled: state.canCreatePane,
-                    args: ['down'],
-                }),
+            }),
+            createWindowMenuAction({
+                label: te('menu.newPaneDown'),
+                channel: WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onMenuSplitEditor,
+                enabled: state.canCreatePane,
+                args: ['down'],
                 id: 'new-pane-down',
-            },
+            }),
             { type: 'separator' },
             { role: 'toggleDevTools' },
         ],

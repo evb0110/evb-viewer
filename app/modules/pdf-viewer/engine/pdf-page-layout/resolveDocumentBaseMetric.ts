@@ -2,7 +2,7 @@ import type { IPdfPageMetric } from '@app/types/pdfUi';
 import {
     getPageMetricMaximum,
     type IPdfLazyIndexedCollection,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+} from '@app/modules/document-viewer/public';
 
 export function resolveDocumentBaseMetric(
     pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,

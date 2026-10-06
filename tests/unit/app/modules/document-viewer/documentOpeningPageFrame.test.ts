@@ -10,6 +10,14 @@ import {
     resolveDocumentOpeningPageShellId,
 } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+
+const uniformPages = Array.from({length: 431}, () => ({
+    widthPoints: 600,
+    heightPoints: 800,
+    rotation: 0,
+    userUnit: 1,
+}));
 
 const pdfGeometry = Object.freeze({
     documentId: '/documents/scan.pdf',
@@ -84,6 +92,213 @@ describe('documentOpeningPageFrame', () => {
         expect(surface.snapshot.value.openingPageFrame?.ownerId).toMatch(/^document-viewer-runtime:/u);
     });
 
+    it('sizes the shell of an open that starts where its reader left it at that view\'s zoom', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            pageNumber: 4,
+            readingView: {
+                currentPage: 4,
+                pageCount: 431,
+                zoom: 1.5,
+                zoomMode: 'custom',
+                viewMode: 'single',
+                continuousScroll: true,
+                viewRotation: 0,
+            },
+        }, 4);
+
+        expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
+        expect(surface.snapshot.value.openingPageFrame).toMatchObject({
+            pageNumber: 4,
+            intentKey: 'custom:1.5',
+            style: {
+                width: '900px',
+                height: '1200px',
+            },
+        });
+    });
+
+    it('places the shell of a restored reading point where the viewer will place that point', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            pageNumber: 4,
+            pages: uniformPages,
+        }, 4);
+        surface.navigate(createPageNavigationRequest(4, 'restore', {
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0.5,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center',
+        }));
+
+        expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
+        // The page's middle at the viewport's middle: 800 / 2 - 1280 / 2.
+        expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
+            width: '960px',
+            height: '1280px',
+            top: '-240px',
+            left: '20px',
+        });
+    });
+
+    // A reader's place among pages of other shapes, in each view the viewer lays out.
+    function placeShell(
+        pageNumber: number,
+        pages: Array<{
+            widthPoints: number;
+            heightPoints: number;
+            rotation: number;
+            userUnit: number
+        }>,
+        policy: Partial<{
+            viewMode: 'single' | 'facing' | 'facing-first-single';
+            continuousScroll: boolean;
+            viewRotation: 0 | 90 | 180 | 270
+        }>,
+        anchor?: Parameters<typeof createPageNavigationRequest>[2],
+    ) {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            pageNumber,
+            pageCount: pages.length,
+            width: pages[pageNumber - 1]!.widthPoints,
+            height: pages[pageNumber - 1]!.heightPoints,
+            pages,
+        }, pageNumber);
+        if (anchor) {
+            surface.navigate(createPageNavigationRequest(pageNumber, 'restore', anchor));
+        }
+        createDocumentOpeningPageFrame({
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 1,
+                zoomMode: 'custom',
+                continuousScroll: true,
+                ...policy,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation);
+        return surface.snapshot.value.openingPageFrame?.style;
+    }
+
+    it('places a page by the exact pages above it, not by its own shape repeated', () => {
+        const pages = [
+            {
+                widthPoints: 600,
+                heightPoints: 900,
+                rotation: 0,
+                userUnit: 1,
+            },
+            {
+                widthPoints: 600,
+                heightPoints: 300,
+                rotation: 0,
+                userUnit: 1,
+            },
+            {
+                widthPoints: 600,
+                heightPoints: 800,
+                rotation: 0,
+                userUnit: 1,
+            },
+        ];
+        // Page 2's top at nine tenths of the viewport: 720 px down, since
+        // page 1's 900 leaves room to scroll there. Pages shaped like page 2
+        // would end the scroll at the document start and show it at 340.
+        expect(placeShell(2, pages, {}, {
+            page: 2,
+            pageXFraction: 0.5,
+            pageYFraction: 0,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.9,
+            affinity: 'center',
+        })).toMatchObject({
+            width: '600px',
+            height: '300px',
+            top: '720px',
+        });
+    });
+
+    it('places a paged facing spread from the top inset, with its page beside its partner', () => {
+        const pages = Array.from({length: 4}, () => ({
+            widthPoints: 300,
+            heightPoints: 400,
+            rotation: 0,
+            userUnit: 1,
+        }));
+        const style = placeShell(4, pages, {
+            viewMode: 'facing',
+            continuousScroll: false,
+        });
+        expect(style).toMatchObject({
+            width: '300px',
+            height: '400px',
+            top: `${String(DOCUMENT_PAGE_GUTTER_PX)}px`,
+            // Spread 3-4 is centred: page 4 sits right of page 3 and the gap.
+            left: `${String((1_000 - (300 * 2 + DOCUMENT_PAGE_GUTTER_PX)) / 2 + 300 + DOCUMENT_PAGE_GUTTER_PX)}px`,
+        });
+    });
+
+    it('sizes a quarter-turned page by the sides the view shows, without the other pages', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, pdfGeometry);
+        createDocumentOpeningPageFrame({
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 1,
+                zoomMode: 'custom',
+                continuousScroll: true,
+                viewRotation: 90,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation);
+
+        expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
+            width: '800px',
+            height: '600px',
+        });
+    });
+
+    it('turns every page with a quarter-turned view before laying them out', () => {
+        const pages = Array.from({length: 2}, () => ({
+            widthPoints: 300,
+            heightPoints: 500,
+            rotation: 0,
+            userUnit: 2,
+        }));
+        expect(placeShell(1, pages, {viewRotation: 90})).toMatchObject({
+            width: '1000px',
+            height: '600px',
+        });
+    });
+
     it('sizes a continuous Fit Width shell by the widest page of the document', () => {
         const surface = createDocumentOpenSurfaceSession();
         const generation = surface.begin({
@@ -99,6 +314,64 @@ describe('documentOpeningPageFrame', () => {
             width: '720px',
             height: '960px',
         });
+    });
+
+    // Pages 612x900 and 612x820: the tallest page is the widest a quarter-turned view shows.
+    it.each([
+        // Upright: 960 / 612 wide. Quarter-turned: 960 / 900, the tallest page.
+        [
+            0,
+            960,
+            820 * 960 / 612,
+        ],
+        [
+            180,
+            960,
+            820 * 960 / 612,
+        ],
+        [
+            90,
+            820 * 960 / 900,
+            612 * 960 / 900,
+        ],
+        [
+            270,
+            820 * 960 / 900,
+            612 * 960 / 900,
+        ],
+    ] as const)('sizes a continuous Fit Width shell turned %i by the widest page the view shows', (viewRotation, width, height) => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: pdfGeometry.documentId,
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            pageNumber: 3,
+            pageCount: 3,
+            width: 612,
+            height: 820,
+            widestPageWidth: 612,
+            tallestPageHeight: 900,
+        });
+        createDocumentOpeningPageFrame({
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 1,
+                zoomMode: 'fit-width',
+                continuousScroll: true,
+                viewRotation,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation);
+
+        const style = surface.snapshot.value.openingPageFrame?.style;
+        expect(Number.parseFloat(style?.width ?? '')).toBeCloseTo(width, 6);
+        expect(Number.parseFloat(style?.height ?? '')).toBeCloseTo(height, 6);
     });
 
     it('does not need source or working-copy completion to present the shell', async () => {

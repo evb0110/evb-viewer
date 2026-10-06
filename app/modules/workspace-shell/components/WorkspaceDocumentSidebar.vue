@@ -24,7 +24,7 @@
         :search-progress="search.searchProgress.value"
         :is-truncated="search.isTruncated.value"
         :min-query-length="search.minQueryLength"
-        :width="search.sidebarWidth.value"
+        :width="search.sidebarContentWidth.value"
         :annotation-tool="annotationTool"
         :annotation-keep-active="annotations.annotationKeepActive.value"
         :annotation-settings="annotations.annotationSettings.value"

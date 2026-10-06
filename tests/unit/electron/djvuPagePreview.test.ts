@@ -1,3 +1,4 @@
+import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
     describe,
@@ -53,7 +54,10 @@ vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
 }));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
+    getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'}),
+}));
 vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({DJVU: '1'})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));

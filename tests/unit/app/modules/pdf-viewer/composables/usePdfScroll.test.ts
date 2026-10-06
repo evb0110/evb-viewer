@@ -6,9 +6,11 @@ import {
     vi,
 } from 'vitest';
 import { usePdfScroll as usePdfScrollProduction } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
+import {
+    buildPageLayoutMetrics,
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+} from '@app/modules/document-viewer/public';
 import {getPageTop} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
-import {PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const usePdfScroll = (

@@ -1,3 +1,4 @@
+import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
     describe,
@@ -9,7 +10,10 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
-vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
+    getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'}),
+}));
 vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 

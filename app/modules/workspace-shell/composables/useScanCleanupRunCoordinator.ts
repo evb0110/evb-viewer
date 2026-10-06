@@ -15,7 +15,10 @@ import {
 } from '@app/utils/platformDocuments';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { createRequestId } from '@contracts/shared';
-import { parseDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TTranslateFn } from '@i18n-app';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
@@ -88,14 +91,10 @@ function discardUnclaimedGeneratedOpen(result: TOpenFileResult | null) {
 }
 
 export async function openScanCleanupGeneratedPdf(
-    path: string,
+    documentRef: TDocumentRef,
     signal: AbortSignal,
     handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
 ) {
-    const documentRef = parseDocumentRef(path);
-    if (documentRef === null) {
-        return false;
-    }
     const documentOpen = getDocumentOpenCapability();
     const requestId = createRequestId('scan-cleanup-open');
     const cancelOpen = () => {
@@ -149,27 +148,37 @@ export async function openScanCleanupGeneratedPdf(
 
 export const useScanCleanupRunCoordinator = (
     activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
-    handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
+    handleOpenInNewTab: (
+        target: TDocumentRef | TOpenFileResult,
+        paneId?: string,
+        placement?: {activate: boolean},
+    ) => Promise<boolean>,
     isStartupOpenClaimPending: Ref<boolean>,
     t: TTranslateFn,
     documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentController>>,
     activateTab: (tabId: string) => void,
+    persistCheckpointNow: () => Promise<void>,
 ) => {
     const toast = useToast();
     const cleanup = installScanCleanupRunCoordinator({
         // An output reopened after a reload may be back in its tab from the
-        // workspace checkpoint already; that tab is the output.
-        openGeneratedPdf: async (path, signal) => {
+        // workspace checkpoint already; that tab is the output. A replayed
+        // output keeps the reader's tab in front: it is placed behind it and
+        // opens when its tab is shown, reopened once its tab is checkpointed.
+        openGeneratedPdf: async (path, signal, foreground) => {
             await until(isStartupOpenClaimPending).toBe(false);
-            if (signal.aborted) {
+            const documentRef = parseDocumentRef(path);
+            if (signal.aborted || documentRef === null) {
                 return false;
             }
             const tabId = findDocumentTabId(path, documentSessionsByTabId.value);
-            if (tabId) {
+            if (foreground && tabId) {
                 activateTab(tabId);
                 return true;
             }
-            return openScanCleanupGeneratedPdf(path, signal, handleOpenInNewTab);
+            return foreground
+                ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
+                : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
         },
         saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(

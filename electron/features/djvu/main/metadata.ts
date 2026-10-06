@@ -1,6 +1,8 @@
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
-import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
+import {
+    getDjvuNativeToolPaths,
+    runDjvuSourceCommand,
+} from '@electron/features/djvu/main/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { isAbortError } from '@electron/utils/abort';
 import {getCachedDjvuHasText} from '@electron/features/djvu/main/getCachedDjvuHasText';
@@ -31,7 +33,7 @@ async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): P
         windowsHide: true,
         ...(options.signal ? { signal: options.signal } : {}),
     };
-    const result = await runNativeCommand(djvused, args, commandOptions);
+    const result = await runDjvuSourceCommand(djvused, args, 0, commandOptions);
 
     return {
         stdout: result.stdout,
@@ -114,15 +116,29 @@ export async function getDjvuMetadata(
     }
 }
 
+const DJVU_INFO_REGEX = /\bINFO\b.*?(\d+)x(\d+).*?(\d+)\s*dpi/u;
+
+/** Reads a page's pixel size and DPI from a djvudump INFO line, if all three are positive safe integers. */
+export function parseDjvuInfoLine(line: string) {
+    const match = line.match(DJVU_INFO_REGEX);
+    const info = {
+        width: Number(match?.[1]),
+        height: Number(match?.[2]),
+        dpi: Number(match?.[3]),
+    };
+    return Object.values(info).every(value => Number.isSafeInteger(value) && value > 0) ? info : null;
+}
+
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
         const result = await runDjvused([
             filePath,
             '-e',
-            'select 1; print-dpi',
+            'select 1; dump',
         ], options);
-        const dpi = parseInt(result.stdout.trim(), 10);
-        return Number.isFinite(dpi) && dpi > 0 ? dpi : 300;
+        return result.stdout.split(/\r?\n/u)
+            .map(parseDjvuInfoLine)
+            .find(info => info !== null)?.dpi ?? 300;
     } catch (error) {
         if (isAbortError(error)) {
             throw error;

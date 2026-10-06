@@ -216,6 +216,8 @@ export function createBrowserDocumentsCapability(
     const recentFiles = {
         get: fileCapability.recentFiles.get,
         removeIfMissing: fileCapability.recentFiles.removeIfMissing,
+        readingView: fileCapability.recentFiles.readingView,
+        rememberReadingView: fileCapability.recentFiles.rememberReadingView,
         remove: async (path: TDocumentRef) => {
             await fileCapability.recentFiles.remove(path);
             return undefined;

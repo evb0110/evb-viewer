@@ -6,21 +6,19 @@ import {
     resolveAnchorFromScroll,
     resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+    buildPageLayoutMetrics,
+    getLayoutContentHeight,
+    getLayoutPhysicalScrollSegmentTransition,
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+    normalizePageMetrics,
+} from '@app/modules/document-viewer/public';
 import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
-import {
-    getLayoutContentHeight,
-    getLayoutPhysicalScrollSegmentTransition,
-    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getViewportVisibilityFromLayout } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 describe('pdfViewportGeometry', () => {

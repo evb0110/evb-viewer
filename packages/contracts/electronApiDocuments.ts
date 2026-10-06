@@ -38,6 +38,7 @@ import type {
     TPdfAnnotationShapePdfSubtype,
     TPdfAnnotationShapeType,
 } from '@contracts/annotations';
+import type {IRecentReadingView} from '@contracts/recentReadingView';
 import type {
     IRecentFile,
     TLeaseId,
@@ -728,6 +729,10 @@ export interface IDocumentsFileCapability {
         /** Removes the entry when its file is gone; true when it did. */
         removeIfMissing: (path: TDocumentRef) => Promise<boolean>;
         clear: () => Promise<void>;
+        /** The view a reader left this working copy's source at, while its bytes are unchanged. */
+        readingView: (workingCopy: TDocumentRef) => Promise<IRecentReadingView | null>;
+        /** Updates an existing Recent entry only; a forgotten file stays forgotten. */
+        rememberReadingView: (workingCopy: TDocumentRef, view: IRecentReadingView) => Promise<undefined>;
     };
 
     /**

@@ -134,11 +134,15 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
 
     // The new tab shows its own opening, as an open in the current tab does.
     // A document that does not open takes its tab with it and says why.
-    async function handleOpenInNewTab(target: TWorkspaceOpenDocumentTarget, paneId?: string) {
+    async function handleOpenInNewTab(
+        target: TWorkspaceOpenDocumentTarget,
+        paneId?: string,
+        placement: {activate: boolean} = {activate: true},
+    ) {
         const outgoingTabId = activeTabId.value;
         const tab = createTab({
             paneId: paneId ?? activePaneId.value,
-            activate: true,
+            activate: placement.activate,
         });
         let opened = false;
         try {

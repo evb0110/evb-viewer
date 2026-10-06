@@ -1,3 +1,4 @@
+import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
     describe,
@@ -9,12 +10,18 @@ import {
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
 vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
+    getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'}),
+}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 vi.mock('@electron/features/djvu/main/getCachedDjvuHasText', () => ({getCachedDjvuHasText: vi.fn()}));
 
-const {getDjvuPageCount} = await import('@electron/features/djvu/main/metadata');
+const {
+    getDjvuPageCount,
+    getDjvuResolution,
+} = await import('@electron/features/djvu/main/metadata');
 
 describe('DjVu metadata', () => {
     beforeEach(() => {
@@ -40,5 +47,42 @@ describe('DjVu metadata', () => {
 
         await expect(getDjvuPageCount('/tmp/unsafe.djvu'))
             .rejects.toThrow('Invalid page count from djvused');
+    });
+
+    it('reads the resolution from the selected page\'s INFO chunk', async () => {
+        mocks.runNativeCommand.mockResolvedValue({
+            stdout: [
+                '  FORM:DJVU [815] ',
+                '    INFO [10]         DjVu 640x480, v24, 72 dpi, gamma=2.2',
+                '    BG44 [785]        IW4 data #1, 90 slices, v1.2 (color), 640x480',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(getDjvuResolution('/tmp/document.djvu')).resolves.toBe(72);
+    });
+
+    it.each([
+        [
+            'a zero resolution',
+            'DjVu 640x480, v24, 0 dpi, gamma=2.2',
+        ],
+        [
+            'a zero width',
+            'DjVu 0x480, v24, 72 dpi, gamma=2.2',
+        ],
+        [
+            'an unsafe resolution',
+            'DjVu 640x480, v24, 9007199254740993 dpi, gamma=2.2',
+        ],
+    ])('falls back to 300 DPI when the INFO chunk has %s', async (_case, info) => {
+        mocks.runNativeCommand.mockResolvedValue({
+            stdout: `  FORM:DJVU [815] \n    INFO [10]         ${info}\n`,
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await expect(getDjvuResolution('/tmp/document.djvu')).resolves.toBe(300);
     });
 });

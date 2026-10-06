@@ -90,6 +90,14 @@ export const browserHostCapability = {
         return setBrowserZenMode(active);
     },
     onZenModeChange: onBrowserZenModeChange,
+    // A page cannot move its browser window out of maximized, so it reports that it did not.
+    restoreNormalWindow() {
+        return Promise.resolve({
+            fullScreen: snapshotBrowserZenMode().active,
+            maximized: false,
+            supported: false,
+        });
+    },
     // A page cannot see scroll sequence boundaries; the viewport falls back to packet timing.
     onWheelScrollSequenceChange: noopUnsubscribe,
     // The browser workspace has no app profile to write a bundle into, so the

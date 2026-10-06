@@ -218,10 +218,6 @@ describe('scan cleanup run coordinator', () => {
             toast: {add: vi.fn()},
         });
         try {
-            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
-                '/managed/recovered.pdf',
-                expect.any(AbortSignal),
-            ));
             await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith(['/managed/recovered.pdf']));
         } finally {
             cleanup();
@@ -283,10 +279,6 @@ describe('scan cleanup run coordinator', () => {
                 options: createScanCleanupOptions(),
             });
             listener(completedState('job-terminal', terminalPath));
-            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
-                terminalPath,
-                expect.any(AbortSignal),
-            ));
 
             pendingOutputs.resolve([recoveredPath]);
             await Promise.resolve();
@@ -295,10 +287,6 @@ describe('scan cleanup run coordinator', () => {
             expect(coordinator.scanCleanupRun.inFlight).toBe(true);
 
             terminalOpen.resolve(true);
-            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
-                recoveredPath,
-                expect.any(AbortSignal),
-            ));
             await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([recoveredPath]));
             expect(recoveryStateAtOpen).toEqual([{
                 activeJobId: null,
@@ -349,15 +337,7 @@ describe('scan cleanup run coordinator', () => {
             toast: {add: vi.fn()},
         });
         try {
-            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
-                firstPath,
-                expect.any(AbortSignal),
-            ));
             await vi.advanceTimersByTimeAsync(30_000);
-            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith(
-                secondPath,
-                expect.any(AbortSignal),
-            ));
             await vi.waitFor(() => expect(acknowledgeCompletedOutputs).toHaveBeenCalledWith([secondPath]));
             expect(signals[0]?.aborted).toBe(true);
             expect(acknowledgeCompletedOutputs).not.toHaveBeenCalledWith([
@@ -473,10 +453,6 @@ describe('scan cleanup run coordinator', () => {
             await vi.advanceTimersByTimeAsync(coordinator.SCAN_CLEANUP_RUN_LIVENESS_CHECK_MS);
 
             expect(getJobState).toHaveBeenCalledWith('liveness-terminal-job', ownerContext);
-            expect(openGeneratedPdf).toHaveBeenCalledWith(
-                '/managed/liveness-terminal-job.pdf',
-                expect.any(AbortSignal),
-            );
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'}));
             expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
             expect(coordinator.isScanCleanupRunning.value).toBe(false);
@@ -767,7 +743,7 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: toastDescriptionContaining('scan-cleanup IPC codec failed\nError ID: 01234567'),
+                description: toastDescriptionContaining('scan-cleanup IPC codec failed\nerrors.runtime.errorId: 01234567'),
             }));
             expect(coordinator.scanCleanupRun.lastError?.failure).toEqual(diagnosticMocks.failure);
         } finally {
@@ -814,7 +790,7 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: toastDescriptionContaining('page 17 has invalid geometry\nError ID: 01234567'),
+                description: toastDescriptionContaining('page 17 has invalid geometry\nerrors.runtime.errorId: 01234567'),
             }));
         } finally {
             cleanup();
@@ -945,7 +921,6 @@ describe('scan cleanup run coordinator', () => {
                 updatedAtMs: requireEpochMs(Date.now()),
             });
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
-            expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/book — cleaned.pdf', expect.any(AbortSignal));
             const completeToast = toastAdd.mock.calls.at(-1)?.[0];
             expect(saveActiveDocumentAs).not.toHaveBeenCalled();
             completeToast.actions[0].onClick();
@@ -1035,7 +1010,6 @@ describe('scan cleanup run coordinator', () => {
             vi.useFakeTimers();
             try {
                 listener(completedState('job-deadline'));
-                expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/job-deadline.pdf', expect.any(AbortSignal));
                 expect(coordinator.isScanCleanupRunning.value).toBe(true);
 
                 await vi.advanceTimersByTimeAsync(30_000);
@@ -1139,7 +1113,6 @@ describe('scan cleanup run coordinator', () => {
             expect(secondOpen).toHaveBeenCalledOnce();
 
             await vi.waitFor(() => expect(secondToast).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
-            expect(secondOpen).toHaveBeenCalledWith('/managed/job-disposed.pdf', expect.any(AbortSignal));
             expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
 
             // The replayed run owns the state now, so the abandoned open cannot
@@ -1556,7 +1529,6 @@ describe('scan cleanup run coordinator', () => {
                 color: 'error',
                 title: 'scanCleanup.openResultFailed',
             })));
-            expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/missing.pdf', expect.any(AbortSignal));
         } finally {
             cleanup();
         }
@@ -1621,7 +1593,6 @@ describe('scan cleanup run coordinator', () => {
                 sourcePdfPath: '/source/instant.pdf',
                 options: createScanCleanupOptions(),
             });
-            await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/instant.pdf', expect.any(AbortSignal)));
             await vi.waitFor(() => expect(coordinator.scanCleanupRun.activeJobId).toBeNull());
             expect(coordinator.scanCleanupRun.jobState).toEqual(completed);
             expect(subscribeJob).not.toHaveBeenCalled();

@@ -7,6 +7,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
@@ -23,7 +24,10 @@ import {
     readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp,
     waitForPdfLoaded,
@@ -58,11 +62,16 @@ describe('scan cleanup required page ops', () => {
             1280,
             900,
         ]);
-        const sourcePath = await createLargeScannedFixturePdf(
+        const fixturePath = await createLargeScannedFixturePdf(
             `scan-cleanup-page-ops-${mode.toLowerCase().replaceAll(' ', '-')}.pdf`,
             1,
             0,
         );
+        // The managed working copy is always document.pdf; the output must keep
+        // the user's own file name instead.
+        const sourceStem = `Сканы книги ${mode} 書`;
+        const sourcePath = join(dirname(fixturePath), `${sourceStem}.pdf`);
+        copyFileSync(fixturePath, sourcePath);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
@@ -172,6 +181,7 @@ describe('scan cleanup required page ops', () => {
         const outputState = await readWorkspaceStateValues(session.page, ['originalPath']);
         const outputPath = typeof outputState.originalPath === 'string' ? outputState.originalPath : null;
         expect(outputPath).toBeTruthy();
+        expect(basename(outputPath!)).toBe(`${sourceStem} — cleaned.pdf`);
         expect(existsSync(outputPath!)).toBe(true);
         expect(statSync(outputPath!).size).toBeGreaterThan(0);
         expect(await readPdfPageSnapshots(outputPath!)).toEqual([{
@@ -183,7 +193,7 @@ describe('scan cleanup required page ops', () => {
 });
 
 describe('scan cleanup completed output recovery', () => {
-    it('opens a finished output that was never opened once the window reloads', async () => {
+    it('brings back a finished output that was never opened, behind the tab the reader is in, once the window reloads', async () => {
         const session = sessionFixture.getSession();
         const outputRoot = join(sessionDir(session.name), 'electron-user-data', 'scan-cleanup', 'output');
         const outputPath = join(outputRoot, randomUUID(), 'recovered — cleaned.pdf');
@@ -194,16 +204,34 @@ describe('scan cleanup completed output recovery', () => {
             outputPdfPath: outputPath,
             completedAtMs: Date.now(),
         }]));
+        const readOutputTabs = () => session.page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[role="tab"]')]
+            .filter(tab => tab.textContent?.includes('recovered — cleaned.pdf'))
+            .map(tab => tab.getAttribute('aria-selected') === 'true'));
 
         await session.page.reload({waitUntil: 'domcontentloaded'});
         await waitForRendererReady(session.page);
+        // The output's tab comes back once; the tab the reader was in stays in front.
+        await waitForFunctionInPage(session.page, () => [...document.querySelectorAll('[role="tab"]')]
+            .some(tab => tab.textContent?.includes('recovered — cleaned.pdf')), {timeout: 60_000});
+        expect(await readOutputTabs()).toEqual([false]);
+
+        // Reloading again, before the reader ever chose it, keeps that one
+        // background tab: it was kept, and the output is not brought back twice.
+        await session.page.reload({waitUntil: 'domcontentloaded'});
+        await waitForRendererReady(session.page);
+        await waitForFunctionInPage(session.page, () => [...document.querySelectorAll('[role="tab"]')]
+            .some(tab => tab.textContent?.includes('recovered — cleaned.pdf')), {timeout: 60_000});
+        expect(await readOutputTabs()).toEqual([false]);
+
+        // Choosing it then shows the output, painted.
+        await clickFoundAsUser(session.page, () => [...document.querySelectorAll<HTMLElement>('[role="tab"]')]
+            .find(tab => tab.textContent?.includes('recovered — cleaned.pdf')), undefined, {description: 'recovered output tab'});
         await waitForFunctionInPage(session.page, (path: string) => (
             (window as IWorkspaceExposeProbeWindow).__evbTestApi
                 ?.readActiveWorkspaceStateValues?.(['originalPath'])
                 ?.originalPath === path
         ), {timeout: 60_000}, outputPath);
         await waitForPdfLoaded(session.page, 60_000);
-        expect(await session.page.evaluate(() => [...document.querySelectorAll('[role="tab"]')]
-            .filter(tab => tab.textContent?.includes('recovered — cleaned.pdf')).length)).toBe(1);
+        expect(await readOutputTabs()).toEqual([true]);
     }, 120_000);
 });

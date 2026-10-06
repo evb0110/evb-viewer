@@ -34,6 +34,7 @@ export function createTestPdfViewportWritePort() {
             interactionEpoch += 1;
         },
         observeUserScroll: () => {},
+        observeZoomPacket: () => {},
         fenceCommandAgainstLiveGesture: () => {
             commandFences.push(++sequence);
         },

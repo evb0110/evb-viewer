@@ -1,6 +1,7 @@
 import type {VNode} from 'vue';
 import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TTranslateFn} from '@i18n-app';
 
 export interface IFailureToastAction {
     label: string;
@@ -51,12 +52,6 @@ interface IToastOptions {
 export interface IFailureToastTarget {
     add: (options: IToastOptions) => unknown;
     update?: (id: string | number, options: Partial<IToastOptions>) => void;
-}
-
-interface IFailureToastLabels {
-    copy: string;
-    copied: string;
-    errorId: string;
 }
 
 const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
@@ -121,22 +116,20 @@ export async function copyFailurePresentation(presentation: FailurePresentation)
 }
 
 // The reason reads first; the Error ID is a quiet second line for support.
-function renderFailureDescription(presentation: FailurePresentation, errorIdLabel: string) {
+function renderFailureDescription(presentation: FailurePresentation, getErrorIdLabel: () => string) {
     return () => h('span', {class: 'app-toast-failure-description'}, [
         presentation.description
             ? h('span', {class: 'app-toast-failure-reason'}, presentation.description)
             : null,
-        h('span', {class: 'app-toast-error-id'}, `${errorIdLabel}: ${getFailureErrorId(presentation.failure)}`),
+        h('span', {class: 'app-toast-error-id'}, `${getErrorIdLabel()}: ${getFailureErrorId(presentation.failure)}`),
     ]);
 }
 
 export function createFailureToastPresenter(
     toast: IFailureToastTarget,
-    labels: IFailureToastLabels = {
-        copy: 'Copy details',
-        copied: 'Copied',
-        errorId: 'Error ID',
-    },
+    // Labels translate each time a toast is presented, rendered or updated, so a
+    // presenter created before settings apply the saved locale speaks the current one.
+    t: TTranslateFn,
 ) {
     return function presentFailureToast(presentation: FailurePresentation) {
         // The receipt names the toast, so a failure that more than one path
@@ -147,7 +140,7 @@ export function createFailureToastPresenter(
         const actions = (copied: boolean): IFailureToastAction[] => [
             ...(presentation.actions ?? []),
             {
-                label: copied ? labels.copied : labels.copy,
+                label: t(copied ? 'errors.runtime.copied' : 'errors.runtime.copy'),
                 icon: copied ? 'i-ph-check' : 'i-ph-copy',
                 color: 'neutral',
                 variant: 'outline',
@@ -166,7 +159,7 @@ export function createFailureToastPresenter(
             icon: TOAST_ICONS.error,
             ui: {root: 'app-toast-failure'},
             title: presentation.title,
-            description: renderFailureDescription(presentation, labels.errorId),
+            description: renderFailureDescription(presentation, () => t('errors.runtime.errorId')),
             actions: actions(false),
             duration: presentation.persistent ? Number.POSITIVE_INFINITY : FAILURE_TOAST_DURATION_MS,
             ...(presentation.persistent ? {progress: false} : {}),
@@ -195,11 +188,7 @@ export function createNoticeToastPresenter(toast: IFailureToastTarget) {
 export const useFailureToast = () => {
     const toast = useToast();
     const { t } = useTypedI18n();
-    const presentFailureToast = createFailureToastPresenter(toast, {
-        copy: t('errors.runtime.copy'),
-        copied: t('errors.runtime.copied'),
-        errorId: t('errors.runtime.errorId'),
-    });
+    const presentFailureToast = createFailureToastPresenter(toast, t);
     const presentNoticeToast = createNoticeToastPresenter(toast);
 
     return {

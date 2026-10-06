@@ -10,6 +10,7 @@ import {
     findCommittedSurfaceInteractionTailViolations,
     findInitialRenderAuthorityViolations,
     installCommittedSurfaceSampler,
+    selectClaimedOpenTrace,
     summarizeCommittedSurfaceTiming,
     waitForCommittedSurfaceSamples,
     type ICommittedSurfaceFrame,
@@ -125,6 +126,46 @@ describe('committed surface E2E contract', () => {
         })).toContain(
             'surface sampler failed at frame 27 (page-7-transition): InvalidStateError: transient detached canvas',
         );
+
+        // An open the chassis never claimed fails on that cause, keeps its
+        // frames and any capture error, and is not accepted without a shell.
+        const idle = (sequence: number) => frame(sequence, {
+            openSurfaceDiagnostic: {
+                openSurfaceDocumentId: '',
+                openSurfaceGeneration: '0',
+            },
+            openSurfacePhase: 'idle',
+        });
+        const unclaimed = selectClaimedOpenTrace({
+            ...trace,
+            frames: [
+                idle(1),
+                idle(2),
+            ],
+        });
+        expect(unclaimed.frames.map(entry => entry.frame)).toEqual([
+            1,
+            2,
+        ]);
+        const unclaimedViolations = findCommittedSurfaceCausalOpenViolations(unclaimed, {
+            allowDeferredOpening: true,
+            maxFirstCanvasMs: 2_500,
+            maxFirstPageShellMs: 1_250,
+            maxReadyAfterCanvasMs: 1_000,
+            requirePageShell: false,
+        });
+        expect(unclaimedViolations).toContain('surface sampler failed at frame 2 (unmarked): open never claimed');
+        expect(unclaimedViolations).toContain(
+            'surface sampler failed at frame 27 (page-7-transition): InvalidStateError: transient detached canvas',
+        );
+        expect(findCommittedSurfaceContractViolations(selectClaimedOpenTrace({frames: []}))).toEqual([
+            'surface sampler failed at frame 0 (unmarked): open never claimed',
+            'fewer than two animation frames were sampled',
+        ]);
+        expect(selectClaimedOpenTrace({frames: [
+            idle(1),
+            committedCanvas(2),
+        ]})).toEqual({frames: [committedCanvas(2)]});
     });
 
     it('accepts empty to exact page-frame shell to a stable canvas', () => {

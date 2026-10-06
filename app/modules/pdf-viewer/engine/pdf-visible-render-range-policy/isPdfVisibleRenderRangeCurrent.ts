@@ -6,7 +6,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {TPdfViewMode} from '@contracts/shared';
 import type {IPageRange} from '@app/types/pdfUi';
-import {getPageRowBoundsForViewMode} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
+import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/public';
 
 function isFinitePageRange(range: IPageRange) {
     return Number.isFinite(range.start)

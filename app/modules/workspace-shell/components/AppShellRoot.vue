@@ -152,6 +152,7 @@
     </div>
 </template>
 <script setup lang="ts">
+import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
@@ -370,10 +371,8 @@ const documentSessions = useWorkspaceDocumentSessions({
 // Opening another file in a view of a shared document gives that tab a
 // document of its own; the open runs in the tab's new workspace.
 provide(documentViewDetachKey, async (tabId, open) => {
-    if (!documentSessions.detachView(tabId)) {
-        return;
-    }
-    const workspace = await documentSessions.getView(tabId)?.whenMounted() ?? null;
+    await rememberReadingView(documentSessions.getSession(tabId), tabId);
+    const workspace = documentSessions.detachView(tabId) ? await documentSessions.getView(tabId)?.whenMounted() : null;
     if (workspace) {
         await open(workspace);
     }
@@ -607,7 +606,7 @@ const {
     handoffActiveTabBeforeClose,
 });
 const {
-    createTabInPane: createTabInPaneFromRouting,
+    createTabInPane,
     handleFallbackToolbarOpenFile,
     handleOpenInNewTab,
     openResultInAppropriateTab,
@@ -629,17 +628,6 @@ const {
     moveTabToWindow,
     mergeWindowInto,
 });
-useScanCleanupRunCoordinator(
-    activeWorkspace,
-    handleOpenInNewTab,
-    isStartupOpenClaimPending,
-    t,
-    documentSessionsByTabId,
-    activateTabById,
-);
-function createTabInPane(paneId: string) {
-    createTabInPaneFromRouting(paneId);
-}
 function setTabStartSection(tabId: string, section: TStartSection) {
     startSectionByTabId.value = {
         ...startSectionByTabId.value,
@@ -744,12 +732,21 @@ useAgentWorkspaceSnapshot({
     activateTab,
 });
 
-useAppShellResilience({
+const {persistCheckpointNow} = useAppShellResilience({
     enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
     browserEnabled: computed(() => isBrowserRuntime.value && !isStartupOpenClaimPending.value),
     editorPanesManager,
     documentSessionsByTabId,
 });
+useScanCleanupRunCoordinator(
+    activeWorkspace,
+    handleOpenInNewTab,
+    isStartupOpenClaimPending,
+    t,
+    documentSessionsByTabId,
+    activateTabById,
+    persistCheckpointNow,
+);
 
 const {
     closeToolPage,

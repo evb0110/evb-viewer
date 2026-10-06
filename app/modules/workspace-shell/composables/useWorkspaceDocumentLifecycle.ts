@@ -22,8 +22,11 @@ import {
     didOpenDocument,
     type TDocumentOpenOutcome,
 } from '@app/types/documentOpenOutcome';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { useRecentFiles } from '@app/composables/useRecentFiles';
+import {
+    rememberReadingView,
+    seedOpeningPreflight,
+} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -78,10 +81,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         const transaction = snapshot.value.activeTransaction;
         return transaction && transaction.kind !== 'close' ? transaction : null;
     });
-    const isOpening = computed(() => activeOpen.value !== null);
-    const hasDocument = computed(() => (
-        options.toolbarSnapshot.value.hasPdf || options.isDjvuMode.value
-    ));
+    const hasDocument = computed(() => options.toolbarSnapshot.value.hasPdf || options.isDjvuMode.value);
     // The source of the open has been accepted; from here the viewer decides.
     const acceptedTransactionId = ref<string | null>(null);
     let pendingPage: number | null = null;
@@ -142,7 +142,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         },
     );
 
-    function claimOpenSurface(transactionId: string, request: IWorkspaceOpenRequest) {
+    function claimOpenSurface(transactionId: string, request: IWorkspaceOpenRequest, hadDocument: boolean) {
         const surface = options.openSurface.snapshot.value;
         if (surface.phase !== 'idle' && surface.phase !== 'ready' && surface.phase !== 'failed') {
             return;
@@ -157,33 +157,28 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             documentId: String(path ?? transactionId),
             documentRevision: `open-intent:${transactionId}`,
             provisional: true,
-        }, initialPage, initialPage !== 1
-            ? null
-            : request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource));
+        }, initialPage, request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource), request.kind === 'open' && !request.carriesView ? {
+            seed: view => seedOpeningPreflight(session, view),
+            shown: !hadDocument,
+        } : null);
         if (pendingPage !== null) {
             options.openSurface.requestNavigation(pendingPage);
             pendingPage = null;
         }
-        logPdfRenderTrace('pdf-open-surface-transaction-claimed', {
-            documentId: options.openSurface.snapshot.value.identity?.documentId ?? null,
-            generation: options.openSurface.snapshot.value.generation,
-            transactionId,
-        });
-    }
-
-    function releaseOpenSurface(transactionId: string) {
-        if (options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`) {
-            options.openSurface.reset();
-        }
     }
 
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
-        // A gone Recent file is told before the open claims the tab; a tab its
+        // A gone Recent file is told, and the place in the document this open
+        // replaces is remembered, before the open claims the tab; a tab its
         // caller already claimed (a drop's new tab) and other files open at once.
-        const sourcePath = request.kind === 'open' && !activeOpen.value ? request.target?.originalPath : null;
-        if (sourcePath && recent.recentFiles.value.some(file => file.originalPath === sourcePath)) {
+        const opensNew = request.kind === 'open' && !activeOpen.value;
+        const sourcePath = opensNew ? request.target?.originalPath : null;
+        if (opensNew) {
             checkingOpenSource = true;
-            const gone = await recent.forgetRecentFileIfMissing(sourcePath).finally(() => {
+            const gone = await rememberReadingView(session).then(async () => Boolean(
+                sourcePath && recent.recentFiles.value.some(file => file.originalPath === sourcePath)
+                && await recent.forgetRecentFileIfMissing(sourcePath),
+            )).finally(() => {
                 checkingOpenSource = false;
             });
             if (gone) {
@@ -192,13 +187,13 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             }
         }
         const hadDocument = identityHasDocument(snapshot.value.identity);
-        let transactionId: string | null = null;
+        let transactionId = null as string | null;
         let presented = false;
         try {
             presented = await session.runOpen(request, async () => {
                 transactionId = activeOpen.value?.id ?? null;
                 if (transactionId) {
-                    claimOpenSurface(transactionId, request);
+                    claimOpenSurface(transactionId, request, hadDocument);
                 }
                 const accepted = await run();
                 if (!accepted) {
@@ -209,8 +204,10 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                 return accepted;
             });
         } finally {
-            if (!presented && transactionId) {
-                releaseOpenSurface(transactionId);
+            // However the open ends (shown, failed, cancelled, superseded or
+            // thrown), it gives back its surface claim.
+            if (!presented && transactionId && options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`) {
+                options.openSurface.reset();
             }
         }
         // An open that fails on an empty tab gives the tab back to Start,
@@ -234,20 +231,30 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         return presented;
     }
 
+    // A view of a document that is already open (a split's second view, or a
+    // view that remounted in another pane) has no open transaction of its own.
+    // Its surface starts at the page its view state names, as an open would.
     // A tab that owns a document it has not loaded here (a restored session,
     // a cold tab, a transferred tab) opens it when shown, at the page it was
     // left on. This restore is the open's only transaction: a nested one
     // would supersede it, and releasing it would reopen the surface at page 1.
-    function openOwnedDocumentWhenShown() {
+    function presentWhenShown() {
         const current = snapshot.value;
         const path = current.identity.originalPath;
-        if (
-            !options.isShown()
-            || current.phase !== 'presented'
-            || !path
-            || hasDocument.value
-            || (current.dirty && current.recoveryWorkingCopyPath)
-        ) {
+        if (!options.isShown() || current.phase !== 'presented') {
+            return;
+        }
+        if (hasDocument.value) {
+            if (options.openSurface.snapshot.value.phase === 'idle') {
+                options.openSurface.begin({
+                    documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
+                    documentRevision: `open-intent:view:${view.tabId}`,
+                    provisional: true,
+                }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
+            }
+            return;
+        }
+        if (!path || (current.dirty && current.recoveryWorkingCopyPath)) {
             return;
         }
         void runOpen({
@@ -258,29 +265,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                 isDjvu: current.identity.isDjvu,
             },
         }, async () => didOpenDocument(await options.openPath(path)));
-    }
-    // A view of a document that is already open (a split's second view, or a
-    // view that remounted in another pane) has no open transaction of its own.
-    // Its surface starts at the page its view state names, as an open would.
-    function presentOpenDocumentInThisView() {
-        const current = snapshot.value;
-        if (
-            !options.isShown()
-            || current.phase !== 'presented'
-            || !hasDocument.value
-            || options.openSurface.snapshot.value.phase !== 'idle'
-        ) {
-            return;
-        }
-        options.openSurface.begin({
-            documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
-            documentRevision: `open-intent:view:${view.tabId}`,
-            provisional: true,
-        }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
-    }
-    function presentWhenShown() {
-        presentOpenDocumentInThisView();
-        openOwnedDocumentWhenShown();
     }
     watch(
         [
@@ -303,7 +287,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
 
     // While an open has not claimed a surface yet, a page command waits for it.
     function goToPage(page: number, scrollOptions?: IScrollToPageOptions) {
-        if (!isOpening.value && !checkingOpenSource) {
+        if (!activeOpen.value && !checkingOpenSource) {
             options.goToPage(page, scrollOptions);
             return;
         }

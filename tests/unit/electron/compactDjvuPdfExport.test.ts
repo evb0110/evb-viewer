@@ -1,3 +1,4 @@
+import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     mkdir,
     mkdtemp,
@@ -35,7 +36,10 @@ vi.mock('electron', () => ({app: {
     getPath: () => tmpdir(),
     isPackaged: false,
 }}));
-vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: mocks.getDjvuNativeToolPaths}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', async importOriginal => ({
+    ...await importOriginal<typeof TDjvuNativeToolPathsModule>(),
+    getDjvuNativeToolPaths: mocks.getDjvuNativeToolPaths,
+}));
 vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,

@@ -770,7 +770,6 @@ export const useOcrPopupPresenter = ({
                 return;
             }
             if (progress.value.isRunning) {
-                void nextTick(() => view.setOpen(true));
                 return;
             }
             handleDialogClosed();

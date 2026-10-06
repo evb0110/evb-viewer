@@ -1,4 +1,5 @@
 import {parseDocumentRef} from '@contracts/documentRef';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import {EXPECTED_OUTCOME_CODES} from '@contracts/diagnostics/failureReceipt';
 import type {TPageNumber} from '@contracts/pageNumbers';
 import {parsePageNumber} from '@contracts/pageNumbers';
@@ -247,41 +248,67 @@ export const djvuProgressSchema = v.pipe(v.object({
 })));
 export type IDjvuProgress = v.InferOutput<typeof djvuProgressSchema>;
 
+// The size and modification time of the source an open's probe read its pages
+// from, checked unchanged across that probe: what ties a reading view to the
+// bytes it showed. Main keeps its own copy; the renderer's copy grants nothing.
+export const djvuOpenSourceSchema = v.strictObject({
+    sourceSize: nonNegativeSafeInteger,
+    sourceModifiedAt: epochMsSchema,
+}, error);
+export type IDjvuOpenSource = v.InferOutput<typeof djvuOpenSourceSchema>;
+
 export const djvuOpenResultSchema = v.pipe(v.object({
     success: v.boolean(error),
     pageCount: v.optional(positiveSafeInteger),
     pageSourceInfo: v.optional(djvuPageSourceInfoSchema),
+    source: v.optional(djvuOpenSourceSchema),
     jobId: v.optional(jobIdSchema),
     requestId: v.optional(requestIdSchema()),
     error: v.optional(v.string(error)),
-}, error), v.transform(value => ({
+    // Why the open was refused, for the renderer to localize; `error` keeps the diagnostic text.
+    errorEnvelope: v.optional(DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA),
+    failure: v.optional(failureReceiptSchema),
+    expected: v.optional(expectedOutcomeSchema),
+}, error), v.check(value => !(value.success && (value.errorEnvelope !== undefined || value.failure !== undefined || value.expected !== undefined)) && !(value.expected !== undefined && (value.failure !== undefined || value.errorEnvelope !== undefined)), error), v.transform(value => ({
     success: value.success,
     ...(value.pageCount === undefined ? {} : {pageCount: value.pageCount}),
     ...(value.pageSourceInfo === undefined ? {} : {pageSourceInfo: value.pageSourceInfo}),
+    ...(value.source === undefined ? {} : {source: value.source}),
     ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
     ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
     ...(value.error === undefined ? {} : {error: value.error}),
+    ...(value.errorEnvelope === undefined ? {} : {errorEnvelope: value.errorEnvelope}),
+    ...(value.failure === undefined ? {} : {failure: value.failure}),
+    ...(value.expected === undefined ? {} : {expected: value.expected}),
 })));
 export type IDjvuOpenResult = v.InferOutput<typeof djvuOpenResultSchema>;
+const convertedPageSizesSchema = v.pipe(v.array(v.pipe(djvuPageSizeSchema, v.check(size => size.width > 0 && size.height > 0 && size.dpi > 0, error)), error), v.maxLength(10_000, error));
 export const djvuConvertResultSchema = v.pipe(v.object({
     success: v.boolean(error),
     pdfPath: v.optional(documentRefSchema),
     jobId: v.optional(jobIdSchema),
     requestId: v.optional(requestIdSchema()),
     documentRef: v.optional(documentRefSchema),
+    // The source page sizes the conversion read, so its PDF opens without reading them again.
+    // Unusable sizes leave the open without this profile; the export itself stands.
+    pageSizes: v.optional(v.unknown()),
     error: v.optional(v.string(error)),
     failure: v.optional(failureReceiptSchema),
     expected: v.optional(expectedOutcomeSchema),
-}, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined), error), v.transform(value => ({
-    success: value.success,
-    ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
-    ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
-    ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
-    ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
-    ...(value.error === undefined ? {} : {error: value.error}),
-    ...(value.failure === undefined ? {} : {failure: value.failure}),
-    ...(value.expected === undefined ? {} : {expected: value.expected}),
-})));
+}, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined), error), v.transform((value) => {
+    const pageSizes = value.pageSizes === undefined ? undefined : v.safeParse(convertedPageSizesSchema, value.pageSizes);
+    return {
+        success: value.success,
+        ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
+        ...(pageSizes?.success ? {pageSizes: pageSizes.output} : {}),
+        ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
+        ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
+        ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
+        ...(value.error === undefined ? {} : {error: value.error}),
+        ...(value.failure === undefined ? {} : {failure: value.failure}),
+        ...(value.expected === undefined ? {} : {expected: value.expected}),
+    };
+}));
 export type IDjvuConvertResult = v.InferOutput<typeof djvuConvertResultSchema>;
 export const djvuPrintResultSchema = v.pipe(v.object({
     success: v.boolean(error),

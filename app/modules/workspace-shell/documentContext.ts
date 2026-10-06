@@ -29,10 +29,7 @@ import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type {
-    IWorkspaceDocumentController,
-    IWorkspaceOpenRequest,
-} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -46,6 +43,7 @@ import {
     type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/public';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
+import { EMPTY_SOURCE_CAPABILITIES } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
@@ -56,6 +54,10 @@ import {
     type TViewShellState,
 } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    createReadingViewLifecycleHooks,
+    registerViewInUse,
+} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
 interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
 
@@ -78,9 +80,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const isOpeningDocument = computed(() => openingTransaction.value !== null);
     const pendingDocumentPath = computed(() => openingTransaction.value?.target?.originalPath ?? null);
     const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
-    const views = createDocumentViews();
+    const views = createDocumentViews(controller);
     const {
-        viewPorts, commandView, commandViewRef, loadedView,
+        viewPorts, commandView, commandViewRef, loadedView, runDocumentOpen,
     } = views;
     const idleOpenSurface = createDocumentOpenSurfaceSession();
     const commandOpenSurface = {
@@ -119,20 +121,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         closePageContextMenu: () => commandView.value?.pageContextMenu.closePageContextMenu(),
     };
     // A document source change resets every view's search, not only the one in use.
-    function resetSearchCaches() {
-        for (const port of viewPorts.value.values()) {
-            port.search.resetSearchCache();
-        }
-    }
-    function closeSearches() {
-        for (const port of viewPorts.value.values()) {
-            port.search.closeSearch();
-        }
-    }
-    function runDocumentOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
-        const port = commandView.value;
-        return port ? port.runDocumentOpen(request, run) : controller.runOpen(request, run);
-    }
+    const resetSearchCaches = () => viewPorts.value.forEach(port => port.search.resetSearchCache());
+    const closeSearches = () => viewPorts.value.forEach(port => port.search.closeSearch());
+    registerViewInUse(controller, () => views.commandTabId.value);
     function emitOpenInNewTab(result: TDocumentRef | TOpenFileResult) {
         commandView.value?.emitOpenInNewTab(result);
     }
@@ -140,9 +131,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
     const file = useWorkspaceFileLifecycleController({
-        createViewerLifecycleHooks: context => driver.createLifecycleHooks(context),
+        createViewerLifecycleHooks: context => [createReadingViewLifecycleHooks(controller)].concat(driver.createLifecycleHooks(context)),
         getOpenSurface: () => commandView.value?.openSurface ?? null,
         runDocumentOpen,
+        assignDocument: controller.assign,
     });
     const {
         workingCopyPath,
@@ -156,14 +148,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         save: saveSettings,
         updateSetting,
     } = useSettings();
-    const sourceCapabilities = ref<IDocumentSourceCapabilities>({
-        annotations: false,
-        directImageExport: false,
-        outline: false,
-        pageEdits: false,
-        search: false,
-        text: false,
-    });
+    const sourceCapabilities = ref<IDocumentSourceCapabilities>(EMPTY_SOURCE_CAPABILITIES);
     const commandCanUndo = computed(() => commandView.value?.navigation.canUndo.value ?? false);
     const commandCanRedo = computed(() => commandView.value?.navigation.canRedo.value ?? false);
     const isSaving = ref(false);
@@ -305,14 +290,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         if (active?.view.defaultSourceCapabilities) {
             sourceCapabilities.value = active.view.defaultSourceCapabilities;
         } else if (!active) {
-            sourceCapabilities.value = {
-                annotations: false,
-                directImageExport: false,
-                outline: false,
-                pageEdits: false,
-                search: false,
-                text: false,
-            };
+            sourceCapabilities.value = EMPTY_SOURCE_CAPABILITIES;
         }
     }, {immediate: true});
     const saveThroughDriver = (action: 'save' | 'save-as') => (

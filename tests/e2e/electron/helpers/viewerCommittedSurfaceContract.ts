@@ -205,6 +205,41 @@ export function isOpeningBeforePageGeometry(frame: ICommittedSurfaceFrame) {
         && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false';
 }
 
+/**
+ * The sampler is armed before the open is claimed, so its leading frames show
+ * whatever preceded the claim. Drops only that prefix while the chassis still
+ * reports no open at all; from the first frame of any other state on, every
+ * frame stays in the trace, including a blank before the chassis mounts.
+ */
+export function selectClaimedOpenTrace(trace: ICommittedSurfaceTrace): ICommittedSurfaceTrace {
+    const claimIndex = trace.frames.findIndex(frame => !(
+        frame.openSurfacePhase === 'idle'
+        && frame.openSurfaceDiagnostic?.openSurfaceGeneration === '0'
+        && frame.openSurfaceDiagnostic.openSurfaceDocumentId === ''
+    ));
+    if (claimIndex >= 0) {
+        return {
+            ...trace,
+            frames: trace.frames.slice(claimIndex),
+        };
+    }
+    // Never claimed: keep the evidence and name the cause, so the scanner
+    // fails on it instead of on a generic short trace.
+    const lastFrame = trace.frames.at(-1);
+    return {
+        ...trace,
+        errors: [
+            ...trace.errors ?? [],
+            {
+                checkpoint: null,
+                elapsedMs: lastFrame?.elapsedMs ?? 0,
+                frame: lastFrame?.frame ?? 0,
+                message: 'open never claimed',
+            },
+        ],
+    };
+}
+
 /** Returns release-blocking contract violations, keeping Vitest assertions out of the helper. */
 export function findCommittedSurfaceContractViolations(
     trace: ICommittedSurfaceTrace,
@@ -215,7 +250,10 @@ export function findCommittedSurfaceContractViolations(
     )) ?? [];
     const frames = trace.frames;
     if (frames.length < 2) {
-        return ['fewer than two animation frames were sampled'];
+        return [
+            ...violations,
+            'fewer than two animation frames were sampled',
+        ];
     }
 
     // An open never goes back a step: once it has shown its page shape, the
@@ -1022,7 +1060,24 @@ export async function installCommittedSurfaceSampler(
                     '.page_container[data-page], [data-testid="document-page-source-page"][data-page-number]',
                 ) ?? [])
                     .filter(isVisible);
-                const page = visiblePages.find(ownsVisibleCenter) ?? visiblePages.find(candidate => {
+                const pdfViewerHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
+                const requestedTargetPage = Number(
+                    chassis?.dataset.viewportRequestedPage
+                ?? pdfViewerHost?.dataset.pdfNavigationHandoffTarget
+                ?? 0,
+                ) || null;
+                // The requested page is the reading place the viewer committed
+                // to. A partially visible neighbor earlier in DOM order also
+                // owns its own clipped center, so track the requested page
+                // whenever it is on screen; neighbors stay checked through
+                // visiblePdfPageVisuals.
+                const requestedVisiblePage = requestedTargetPage === null
+                    ? null
+                    : visiblePages.find(candidate => (
+                        Number(candidate.dataset.page ?? candidate.dataset.pageNumber ?? 0) === requestedTargetPage
+                        && ownsVisibleCenter(candidate)
+                    )) ?? null;
+                const page = requestedVisiblePage ?? visiblePages.find(ownsVisibleCenter) ?? visiblePages.find(candidate => {
                     const rect = candidate.getBoundingClientRect();
                     return rect.top < window.innerHeight && rect.bottom > 0;
                 }) ?? visiblePages[0] ?? null;
@@ -1165,12 +1220,6 @@ export async function installCommittedSurfaceSampler(
                     : null;
 
                 const pdfOpeningDiagnostic = document.querySelector<HTMLElement>('[data-pdf-opening-diagnostic="true"]');
-                const pdfViewerHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
-                const requestedTargetPage = Number(
-                    chassis?.dataset.viewportRequestedPage
-                ?? pdfViewerHost?.dataset.pdfNavigationHandoffTarget
-                ?? 0,
-                ) || null;
                 const targetPage = requestedTargetPage === null
                     ? null
                     : host?.querySelector<HTMLElement>(`.page_container[data-page="${String(requestedTargetPage)}"]`) ?? null;
@@ -1356,7 +1405,7 @@ export async function installCommittedSurfaceSampler(
                 testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
             }
         };
-        capture();
+        testWindow.__committedSurfaceAnimationFrame = window.requestAnimationFrame(capture);
     }, options.sampleCanvasPixels !== false);
 }
 

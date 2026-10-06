@@ -3,24 +3,19 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import { clamp } from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import type { IPdfPageLayoutMetrics } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import {
     getLayoutContentHeight,
     getLayoutPageHeight,
     getLayoutPageTop,
     getLayoutPageWidth,
     getLayoutRowHeight,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import {createLazyIndexedCollection} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import {createLazyIndexedCollection} from '@app/modules/document-viewer/virtualization/pageVirtualization';
 
-export interface IPdfSemanticAnchor {
-    page: number;
-    pageXFraction: number;
-    pageYFraction: number;
-    viewportXFraction: number;
-    viewportYFraction: number;
-    affinity: 'start' | 'center' | 'end';
-}
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+
+export type {IPdfSemanticAnchor};
 
 export interface IPdfViewportPageMetric {
     width: number;
@@ -268,6 +263,41 @@ export function computePdfViewportGeometry(
     };
 }
 
+/**
+ * The scroll that puts an anchor's page point at its viewport fraction, kept
+ * inside the content; a start anchor keeps the content's top inset above it.
+ * `page` is in scroll coordinates.
+ */
+export function resolveScrollForPageRect(
+    page: IPdfViewportRect,
+    anchor: IPdfSemanticAnchor,
+    viewport: {
+        width: number;
+        height: number;
+    },
+    content: {
+        width: number;
+        height: number;
+    },
+    startInset: number,
+) {
+    return {
+        left: clamp(
+            page.left + clamp(anchor.pageXFraction, 0, 1) * page.width
+                - clamp(anchor.viewportXFraction, 0, 1) * viewport.width,
+            0,
+            Math.max(0, content.width - viewport.width),
+        ),
+        top: clamp(
+            page.top + clamp(anchor.pageYFraction, 0, 1) * page.height
+                - clamp(anchor.viewportYFraction, 0, 1) * viewport.height
+                - (anchor.affinity === 'start' ? startInset : 0),
+            0,
+            Math.max(0, content.height - viewport.height),
+        ),
+    };
+}
+
 export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
     const rect = geometry.pageRects[clamp(anchor.page, 1, geometry.pageRects.length) - 1];
     if (!rect) {
@@ -276,26 +306,16 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
             top: 0,
         };
     }
-    const logicalTop = rect.top + clamp(anchor.pageYFraction, 0, 1) * rect.height
-        - clamp(anchor.viewportYFraction, 0, 1) * geometry.viewportHeight
-        - (anchor.affinity === 'start' ? geometry.insetTop : 0);
-    const physicalContentHeight = Math.max(
-        geometry.viewportHeight,
-        geometry.contentHeight - geometry.physicalScrollOrigin,
-    );
-    return {
-        left: clamp(
-            rect.left + clamp(anchor.pageXFraction, 0, 1) * rect.width
-                - clamp(anchor.viewportXFraction, 0, 1) * geometry.viewportWidth,
-            0,
-            Math.max(0, geometry.contentWidth - geometry.viewportWidth),
-        ),
-        top: clamp(
-            logicalTop - geometry.physicalScrollOrigin,
-            0,
-            Math.max(0, physicalContentHeight - geometry.viewportHeight),
-        ),
-    };
+    return resolveScrollForPageRect({
+        ...rect,
+        top: rect.top - geometry.physicalScrollOrigin,
+    }, anchor, {
+        width: geometry.viewportWidth,
+        height: geometry.viewportHeight,
+    }, {
+        width: geometry.contentWidth,
+        height: Math.max(geometry.viewportHeight, geometry.contentHeight - geometry.physicalScrollOrigin),
+    }, geometry.insetTop);
 }
 
 export function resolveAnchorFromScroll(

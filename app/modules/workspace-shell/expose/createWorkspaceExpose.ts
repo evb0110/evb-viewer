@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { ZOOM } from '@app/constants/pdfLayout';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
@@ -12,7 +11,6 @@ import type {
     IWorkspaceToolbarSnapshot,
     IWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
-import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
@@ -100,6 +98,7 @@ export function createWorkspaceExpose(
         search,
         navigation,
         openSurface,
+        viewerDefaults,
     } = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
@@ -191,21 +190,13 @@ export function createWorkspaceExpose(
         };
     }
 
-    function resolveDisplayZoom() {
-        if (view.zoomMode.value === 'custom') {
-            return clampPdfManualZoom(view.zoom.value);
-        }
-        if (Number.isFinite(view.effectiveZoom.value) && view.effectiveZoom.value > 0) {
-            return view.effectiveZoom.value;
-        }
-        return clampPdfManualZoom(view.zoom.value);
-    }
-
-    function setCustomZoomFromDisplay(displayZoom: number) {
-        const targetDisplayZoom = clampPdfManualZoom(displayZoom);
-        view.zoom.value = targetDisplayZoom;
-        view.effectiveZoom.value = targetDisplayZoom;
-        view.zoomMode.value = 'custom';
+    // A view command the reader issues (toolbar, menu, keyboard) moves the
+    // view as a scroll does; a saved view restored as state does not.
+    function readerCommand(command: () => void) {
+        return () => {
+            view.documentViewerRef.value?.observeReaderCommand?.();
+            command();
+        };
     }
 
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
@@ -335,38 +326,32 @@ export function createWorkspaceExpose(
         handleOptimizePdfForInteraction: async () => (
             owners.canOptimizePdf.value && owners.handleOptimizePdfForInteraction()
         ),
-        handleZoomIn: () => {
-            setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
-        },
-        handleZoomOut: () => {
-            const displayZoom = resolveDisplayZoom();
-            if (displayZoom > ZOOM.MIN) {
-                setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
-            }
-        },
+        handleZoomIn: viewerDefaults.handleZoomIn,
+        handleZoomOut: viewerDefaults.handleZoomOut,
         handleFitWidth: () => { navigation.handleFitMode('width'); },
         handleFitHeight: () => { navigation.handleFitMode('height'); },
-        handleActualSize: () => { setCustomZoomFromDisplay(1); },
-        setCustomZoomFromDisplay,
+        handleActualSize: viewerDefaults.handleActualSize,
+        setCustomZoomFromDisplay: viewerDefaults.setCustomZoomFromDisplay,
         handleCaptureRegion: whenCapable('regionCapture', viewContext.handleCaptureRegion),
         handleCrop: whenCapable('crop', owners.handleCrop),
-        handleToggleContinuousScroll: whenCapable('continuousScroll', () => {
+        handleToggleContinuousScroll: whenCapable('continuousScroll', readerCommand(() => {
             view.continuousScroll.value = !view.continuousScroll.value;
-        }),
-        handleViewModeSingle: whenCapable('viewMode', () => { view.viewMode.value = 'single'; }),
-        handleViewModeFacing: whenCapable('viewMode', () => { view.viewMode.value = 'facing'; }),
-        handleViewModeFacingFirstSingle: whenCapable('viewMode', () => {
-            view.viewMode.value = 'facing-first-single';
-        }),
-        handleViewRotationCw: whenCapable('viewRotation', () => {
-            view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'clockwise');
-        }),
-        handleViewRotationCcw: whenCapable('viewRotation', () => {
-            view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'counterclockwise');
-        }),
-        setViewRotation: (rotation) => {
-            if (viewerCapabilities().viewRotation) {
-                view.viewRotation.value = rotation;
+        })),
+        handleViewModeSingle: whenCapable('viewMode', readerCommand(() => { view.viewMode.value = 'single'; })),
+        handleViewModeFacing: whenCapable('viewMode', readerCommand(() => { view.viewMode.value = 'facing'; })),
+        handleViewModeFacingFirstSingle: whenCapable('viewMode', readerCommand(() => { view.viewMode.value = 'facing-first-single'; })),
+        handleViewRotationCw: whenCapable('viewRotation', readerCommand(() => { view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'clockwise'); })),
+        handleViewRotationCcw: whenCapable('viewRotation', readerCommand(() => { view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'counterclockwise'); })),
+        restoreViewState: (state) => {
+            const capabilities = viewerCapabilities();
+            viewerDefaults.applyView({
+                ...state,
+                continuousScroll: capabilities.continuousScroll ? state.continuousScroll : null,
+                viewMode: capabilities.viewMode ? state.viewMode : null,
+                viewRotation: capabilities.viewRotation ? state.viewRotation : null,
+            });
+            if (state.currentPage !== null) {
+                owners.handleGoToPage(state.currentPage);
             }
         },
         handleDeletePages: () => {
@@ -424,42 +409,47 @@ export function createWorkspaceExpose(
             view.documentViewerRef.value?.scrollToPage(page);
         },
         captureReadingAnchor: () => view.documentViewerRef.value?.captureReadingAnchor?.() ?? null,
-        placeReadingAnchorAfterOpen: async (anchor) => {
-            // The reader outranks the anchor: a navigation of theirs, or a
-            // scroll after the placement began, before the open settles leaves
-            // the view where they took it. The opening's own navigations are
-            // restores. The viewer counts the reader's scrolls; the count it
-            // had when the placement began (or when it appears) is the baseline.
-            const readInteractionEpoch = () => view.documentViewerRef.value?.getUserViewportInteractionEpoch?.() ?? null;
-            let interactionBaseline = readInteractionEpoch();
-            let superseded = false;
-            const readerMoved = (interactionEpoch: number | null) => {
-                if (interactionEpoch === null) {
-                    return false;
+        followReader: () => {
+            // The reader outranks a restored place: their navigation, or a move of
+            // the view (scroll, wheel, press, view command) since this began, leaves
+            // it where they took it; the opening's own navigations are restores.
+            // Moves are counted by the viewer chassis's interaction authority, which
+            // outlives the PDF/DjVu routing that hides and re-shows it; only a
+            // different chassis counts its moves from its own start.
+            const startTicket = openSurface.navigationTicket.value;
+            let readEpoch = view.documentViewerRef.value?.getReaderInteractionEpoch ?? null;
+            let baseline = readEpoch?.() ?? null;
+            let moved = false;
+            const readerMoved = () => {
+                const ticket = openSurface.navigationTicket.value;
+                const epoch = readEpoch?.() ?? null;
+                moved ||= (ticket !== startTicket && (ticket?.request.source ?? 'restore') !== 'restore')
+                    || (epoch !== null && baseline !== null && epoch > baseline);
+                const authority = view.documentViewerRef.value?.getReaderInteractionEpoch;
+                if (authority && authority !== readEpoch) {
+                    readEpoch = authority;
+                    baseline = 0;
                 }
-                interactionBaseline ??= interactionEpoch;
-                return interactionEpoch > interactionBaseline;
+                return moved;
             };
-            const stop = watch(() => [
-                openSurface.navigationTicket.value?.request.source ?? 'restore',
-                readInteractionEpoch(),
-            ] as const, ([
-                navigationSource,
-                interactionEpoch,
-            ]) => {
-                superseded ||= navigationSource !== 'restore' || readerMoved(interactionEpoch);
-            }, {
-                immediate: true,
-                flush: 'sync',
-            });
-            try {
-                await owners.waitForDocumentOpenSettled();
-            } finally {
-                stop();
-            }
-            if (!superseded && !readerMoved(readInteractionEpoch())) {
-                view.documentViewerRef.value?.restoreReadingAnchor?.(anchor);
-            }
+            const stop = watchSyncEffect(readerMoved);
+            let withdrawSeed = () => {};
+            return {
+                moved: readerMoved,
+                seed: (state, source) => {
+                    withdrawSeed = viewerDefaults.seedViewForSource(state, source);
+                },
+                finish: async (anchor) => {
+                    if (anchor) {
+                        await owners.waitForDocumentOpenSettled();
+                    }
+                    stop();
+                    withdrawSeed();
+                    if (anchor && !readerMoved()) {
+                        view.documentViewerRef.value?.restoreReadingAnchor?.(anchor);
+                    }
+                },
+            };
         },
         getAllShapes: () => pdfViewer()?.getAllShapes?.() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewer()?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],

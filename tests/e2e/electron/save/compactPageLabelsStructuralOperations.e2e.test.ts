@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     afterEach,
     describe,
@@ -10,7 +11,9 @@ import type {TRequestId} from '@contracts/shared';
 import type {IEvbTestApi} from '@app/types/evbTestApi';
 import {
     createCompactPageLabelsFixturePdf,
+    createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
+    readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     startElectronE2ESession,
@@ -28,6 +31,8 @@ import {
     ensureSidebarOpen,
     goToPageViaToolbar,
     openDocumentSidebarTab,
+    clickToolbarButtonWhenEnabled,
+    saveViaVisibleToolbar,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {expectWithinTimingBudget} from '@tests/e2e/electron/helpers/timingBudget';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
@@ -393,9 +398,12 @@ async function insertOnePageThroughGrantedNative(
 describe('Electron E2E, compact page labels through structural operations', () => {
     let session: IElectronE2ESession | null = null;
 
+    let preserveFailureArtifacts = false;
+
     afterEach(async () => {
-        await session?.stop();
+        await session?.stop({preserveArtifacts: preserveFailureArtifacts});
         session = null;
+        preserveFailureArtifacts = false;
     });
 
     it('keeps every compact label through mutations, save, and reopen', async () => {
@@ -1111,6 +1119,161 @@ describe('Electron E2E, compact page labels through structural operations', () =
             height,
         ]) => width > height)).toBe(true);
     }, 180_000);
+    it('deletes the visible final page and keeps the remaining page painted', async ({onTestFailed}) => {
+        // As the shared session fixture does: a failed capture is told, not
+        // raised over the test's own failure, within the hook's bound.
+        onTestFailed(async (failure) => {
+            preserveFailureArtifacts = true;
+            try {
+                await session?.captureFailureArtifacts(failure.task.name);
+            } catch (error) {
+                console.warn(`[E2E artifacts] Failed to capture failure state: ${getErrorMessage(error)}`);
+            }
+        }, 15_000);
+        const pdfPath = await createMultiPageTextFixturePdf(
+            `delete-visible-final-page-${Date.now()}.pdf`,
+            2,
+        );
+        session = await startElectronE2ESession(`e2e-delete-visible-final-page-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const page = session.page;
+        const host = '.workspace-host[data-workspace-active="true"]';
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        await openDocumentSidebarTab(page, 'Pages');
+        await goToPageViaToolbar(page, 2);
+        await waitForToolbarCurrentPage(page, 2);
+        await page.waitForSelector(`${host} .page_container--rendered[data-page="2"] canvas`, {timeout: 30_000});
+
+        await clickFoundAsUser(page, (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            `${selector} [data-document-thumbnail-item]`,
+        )).filter(item => item.getBoundingClientRect().width > 0)[1], host, {
+            description: 'page 2 thumbnail',
+            button: 'right',
+        });
+        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === label && item.getBoundingClientRect().width > 0), 'Delete Pages', {description: 'Delete Pages'});
+
+        const readTotalPages = async () => (await readWorkspaceStateValues<{totalPages?: number}>(page, ['totalPages'])).totalPages;
+        // What a person sees of one page: its canvas inside the viewer's
+        // visible box with ink on it, and the text the page renders.
+        const readVisiblePage = (viewerPage: typeof page, pageNumber: number) => viewerPage.evaluate((selector: string, number: number) => {
+            const viewer = document.querySelector<HTMLElement>(`${selector} .pdfViewer`);
+            const container = document.querySelector<HTMLElement>(`${selector} .page_container--rendered[data-page="${number}"]`);
+            const canvas = container?.querySelector<HTMLCanvasElement>('canvas') ?? null;
+            const viewerRect = viewer?.getBoundingClientRect();
+            const rect = canvas?.getBoundingClientRect();
+            const visibleWidth = rect && viewerRect ? Math.min(rect.right, viewerRect.right) - Math.max(rect.left, viewerRect.left) : 0;
+            const visibleHeight = rect && viewerRect ? Math.min(rect.bottom, viewerRect.bottom) - Math.max(rect.top, viewerRect.top) : 0;
+            let inkPixels = 0;
+            if (canvas && canvas.width > 0 && canvas.height > 0) {
+                const data = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+                for (let index = 0; data && index < data.length; index += 4) {
+                    if (data[index]! < 128 && data[index + 3]! > 0) {
+                        inkPixels += 1;
+                    }
+                }
+            }
+            return {
+                workspaceError: document.body.innerText.includes('Unable to load the document workspace'),
+                visible: visibleWidth > 0 && visibleHeight > 0,
+                inkPixels,
+                text: (container?.querySelector('.text-layer')?.textContent ?? '').replace(/\s+/gu, ' ').trim(),
+            };
+        }, host, pageNumber);
+        const expectPageShown = async (viewerPage: typeof page, pageNumber: number, text: string) => {
+            await expect.poll(async () => {
+                const shown = await readVisiblePage(viewerPage, pageNumber);
+                return shown.visible && shown.inkPixels > 0 && shown.text.includes(text);
+            }, {timeout: 30_000}).toBe(true);
+            expect((await readVisiblePage(viewerPage, pageNumber)).workspaceError).toBe(false);
+        };
+
+        await expect.poll(readTotalPages, {timeout: 30_000}).toBe(1);
+        await waitForViewerInteractive(page, 60_000);
+        await expectPageShown(page, 1, 'E2E Multi Page Fixture 1/2');
+        await waitForToolbarCurrentPage(page, 1);
+
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await expect.poll(readTotalPages, {timeout: 30_000}).toBe(2);
+        await waitForViewerInteractive(page, 60_000);
+        await goToPageViaToolbar(page, 2);
+        await expectPageShown(page, 2, 'E2E Multi Page Fixture 2/2');
+
+        await clickToolbarButtonWhenEnabled(page, 'Redo');
+        await expect.poll(readTotalPages, {timeout: 30_000}).toBe(1);
+        await waitForViewerInteractive(page, 60_000);
+        await expectPageShown(page, 1, 'E2E Multi Page Fixture 1/2');
+
+        await saveViaVisibleToolbar(page, 60_000);
+        const savedPages = await readPdfPageSnapshots(pdfPath);
+        expect(savedPages.map(saved => saved.textSnippet)).toEqual([expect.stringContaining('E2E Multi Page Fixture 1/2')]);
+        const savedSession = session;
+        session = null;
+        await savedSession.stop();
+        session = await startElectronE2ESession(`e2e-delete-visible-final-page-reopen-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        expect((await readWorkspaceStateValues<{totalPages?: number}>(session.page, ['totalPages'])).totalPages).toBe(1);
+        await expectPageShown(session.page, 1, 'E2E Multi Page Fixture 1/2');
+    }, 180_000);
+
+    it('keeps the reader\'s zoom through Undo and Redo of a large, file-backed page edit', async ({onTestFailed}) => {
+        onTestFailed(async (failure) => {
+            preserveFailureArtifacts = true;
+            try {
+                await session?.captureFailureArtifacts(failure.task.name);
+            } catch (error) {
+                console.warn(`[E2E artifacts] Failed to capture failure state: ${getErrorMessage(error)}`);
+            }
+        }, 15_000);
+        // Large enough that its edit history steps are file-backed copies.
+        const pdfPath = await createLargeScannedFixturePdf(`history-zoom-large-${Date.now()}.pdf`, 4);
+        session = await startElectronE2ESession(`e2e-history-zoom-large-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const page = session.page;
+        const host = '.workspace-host[data-workspace-active="true"]';
+        await waitForPdfLoaded(page, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        const readZoomLabel = () => page.evaluate(() => (
+            document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? ''
+        ));
+        const defaultZoomLabel = await readZoomLabel();
+        await clickToolbarButtonWhenEnabled(page, 'Zoom In');
+        await expect.poll(readZoomLabel, {timeout: 30_000}).not.toBe(defaultZoomLabel);
+        const readerZoomLabel = await readZoomLabel();
+        const readTotalPages = async () => (await readWorkspaceStateValues<{totalPages?: number}>(page, ['totalPages'])).totalPages;
+
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickFoundAsUser(page, (selector: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            `${selector} [data-document-thumbnail-item]`,
+        )).filter(item => item.getBoundingClientRect().width > 0)[1], host, {
+            description: 'page 2 thumbnail',
+            button: 'right',
+        });
+        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === label && item.getBoundingClientRect().width > 0), 'Delete Pages', {description: 'Delete Pages'});
+        await expect.poll(readTotalPages, {timeout: 60_000}).toBe(3);
+        await waitForViewerInteractive(page, 90_000);
+        expect(await readZoomLabel()).toBe(readerZoomLabel);
+
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await expect.poll(readTotalPages, {timeout: 60_000}).toBe(4);
+        await waitForViewerInteractive(page, 90_000);
+        expect(await readZoomLabel()).toBe(readerZoomLabel);
+
+        await clickToolbarButtonWhenEnabled(page, 'Redo');
+        await expect.poll(readTotalPages, {timeout: 60_000}).toBe(3);
+        await waitForViewerInteractive(page, 90_000);
+        expect(await readZoomLabel()).toBe(readerZoomLabel);
+    }, 300_000);
     // Issue #961: deleting the page in view leaves the old visible range past
     // the new end of the document. The remaining page must stay on screen.
     it('keeps the remaining page on screen after deleting the page in view', async () => {

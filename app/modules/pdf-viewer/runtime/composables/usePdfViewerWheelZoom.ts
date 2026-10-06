@@ -8,8 +8,8 @@ import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
     type IDocumentWheelSourceEvent,
+    type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 
 // Trackpad momentum keeps sending plain packets after a pinch ends.
 const WHEEL_ZOOM_MOMENTUM_WINDOW_MS = 1400;
