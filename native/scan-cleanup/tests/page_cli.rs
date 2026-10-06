@@ -5279,3 +5279,94 @@ fn batch_prior_stabilizes_a_cropped_thin_complete_source_mask_without_removing_i
         .count();
     assert!(output_ink > source_ink);
 }
+
+/// A bilevel book scan rendered for analysis: a solid scanner bed far deeper
+/// than the 1/40 edge zone along the top and the outer edge, a stippled
+/// fringe toward the paper, and the pixel of paper a page render leaves along
+/// every raster edge. The page plan's content box keeps the bed out.
+#[test]
+fn page_plan_content_box_excludes_a_deep_scanner_bed() {
+    let scratch = Scratch::new("deep-scanner-bed");
+    let input = scratch.path("deep-scanner-bed.png");
+    let page_metadata = scratch.path("deep-scanner-bed-page.json");
+    let manifest = scratch.path("deep-scanner-bed-manifest.json");
+    let mut image = GrayImage::new(700, 1_000, 236);
+    for y in 1..999 {
+        for x in 1..699 {
+            if (y < 70 && (y > 1 || x % 2 == 0)) || x >= 610 {
+                image.set(x, y, 0);
+            }
+        }
+    }
+    for y in 70..80 {
+        for x in 1..610 {
+            if (x + y) % 3 == 0 {
+                image.set(x, y, 0);
+            }
+        }
+    }
+    for row in 0..22 {
+        let top = 200 + row * 21;
+        for left in [62, 330] {
+            for glyph in 0..15 {
+                let glyph_left = left + glyph * 10;
+                for y in top..top + 11 {
+                    for x in glyph_left..glyph_left + 6 {
+                        if x == glyph_left || x == glyph_left + 5 || y == top || y == top + 10 {
+                            image.set(x, y, 24);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "analyze",
+        "analysisPurpose": "page-plan",
+        "renderMode": "preview",
+        "canvasScope": "page",
+        "stagedInputWindow": 1,
+        "stagedInputPeakPixels": 700 * 1_000,
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": CleanupOptions {
+                dpi: 150.0,
+                layout: LayoutMode::Single,
+                ..CleanupOptions::default()
+            },
+            "outputs": [],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .args(["--allowed-path-root", scratch.dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let metadata: Value = serde_json::from_slice(&fs::read(page_metadata).unwrap()).unwrap();
+    let content = &metadata["outputs"][0]["contentBox"];
+    let x = content["xPx"].as_f64().unwrap();
+    let y = content["yPx"].as_f64().unwrap();
+    let right = x + content["widthPx"].as_f64().unwrap();
+    assert!(
+        y >= 80.0,
+        "the scanner bed stayed above the body: {content}"
+    );
+    assert!(
+        right <= 610.0,
+        "the scanner bed stayed beside the body: {content}"
+    );
+    assert!(x <= 62.0 && y <= 200.0, "the body was cropped: {content}");
+}

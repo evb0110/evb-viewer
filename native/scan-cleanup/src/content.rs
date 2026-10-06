@@ -14,6 +14,7 @@ use scan_primitives::{
     threshold::{threshold_local, LocalThreshold},
     BinaryImage, Component, ComponentMap, GrayImage, Rect,
 };
+use std::ops::Range;
 
 #[derive(Clone, Debug)]
 pub struct ContentResult {
@@ -676,32 +677,43 @@ fn border_artifact_mask_from_binary(working: &GrayImage, binary: &BinaryImage) -
     // edge to edge are no authored structure, so the mask follows the bed and
     // its stippled fringe instead of leaving the bed's inner part as content.
     let (width, height) = (working.width(), working.height());
-    let row_coverage = |y: usize, from: usize, to: usize| {
-        (from..to).filter(|&x| retained.get(x, y)).count() as f64 / (to - from).max(1) as f64
+    let row_coverage = |y: usize, span: Range<usize>| {
+        let length = span.len().max(1);
+        span.filter(|&x| retained.get(x, y)).count() as f64 / length as f64
     };
-    let column_coverage = |x: usize, from: usize, to: usize| {
-        (from..to).filter(|&y| retained.get(x, y)).count() as f64 / (to - from).max(1) as f64
+    let column_coverage = |x: usize, span: Range<usize>| {
+        let length = span.len().max(1);
+        span.filter(|&y| retained.get(x, y)).count() as f64 / length as f64
     };
-    // A bed along one edge covers part of every line along the next edge, so
-    // a fringe is measured only between the solid cores of the edges beside it.
-    let left_core = solid_bed_depth(width, |depth| column_coverage(depth, 0, height));
-    let right_core = solid_bed_depth(width, |depth| column_coverage(width - 1 - depth, 0, height));
-    let top_core = solid_bed_depth(height, |depth| row_coverage(depth, 0, width));
-    let bottom_core = solid_bed_depth(height, |depth| row_coverage(height - 1 - depth, 0, width));
-    let (columns, rows) = (
-        left_core..width - right_core,
-        top_core..height - bottom_core,
+    let from_end = |extent: usize, band: Range<usize>| extent - band.end..extent - band.start;
+    let top = scanner_bed_depth(
+        height,
+        width,
+        row_coverage,
+        column_coverage,
+        |depth, band| column_coverage(width - 1 - depth, band),
     );
-    let left = scanner_bed_depth(width, |depth| column_coverage(depth, rows.start, rows.end));
-    let right = scanner_bed_depth(width, |depth| {
-        column_coverage(width - 1 - depth, rows.start, rows.end)
-    });
-    let top = scanner_bed_depth(height, |depth| {
-        row_coverage(depth, columns.start, columns.end)
-    });
-    let bottom = scanner_bed_depth(height, |depth| {
-        row_coverage(height - 1 - depth, columns.start, columns.end)
-    });
+    let bottom = scanner_bed_depth(
+        height,
+        width,
+        |depth, span| row_coverage(height - 1 - depth, span),
+        |depth, band| column_coverage(depth, from_end(height, band)),
+        |depth, band| column_coverage(width - 1 - depth, from_end(height, band)),
+    );
+    let left = scanner_bed_depth(
+        width,
+        height,
+        column_coverage,
+        row_coverage,
+        |depth, band| row_coverage(height - 1 - depth, band),
+    );
+    let right = scanner_bed_depth(
+        width,
+        height,
+        |depth, span| column_coverage(width - 1 - depth, span),
+        |depth, band| row_coverage(depth, from_end(width, band)),
+        |depth, band| row_coverage(height - 1 - depth, from_end(width, band)),
+    );
     BinaryImage::from_fn_parallel(width, height, |x, y| {
         retained.get(x, y) && (x < left || x + right >= width || y < top || y + bottom >= height)
     })
@@ -723,17 +735,27 @@ fn solid_bed_depth(extent: usize, coverage_at_depth: impl Fn(usize) -> f64) -> u
 
 /// How far from one edge the border mask may reach: the 1/40 edge zone, or a
 /// solid scanner bed and the stippled fringe after it, whichever is deeper.
-/// A fringe is never deeper than the bed it frays from, so a bed beside this
-/// edge cannot carry it further into the page.
-fn scanner_bed_depth(extent: usize, coverage_at_depth: impl Fn(usize) -> f64) -> usize {
+/// A fringe is never deeper than the bed it frays from, and it is measured
+/// between the beds the neighbouring edges (`near`, `far`) carry beside it.
+fn scanner_bed_depth(
+    extent: usize,
+    cross_extent: usize,
+    along: impl Fn(usize, Range<usize>) -> f64,
+    near: impl Fn(usize, Range<usize>) -> f64,
+    far: impl Fn(usize, Range<usize>) -> f64,
+) -> usize {
     let zone = extent.div_ceil(40).max(1);
-    let solid_end = solid_bed_depth(extent, &coverage_at_depth);
+    let solid_end = solid_bed_depth(extent, |depth| along(depth, 0..cross_extent));
     if solid_end == 0 {
         return zone;
     }
     let limit = (extent / 5).min(solid_end * 2);
+    let band = solid_end..limit.max(solid_end);
+    let near_bed = solid_bed_depth(cross_extent, |depth| near(depth, band.clone()));
+    let far_bed = solid_bed_depth(cross_extent, |depth| far(depth, band.clone()));
+    let span = near_bed..cross_extent.saturating_sub(far_bed).max(near_bed);
     let fringe_end = (solid_end..limit)
-        .find(|&depth| coverage_at_depth(depth) < 0.2)
+        .find(|&depth| along(depth, span.clone()) < 0.2)
         .unwrap_or(limit);
     zone.max(fringe_end)
 }
@@ -3141,106 +3163,32 @@ mod tests {
         );
     }
 
-    /// A bilevel scan of a bound thesis: the scanner bed lies along the top
-    /// and the outer edge far deeper than the 1/40 edge zone, its outermost
-    /// row is lighter, and a stippled fringe leads to the paper.
-    fn deep_scanner_bed_page() -> GrayImage {
-        let mut image = GrayImage::new(700, 1_000, 236);
-        for y in 0..70 {
-            for x in 0..700 {
-                if y > 0 || x % 2 == 0 {
-                    image.set(x, y, 0);
-                }
-            }
-        }
-        for y in 0..1_000 {
-            for x in 610..700 {
-                image.set(x, y, 0);
-            }
-        }
-        for y in 70..80 {
-            for x in 0..610 {
-                if (x + y) % 3 == 0 {
-                    image.set(x, y, 0);
-                }
-            }
-        }
-        for row in 0..22 {
-            let top = 200 + row * 21;
-            draw_glyph_line(&mut image, 62, top, 15, 6, 11, 4);
-            draw_glyph_line(&mut image, 330, top, 15, 6, 11, 4);
-        }
-        image
-    }
-
     #[test]
-    fn a_side_bed_does_not_stretch_the_top_bed_over_a_rule_it_touches() {
-        let mut image = GrayImage::new(500, 1_000, 236);
-        for y in 0..1_000 {
-            for x in 0..500 {
-                if y < 40 || x >= 400 {
-                    image.set(x, y, 0);
+    fn a_side_bed_does_not_carry_the_top_bed_over_a_rule_it_touches() {
+        // (top bed rows, side bed rows, rule row): a full-height and a partial
+        // side bed beside a shallow top bed, and a partial one beside a deep bed.
+        for (top_bed, side_bed, rule) in [(40, 1_000, 120), (40, 800, 120), (100, 800, 150)] {
+            let mut image = GrayImage::new(500, 1_000, 236);
+            for y in 0..1_000 {
+                for x in 0..500 {
+                    let on_rule = (rule..rule + 2).contains(&y) && (100..400).contains(&x);
+                    if y < top_bed || (x >= 400 && y < side_bed) || on_rule {
+                        image.set(x, y, 0);
+                    }
                 }
             }
+
+            let borders = border_artifact_mask(&image);
+
+            assert!(
+                borders.get(200, top_bed / 2),
+                "the top bed was not a border"
+            );
+            assert!(
+                !borders.get(200, rule),
+                "a rule joined to a {side_bed}-row side bed became border"
+            );
         }
-        for y in 120..122 {
-            for x in 100..400 {
-                image.set(x, y, 0);
-            }
-        }
-
-        let borders = border_artifact_mask(&image);
-
-        assert!(borders.get(200, 20), "the top bed was not a border");
-        assert!(
-            !borders.get(200, 120),
-            "a printed rule joined to the side bed became border"
-        );
-    }
-
-    #[test]
-    fn a_partial_side_bed_does_not_stretch_the_top_bed_over_a_rule_it_touches() {
-        let mut image = GrayImage::new(500, 1_000, 236);
-        for y in 0..1_000 {
-            for x in 0..500 {
-                if y < 40 || (x >= 400 && y < 800) {
-                    image.set(x, y, 0);
-                }
-            }
-        }
-        for y in 120..122 {
-            for x in 100..400 {
-                image.set(x, y, 0);
-            }
-        }
-
-        let borders = border_artifact_mask(&image);
-
-        assert!(borders.get(200, 20), "the top bed was not a border");
-        assert!(
-            !borders.get(200, 120),
-            "a printed rule joined to a partial side bed became border"
-        );
-    }
-
-    #[test]
-    fn a_scanner_bed_deeper_than_the_edge_zone_is_not_content() {
-        let result =
-            detect_content_and_margins(&deep_scanner_bed_page(), 150.0, None, Some([0.0; 4]));
-        let bounds = result.content.expect("the body is content");
-
-        assert!(
-            bounds.y >= 80.0,
-            "scanner bed survived above the body: {bounds:?}"
-        );
-        assert!(
-            bounds.right() <= 610.0,
-            "scanner bed survived beside the body: {bounds:?}"
-        );
-        assert!(
-            bounds.y <= 200.0 && bounds.x <= 62.0,
-            "the body was trimmed: {bounds:?}"
-        );
     }
 
     #[test]
