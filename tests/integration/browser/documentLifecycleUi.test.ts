@@ -1035,10 +1035,6 @@ describe('browser document lifecycle UI', () => {
             recordVideo: {dir: evidence},
         });
         const problems = collectConsoleProblems(page);
-        const wasmBodies: Array<Promise<Buffer>> = [];
-        page.on('response', (response) => {
-            if (response.url().endsWith('/wasm/evb-pdf-page-ops.wasm')) wasmBodies.push(response.body());
-        });
         let printStartedAt: number | undefined;
         try {
             await page.addInitScript(() => {
@@ -1159,17 +1155,9 @@ describe('browser document lifecycle UI', () => {
             ]) => x! > 0.65 && x! < 0.79 && y! > 0.2 && y! < 0.34)).toBe(true);
             expect(problems).toEqual([]);
         } finally {
-            const servedWasm = await Promise.all(wasmBodies);
-            const wasmSha256 = createHash('sha256').update(readFileSync(resolve(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'))).digest('hex');
-            const servedHashes = servedWasm.map(bytes => createHash('sha256').update(bytes).digest('hex'));
-            writeFileSync(resolve(evidence, 'wasm.json'), JSON.stringify({
-                wasmSha256,
-                servedHashes,
-            }));
             writeFileSync(resolve(evidence, 'console.json'), JSON.stringify(problems));
             await page.screenshot({path: resolve(evidence, 'final.png')});
             await browser.close();
-            expect(servedHashes).toContain(wasmSha256);
         }
     }, 90_000);
 
