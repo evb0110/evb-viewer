@@ -10,14 +10,14 @@ describe('settings platform feature schemas', () => {
     const channels = SETTINGS_PLATFORM_FEATURE.invokeChannels;
     const codecs = SETTINGS_PLATFORM_FEATURE.ipcCodecs;
 
-    it('preserves settings invoke channels without an event layer', () => {
+    it('preserves settings invoke channels and delivers shared changes', () => {
         expect(channels).toEqual({
             get: 'settings:get',
             getRecoveryNotice: 'settings:getRecoveryNotice',
             save: 'settings:save',
         });
-        expect(SETTINGS_PLATFORM_FEATURE.eventChannels).toEqual({});
-        expect(SETTINGS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(3);
+        expect(SETTINGS_PLATFORM_FEATURE.eventChannels).toEqual({onChanged: 'settings:changed'});
+        expect(SETTINGS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(4);
     });
 
     it('round-trips valid patches and complete settings results', () => {

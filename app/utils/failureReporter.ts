@@ -106,6 +106,13 @@ async function loadSdk() {
         Sentry.init({
             ...sdkOptions(),
             ...hostedConfig,
+            transport: options => {
+                const transport = Sentry.makeFetchTransport(options);
+                return {
+                    send: envelope => preference === 'granted' ? transport.send(envelope) : Promise.resolve({}),
+                    flush: timeout => transport.flush(timeout),
+                };
+            },
         });
         sdk = Sentry;
         flushPendingCaptures();
@@ -160,7 +167,10 @@ function createEventId() {
 
 /** The Error ID is chosen here so a held report can be resent under the ID the user already saw. */
 function sendToSentry(input: CaptureFailureInput, eventId = createEventId()) {
-    if (sdk === null && preference === 'granted' && sdkLoad !== null) {
+    if (preference !== 'granted') {
+        return eventId;
+    }
+    if (sdk === null && sdkLoad !== null) {
         pendingCaptures.push({
             input,
             eventId,

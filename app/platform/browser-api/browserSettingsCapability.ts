@@ -45,6 +45,7 @@ let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
 let diagnosticsPreferenceOverride: TClientDiagnosticsPreference | null = null;
 let diagnosticsPreferenceRevision = 0;
+const settingsListeners = new Set<(settings: ISettingsData) => void>();
 
 interface IBrowserSettingsReadResult {
     settings: ISettingsData;
@@ -265,7 +266,56 @@ function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } =
     return null;
 }
 
+function refreshSharedSettings() {
+    const previousPreference = settingsState.clientDiagnosticsPreference;
+    try {
+        settingsState = applyDiagnosticsPreferenceOverride(
+            readBrowserSettingsFromStorage({allowUnavailable: true}) ?? { ...DEFAULT_SETTINGS },
+        );
+    } catch {
+        // A cleared, unreadable or unsupported shared preference grants nothing.
+        settingsState = applyDiagnosticsPreferenceOverride({ ...DEFAULT_SETTINGS });
+    }
+    browserSettingsLoaded = true;
+    if (settingsState.clientDiagnosticsPreference !== previousPreference) {
+        diagnosticsPreferenceRevision += 1;
+    }
+    setRendererDiagnosticsPreference(settingsState.clientDiagnosticsPreference);
+    for (const listener of settingsListeners) {
+        listener(sanitizeSettings(settingsState));
+    }
+}
+
+function onSharedStorageChange(event: StorageEvent) {
+    if (event.storageArea === window.localStorage && (event.key === SETTINGS_STORAGE_KEY || event.key === null)) {
+        // Read the current value, since an older notification may already be queued.
+        refreshSharedSettings();
+    }
+}
+
+function onSharedSettingsResume() {
+    if (browserSettingsLoaded && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
+        refreshSharedSettings();
+    }
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', onSharedStorageChange);
+    window.addEventListener('pageshow', onSharedSettingsResume);
+    window.addEventListener('visibilitychange', onSharedSettingsResume);
+    import.meta.hot?.dispose(() => {
+        window.removeEventListener('storage', onSharedStorageChange);
+        window.removeEventListener('pageshow', onSharedSettingsResume);
+        window.removeEventListener('visibilitychange', onSharedSettingsResume);
+        settingsListeners.clear();
+    });
+}
+
 export const browserSettingsCapability: ISettingsCapability = {
+    onChanged(callback) {
+        settingsListeners.add(callback);
+        return () => settingsListeners.delete(callback);
+    },
     get() {
         return Promise.resolve().then(() => {
             if (!browserSettingsLoaded) {
