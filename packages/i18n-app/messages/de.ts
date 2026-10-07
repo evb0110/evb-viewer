@@ -605,6 +605,7 @@ export default {
         'activityCompleted': 'Durchlauf abgeschlossen',
         'steerQueued': 'Anweisung vorgemerkt; aktueller Durchlauf wird beendet',
         'steerSending': 'Vorgemerkte Anweisung wird gesendet',
+        'steerDraftRestored': 'Das Dokument wurde geändert. Ihre vorgemerkte Korrektur ist jetzt ein bearbeitbarer Entwurf. Prüfen Sie ihn vor dem Senden.',
         'imagePasteBusy': 'Das Einfügen von Bildern ist während eines laufenden Durchlaufs deaktiviert. Senden Sie zuerst eine Textanweisung oder stoppen Sie den Durchlauf.',
         'steerImagesUnsupported': 'Während der Verarbeitung werden nur Textanweisungen unterstützt. Stoppen Sie den Durchlauf, bevor Sie Bilder senden.',
         'btwIdle': 'Derzeit ist kein Assistentendurchlauf aktiv.',

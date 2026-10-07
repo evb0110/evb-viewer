@@ -28,6 +28,10 @@ import {
     requireEpochMs,
 } from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireSessionId} from '@contracts/shared';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
@@ -69,6 +73,37 @@ const secondScope: IAgentAssistantChatScope = {
     title: 'Document B',
     tabId: requireTabId('tab-b'),
 };
+
+function revisionScope(revision: number): IAgentAssistantChatScope {
+    const documentRef = requireDocumentRef('/documents/a.pdf');
+    const token = requireDocumentRevisionToken(`revision-${revision}`);
+    const documentInstanceId = requireDocumentInstanceId('instance-a');
+    return {
+        ...scope,
+        documentSessionKey: 'session-a',
+        documentInstanceId,
+        documentRef,
+        documentBackend: 'electron',
+        documentIdentity: {
+            version: 1,
+            authority: 'electron-working-copy',
+            contentRevision: revision,
+            documentRef,
+            mintedAt: requireEpochMs(revision),
+            token,
+        },
+        commandTarget: {
+            kind: 'revision',
+            tabId: scope.tabId!,
+            sessionId: requireSessionId('session-a'),
+            sessionRevision: revision,
+            documentRef,
+            documentBackend: 'electron',
+            documentInstanceId,
+            documentRevisionToken: token,
+        },
+    };
+}
 
 const steerImage = {
     type: 'image' as const,
@@ -151,7 +186,7 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
         state: createReadyState('queued'),
     });
     const panelProps = reactive({
-        chatScope: scope,
+        chatScope: initialState?.scope ?? scope,
         isChatScopePending: false,
         activeDocumentName: 'Document A',
         hasActiveDocument: true,
@@ -197,6 +232,15 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
                 class: 'send',
                 onClick: controller.handleSendMessage,
             }, 'Send'),
+            h('textarea', {
+                class: 'composer',
+                value: controller.draft.value,
+                disabled: controller.hasQueuedSteer.value,
+            }),
+            h('button', {
+                class: 'switch-provider',
+                onClick: () => controller.updateProvider('claude'),
+            }, 'Claude'),
             h('output', {class: 'draft'}, controller.draft.value),
             h('output', {class: 'queued'}, String(controller.hasQueuedSteer.value)),
             h('output', {class: 'image-count'}, String(controller.composerImages.value.length)),
@@ -246,6 +290,150 @@ describe('mounted assistant panel lifecycle', () => {
         vi.clearAllMocks();
         assistantEvent.dispose();
         window.localStorage.clear();
+    });
+
+    it('preserves composed text and images when page-label Save commits a new revision', async () => {
+        const harness = await mountHarness(createReadyState('idle', revisionScope(1)));
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        const savedScope = revisionScope(2);
+        mocks.getAssistantState.mockResolvedValue(createReadyState('idle', savedScope));
+        harness.setScope(savedScope);
+        await nextTick();
+        await nextTick();
+
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('Continue');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+        await vi.waitFor(() => expect(harness.host.querySelector('.can-send')?.textContent).toBe('true'));
+        expect(mocks.sendAssistantMessage).not.toHaveBeenCalled();
+        harness.unmount();
+    });
+
+    it('makes an interrupted queued correction editable after Save and rejects old turn completions', async () => {
+        const oldScope = revisionScope(1);
+        const savedScope = revisionScope(2);
+        const harness = await mountHarness(createReadyState('streaming', oldScope));
+        let resolveInterrupt: ((state: IAgentAssistantState) => void) | undefined;
+        mocks.interruptAssistant.mockReturnValueOnce(new Promise(resolve => {resolveInterrupt = resolve;}));
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+        await nextTick();
+        expect((harness.host.querySelector('.composer') as HTMLTextAreaElement).disabled).toBe(true);
+        mocks.getAssistantState.mockResolvedValue(createReadyState('idle', savedScope));
+        harness.setScope(savedScope);
+        await nextTick();
+        resolveInterrupt?.(createReadyState('cancelled', oldScope));
+        assistantEvent.emit({
+            type: 'state',
+            state: createReadyState('streaming', oldScope),
+        });
+        await nextTick();
+        await nextTick();
+
+        expect(harness.host.querySelector('.phase')?.textContent).toBe('idle');
+        expect(harness.host.querySelector('.queued')?.textContent).toBe('false');
+        expect(harness.host.querySelector('.composer-error')?.textContent).toBe('assistant.steerDraftRestored');
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('Continue');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+        expect((harness.host.querySelector('.composer') as HTMLTextAreaElement).disabled).toBe(false);
+        expect(mocks.sendAssistantMessage).not.toHaveBeenCalled();
+        // Cancellation targets the old revision; a later explicit Send uses the new one.
+        expect(mocks.interruptAssistant).toHaveBeenCalledWith(expect.objectContaining({scope: oldScope}));
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+        await nextTick();
+        expect(mocks.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
+            scope: savedScope,
+            text: 'Continue',
+            attachments: [steerImage],
+        }));
+        harness.unmount();
+    });
+
+    it('does not let a stale queued send clear newer composed text or images', async () => {
+        const oldScope = revisionScope(1);
+        const savedScope = revisionScope(2);
+        const harness = await mountHarness(createReadyState('streaming', oldScope));
+        mocks.interruptAssistant.mockResolvedValue(createReadyState('cancelled', oldScope));
+        let resolveSend: ((result: {
+            ok: true;
+            state: IAgentAssistantState
+        }) => void) | undefined;
+        mocks.sendAssistantMessage.mockReturnValueOnce(new Promise(resolve => {resolveSend = resolve;}));
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.send') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(mocks.sendAssistantMessage).toHaveBeenCalledOnce());
+        mocks.getAssistantState.mockResolvedValue(createReadyState('idle', savedScope));
+        harness.setScope(savedScope);
+        await nextTick();
+        (harness.host.querySelector('.edit-draft') as HTMLButtonElement).click();
+        resolveSend?.({
+            ok: true,
+            state: createReadyState('queued', oldScope),
+        });
+        await nextTick();
+        await nextTick();
+
+        expect(harness.host.querySelector('.phase')?.textContent).toBe('idle');
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('New draft');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('1');
+        expect(harness.host.querySelector('.queued')?.textContent).toBe('false');
+        expect(harness.host.querySelector('.can-send')?.textContent).toBe('true');
+        harness.unmount();
+    });
+
+    it.each([
+        [
+            'another document',
+            secondScope,
+        ],
+        [
+            'another tab',
+            {
+                ...revisionScope(1),
+                tabId: requireTabId('tab-linked'),
+            },
+        ],
+        [
+            'a reopened document',
+            {
+                ...revisionScope(1),
+                documentSessionKey: 'session-reopened',
+            },
+        ],
+        [
+            'another document instance',
+            {
+                ...revisionScope(1),
+                documentInstanceId: requireDocumentInstanceId('instance-b'),
+            },
+        ],
+    ])('clears composed work on a deliberate switch to %s', async (_name, nextScope) => {
+        const harness = await mountHarness(createReadyState('idle', revisionScope(1)));
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        mocks.getAssistantState.mockResolvedValue(createReadyState('idle', nextScope));
+        harness.setScope(nextScope);
+        await nextTick();
+        await nextTick();
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('0');
+        harness.setScope(revisionScope(1));
+        await nextTick();
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('');
+        harness.unmount();
+    });
+
+    it('clears composed work on a deliberate provider switch', async () => {
+        const harness = await mountHarness(createReadyState('idle', revisionScope(1)));
+        (harness.host.querySelector('.set-draft') as HTMLButtonElement).click();
+        (harness.host.querySelector('.set-image') as HTMLButtonElement).click();
+        (harness.host.querySelector('.switch-provider') as HTMLButtonElement).click();
+        await nextTick();
+        expect(harness.host.querySelector('.draft')?.textContent).toBe('');
+        expect(harness.host.querySelector('.image-count')?.textContent).toBe('0');
+        harness.unmount();
     });
 
     it('uses the current Codex fallback before the first backend state resolves', async () => {

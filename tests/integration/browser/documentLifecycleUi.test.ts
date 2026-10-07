@@ -371,6 +371,9 @@ describe('browser document lifecycle UI', () => {
                 name: 'Toggle Sidebar',
                 exact: true,
             }).click();
+            await expect.poll(() => page.locator('.sidebar-wrapper').evaluate(
+                element => element.getBoundingClientRect().width,
+            )).toBe(0);
             const foreignMarkerCount = await page.getByRole('button', {
                 name: 'Open Note',
                 exact: true,
@@ -379,9 +382,13 @@ describe('browser document lifecycle UI', () => {
                 name: 'Place a sticky note on the page.',
                 exact: true,
             }).click();
-            const pageBounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-            if (!pageBounds) throw new Error('The attachment page is not visible');
-            await page.mouse.click(pageBounds.x + 300, pageBounds.y + 300);
+            await expect.poll(() => page.locator('.toolbar-group-item--quick-note button')
+                .getAttribute('aria-pressed')).toBe('true');
+            // Resolve the click from the settled page, rather than a copied bounding box.
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 300,
+                y: 300,
+            }});
             await page.getByRole('textbox', {
                 name: 'Write annotation note',
                 exact: true,
