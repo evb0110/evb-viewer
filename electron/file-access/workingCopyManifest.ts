@@ -6,63 +6,30 @@ import {
     readFile,
     rm,
 } from 'fs/promises';
-import {parseDocumentRevisionToken} from '@contracts/documentRevision';
-import {parseDocumentRef} from '@contracts/documentRef';
 import {isErrnoException} from '@contracts/runtimeGuards';
-import {parseEpochMs} from '@contracts/timestamps';
 import * as v from 'valibot';
-import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
-import {createLogger} from '@electron/utils/createLogger';
 import {getWorkingCopyManifestPath} from '@electron/file-access/workingCopyDirectory';
 
-const log = createLogger('working-copy-manifest');
+import {
+    type originalSaveBaseSchema,
+    parseManifest,
+    parseRevision,
+    readPersistedWorkingCopyManifest,
+    syncRequiredSchema,
+    type IWorkingCopyManifest,
+    type IWorkingCopySyncRequired,
+    type TWorkingCopyRevision,
+} from '@electron/file-access/readWorkingCopyManifest';
+
 const runManifestUpdate = createKeyedSerialQueue();
-
-/** A save wrote its target but could not refresh the working copy from it. */
-const documentRefSchema = v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!));
-const revisionSchema = v.object({
-    version: v.literal(1),
-    documentRef: documentRefSchema,
-    authority: v.literal('electron-working-copy'),
-    token: v.pipe(v.string(), v.check(value => parseDocumentRevisionToken(value) !== null), v.transform(value => parseDocumentRevisionToken(value)!)),
-    contentRevision: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(1)),
-    mintedAt: v.pipe(v.number(), v.check(value => parseEpochMs(value) !== null), v.minValue(1), v.transform(value => parseEpochMs(value)!)),
-});
-export type TWorkingCopyRevision = v.InferOutput<typeof revisionSchema>;
-// Invalid optional sync metadata has historically been ignored while the required reason remains recoverable.
-const syncRequiredSchema = v.pipe(v.object({
-    reason: v.pipe(v.string(), v.check(value => value.trim() !== '')),
-    originalPath: v.optional(v.unknown()),
-    ownerWebContentsId: v.optional(v.unknown()),
-}), v.transform(({
-    reason, originalPath, ownerWebContentsId,
-}) => ({
-    reason,
-    ...(typeof originalPath === 'string' && originalPath.trim() !== '' ? {originalPath} : {}),
-    ...(typeof ownerWebContentsId === 'number' && Number.isSafeInteger(ownerWebContentsId) && ownerWebContentsId >= 0
-        ? {ownerWebContentsId}
-        : {}),
-})));
-const workingCopyManifestSchema = v.object({
-    version: v.literal(1),
-    revision: revisionSchema,
-    syncRequired: v.optional(syncRequiredSchema),
-});
-
-export type IWorkingCopySyncRequired = v.InferOutput<typeof syncRequiredSchema>;
-export type IWorkingCopyManifest = v.InferOutput<typeof workingCopyManifestSchema>;
-
-function parseRevision(value: unknown): TWorkingCopyRevision | null {
-    const result = v.safeParse(revisionSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
-}
-
-function parseManifest(value: unknown): IWorkingCopyManifest | null {
-    const result = v.safeParse(workingCopyManifestSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
-}
+export {
+    originalSaveSnapshotSchema,
+    type IWorkingCopyManifest,
+    type IWorkingCopySyncRequired,
+    type TWorkingCopyRevision,
+} from '@electron/file-access/readWorkingCopyManifest';
 
 /**
  * Imports the revision of a working copy written by an older version, whose
@@ -132,28 +99,14 @@ async function importLegacyRevision(workingCopyPath: string) {
 }
 
 export async function readWorkingCopyManifest(workingCopyPath: string): Promise<IWorkingCopyManifest | null> {
-    const manifestPath = getWorkingCopyManifestPath(workingCopyPath);
-    let text: string;
     try {
-        text = await readFile(manifestPath, 'utf8');
+        return await readPersistedWorkingCopyManifest(workingCopyPath);
     } catch (error) {
         if (isErrnoException(error) && error.code === 'ENOENT') {
             return importLegacyRevision(workingCopyPath);
         }
-        log.warn(`Failed to read working-copy manifest ${manifestPath}`);
         throw error;
     }
-    try {
-        const manifest = parseManifest(JSON.parse(text));
-        if (manifest) {
-            return manifest;
-        }
-    } catch {
-        // Invalid JSON follows the same quarantine path as an invalid schema.
-    }
-    const quarantinePath = await quarantineCorruptFile(manifestPath).catch(() => null);
-    log.warn(`Quarantined corrupt working-copy manifest at ${quarantinePath ?? manifestPath}`);
-    return null;
 }
 
 export async function readWorkingCopyRevision(workingCopyPath: string) {
@@ -203,10 +156,12 @@ export function writeWorkingCopyManifestRevision(
     workingCopyPath: string,
     revision: TWorkingCopyRevision,
     options: Parameters<typeof writeJsonAtomic>[2] = {},
+    originalSaveBase?: v.InferOutput<typeof originalSaveBaseSchema>,
 ) {
     return updateWorkingCopyManifest(workingCopyPath, current => ({
         ...current,
         version: 1,
         revision,
+        ...(originalSaveBase ? {originalSaveBase} : {}),
     }), options);
 }
