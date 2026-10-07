@@ -6,6 +6,7 @@ import {
 } from 'fs';
 import {
     access,
+    appendFile,
     copyFile,
     open,
     readFile,
@@ -97,7 +98,10 @@ import {
     serializeLegacyScanCleanupCompactManifest,
     serializeScanCleanupCompactManifest,
 } from '@evb/scan-cleanup/core/compactManifest';
-import {buildScanCleanupTextLayerPlanFromPageSizeMap} from '@evb/scan-cleanup/core/sourceTextLayer';
+import {
+    buildScanCleanupTextLayerPlanFromPageSizeMap,
+    inspectScanCleanupSourceTextOmission,
+} from '@evb/scan-cleanup/core/sourceTextLayer';
 import {
     buildScanCleanupStampBuildIds,
     hashScanCleanupNativeBinarySha256s,
@@ -361,6 +365,8 @@ interface IScanCleanupConversionContext {
     /** Child runs use the parent's sequential geometry sidecar cursor. */
     skipPageSizeValidation?: boolean;
     smallCompatibilityRun?: boolean;
+    /** Parent-owned source plan; children append refused pages, never inspect. */
+    sourceTextPagesPath?: string;
 }
 
 async function appendJsonLine(handle: TJsonlFileHandle, value: unknown) {
@@ -1486,6 +1492,8 @@ async function runStreamingScanCleanupConversion({
     }
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
+    const sourceTextPagesPath = join(scratch, 'source-text-omission-pages.txt');
+    await writeFile(sourceTextPagesPath, '');
     const outputHandle = await open(batchOutputsPath, 'w');
     const summaryHandle = await open(batchSummariesPath, 'w');
     const completedPageNumbers = new Set<number>();
@@ -1576,6 +1584,7 @@ async function runStreamingScanCleanupConversion({
                     skipDocumentCanvasMeasurement: true,
                     skipPageSizeValidation: true,
                     smallCompatibilityRun: true,
+                    sourceTextPagesPath,
                 },
             );
             await appendJsonLine(outputHandle, {
@@ -1630,6 +1639,17 @@ async function runStreamingScanCleanupConversion({
         // event. Do not attach an empty page list, which the progress schema
         // correctly rejects as inconsistent with completedUnits.
         emitProgress('assembling', summary.outputPages, summary.outputPages);
+        if ((await stat(sourceTextPagesPath)).size > 0 && paths.pdfPageOpsBinary !== undefined) {
+            summary.sourceTextOmission = await inspectScanCleanupSourceTextOmission({
+                pdfPath: preparedPdfPath,
+                pagesPath: sourceTextPagesPath,
+                pdfPageOpsBinary: paths.pdfPageOpsBinary,
+                qpdfBinary: paths.qpdfBinary,
+                signal,
+                runCommand: dependencies.runCommand,
+                log,
+            });
+        }
         const [
             sourceFile,
             outputFile,
@@ -3407,6 +3427,20 @@ export async function runScanCleanupConversion(
                 'Scan cleanup skipped source text on pages without safe affine geometry: '
                 + describePageNumbers(textLayerPlan.skippedNonAffine),
             );
+            const pagesPath = context?.sourceTextPagesPath ?? join(scratch, 'source-text-omission-pages.txt');
+            const writePages = context?.sourceTextPagesPath === undefined ? writeFile : appendFile;
+            await writePages(pagesPath, `${textLayerPlan.skippedNonAffine.join('\n')}\n`);
+            if (context?.sourceTextPagesPath === undefined && paths.pdfPageOpsBinary !== undefined) {
+                summary.sourceTextOmission = await inspectScanCleanupSourceTextOmission({
+                    pdfPath: prepared.pdfPath,
+                    pagesPath,
+                    pdfPageOpsBinary: paths.pdfPageOpsBinary,
+                    qpdfBinary: paths.qpdfBinary,
+                    signal,
+                    runCommand: dependencies.runCommand,
+                    log,
+                });
+            }
         }
         const [
             sourceFile,

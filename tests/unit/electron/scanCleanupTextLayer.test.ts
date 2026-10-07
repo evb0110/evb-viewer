@@ -1,14 +1,17 @@
 import {
+    inspectScanCleanupSourceTextOmission,
     buildScanCleanupTextLayerPlan,
     buildScanCleanupTextLayerPlanFromPageSizeMap,
     resolveScanCleanupTextLayerInstruction,
 } from '@evb/scan-cleanup/core/sourceTextLayer';
 import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 
 const pageSize: IPdfPageSize = {
@@ -429,5 +432,115 @@ describe('scan-cleanup source text layer', () => {
         ])).toThrow(
             'Scan cleanup text layer planning received page geometry out of document order: expected page 1 at index 0, received page 2',
         );
+    });
+});
+
+
+describe('scan-cleanup source text omission evidence', () => {
+    const inspect = (pages: Array<{
+        pageNumber: number;
+        hiddenText?: boolean;
+        paintedText?: boolean;
+        evbOcrLayer?: boolean;
+        uncertain?: string
+    }>) => inspectScanCleanupSourceTextOmission({
+        pdfPath: '/source.pdf',
+        pagesPath: '/refused-pages.txt',
+        pdfPageOpsBinary: '/page-ops',
+        qpdfBinary: '/qpdf',
+        signal: new AbortController().signal,
+        log: vi.fn(),
+        runCommand: async () => ({
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({
+                format: 'evb-pdf-ocr-text-visibility',
+                schemaVersion: 2,
+                pages: pages.map(page => ({
+                    evbOcrLayer: false,
+                    paintedText: false,
+                    hiddenText: false,
+                    uncertain: null,
+                    unsupported: null,
+                    evbOcrText: null,
+                    ...page,
+                })),
+            }),
+        }),
+    });
+
+    it('reports observed text on refused source pages without claiming loss on raster or unknown pages', async () => {
+        await expect(inspect([
+            {
+                pageNumber: 1,
+                hiddenText: true,
+            },
+            {pageNumber: 2},
+            {
+                pageNumber: 3,
+                paintedText: true,
+            },
+            {
+                pageNumber: 4,
+                evbOcrLayer: true,
+            },
+            {
+                pageNumber: 5,
+                uncertain: 'unreadable content',
+            },
+        ])).resolves.toEqual({
+            count: 3,
+            pages: [
+                1,
+                3,
+                4,
+            ],
+        });
+        await expect(inspect([{pageNumber: 2}])).resolves.toBeUndefined();
+    });
+
+    it('retains the actual count while bounding the source-page list', async () => {
+        await expect(inspect(Array.from({length: 65}, (_, index) => ({
+            pageNumber: index + 1,
+            hiddenText: true,
+        })))).resolves.toEqual({
+            count: 65,
+            pages: Array.from({length: 20}, (_, index) => index + 1),
+        });
+    });
+
+    it.each([
+        new Error('source text command failed'),
+        markUnprovenNativeTermination(new Error('source text command timed out'), 'process was not proven dead'),
+    ])('propagates the same command failure to the existing job owner: %s', async (error) => {
+        await expect(inspectScanCleanupSourceTextOmission({
+            pdfPath: '/source.pdf',
+            pagesPath: '/refused-pages.txt',
+            pdfPageOpsBinary: '/page-ops',
+            qpdfBinary: '/qpdf',
+            signal: new AbortController().signal,
+            log: vi.fn(),
+            runCommand: async () => { throw error; },
+        })).rejects.toBe(error);
+    });
+
+    it('keeps invalid successful evidence from inventing a notice but propagates job cancellation', async () => {
+        const controller = new AbortController();
+        const input = {
+            pdfPath: '/source.pdf',
+            pagesPath: '/refused-pages.txt',
+            pdfPageOpsBinary: '/page-ops',
+            qpdfBinary: '/qpdf',
+            signal: controller.signal,
+            log: vi.fn(),
+            runCommand: async () => ({
+                exitCode: 0,
+                stderr: '',
+                stdout: 'invalid report',
+            }),
+        };
+        await expect(inspectScanCleanupSourceTextOmission(input)).resolves.toBeUndefined();
+        controller.abort(new Error('job canceled'));
+        await expect(inspectScanCleanupSourceTextOmission(input)).rejects.toThrow('job canceled');
     });
 });

@@ -516,6 +516,8 @@ export default {
         'runCount': '{completed} di {total} pagine',
         'runStatus': '{phase} — {counter}',
         'summary': '{input} pagine di origine sono diventate {output} pagine di output; sono state divise {spreads} doppie pagine e scartati {offcuts} ritagli.',
+        'sourceTextOmitted': 'Il testo originale è stato omesso nei risultati di {count} pagina/e di origine: {pages}. Ricerca e copia non sono disponibili nelle pagine di output interessate. Esegui OCR sul PDF pulito per ripristinare il testo ricercabile.',
+        'sourceTextOmittedMorePages': '{pages} e altre {remaining}',
     },
     'app': {
         'title': 'EVB Viewer',

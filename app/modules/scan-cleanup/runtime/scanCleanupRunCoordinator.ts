@@ -632,12 +632,24 @@ function persistActiveJob(jobId: TJobId | null, documentRef: string | null = sca
 }
 
 function summaryText(state: Extract<TScanCleanupJobState, {status: 'completed'}>) {
-    return dependencies?.t('scanCleanup.summary', {
+    const counters = dependencies?.t('scanCleanup.summary', {
         input: state.summary.inputPages,
         output: state.summary.outputPages,
         spreads: state.summary.spreadsSplit,
         offcuts: state.summary.offcutsDiscarded,
     }) ?? '';
+    const omission = state.summary.sourceTextOmission;
+    if (!omission || omission.count === 0 || !dependencies) return counters;
+    const pages = omission.count > omission.pages.length
+        ? dependencies.t('scanCleanup.sourceTextOmittedMorePages', {
+            pages: omission.pages.join(', '),
+            remaining: omission.count - omission.pages.length,
+        })
+        : omission.pages.join(', ');
+    return `${counters} ${dependencies.t('scanCleanup.sourceTextOmitted', {
+        count: omission.count,
+        pages,
+    })}`;
 }
 
 async function handleTerminalState(state: TScanCleanupJobState) {
@@ -697,7 +709,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 }
             }
             terminalDependencies.toast.add({
-                color: 'success',
+                color: state.summary.sourceTextOmission?.count ? 'warning' : 'success',
                 title: terminalDependencies.t(state.partial
                     ? 'scanCleanup.completedPartialTitle'
                     : 'scanCleanup.completedTitle'),

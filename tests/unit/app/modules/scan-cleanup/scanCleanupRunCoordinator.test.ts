@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type {TJobId} from '@contracts/shared';
 import {requireJobId} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {
@@ -1381,6 +1382,44 @@ describe('scan cleanup run coordinator', () => {
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(
                 expect.objectContaining({title: 'scanCleanup.completedPartialTitle'}),
             ));
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('localizes counted source omissions in the existing completion toast', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = stubCapability(next => { listener = next; }, () => 'omitted-source-text');
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const toastAdd = vi.fn();
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(async () => true),
+            saveActiveDocumentAs: vi.fn(),
+            t: translate,
+            toast: {add: toastAdd},
+        });
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            });
+            const completed = completedState('omitted-source-text');
+            if (completed.status !== 'completed') throw new Error('expected completed fixture');
+            completed.summary.sourceTextOmission = {
+                count: 25,
+                pages: Array.from({length: 20}, (_, index) => requirePageNumber(index + 1)),
+            };
+            listener(completed);
+            await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'warning',
+                title: 'scanCleanup.completedTitle',
+                description: toastDescriptionContaining('scanCleanup.sourceTextOmitted:'),
+            })));
+            const description = toastAdd.mock.calls.at(-1)?.[0].description;
+            expect(JSON.stringify(description)).toContain('sourceTextOmittedMorePages');
+            expect(JSON.stringify(description)).toContain('remaining');
+            expect(JSON.stringify(description)).toContain('25');
         } finally {
             cleanup();
         }

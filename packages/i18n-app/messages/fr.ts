@@ -516,6 +516,8 @@ export default {
         'runCount': '{completed} pages sur {total}',
         'runStatus': '{phase} — {counter}',
         'summary': '{input} pages sources sont devenues {output} pages de sortie ; {spreads} doubles pages ont été divisées et {offcuts} chutes ont été supprimées.',
+        'sourceTextOmitted': 'Le texte source a été omis dans les résultats de {count} page(s) source : {pages}. La recherche et la copie sont indisponibles sur les pages de sortie concernées. Lancez l’OCR du PDF nettoyé pour rétablir la recherche de texte.',
+        'sourceTextOmittedMorePages': '{pages} et {remaining} autres',
     },
     'app': {
         'title': 'EVB Viewer',
