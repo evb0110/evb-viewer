@@ -333,10 +333,10 @@ async function processOcrPage(
                 ...context,
                 popplerSourcePdfPath: context.getPopplerSourcePdfPath(),
             }, pageSizeProbeImagePath);
-        lease = await acquireOcrPageLease(context.jobId, page.pageNumber, context.extractionDpi, pageSize, context.signal);
-        throwIfAborted(context.signal);
         const pageSourceDpi = context.pageSourceDpiByNumber.get(page.pageNumber);
         const effectiveDpi = Math.min(context.extractionDpi, pageSourceDpi ?? context.extractionDpi);
+        lease = await acquireOcrPageLease(context.jobId, page.pageNumber, effectiveDpi, pageSize, context.signal);
+        throwIfAborted(context.signal);
         if (effectiveDpi < context.extractionDpi) {
             log('debug', 'Reduced OCR render DPI', {
                 pageNumber: page.pageNumber,

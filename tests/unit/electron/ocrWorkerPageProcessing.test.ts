@@ -18,6 +18,7 @@ import {
 import type {TOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {createAbortError} from '@electron/utils/abort';
+import {detectSourceDpiFromPageSizes} from '@electron/pdf/sourceDpiDetection';
 import type {IJobBrokerRequest} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => ({
@@ -200,6 +201,137 @@ describe('OCR worker page processing guards (SRCH-006)', () => {
             recursive: true,
             force: true,
         });
+    });
+
+    it.each([
+        {
+            width: 16,
+            height: 20,
+        },
+        {
+            width: 20,
+            height: 16,
+        },
+    ])('OCRs a safe $width by $height inch scan in a mixed-DPI batch', async ({
+        width, height,
+    }) => {
+        const source = detectSourceDpiFromPageSizes([
+            {
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: width * 72,
+                heightPoints: height * 72,
+                rotation: 0,
+                dominantImageWidthPx: width * 150,
+                dominantImageHeightPx: height * 150,
+                dominantImageWidthPoints: width * 72,
+                dominantImageHeightPoints: height * 72,
+            },
+            {
+                pageNumber: 2,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                dominantImageWidthPx: 5100,
+                dominantImageHeightPx: 6600,
+                dominantImageWidthPoints: 612,
+                dominantImageHeightPoints: 792,
+            },
+        ]);
+        expect(source?.documentDpi).toBe(600);
+        const lowDpi = (await source?.getPageRaster(1))?.dpi;
+        expect(lowDpi).toBe(150);
+        const result = await processOcrPages([
+            {
+                pageNumber: 1,
+                languages: ['eng'],
+            },
+            {
+                pageNumber: 2,
+                languages: ['eng'],
+            },
+        ], 1, createContext({
+            extractionDpi: source?.documentDpi ?? 300,
+            pageSourceDpiByNumber: new Map([
+                [
+                    1,
+                    lowDpi!,
+                ],
+                [
+                    2,
+                    600,
+                ],
+            ]),
+            pageSizeByNumber: new Map([
+                [
+                    1,
+                    {
+                        width,
+                        height,
+                    },
+                ],
+                [
+                    2,
+                    {
+                        width: 8.5,
+                        height: 11,
+                    },
+                ],
+            ]),
+        }));
+
+        expect(result.errors).toEqual([]);
+        expect(result.successfulPageCount).toBe(2);
+        expect(result.diagnostics).toEqual([expect.objectContaining({
+            code: 'OCR_SOURCE_DPI_LIMITED',
+            pageNumber: 1,
+        })]);
+        expect(events.filter(event => event.startsWith('pdftoppm:'))).toEqual([
+            'pdftoppm:150',
+            'pdftoppm:600',
+        ]);
+        expect(acquireRequests[0]?.resources.estimatedResidentBytes).toBe(7_200_000 * 4);
+    });
+
+    it.each([
+        {
+            label: 'high-DPI page without automatic source reduction',
+            dpi: 600,
+            width: 16,
+            height: 20,
+            sourceDpi: undefined,
+        },
+        {
+            label: 'unsafe scan even at its source DPI',
+            dpi: 600,
+            width: 60,
+            height: 60,
+            sourceDpi: 150,
+        },
+    ])('refuses $label before rendering', async ({
+        dpi, width, height, sourceDpi,
+    }) => {
+        const result = await runSinglePage(createContext({
+            extractionDpi: dpi,
+            pageSizeByNumber: new Map([[
+                1,
+                {
+                    width,
+                    height,
+                },
+            ]]),
+            pageSourceDpiByNumber: sourceDpi === undefined ? new Map() : new Map([[
+                1,
+                sourceDpi,
+            ]]),
+        }));
+        expect(result.successfulPageCount).toBe(0);
+        expect(result.errors).toEqual([expect.stringContaining('rendered pixels; maximum is 45000000')]);
+        expect(mocks.runOcrCommand).not.toHaveBeenCalled();
+        expect(mocks.runOcrFileBased).not.toHaveBeenCalled();
     });
 
     it('refuses an oversize page from its known size before pdftoppm is spawned', async () => {
