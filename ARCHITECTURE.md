@@ -81,9 +81,15 @@ accounting site handles it.
 
 Binarization picks a route per page. Otsu handles flat, evenly lit text, Wolf
 handles local contrast and illumination evidence, and Sauvola handles heavy
-illumination deviation with thin strokes. The routing decision is made on a
-canonical 150 DPI analysis plane so that changing the working render DPI cannot
-change the route. What the engine is built for, and what it refuses, is written
+illumination deviation with thin strokes. The routing decision is made on the
+page's canonical analysis plane so that changing the working render DPI cannot
+change the route. Detection, preview and final cleanup take that plane's DPI
+from one function of the page alone: 150 DPI, never finer than the page's own
+scan, and low enough for the raster to fit the cap every reader of it applies.
+
+Poppler renders every page raster as PPM. Its PNG writer is fixed at maximum
+compression, which costs a smooth scanned page tens of seconds, so a caller
+that needs PNG gets the same pixels encoded by the app at the fastest level. What the engine is built for, and what it refuses, is written
 down in [what scans work](docs/user/what-scans-work.md).
 
 ## OCR

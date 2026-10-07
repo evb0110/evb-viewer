@@ -22,6 +22,7 @@ import {
 import {
     runScanCleanupDetection as runScanCleanupDetectionCore,
     type IScanCleanupDetectionRetention,
+    type IScanCleanupRetainedRasterInput,
 } from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -431,7 +432,7 @@ function createLazyPageSizeStore(pageCount: number, chunkPages = 1_024) {
     };
 }
 
-interface IStagedManifestPages {pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath'>>;}
+interface IStagedManifestPages {pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath' | 'options'>>;}
 
 type IRetryManifest = Pick<INativeScanCleanupManifestV3, 'pages'>;
 
@@ -440,7 +441,7 @@ type IRetryManifest = Pick<INativeScanCleanupManifestV3, 'pages'>;
  * so a renamed field fails to compile here instead of silently parsing as
  * `undefined` and taking the fallback path.
  */
-type TStagedManifest = Pick<INativeScanCleanupManifestV3, 'stagedInputWindow' | 'stagedInputPeakPixels'> & IStagedManifestPages;
+type TStagedManifest = Pick<INativeScanCleanupManifestV3, 'stagedInputWindow' | 'stagedInputPeakPixels' | 'hostMemoryBytes'> & IStagedManifestPages;
 
 /**
  * A sidecar that speaks the staged-input lease protocol.
@@ -1663,6 +1664,111 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(retention.release).toHaveBeenCalledOnce();
         await expect(stat(renderedPath)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(stat(retainedPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    // A scan stored at one pixel per point declares a page over a metre tall.
+    // At a fixed 150 DPI its 2912x4368 image became 6067x9100 interpolated
+    // pixels: 4.3x the rendering and analysis work, and over the cap preview
+    // later reads the same retained raster with.
+    it('analyzes a coarse scan on its own pixel grid', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-plane-test-'));
+        dirs.push(tempDir);
+        const renderedPath = join(tempDir, 'staged-page-1.png');
+        const renderDpis: number[] = [];
+        const nativeOptions: Array<{
+            dpi: number;
+            sourceDpi: number | null | undefined
+        }> = [];
+        const hostMemory: Array<number | null | undefined> = [];
+        const retain = vi.fn(async (input: IScanCleanupRetainedRasterInput<{id: string}>) => {
+            await rename(input.scratchPath, renderedPath);
+            return {
+                dpi: input.dpi,
+                height: input.height,
+                pageNumber: input.pageNumber,
+                path: renderedPath,
+                sizeBytes: input.sizeBytes,
+                width: input.width,
+            };
+        });
+        const retention: IScanCleanupDetectionRetention<{id: string}> = {
+            openDocument: vi.fn(async () => ({id: 'document'})),
+            pageCount: vi.fn(async () => 1),
+            pageSizeStore: vi.fn(async () => createArrayBackedPdfPageSizeStore([{
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 2912,
+                heightPoints: 4368,
+                rotation: 0,
+            }])),
+            rasterPages: vi.fn(async () => ({
+                detected: true,
+                documentDpi: 72,
+                getPageRaster: () => ({
+                    dpi: 72,
+                    width: 2912,
+                    height: 4368,
+                }),
+            })),
+            retainedPaths: vi.fn(async () => new Map()),
+            rasterScratchPath: vi.fn(async () => `${renderedPath}.part`),
+            stagedRasterPath: vi.fn(async () => renderedPath),
+            retain,
+            releaseRaster: vi.fn(async () => undefined),
+            release: vi.fn(async () => {
+                await rm(renderedPath, {force: true});
+            }),
+        };
+        const sidecar = createStagedSidecar({onManifest: manifest => {
+            hostMemory.push(manifest.hostMemoryBytes);
+            nativeOptions.push(...manifest.pages.map(page => ({
+                dpi: page.options.dpi,
+                sourceDpi: page.options.sourceDpi,
+            })));
+        }});
+
+        const detection = await runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            retention,
+            {
+                getTempDir: () => tempDir,
+                getPdftoppmBinary: () => 'pdftoppm',
+                resolveBinary: () => 'evb-scan-cleanup',
+                renderPage: vi.fn(async (
+                    _paths,
+                    _log,
+                    _pageNumber,
+                    _source,
+                    outputPath: string,
+                    dpi: number,
+                ) => {
+                    renderDpis.push(dpi);
+                    await writeFile(outputPath, PNG_1X1);
+                }),
+                renderPagePpm: vi.fn(),
+                runSidecar: sidecar.runSidecar,
+            },
+            {
+                rasterConcurrency: 1,
+                rasterMaxPixels: 160_000_000,
+                totalRamBytes: 36 * 1024 * MIB,
+            },
+            () => undefined,
+        );
+        resultStores.push(detection.resultStore);
+
+        expect(renderDpis).toEqual([72]);
+        // Native sizes its page workers from host memory; without it, it
+        // assumes a 4 GiB machine and analyzes one page at a time.
+        expect(hostMemory).toEqual([36 * 1024 * MIB]);
+        expect(nativeOptions).toEqual([{
+            dpi: 72,
+            sourceDpi: 72,
+        }]);
+        expect(retain).toHaveBeenCalledWith(expect.objectContaining({dpi: 72}));
+        await detection.resultStore.close();
     });
 
     it('rejects retained page geometry that is not in document order', async () => {

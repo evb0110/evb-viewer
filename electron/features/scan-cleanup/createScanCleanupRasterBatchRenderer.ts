@@ -4,7 +4,10 @@ import {
 } from 'node:path';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getErrorMessage} from '@electron/utils/error';
-import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import {
+    readPpmDimensions,
+    writePngFromPpm,
+} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {TScanCleanupOpenFile} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import type {
@@ -118,7 +121,7 @@ export function createScanCleanupRasterBatchRenderer(
             if (!polling && !commandSucceeded) return;
             const generatedPages = new Set<number>();
             for (const entry of entries) {
-                const match = /^page-(\d+)\.png$/u.exec(entry.name);
+                const match = /^page-(\d+)\.ppm$/u.exec(entry.name);
                 if (entry.isFile() && match !== null) {
                     generatedPages.add(Number.parseInt(match[1]!, 10));
                 }
@@ -161,8 +164,9 @@ export function createScanCleanupRasterBatchRenderer(
             releasePollWait?.();
         };
         try {
+            // Poppler writes PPM; its PNG writer is fixed at maximum zlib
+            // compression and would dominate detection on scanned pages.
             await runCommand(input.pdftoppmBinary, [
-                '-png',
                 '-cropbox',
                 '-r',
                 String(input.dpi),
@@ -184,7 +188,7 @@ export function createScanCleanupRasterBatchRenderer(
             await reportGeneratedPages();
             const generatedByPage = new Map<number, string>();
             for (const entry of await fileSystem.readdir(scratch, {withFileTypes: true})) {
-                const match = /^page-(\d+)\.png$/u.exec(entry.name);
+                const match = /^page-(\d+)\.ppm$/u.exec(entry.name);
                 if (!entry.isFile() || match === null) continue;
                 generatedByPage.set(Number.parseInt(match[1]!, 10), join(scratch, entry.name));
             }
@@ -194,17 +198,26 @@ export function createScanCleanupRasterBatchRenderer(
                 if (generatedPath === undefined) {
                     throw new Error(`Poppler raster batch did not produce page ${String(target.pageNumber)}`);
                 }
-                const dimensions = await readPngDimensions(generatedPath, fileSystem.open);
+                const dimensions = await readPpmDimensions(generatedPath, fileSystem.open);
                 if (
                     dimensions.width > target.limits.maxDimensionPx
                     || dimensions.height > target.limits.maxDimensionPx
                     || dimensions.width * dimensions.height > target.limits.maxPixels
                 ) {
                     throw new RangeError(
-                        `PNG raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
+                        `PPM raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
                     );
                 }
-                await fileSystem.rename(generatedPath, target.outputPath);
+                const encodedPath = generatedPath.replace(/\.ppm$/u, '.png');
+                // The PPM stays until the scratch directory goes; detection's
+                // admission already reserves two raw copies per page.
+                await writePngFromPpm(generatedPath, encodedPath, {
+                    maxPixels: target.limits.maxPixels,
+                    maxDimensionPx: target.limits.maxDimensionPx,
+                    open: fileSystem.open,
+                    signal: input.signal,
+                });
+                await fileSystem.rename(encodedPath, target.outputPath);
                 results.push({
                     height: dimensions.height,
                     pageNumber: target.pageNumber,

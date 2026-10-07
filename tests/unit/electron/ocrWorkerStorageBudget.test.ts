@@ -46,10 +46,13 @@ describe('OCR worker aggregate storage enforcement', () => {
             context.skip();
             return;
         }
+        // Each page is rendered as a transient PPM before its PNG is encoded,
+        // about 25 MB for these pages, so the budget admits three renders and
+        // trips on Tesseract output growing past it on concurrent pages.
         harness = await createOcrWorkerPipelineHarness({
             concurrency: 3,
-            growOutputKb: 2_048,
-            jobMaxTempMb: 1,
+            growOutputKb: 65_536,
+            jobMaxTempMb: 160,
         });
 
         const completion = await harness.start('storage-budget-growth');

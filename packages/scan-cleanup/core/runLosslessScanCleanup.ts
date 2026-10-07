@@ -35,7 +35,8 @@ import {
     toCropBoxPageSize,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
-import {DETECTION_DPI} from '@evb/scan-cleanup/core/detection';
+import {resolveScanCleanupAnalysisDpi} from '@evb/scan-cleanup/core/detection';
+import {resolveScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/rasterValidation';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {
     buildScanCleanupPageOpsInstructions,
@@ -266,8 +267,17 @@ export async function runLosslessScanCleanup(
             pageNumber,
             batchRasterByNumber.get(pageNumber),
         ));
+        // Lossless pages are analyzed on the same plane detection classified
+        // them on; the source pages themselves are preserved, not rendered.
+        const analysisDpiByPage = new Map(batchPageNumbers.map(pageNumber => [
+            pageNumber,
+            resolveScanCleanupAnalysisDpi(
+                pageSizeByNumber.get(pageNumber),
+                batchRasterByNumber.get(pageNumber)?.dpi,
+            ),
+        ]));
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
-            renderDpi: DETECTION_DPI,
+            renderDpi: analysisDpiByPage.get(plan.pageNumber)!,
             raster: plan.raster,
         })), scratch, dependencies.getAvailableScratchBytes);
         logRasterHandoff(log, 'lossless analysis', rasterHandoff);
@@ -279,6 +289,7 @@ export async function runLosslessScanCleanup(
                 ? dependencies.renderPagePpm
                 : dependencies.renderPage;
             const pageSize = pageSizeByNumber.get(plan.pageNumber)!;
+            const analysisDpi = analysisDpiByPage.get(plan.pageNumber)!;
             try {
                 await renderer(
                     paths,
@@ -286,11 +297,11 @@ export async function runLosslessScanCleanup(
                     plan.pageNumber,
                     preparedPdfPath,
                     inputPath,
-                    DETECTION_DPI,
+                    analysisDpi,
                     undefined,
                     signal,
                     undefined,
-                    undefined,
+                    resolveScanCleanupRasterRenderLimits(pageSize, analysisDpi),
                     pageSize.renderBox ?? 'cropbox',
                 );
                 rasterizedCount += 1;
@@ -299,9 +310,9 @@ export async function runLosslessScanCleanup(
                 return {
                     inputPath,
                     analysisInputPath: inputPath,
-                    analysisDpi: DETECTION_DPI,
+                    analysisDpi,
                     pageNumber: plan.pageNumber,
-                    dpi: DETECTION_DPI,
+                    dpi: analysisDpi,
                     ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
                         ? {}
                         : {observedLayout: request.layoutByPage[String(plan.pageNumber)]!}),

@@ -1,5 +1,14 @@
 import type {Stats} from 'fs';
-import {open} from 'fs/promises';
+import {
+    open,
+    writeFile,
+} from 'fs/promises';
+import {promisify} from 'util';
+import {
+    constants as zlibConstants,
+    crc32,
+    deflate,
+} from 'zlib';
 
 export interface IScanCleanupOpenFileHandle {
     read: (
@@ -16,6 +25,17 @@ const defaultOpenFile: TScanCleanupOpenFile = (path, flags) => open(path, flags)
 
 const NETPBM_HEADER_MAX_BYTES = 4_096;
 const PPM_READ_CHUNK_BYTES = 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+]);
+const deflateAsync = promisify(deflate);
 
 interface INetpbmInspection {
     width: number;
@@ -74,16 +94,7 @@ async function inspectPngHeader(
         const {bytesRead} = await handle.read(header, 0, header.byteLength, 0);
         if (
             bytesRead !== header.byteLength
-            || header.subarray(0, 8).compare(Buffer.from([
-                0x89,
-                0x50,
-                0x4e,
-                0x47,
-                0x0d,
-                0x0a,
-                0x1a,
-                0x0a,
-            ])) !== 0
+            || header.subarray(0, 8).compare(PNG_SIGNATURE) !== 0
         ) {
             throw new Error(invalidHeaderMessage);
         }
@@ -304,4 +315,46 @@ export async function readPpmRaster(path: string, options: IReadPpmRasterOptions
     } finally {
         await handle.close();
     }
+}
+
+function pngChunk(type: string, data: Uint8Array) {
+    const chunk = Buffer.alloc(12 + data.byteLength);
+    chunk.writeUInt32BE(data.byteLength, 0);
+    chunk.write(type, 4, 'ascii');
+    chunk.set(data, 8);
+    chunk.writeUInt32BE(crc32(chunk.subarray(4, 8 + data.byteLength)), 8 + data.byteLength);
+    return chunk;
+}
+
+/**
+ * Writes a Poppler PPM as a lossless 8-bit RGB PNG. Poppler's own PNG writer
+ * always uses maximum zlib compression, which costs a smooth scanned page tens
+ * of seconds; the fastest level costs a fraction of one. Compression runs on
+ * the zlib thread pool, so the calling event loop stays responsive.
+ */
+export async function writePngFromPpm(ppmPath: string, pngPath: string, options: IReadPpmRasterOptions) {
+    const raster = await readPpmRaster(ppmPath, options);
+    const rowBytes = raster.width * 3;
+    // Every PNG scanline starts with its filter type; 0 stores the row as is.
+    const scanlines = Buffer.alloc((rowBytes + 1) * raster.height);
+    for (let row = 0; row < raster.height; row += 1) {
+        raster.pixels.copy(scanlines, row * (rowBytes + 1) + 1, row * rowBytes, (row + 1) * rowBytes);
+    }
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(raster.width, 0);
+    header.writeUInt32BE(raster.height, 4);
+    header[8] = 8;
+    header[9] = 2;
+    const compressed = await deflateAsync(scanlines, {level: zlibConstants.Z_BEST_SPEED});
+    options.signal?.throwIfAborted();
+    await writeFile(pngPath, Buffer.concat([
+        PNG_SIGNATURE,
+        pngChunk('IHDR', header),
+        pngChunk('IDAT', compressed),
+        pngChunk('IEND', new Uint8Array()),
+    ]));
+    return {
+        width: raster.width,
+        height: raster.height,
+    };
 }

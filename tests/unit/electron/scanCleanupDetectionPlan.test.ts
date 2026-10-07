@@ -9,7 +9,12 @@ import {
     shouldRetryMediaBoxPage,
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
+    resolveScanCleanupAnalysisDpi,
 } from '@evb/scan-cleanup/core/detection';
+import {
+    resolveScanCleanupRasterRenderLimits,
+    SCAN_CLEANUP_RASTER_MAX_PIXELS,
+} from '@evb/scan-cleanup/core/rasterValidation';
 import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
@@ -66,6 +71,41 @@ function strongDiagnostics(overrides: Partial<INativeScanCleanupSplitDiagnostics
         ...overrides,
     } as INativeScanCleanupSplitDiagnosticsV3;
 }
+
+describe('scan cleanup canonical analysis plane', () => {
+    it('keeps 150 DPI for a scan finer than the analysis plane', () => {
+        expect(resolveScanCleanupAnalysisDpi(cropPage(1, 612, 792), 300)).toBe(150);
+        expect(resolveScanCleanupAnalysisDpi(cropPage(1, 612, 792), undefined)).toBe(150);
+    });
+
+    // A scan stored at one pixel per point declares a 1 m page. At 150 DPI its
+    // 2912x4368 image became 6067x9100 interpolated pixels, over the cap that
+    // preview applies to the same raster, so preview failed on that page.
+    it('analyzes a coarse scan at its own resolution, inside the shared cap', () => {
+        const cover = cropPage(1, 2912, 4368);
+        const dpi = resolveScanCleanupAnalysisDpi(cover, 72);
+        const limits = resolveScanCleanupRasterRenderLimits(cover, dpi);
+
+        expect(dpi).toBe(72);
+        expect([
+            limits.expectedWidthPx,
+            limits.expectedHeightPx,
+        ]).toEqual([
+            2912,
+            4368,
+        ]);
+    });
+
+    it('lowers the plane until an oversized page fits the shared cap', () => {
+        const poster = cropPage(1, 4000, 6000);
+        const dpi = resolveScanCleanupAnalysisDpi(poster, 300);
+        const limits = resolveScanCleanupRasterRenderLimits(poster, dpi);
+        const finer = resolveScanCleanupRasterRenderLimits(poster, dpi + 1);
+
+        expect(limits.expectedWidthPx * limits.expectedHeightPx).toBeLessThanOrEqual(SCAN_CLEANUP_RASTER_MAX_PIXELS);
+        expect(finer.expectedWidthPx * finer.expectedHeightPx).toBeGreaterThan(SCAN_CLEANUP_RASTER_MAX_PIXELS);
+    });
+});
 
 describe('scan cleanup detection raster plan', () => {
     it('gates the MediaBox retry to the Nabuco-style spread signals', () => {

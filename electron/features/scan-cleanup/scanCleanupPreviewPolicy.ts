@@ -161,6 +161,11 @@ export interface IScanCleanupRasterAdmissionPolicy {
     rasterConcurrency: number;
     /** The per-page pixel cap paired with the broker's resident-byte reserve. */
     rasterMaxPixels?: number;
+    /**
+     * Host memory the native tool sizes its page workers from. Without it the
+     * tool assumes a 4 GiB machine and analyzes a scanned book one page at a time.
+     */
+    totalRamBytes?: number;
 }
 
 export function resolveScanCleanupPreviewRasterAdmissionPolicy(

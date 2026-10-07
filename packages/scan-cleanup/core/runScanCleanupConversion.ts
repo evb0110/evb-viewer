@@ -166,7 +166,11 @@ import {
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
 import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
-import {DETECTION_DPI} from '@evb/scan-cleanup/core/detection';
+import {
+    DETECTION_DPI,
+    resolveScanCleanupAnalysisDpi,
+} from '@evb/scan-cleanup/core/detection';
+import {SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/rasterValidation';
 import {createScanCleanupScratchDir} from '@evb/scan-cleanup/core/scratchCleanup';
 import {
     describePageNumbers,
@@ -1418,10 +1422,10 @@ async function runStreamingScanCleanupConversion({
                 documentDpi = Math.max(documentDpi, resolveSourceDpi(boundedDpiSource.documentDpi));
             }
             if (request.options.preserveOriginalQuality === true) {
-                // Lossless children render their analysis page at DETECTION_DPI.
-                // A page without source image metadata still has a bounded
-                // geometry raster, so the admission does not silently ignore
-                // vector or mixed pages.
+                // Lossless children render their analysis page at no more
+                // than DETECTION_DPI. A page without source image metadata
+                // still has a bounded geometry raster, so the admission does
+                // not silently ignore vector or mixed pages.
                 plans.push({
                     renderDpi: DETECTION_DPI,
                     raster: guardrail,
@@ -2417,7 +2421,15 @@ export async function runScanCleanupConversion(
             resolvePagePlan(plan.pageNumber),
         ]));
         pagePlanResolver.report();
-        const canonicalAnalysisDpi = DETECTION_DPI;
+        // Detection classified each page on this plane, and routing must see
+        // the same one, so the page geometry and source facts choose it.
+        const analysisDpiByPage = new Map(rasterPlans.map(plan => [
+            plan.pageNumber,
+            resolveScanCleanupAnalysisDpi(
+                pageGeometryByNumber.get(plan.pageNumber),
+                detectedRasterByPage.get(plan.pageNumber)?.dpi,
+            ),
+        ]));
         const estimateNativeOutputScratchBytes = (plan: ReturnType<typeof capRasterPlanDpi>) => {
             const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
             const height = Math.max(1, Math.ceil(plan.guardrail.height * plan.dpi / plan.guardrail.dpi));
@@ -2430,7 +2442,7 @@ export async function runScanCleanupConversion(
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: plan.dpi,
             raster: plan.guardrail,
-            additionalRenderDpis: [canonicalAnalysisDpi],
+            additionalRenderDpis: [analysisDpiByPage.get(plan.pageNumber)!],
             additionalScratchBytes: estimateNativeOutputScratchBytes(plan),
             renderCopies: 1,
         })), scratch, dependencies.getAvailableScratchBytes, rasterPlans.length);
@@ -2606,9 +2618,9 @@ export async function runScanCleanupConversion(
                 inputPath,
                 analysisInputPath: join(
                     scratch,
-                    `source-${plan.pageNumber}-analysis-${canonicalAnalysisDpi}dpi.${extension}`,
+                    `source-${plan.pageNumber}-analysis-${analysisDpiByPage.get(plan.pageNumber)!}dpi.${extension}`,
                 ),
-                analysisDpi: canonicalAnalysisDpi,
+                analysisDpi: analysisDpiByPage.get(plan.pageNumber)!,
                 ...(trustedMrcLayers === undefined
                     ? {}
                     : {
@@ -2718,6 +2730,7 @@ export async function runScanCleanupConversion(
                         ? dependencies.renderPagePpm
                         : dependencies.renderPage;
                     const guardrail = plan.guardrail;
+                    const analysisDpi = analysisDpiByPage.get(plan.pageNumber)!;
                     const limits: IScanCleanupRasterRenderLimits = {
                         expectedWidthPx: Math.max(1, Math.ceil(guardrail.width * plan.dpi / guardrail.dpi)),
                         expectedHeightPx: Math.max(1, Math.ceil(guardrail.height * plan.dpi / guardrail.dpi)),
@@ -2730,15 +2743,15 @@ export async function runScanCleanupConversion(
                     const analysisLimits: IScanCleanupRasterRenderLimits = {
                         expectedWidthPx: Math.max(
                             1,
-                            Math.ceil(guardrail.width * canonicalAnalysisDpi / guardrail.dpi),
+                            Math.ceil(guardrail.width * analysisDpi / guardrail.dpi),
                         ),
                         expectedHeightPx: Math.max(
                             1,
-                            Math.ceil(guardrail.height * canonicalAnalysisDpi / guardrail.dpi),
+                            Math.ceil(guardrail.height * analysisDpi / guardrail.dpi),
                         ),
-                        maxPixels: resolveScanCleanupPipelineMaxPixels(
-                            plan.resolvedOutputMode,
-                            policy.rasterMaxPixels,
+                        maxPixels: Math.min(
+                            resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, policy.rasterMaxPixels),
+                            SCAN_CLEANUP_RASTER_MAX_PIXELS,
                         ),
                         maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
                     };
@@ -2748,7 +2761,7 @@ export async function runScanCleanupConversion(
                         plan.pageNumber,
                         prepared.pdfPath,
                         page.analysisInputPath,
-                        canonicalAnalysisDpi,
+                        analysisDpi,
                         undefined,
                         operationSignal,
                         undefined,

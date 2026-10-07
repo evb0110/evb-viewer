@@ -11,6 +11,7 @@ import type {
 import {
     readPngDimensions,
     readPpmDimensions,
+    writePngFromPpm,
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
@@ -83,8 +84,10 @@ async function renderPage(
 ) {
     validateCrop(crop);
     validateRenderLimits(limits);
+    // Poppler always writes PPM. Its PNG writer is fixed at maximum zlib
+    // compression, which turns a smooth scanned page into tens of seconds of
+    // deflate; a PNG caller gets the same pixels encoded at the fastest level.
     const commandArgs = [
-        ...(format === 'png' ? ['-png'] : []),
         ...(useMediaBox ? [] : ['-cropbox']),
         ...(limits?.scaleToFitPx === undefined ? [] : [
             '-scale-to',
@@ -110,9 +113,10 @@ async function renderPage(
             String(crop.height),
         );
     }
+    const outputPrefix = outputPath.replace(format === 'png' ? /\.png$/u : /\.ppm$/u, '');
     commandArgs.push(
         sourcePdfPath,
-        outputPath.replace(format === 'png' ? /\.png$/u : /\.ppm$/u, ''),
+        outputPrefix,
     );
     await runCommand(paths.pdftoppmBinary, commandArgs, {
         commandLabel: `pdftoppm(page=${String(pageNumber)},dpi=${String(dpi)})`,
@@ -121,6 +125,18 @@ async function renderPage(
         ...(signal === undefined ? {} : {signal}),
         log,
     });
+    if (format === 'png') {
+        const ppmPath = `${outputPrefix}.ppm`;
+        try {
+            await writePngFromPpm(ppmPath, outputPath, {
+                maxPixels: limits?.maxPixels ?? DEFAULT_RASTER_LIMITS.maxPixels,
+                maxDimensionPx: limits?.maxDimensionPx ?? DEFAULT_RASTER_LIMITS.maxDimensionPx,
+                ...(signal === undefined ? {} : {signal}),
+            });
+        } finally {
+            await rm(ppmPath, {force: true}).catch(() => undefined);
+        }
+    }
 }
 
 export function createScanCleanupRenderers(
