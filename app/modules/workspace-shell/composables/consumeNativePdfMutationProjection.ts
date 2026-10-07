@@ -3,19 +3,14 @@ import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
-    IPdfViewerSaveTransactionRequest,
+    IPdfViewerSaveTransactionDescriptors,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
 import { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/public';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {toPdfDateString} from '@app/utils/pdfDate';
 
-export interface INativePdfSaveTransactionOptions {
-    nativeCapabilities: NonNullable<IPdfViewerSaveTransactionRequest['nativeCapabilities']>;
-    dirtyState: NonNullable<IPdfViewerSaveTransactionRequest['dirtyState']>;
-    documentStructure: NonNullable<IPdfViewerSaveTransactionRequest['documentStructure']>;
-    forceWriterSave?: boolean;
-};
+export interface INativePdfSaveTransactionOptions extends IPdfViewerSaveTransactionDescriptors {forceWriterSave?: boolean;}
 
 function createCapabilityFailure(detail: string): NativePdfSaveRequiredError {
     return new NativePdfSaveRequiredError({

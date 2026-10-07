@@ -23,6 +23,7 @@ import {
     createDeps,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
+import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import {cast} from '@tests/helpers/cast';
 
 const recoveryMocks = vi.hoisted(() => ({
@@ -32,6 +33,10 @@ const recoveryMocks = vi.hoisted(() => ({
 
 vi.mock('@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection', () => ({consumeNativePdfMutationProjection: recoveryMocks.consumeNativePdfMutationProjection}));
 vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: recoveryMocks.readDocumentBytes}));
+vi.mock('@app/utils/platformDocuments', async importOriginal => ({
+    ...await importOriginal<typeof PlatformDocuments>(),
+    getDocumentWorkingCopyCapability: () => ({cleanupFile: async () => undefined}),
+}));
 
 const RECOVERY_CLONE_REF = requireDocumentRef('browser://documents/recovery-clone.pdf');
 const RECOVERY_PROJECTION = cast<never>({
@@ -282,6 +287,29 @@ describe('workspaceSavePlan', () => {
             assertBeforeExpose: assertAnnotationSaveCurrent,
         }));
         expect(commitAnnotationSave).not.toHaveBeenCalled();
+    });
+
+    it('recovers current working bytes when the canonical frontier proves no new mutations remain', async () => {
+        const runSaveTransaction = vi.fn(async () => cast<IPdfViewerSaveTransactionResult>({
+            source: 'native-required-failure',
+            nativeMutationProjection: null,
+            nativeRequiredFailure: {
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'classifier-rejection',
+                nativeRejection: 'no-native-mutations-projected',
+            },
+            verifiedUnchangedWorkingCopy: true,
+        }));
+        recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(9, 8, 7));
+        const {deps} = createDeps({
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken: ref(requireDocumentRevisionToken('working-bytes-revision')),
+            workingCopyPath: ref(requireDocumentRef('browser://documents/working.pdf')),
+            runSaveTransaction,
+            pdfViewerRef: ref({runSaveTransaction}),
+        });
+        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(9, 8, 7));
     });
 
     it('does not serialize a recovery snapshot for a clean document', async () => {
