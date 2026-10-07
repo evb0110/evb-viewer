@@ -1,4 +1,6 @@
-import {randomUUID} from 'node:crypto';
+import {
+    createHash, randomUUID,
+} from 'node:crypto';
 import {
     copyFile,
     rename,
@@ -8,6 +10,52 @@ import {
 } from 'node:fs/promises';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import type {TOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
+
+import {
+    OCR_LANGUAGE_MODEL_SHA256,
+    resolveOcrLanguageModels,
+    type TOcrLanguageCode,
+} from '@contracts/ocrLanguages';
+import {
+    getNativeToolBuildIdentity,
+    getRuntimeToolArchiveIdentity,
+} from '@electron/native-tools/runNativeToolCommand';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import type {
+    IOcrSearchablePdfOptions,
+    TOcrSearchablePdfPages,
+} from '@contracts/electronApiOcr';
+
+/** Bump the recipe when TypeScript raster/preprocess/recognition semantics change. */
+export function createOcrCheckpointFingerprint(job: {
+    sourcePdfPath: string;
+    documentRevision: Pick<IDocumentRevisionInfo, 'token'>;
+    pages: TOcrSearchablePdfPages;
+    options: IOcrSearchablePdfOptions;
+}) {
+    const selection = job.pages;
+    const languages = Array.isArray(selection) ? selection.flatMap(page => page.languages)
+        : selection.kind === 'pages' ? selection.pages.flatMap(page => page.languages) : selection.languages;
+    const models = [...new Set(languages.flatMap(language => resolveOcrLanguageModels(language as TOcrLanguageCode)))].sort();
+    return createHash('sha256').update(JSON.stringify({
+        sourcePdfPath: job.sourcePdfPath,
+        documentRevision: job.documentRevision.token,
+        pages: selection,
+        options: job.options,
+        recipe: {
+            version: 1,
+            scanCleanup: getNativeToolBuildIdentity('evb-scan-cleanup'),
+            pageOps: getNativeToolBuildIdentity('evb-pdf-page-ops'),
+            tesseract: getRuntimeToolArchiveIdentity('tesseract'),
+            poppler: getRuntimeToolArchiveIdentity('poppler'),
+            qpdf: getRuntimeToolArchiveIdentity('qpdf'),
+            models: models.map(model => [
+                model,
+                OCR_LANGUAGE_MODEL_SHA256[model],
+            ]),
+        },
+    })).digest('hex');
+}
 
 interface IPersistOcrPageCheckpointOptions {
     checkpointJsonPath: string;
