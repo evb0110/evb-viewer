@@ -212,7 +212,7 @@ function createFailingPageOpsWasmExports(errorText: string) {
             liveAllocation = null;
         }
     });
-    const run = vi.fn(() => {
+    const run = vi.fn((_pointer: number, _length: number) => {
         new Uint8Array(memory.buffer, errorPointer, error.byteLength).set(error);
         return -7;
     });
@@ -264,6 +264,7 @@ describe('browser page-ops WASM fast path', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
 
@@ -950,4 +951,71 @@ describe('browser page-ops WASM fast path', () => {
             error: {code: 'native-failure'},
         });
     });
+    it.each([
+        'success',
+        'native-error',
+        'throw',
+        'malformed-success',
+    ] as const)(
+        'clears encoded password bytes before releasing WASM memory on %s', async (outcome) => {
+            vi.resetModules();
+            vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
+            vi.stubGlobal('fetch', vi.fn(async () => ({
+                ok: true,
+                arrayBuffer: async () => new ArrayBuffer(8),
+            })));
+            const wasm = createFailingPageOpsWasmExports(JSON.stringify({
+                code: 'needs-password',
+                message: 'Password required',
+            }));
+            const password = '秘密-transient-password';
+            const passwordBytes = new TextEncoder().encode(password);
+            let encodedJs: Uint8Array | undefined;
+            const nativeEncode = TextEncoder.prototype.encode;
+            vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (this: TextEncoder, value) {
+                const encoded = nativeEncode.call(this, value);
+                if (value === password) encodedJs = encoded;
+                return encoded;
+            });
+            let encodedBefore: Uint8Array | undefined;
+            let encodedAtRelease: Uint8Array | undefined;
+            wasm.exports.evb_pdf_page_ops_run.mockImplementation((pointer: number, length: number) => {
+                encodedBefore = new Uint8Array(wasm.exports.memory.buffer, pointer + length - passwordBytes.byteLength, passwordBytes.byteLength).slice();
+                if (outcome === 'throw') throw new Error('Writer failed');
+                if (outcome === 'success') {
+                    const output = new Uint8Array(13);
+                    const view = new DataView(output.buffer);
+                    view.setUint32(0, 1, true);
+                    view.setUint32(4, 1, true);
+                    view.setUint32(8, 1, true);
+                    output[12] = 2;
+                    new Uint8Array(wasm.exports.memory.buffer, 4096, output.length).set(output);
+                    wasm.exports.evb_pdf_page_ops_output_ptr.mockReturnValue(4096);
+                    wasm.exports.evb_pdf_page_ops_output_len.mockReturnValue(output.length);
+                    return 0;
+                }
+                return outcome === 'malformed-success' ? 0 : -7;
+            });
+            wasm.exports.evb_pdf_page_ops_free.mockImplementation((pointer: number, length: number) => {
+                encodedAtRelease = new Uint8Array(wasm.exports.memory.buffer, pointer + length - passwordBytes.byteLength, passwordBytes.byteLength).slice();
+            });
+            vi.stubGlobal('WebAssembly', {
+                Memory: NativeWebAssembly.Memory,
+                instantiate: vi.fn(async () => ({instance: {exports: wasm.exports}})),
+            });
+            const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+            const result = await tryRunBrowserPageOpsWithWasm('decrypt', {
+                data: new Uint8Array([1]),
+                password,
+            });
+            expect(result).toMatchObject(outcome === 'success' ? {
+                data: new Uint8Array([2]),
+                pageCount: 1,
+            } : {status: 'failed'});
+            expect(encodedBefore).toEqual(passwordBytes);
+            expect(encodedAtRelease).toEqual(new Uint8Array(passwordBytes.byteLength));
+            expect(encodedJs).toEqual(new Uint8Array(passwordBytes.byteLength));
+        },
+    );
+
 });

@@ -3,24 +3,21 @@ import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import {
+    BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
+    type IBrowserPageOpsWasmFailure,
+} from '@contracts/browserPageOpsWorker';
 import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import {
     BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
     decodeBrowserPdfCatalog,
 } from '@contracts/browserPdfCatalog';
-import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-import type {
-    ICropMargins,
-    TPdfViewMode,
-    TPrintOrientation,
-} from '@contracts/shared';
+import type {ICropMargins} from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
-    isNativeErrorEnvelope,
     NATIVE_ERROR_ENVELOPE_SCHEMA,
-    type INativeErrorEnvelope,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -29,6 +26,9 @@ import {
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
 } from '@contracts/getCheckedWasmMemoryView';
 import * as v from 'valibot';
+export {
+    isBrowserPageOpsWasmFailure, type IBrowserPageOpsWasmFailure,
+} from '@contracts/browserPageOpsWorker';
 
 interface IPdfPageOpsWasmExports {
     memory: WebAssembly.Memory;
@@ -45,49 +45,14 @@ interface IPdfPageOpsWasmExports {
 const PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
 const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 
-interface IBrowserPageOpsWasmDecryptRequest {
-    data: Uint8Array;
-    password: string;
-}
-
-interface IBrowserPageOpsWasmSaveMutationsRequest {
-    data: Uint8Array;
-    mutations: IPdfNativeMutationSet;
-    modifiedAt: string;
-}
-
-interface IBrowserPageOpsWasmPrintLayoutRequest {
-    data: Uint8Array;
-    pageNumbers: number[];
-    viewMode: TPdfViewMode;
-    orientation: TPrintOrientation;
-}
-
-interface IBrowserPageOpsWasmRequestMap extends IBrowserPageOpsWorkerRequestMap {
-    decrypt: IBrowserPageOpsWasmDecryptRequest;
-    saveMutations: IBrowserPageOpsWasmSaveMutationsRequest;
-    printLayout: IBrowserPageOpsWasmPrintLayoutRequest;
-}
+type IBrowserPageOpsWasmRequestMap = IBrowserPageOpsWorkerRequestMap;
 
 const wasmBytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
 const wasmMutationResultSchema = v.object({
     data: wasmBytesSchema,
     pageCount: v.number(),
 });
-const wasmIdentityBindingsSchema = v.array(v.object({
-    annotationId: v.string(),
-    pdfRef: v.string(),
-}));
-const wasmSaveMutationsResultSchema = v.object({
-    data: wasmBytesSchema,
-    pageCount: v.number(),
-    identityBindings: wasmIdentityBindingsSchema,
-    nativeMutationPostconditionsVerified: v.literal(true),
-});
-const wasmFailureSchema = v.object({
-    status: v.literal('failed'),
-    error: v.custom<INativeErrorEnvelope>(isNativeErrorEnvelope),
-});
+const wasmIdentityBindingsSchema = BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA.entries.identityBindings;
 const wasmCatalogResultSchema = v.pipe(
     v.unknown(),
     // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
@@ -96,14 +61,9 @@ const wasmCatalogResultSchema = v.pipe(
     v.transform(value => value as NonNullable<typeof value>),
 );
 
-type IBrowserPageOpsWasmDecryptResult = v.InferOutput<typeof wasmMutationResultSchema>;
-type IBrowserPageOpsWasmSaveMutationsResult = v.InferOutput<typeof wasmSaveMutationsResultSchema>;
-
-interface IBrowserPageOpsWasmResultMap extends IBrowserPageOpsWorkerResultMap {
-    decrypt: IBrowserPageOpsWasmDecryptResult;
-    saveMutations: IBrowserPageOpsWasmSaveMutationsResult;
-    printLayout: IBrowserPageOpsWorkerResultMap['mergePages'];
-}
+type IBrowserPageOpsWasmResultMap = {
+    [K in keyof IBrowserPageOpsWorkerResultMap]: Exclude<IBrowserPageOpsWorkerResultMap[K], IBrowserPageOpsWasmFailure | null>;
+};
 
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
@@ -150,12 +110,6 @@ const MAX_U32 = 0xffff_ffff;
 const MAX_DOCUMENTS = 500;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
-
-export type IBrowserPageOpsWasmFailure = v.InferOutput<typeof wasmFailureSchema>;
-
-export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPageOpsWasmFailure {
-    return v.safeParse(wasmFailureSchema, value, {abortEarly: true}).success;
-}
 
 function createWasmFailure(
     code: TNativeErrorCode,
@@ -520,6 +474,7 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     output.set(insertionData, offset);
     offset += insertionDataLength;
     output.set(password, offset);
+    password.fill(0);
 
     return {
         data: output,
@@ -692,7 +647,7 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         if (!parsedBindings.success) {
             return null;
         }
-        const parsed = v.safeParse(wasmSaveMutationsResultSchema, {
+        const parsed = v.safeParse(BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA, {
             data: toTransferableUint8Array(output.slice(20, 20 + dataLength)),
             pageCount: view.getUint32(4, true),
             identityBindings: parsedBindings.output,
