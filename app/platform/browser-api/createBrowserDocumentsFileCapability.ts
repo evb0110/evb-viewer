@@ -56,10 +56,7 @@ import {
     saveWorkingBytesToSourceStructured,
 } from '@app/platform/browser-api/browserSaveTargets';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
-import {
-    isBrowserPageOpsWasmFailure,
-    tryRunBrowserPageOpsWithWasm,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {
@@ -332,7 +329,7 @@ export function createBrowserDocumentsFileCapability(
                 options.expectedDocumentRevisionToken,
             );
             const input = await browserDocumentStore.read(path);
-            const wasmResult = await tryRunBrowserPageOpsWithWasm('saveMutations', {
+            const wasmResult = await runBrowserPageOpsWorkerRequest('saveMutations', {
                 data: input,
                 mutations,
                 modifiedAt,

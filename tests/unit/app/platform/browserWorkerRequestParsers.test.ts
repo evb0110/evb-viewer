@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { parseBrowserSearchWorkerRequest } from '@app/platform/browser-api/browserSearchWorker.types';
 import { parseBrowserPdfCombineWorkerRequest } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import { parseBrowserPageOpsWorkerRequest } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import { parseBrowserPageOpsWorkerRequest } from '@contracts/browserPageOpsWorker';
 
 describe('browser worker request parsers', () => {
     it('parses and rejects browser search worker requests', () => {
@@ -293,4 +293,51 @@ describe('browser worker request parsers', () => {
             payload: {documents: []},
         })).toBeNull();
     });
+    it('validates save, password, and print inputs with the shared native contracts', () => {
+        const data = new Uint8Array([1]);
+        const request = {
+            id: 90,
+            type: 'saveMutations',
+            payload: {
+                data,
+                mutations: {updates: [{
+                    objectNumber: 1,
+                    generationNumber: 0,
+                    text: 'Saved',
+                }]},
+                modifiedAt: 'D:20260102000000Z',
+            },
+        };
+        expect(parseBrowserPageOpsWorkerRequest(request)).toEqual(request);
+        expect(parseBrowserPageOpsWorkerRequest({
+            ...request,
+            payload: {
+                ...request.payload,
+                mutations: {updates: [{
+                    objectNumber: -1,
+                    generationNumber: 0,
+                    text: 'Invalid',
+                }]},
+            },
+        })).toBeNull();
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 91,
+            type: 'decrypt',
+            payload: {
+                data,
+                password: '秘密'.repeat(4096),
+            },
+        })).toBeNull();
+        expect(parseBrowserPageOpsWorkerRequest({
+            id: 92,
+            type: 'printLayout',
+            payload: {
+                data,
+                pageNumbers: [0],
+                viewMode: 'facing',
+                orientation: 'landscape',
+            },
+        })).toBeNull();
+    });
+
 });

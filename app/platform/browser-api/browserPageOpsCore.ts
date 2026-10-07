@@ -9,11 +9,12 @@ import type {
     IBrowserPdfCombineCatalog,
     IBrowserPdfConformanceFacts,
     IPageMutationWorkerResult,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
 import {
     isBrowserPageOpsWasmFailure,
     tryRunBrowserPageOpsWithWasm,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 
 async function requireBrowserPageOpsWasmResult<T>(
@@ -178,14 +179,13 @@ export function layoutPdfForPrint(
         pageNumbers?: number[] | undefined;
         viewMode: TPdfViewMode;
         orientation: TPrintOrientation;
+        signal?: AbortSignal;
     },
 ): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('print layout', () =>
-        tryRunBrowserPageOpsWithWasm('printLayout', {
-            data,
-            pageNumbers: options.pageNumbers ?? [],
-            viewMode: options.viewMode,
-            orientation: options.orientation,
-        }),
-    );
+    return requireBrowserPageOpsWasmResult('print layout', () => runBrowserPageOpsWorkerRequest('printLayout', {
+        data,
+        pageNumbers: options.pageNumbers ?? [],
+        viewMode: options.viewMode,
+        orientation: options.orientation,
+    }, options.signal ? {signal: options.signal} : {}));
 }

@@ -370,4 +370,35 @@ describe('browser working-copy decryption', () => {
         expect((await browserDocumentStore.requireEntry(result.originalPath)).memoryOnly).toBe(true);
         expect((await browserDocumentStore.requireEntry(result.workingPath)).memoryOnly).toBe(true);
     });
+    it('rejects decrypted output for an input revision changed while CPU work was pending', async () => {
+        const {
+            browserDocumentStore, decryptBrowserWorkingCopy,
+        } = await loadService();
+        const workingPath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
+        const writerStarted = Promise.withResolvers<undefined>();
+        const writerResult = Promise.withResolvers<{
+            data: Uint8Array;
+            pageCount: number
+        }>();
+        wasmRun.mockImplementationOnce(() => {
+            writerStarted.resolve(undefined);
+            return writerResult.promise;
+        });
+        const decryption = decryptBrowserWorkingCopy(workingPath, 'correct-password');
+        await writerStarted.promise;
+        const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+        const replacement = new TextEncoder().encode('%PDF-1.7\nNew accepted bytes');
+        await browserDocumentStore.write(workingPath, replacement, {expectedDocumentRevisionToken: revision.token});
+        const rejection = expect(decryption).rejects.toThrow('STALE_REVISION');
+        writerResult.resolve({
+            data: DECRYPTED_PDF,
+            pageCount: 1,
+        });
+        await rejection;
+        await expect(browserDocumentStore.read(workingPath)).resolves.toEqual(replacement);
+    });
+
 });
