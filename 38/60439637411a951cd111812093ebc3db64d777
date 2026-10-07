@@ -1,0 +1,24 @@
+electron/features/djvu/main/textSearch.ts
+  s_866cabb222391c::t_fa6b3c7ef168e1 565-571
+tests/unit/app/composables/useDjvu.test.ts
+  s_866cabb222391c::t_77798bc1a2f2b4 514
+tests/e2e/electron/documents/djvuConversionLifecycle.e2e.test.ts
+  s_866cabb222391c::t_c39da4f5c355d3 294-295,334-335,352-354
+  s_866cabb222391c::t_4b814576a1226c 313-321,343-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3860439637411a951cd111812093ebc3db64d777",
+  "prompts": {},
+  "sessions": {
+    "s_866cabb222391c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117bc-6f5c-7c23-83f4-c48d18844da2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
