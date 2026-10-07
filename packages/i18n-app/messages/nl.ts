@@ -977,6 +977,7 @@ export default {
         'logsCopyFailed': 'Logboeken kopiëren mislukt',
     },
     'djvu': {
+        'sourceTextOmitted': 'De brontekst is niet opgenomen. Deze compacte PDF bevat pagina-afbeeldingen. Voer OCR uit om tekst toe te voegen voor zoeken en kopiëren.',
         'bannerHint': 'Dit DjVu-bestand is alleen-lezen – converteer het naar PDF om te bewerken',
         'convertToPdf': 'Converteren naar PDF...',
         'overlayConverting': 'DjVu converteren naar PDF...',
@@ -1001,7 +1002,7 @@ export default {
             'compact': 'Compact',
             'quarterResolution': 'Kwart resolutie',
             'sourceDetailCompact': 'Compact met brondetails',
-            'sourceDetailCompactDescription': 'Behoudt DjVu-tekst- en afbeeldingslagen met een kleine bestandsgrootte. Beste keuze voor gescande boeken.',
+            'sourceDetailCompactDescription': 'Behoudt afbeeldingsdetails in een kleine PDF. De brontekst wordt weggelaten; voer na het exporteren OCR uit om de PDF doorzoekbaar te maken.',
             'sourceDetailCompactSizeNote': 'De uiteindelijke grootte hangt af van het document.',
             'advancedRaster': 'Rasteropties (geavanceerd)',
             'advancedRasterHint': 'Rastert elke pagina op een vaste resolutie. Grotere bestanden; kies dit alleen als exacte pixeluitvoer nodig is.',

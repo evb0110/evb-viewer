@@ -978,6 +978,7 @@ export default {
         'logsCopyFailed': 'Falha ao copiar os logs',
     },
     'djvu': {
+        'sourceTextOmitted': 'O texto de origem não foi incluído. Este PDF compacto contém imagens das páginas. Execute OCR para adicionar texto para pesquisa e cópia.',
         'bannerHint': 'Este arquivo DjVu é somente leitura — converta-o para PDF para editar',
         'convertToPdf': 'Converter para PDF...',
         'overlayConverting': 'Convertendo DjVu para PDF...',
@@ -1002,7 +1003,7 @@ export default {
             'compact': 'Compacto',
             'quarterResolution': 'Um quarto da resolução',
             'sourceDetailCompact': 'Compacto com detalhes de origem',
-            'sourceDetailCompactDescription': 'Mantém as camadas de texto e imagem do DjVu com arquivos pequenos. Ideal para livros digitalizados.',
+            'sourceDetailCompactDescription': 'Preserva os detalhes das imagens em um PDF pequeno. O texto original é omitido; execute OCR após a exportação para tornar o PDF pesquisável.',
             'sourceDetailCompactSizeNote': 'O tamanho final depende do documento.',
             'advancedRaster': 'Opções raster (avançadas)',
             'advancedRasterHint': 'Rasteriza cada página em uma resolução fixa. Arquivos maiores; escolha apenas se precisar de saída pixel a pixel.',

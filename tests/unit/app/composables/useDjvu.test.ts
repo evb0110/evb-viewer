@@ -499,6 +499,33 @@ describe('useDjvu', () => {
     });
 
     describe('convertToPdf', () => {
+        it.each([
+            undefined,
+            'source-text-not-preserved',
+        ] as const)('presents a successful export notice only when the result includes it (%s)', async (notice) => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockResolvedValue({
+                success: true,
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                ...(notice === undefined ? {} : {notice}),
+            });
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            await djvu.convertToPdf(1, true, 'compact-djvu-aware', createUnusedConvertedPdfOpen());
+
+            if (notice) {
+                expect(toastAddMock).toHaveBeenCalledExactlyOnceWith({description: 'djvu.sourceTextOmitted'});
+            } else {
+                expect(toastAddMock).not.toHaveBeenCalled();
+            }
+            expect(djvu.sourceError.value).toBeNull();
+            expect(browserLoggerMock.error).not.toHaveBeenCalled();
+        });
+
         it('suggests a PDF name from the DjVu source file without using localized fallback text', async () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
@@ -746,10 +773,12 @@ describe('useDjvu', () => {
                 success: true,
                 pdfPath: requireDocumentRef('/tmp/old.pdf'),
                 jobId: mockConvertJobResult.mock.calls[0]![2]!.jobId!,
+                notice: 'source-text-not-preserved',
             });
             await oldConversion;
 
             expect(djvu.conversionState.value.isConverting).toBe(true);
+            expect(toastAddMock).not.toHaveBeenCalled();
             newResult.resolve({
                 success: false,
                 pdfPath: requireDocumentRef('/tmp/new.pdf'),

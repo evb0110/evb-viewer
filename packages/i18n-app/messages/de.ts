@@ -977,6 +977,7 @@ export default {
         'logsCopyFailed': 'Protokolle konnten nicht kopiert werden',
     },
     'djvu': {
+        'sourceTextOmitted': 'Der Quelltext wurde nicht übernommen. Diese kompakte PDF enthält Seitenbilder. Führen Sie OCR aus, um Text für die Suche und das Kopieren hinzuzufügen.',
         'bannerHint': 'Diese DjVu-Datei ist schreibgeschützt – zum Bearbeiten in PDF konvertieren',
         'convertToPdf': 'In PDF konvertieren...',
         'overlayConverting': 'DjVu wird in PDF konvertiert...',
@@ -1001,7 +1002,7 @@ export default {
             'compact': 'Kompakt',
             'quarterResolution': 'Viertel-Auflösung',
             'sourceDetailCompact': 'Kompakt mit Quelldetails',
-            'sourceDetailCompactDescription': 'Bewahrt Text- und Bildebenen des DjVu bei kleiner Dateigröße. Am besten für gescannte Bücher.',
+            'sourceDetailCompactDescription': 'Bewahrt Bilddetails in einer kleinen PDF. Der Quelltext wird nicht übernommen; führen Sie nach dem Export OCR aus, um die PDF durchsuchbar zu machen.',
             'sourceDetailCompactSizeNote': 'Die endgültige Größe hängt vom Dokument ab.',
             'advancedRaster': 'Rasteroptionen (erweitert)',
             'advancedRasterHint': 'Rastert jede Seite mit fester Auflösung. Größere Dateien; nur wählen, wenn exakte Pixelausgabe benötigt wird.',

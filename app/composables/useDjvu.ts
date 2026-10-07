@@ -710,10 +710,9 @@ export const useDjvu = (config: {
                 return null;
             }
             shouldCleanupSavePath = false;
-            BrowserLogger.info('djvu', 'Conversion completed', {
-                jobId: result.jobId,
-                pdfPath: result.pdfPath,
-            });
+            if (result.notice) {
+                toast.add({description: t('djvu.sourceTextOmitted')});
+            }
 
             const rasterDisplayProfile = createTrustedRasterDjvuPdfDisplayProfile(result.pageSizes ?? [], {
                 pdfStrategy,
