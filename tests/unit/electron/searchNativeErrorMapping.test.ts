@@ -4,6 +4,7 @@ import {
     readlink,
     rm,
 } from 'node:fs/promises';
+import {EventEmitter} from 'node:events';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {toSearchIpcError} from '@electron/features/search/main/searchErrors';
@@ -53,6 +54,24 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         return {
             stdout: '',
             stderr,
+            exitCode: 0,
+        };
+    }
+    if (args[0] === 'stat') {
+        return {
+            stdout: JSON.stringify(fake.indexCoverage),
+            stderr: '',
+            exitCode: 0,
+        };
+    }
+    if (args[0] === 'search') {
+        return {
+            stdout: JSON.stringify({
+                results: [],
+                truncated: false,
+                coverage: fake.indexCoverage,
+            }),
+            stderr: '',
             exitCode: 0,
         };
     }
@@ -328,6 +347,61 @@ describe('search index text budget', () => {
                 recursive: true,
                 force: true,
             });
+        }
+    });
+});
+
+// The native boundary supplies a valid capped index; the real service and job
+// registry must deliver that fact through results and terminal renderer events.
+describe('search service coverage', () => {
+    it.each([
+        false,
+        true,
+    ])('retains capped coverage (warmup: %s)', async (warmup) => {
+        fake.indexCoverage = {
+            pageCount: 3,
+            pagesScanned: 2,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+        const sender = Object.assign(new EventEmitter(), {
+            id: 71,
+            send: vi.fn(),
+            isDestroyed: () => false,
+        });
+        const {createSearchService} = await import('@electron/features/search/main/searchService');
+        const service = createSearchService();
+        try {
+            service.subscribeProgress({sender: sender as never});
+            const response = await service.run({sender: sender as never}, {
+                matchCase: false,
+                wholeWord: false,
+                useRegex: false,
+                requestIdPrefix: 'coverage',
+                query: 'last-page-only',
+                warmup,
+                pageCount: 3,
+                resolveDocument: async () => ({
+                    indexPath: '/unused/index',
+                    documentRevision: 'revision',
+                    async* readPages() {},
+                }),
+            });
+            expect(response).toEqual({
+                results: [],
+                truncated: false,
+                coverage: fake.indexCoverage,
+            });
+            const events = vi.mocked(sender.send).mock.calls.map(call => call[1]);
+            expect(events).toContainEqual(expect.objectContaining({
+                processed: 2,
+                total: 3,
+                status: 'success',
+                coverage: fake.indexCoverage,
+            }));
+        } finally {
+            await service.shutdown();
         }
     });
 });

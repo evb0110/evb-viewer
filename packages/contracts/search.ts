@@ -118,6 +118,30 @@ export const pdfSearchResultSchema = v.pipe(
 );
 export type IPdfSearchResult = v.InferOutput<typeof pdfSearchResultSchema>;
 
+const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+
+/**
+ * `evb-pdf-search index` and `stat` stdout: how much of the document the
+ * index covers. `truncated` means a text budget ended the index early.
+ */
+export const SEARCH_INDEX_COVERAGE_SCHEMA = v.pipe(v.looseObject({
+    pageCount: count,
+    pagesScanned: count,
+    pagesWritten: count,
+    truncated: v.boolean(),
+    missingTextPageSample: v.array(v.pipe(count, v.minValue(1))),
+}), v.check(
+    ({
+        pageCount, pagesScanned, pagesWritten, truncated, missingTextPageSample,
+    }) => pagesWritten <= pagesScanned
+        && pagesScanned <= pageCount
+        && (!truncated || pagesScanned < pageCount)
+        && missingTextPageSample.every(page => page <= pagesScanned),
+    'Coverage counts must nest; a truncated index must leave pages unscanned',
+));
+
+export type ISearchIndexCoverage = v.InferOutput<typeof SEARCH_INDEX_COVERAGE_SCHEMA>;
+
 export const pdfSearchResponseSchema = v.pipe(
     v.object({
         results: v.pipe(
@@ -126,10 +150,12 @@ export const pdfSearchResponseSchema = v.pipe(
         ),
         truncated: v.boolean(SEARCH_RESPONSE_ERROR),
         canceled: v.optional(v.boolean(SEARCH_RESPONSE_ERROR)),
+        coverage: v.optional(SEARCH_INDEX_COVERAGE_SCHEMA),
     }, SEARCH_RESPONSE_ERROR),
     v.transform(value => ({
         results: value.results,
         truncated: value.truncated,
+        ...(value.coverage === undefined ? {} : {coverage: value.coverage}),
         ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
     })),
 );
@@ -171,6 +197,7 @@ const searchRequestIdSchema = v.pipe(
 const finiteNumber = v.pipe(v.number('invalid search progress'), v.finite('invalid search progress'));
 const searchProgressInputSchema = v.pipe(v.object({
     requestId: searchRequestIdSchema,
+    coverage: v.optional(SEARCH_INDEX_COVERAGE_SCHEMA),
     processed: finiteNumber,
     total: finiteNumber,
     results: v.optional(v.array(pdfSearchResultSchema, 'invalid search progress')),
@@ -196,6 +223,7 @@ export const pdfSearchProgressSchema = v.pipe(
     v.transform(progress => ({
         requestId: progress.requestId,
         processed: progress.processed,
+        ...(progress.coverage === undefined ? {} : {coverage: progress.coverage}),
         total: progress.total,
         ...(progress.results === undefined ? {} : {results: progress.results}),
         ...(progress.results === undefined || typeof progress.resultsStartIndex !== 'number'
