@@ -1,11 +1,17 @@
 import {
     readFile, stat,
 } from 'fs/promises';
+import {join} from 'node:path';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
+import type {
+    IOcrPipelinePaths, TWorkerLog,
+} from '@electron/features/ocr/pipeline/types';
+import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import type { IOcrDiagnostic } from '@contracts/electronApiOcr';
+import type {
+    IOcrDiagnostic, IOcrSearchablePdfOptions,
+} from '@contracts/electronApiOcr';
 import type { INativeScanCleanupOptionsV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
@@ -16,6 +22,31 @@ export interface IOcrPreprocessedImage {
 }
 
 export type TOcrPreprocessingMode = 'clean' | 'polarity-only';
+
+/**
+ * Render, cleanup and recognition children run sequentially under one page
+ * lease. Reserve their peak, rather than summing phases or counting one RGBA
+ * raster. Pinned-tool measurements at 150/300/450 DPI reached 59–142 MiB for
+ * recognition, 117 MiB for polarity and 296/574 MiB for clean preprocessing.
+ * With 1–16 Rayon workers, clean peaked below 582 MiB at 450 DPI. Its
+ * 40 B/pixel matches the native BW planner; polarity needs fewer copies.
+ * Recognition includes decoded rasters, model working copies and process overhead.
+ */
+export async function estimateOcrPageResidentBytes(
+    pixels: number,
+    languages: string[],
+    paths: Pick<IOcrPipelinePaths, 'tessdataPath' | 'scanCleanupBinary'>,
+    options: IOcrSearchablePdfOptions,
+) {
+    const {orderedLanguages} = resolveTesseractLanguageConfig(languages);
+    const models = await Promise.all(orderedLanguages.filter(model => !model.startsWith('~'))
+        .map(async model => (await stat(join(paths.tessdataPath, `${model}.traineddata`))).size));
+    const recognitionBytes = pixels * 12 + 2 * models.reduce((bytes, size) => bytes + size, 0);
+    const preprocessingBytes = paths.scanCleanupBinary
+        ? pixels * (options.preprocessingMode === 'clean' ? 40 : options.preprocessingMode === 'off' ? 16 : 0)
+        : 0;
+    return 32 * 1024 * 1024 + Math.max(recognitionBytes, preprocessingBytes);
+}
 
 /**
  * OCR reads the pixels the cleanup engine produces, so anything left unset here
@@ -137,6 +168,7 @@ export async function tryPreprocessOcrImage(
     metadataPath = `${outputPath}.json`,
     dpi = 300,
     mode: TOcrPreprocessingMode = 'clean',
+    grantedCpuTokens?: number,
 ): Promise<IOcrPreprocessedImage> {
     if (scanCleanupBinary) {
         try {
@@ -173,6 +205,10 @@ export async function tryPreprocessOcrImage(
                     requestedRenderDpi: dpi,
                 }),
             ], {
+                ...(grantedCpuTokens === undefined ? {} : {env: {
+                    ...process.env,
+                    RAYON_NUM_THREADS: String(grantedCpuTokens),
+                }}),
                 timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
                 commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
                 signal,

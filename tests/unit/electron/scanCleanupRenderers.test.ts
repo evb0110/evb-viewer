@@ -27,7 +27,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runCommand}));
 vi.mock('@electron/features/ocr/main/ocrRuntimePolicy', () => ({getOcrRuntimePolicy: () => ({globalPageSlots: 2})}));
-vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {acquire: mocks.acquire}}));
+vi.mock('@electron/resources/jobBroker', () => ({mainJobBroker: {
+    acquire: mocks.acquire,
+    getSnapshot: () => ({capacity: {cpuTokens: 2}}),
+}}));
 
 vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
     readPngDimensions: mocks.readPngDimensions,
@@ -319,6 +322,7 @@ describe('Poppler output ownership at the native proof boundary', () => {
                 actual.writeFile(output, 'owned Poppler raster bytes'),
                 actual.writeFile(clean, 'owned clean raster bytes'),
                 actual.writeFile(metadata, 'owned metadata bytes'),
+                actual.writeFile(join(dir, 'eng.traineddata'), Buffer.alloc(1024)),
             ]);
             mocks.runCommand.mockRejectedValue(failure);
             await expect(processOcrPages([{
@@ -331,14 +335,13 @@ describe('Poppler output ownership at the native proof boundary', () => {
                     ...paths,
                     tempDir: dir,
                     tesseractBinary: '/bin/tesseract',
-                    tessdataPath: '/tessdata',
+                    tessdataPath: dir,
                     qpdfBinary: '/bin/qpdf',
                 },
                 log: () => undefined,
                 getPopplerSourcePdfPath: () => source,
                 preparePopplerFallback: async () => {throw new Error('must not reach fallback');},
                 extractionDpi: 300,
-                tesseractThreads: 1,
                 pageSizeByNumber: probe ? new Map() : new Map([[
                     1,
                     {
