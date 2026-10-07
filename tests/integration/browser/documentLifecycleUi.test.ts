@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {
-    readFileSync, writeFileSync,
+    mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
@@ -1025,6 +1025,7 @@ describe('browser document lifecycle UI', () => {
     // the appearance. Explicit /AP remains authoritative (ADR 0003).
     it('prints existing FreeText without AP and preserves explicit appearances', async () => {
         const evidence = resolve(process.cwd(), `.devkit/1037/browser-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
         const browser = await chromium.launch({headless: true});
         const page = await browser.newPage({
             viewport: {
