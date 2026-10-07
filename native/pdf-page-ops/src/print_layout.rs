@@ -378,7 +378,14 @@ fn embed_page_as_form(
     let mut content = b"q\n".to_vec();
     content.extend(decoded_page_content(document, &page)?);
     content.extend_from_slice(b"Q\n");
-    flatten_printable_annotations(document, &page, page_number, &mut resources, &mut content)?;
+    flatten_printable_annotations(
+        document,
+        &page,
+        page_id,
+        page_number,
+        &mut resources,
+        &mut content,
+    )?;
     let mut form = Stream::new(
         Dictionary::from_iter([
             ("Type", Object::Name(b"XObject".to_vec())),
@@ -497,6 +504,51 @@ fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option
     state_resolved.as_stream().ok().and(state_id)
 }
 
+/// Foreign FreeText without /AP uses the same parser, font admission and
+/// shaped appearance as the text editor. Only the print document gets a Form;
+/// the annotation's contents, identity, geometry and legacy status stay intact.
+fn missing_free_text_appearance(
+    document: &mut Document,
+    annotation: &Dictionary,
+    page_id: ObjectId,
+    font_ref: &mut Option<ObjectId>,
+) -> Result<ObjectId> {
+    let page_view = resolve_page_view(document, page_id)?;
+    let page_rotation = resolve_page_rotation(document, page_id)?;
+    let parsed = parse_text_box_entry(
+        document,
+        annotation,
+        (0, 0),
+        0,
+        page_view,
+        page_rotation,
+        "",
+    )?;
+    crate::text_box_font::validate_text(&parsed.text)?;
+    let source = marker_rect_to_pdf_rect_unbounded(parsed.rect, page_view, page_rotation)?;
+    let color = parse_css_rgb_color(Some(&parsed.color)).ok_or("Invalid FreeText print color")?;
+    let editor = TextBoxMutation {
+        page_index: 0,
+        stable_key: String::new(),
+        annotation_id: None,
+        text: parsed.text,
+        rect: [source.x1, source.y1, source.x2, source.y2],
+        rotation: u16::try_from(parsed.rotation)?,
+        font_size: parsed.font_size,
+        color: [color.r, color.g, color.b],
+        author: None,
+        created_at: None,
+        modified_at: None,
+    };
+    let rect =
+        read_box(document, annotation, b"Rect")?.ok_or("Invalid FreeText print rectangle")?;
+    let font_ref = *font_ref.get_or_insert_with(|| {
+        crate::text_box_font::existing_font(document)
+            .unwrap_or_else(|| crate::text_box_font::embed_font(document))
+    });
+    build_text_box_appearance(document, &editor, rect, font_ref, page_rotation)
+}
+
 fn annotation_graphics_state(
     document: &Document,
     annotation: &Dictionary,
@@ -560,6 +612,7 @@ fn resource_category(
 fn flatten_printable_annotations(
     document: &mut Document,
     page: &Dictionary,
+    page_id: ObjectId,
     page_number: u32,
     resources: &mut Dictionary,
     content: &mut Vec<u8>,
@@ -573,6 +626,7 @@ fn flatten_printable_annotations(
     };
     let mut xobjects = resource_category(document, resources, b"XObject")?;
     let mut graphics_states = resource_category(document, resources, b"ExtGState")?;
+    let mut text_font = None;
     let mut drew = false;
     for item in &annotations {
         let annotation = document.dereference(item)?.1.as_dict()?.clone();
@@ -591,7 +645,19 @@ fn flatten_printable_annotations(
         if !printable || is_popup {
             continue;
         }
-        let appearance_id = normal_appearance(document, &annotation).ok_or_else(|| {
+        let appearance = if !annotation.has(b"AP")
+            && annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText")
+        {
+            Some(missing_free_text_appearance(
+                document,
+                &annotation,
+                page_id,
+                &mut text_font,
+            )?)
+        } else {
+            normal_appearance(document, &annotation)
+        };
+        let appearance_id = appearance.ok_or_else(|| {
             format!("Printable annotation on page {page_number} has no normal appearance")
         })?;
         let appearance = document.get_object(appearance_id)?.as_stream()?;
@@ -824,7 +890,7 @@ mod tests {
             ));
             annotations.push(Object::Reference(document.add_object(
                 Dictionary::from_iter([
-                    ("Subtype", Object::Name(b"Text".to_vec())),
+                    ("Subtype", Object::Name(b"FreeText".to_vec())),
                     ("F", Object::Integer(flags)),
                     ("Rect", Object::Array(rect.map(Object::Integer).to_vec())),
                     ("CA", Object::Real(0.5)),
@@ -844,6 +910,26 @@ mod tests {
             "F" => 4,
             "Rect" => vec![400.into(), 500.into(), 420.into(), 520.into()],
             "C" => vec![1.into(), 1.into(), 0.into()],
+        })));
+        annotations.push(Object::Reference(document.add_object(lopdf::dictionary! {
+            "Subtype" => "FreeText",
+            "F" => 4,
+            "Rect" => vec![100.into(), 200.into(), 300.into(), 280.into()],
+            "Contents" => Object::string_literal(encode_pdf_text_string("Foreign FreeText\nПривет мир")),
+            "DA" => Object::string_literal("/Helvetica 18 Tf 1 0 0 rg"),
+        })));
+        let blank = document.add_object(Stream::new(
+            dictionary! { "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()] },
+            Vec::new(),
+        ));
+        let popup = document.add_object(dictionary! { "Subtype" => "Popup" });
+        annotations.push(Object::Reference(document.add_object(dictionary! {
+            "Subtype" => "FreeText",
+            "F" => 4,
+            "Rect" => vec![100.into(), 100.into(), 100.01.into(), 100.01.into()],
+            "Contents" => Object::string_literal("Legacy popup note must stay invisible"),
+            "Popup" => popup,
+            "AP" => dictionary! { "N" => blank },
         })));
         let page = document.get_dictionary_mut(page_id).unwrap();
         page.set("Annots", Object::Array(annotations));
@@ -878,7 +964,47 @@ mod tests {
             "q /PrintAnnot0 gs 100 400 200 100 re W n 2 0 0 2 100 400 cm /PrintAnnot0 Do Q"
         ));
         assert!(content.contains("400 500 20 20 re W n 1 0 0 1 400 500 cm /PrintAnnot1 Do Q"));
-        assert_eq!(content.matches(" Do Q").count(), 2);
+        assert!(content.contains("100 200 200 80 re W n 1 0 0 1 100 200 cm /PrintAnnot2 Do Q"));
+        assert_eq!(content.matches(" Do Q").count(), 3);
+        let xobjects = form
+            .dict
+            .get(b"Resources")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"XObject")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let explicit = document
+            .get_object(
+                xobjects
+                    .get(b"PrintAnnot0")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        assert_eq!(explicit.content, b"1 0 0 rg 0 0 100 50 re f");
+        let text = document
+            .get_object(
+                xobjects
+                    .get(b"PrintAnnot2")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        let text_content = String::from_utf8(text.content.clone()).unwrap();
+        assert!(text_content.contains("1 0 0 rg"));
+        assert!(text_content.contains(
+            "/ActualText <FEFF0046006F0072006500690067006E002000460072006500650054006500780074>"
+        ));
+        assert!(text_content.contains("/ActualText <FEFF041F044004380432043504420020043C04380440>"));
         assert!(sheet.get(b"Annots").is_err());
     }
 
