@@ -150,12 +150,6 @@ async function discoverAssistantModels() {
 
 const sessionStore = createAssistantChatSessionStore({
     onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
-        const currentRuntime = runtimeLifecycle.getRuntime();
-        if (session.provider === 'codex' && currentRuntime && session.providerThreadId) {
-            void currentRuntime.client.request('thread/archive', { threadId: session.providerThreadId }).catch((error: unknown) => {
-                logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
-            });
-        }
         if (session.provider === 'claude' && session.claudeSession) {
             void session.claudeSession.close().catch((error: unknown) => {
                 logger.warn(`Failed to close ${reason} Claude assistant session: ${getErrorMessage(error)}`);
@@ -257,11 +251,11 @@ function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) 
     const activeScope = getActiveAssistantMcpSessionScope();
     return activeScope !== null && activeScope.sessionKey !== sessionStore.keyForSession(session);
 }
-function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
+async function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
     const scope = sessionStore.resolveRequestedScope(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     rememberStateScope(scope, selection);
-    return scope ? sessionStore.getSession(scope, selection, { create: true }) : null;
+    return scope ? sessionStore.loadSession(scope, selection, { create: true }) : null;
 }
 function currentCodexSelection(): IAssistantSelection {
     const selection = sessionStore.getRememberedSelection();
@@ -829,7 +823,7 @@ export async function getAgentAssistantState(
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
     await assistantFeatureLifecycle.waitForShutdown();
-    const session = getRequestChatSession(request);
+    const session = await getRequestChatSession(request);
     const scope = session?.scope ?? null;
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     if (!(await isAssistantFeatureEnabled())) {
@@ -874,7 +868,7 @@ export async function sendAgentAssistantMessage(
         setProviderError(selection.provider, error);
         return createAssistantErrorResult(error, null, selection);
     }
-    const session = sessionStore.getSession(scope, selection, { create: true });
+    const session = await sessionStore.loadSession(scope, selection, { create: true });
     session.lastSenderWindowId = options.windowId ?? null;
     if (hasConflictingAssistantMcpSessionScope(session)) {
         return createAssistantBusyResult(() => currentState(session.scope, session));
@@ -1150,7 +1144,7 @@ export async function interruptAgentAssistant(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
-    const requestedSession = getRequestChatSession(request);
+    const requestedSession = await getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
@@ -1225,7 +1219,7 @@ export async function resetAgentAssistantChat(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
-    const session = getRequestChatSession(request);
+    const session = await getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     abortActiveEmbeddedMcpRequests(
         session?.scopeBinding ?? (session ? getAssistantTurnScope(session.turnOwner) : null),

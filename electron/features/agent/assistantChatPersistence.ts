@@ -481,6 +481,10 @@ function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | nul
 }
 
 function interruptRecoveredSession(session: IPersistedAssistantChatSession): IPersistedAssistantChatSession {
+    // A transcript and provider resume ID survive a cache miss. Saved action
+    // grants never authorize a new window, tab or document revision.
+    session.lastSenderWindowId = null;
+    session.scopeBinding = null;
     if (!isAssistantTurnActive(session.turnOwner)) {
         return session;
     }
@@ -492,7 +496,6 @@ function interruptRecoveredSession(session: IPersistedAssistantChatSession): IPe
         localTurnId: null,
         error: ASSISTANT_CHAT_INTERRUPTED_ERROR,
     };
-    session.scopeBinding = null;
     session.lastError = ASSISTANT_CHAT_INTERRUPTED_ERROR;
     for (const message of session.messages) {
         if (message.role === 'assistant' && message.pending) {
@@ -635,6 +638,80 @@ export class AssistantChatPersistence {
         return recovered;
     }
 
+    async recoverSession(key: string): Promise<IRecoveredAssistantChatSession | null> {
+        let recovered: IRecoveredAssistantChatSession | null = null;
+        this.forcePendingSnapshot(key, true);
+        await this.enqueue(key, async () => {
+            const legacyName = `${Buffer.from(key).toString('base64url')}.jsonl`;
+            const paths = [this.sessionPath(key)];
+            if (Buffer.byteLength(legacyName) <= 255) {
+                paths.push(join(this.sessionsDir, legacyName));
+            }
+            const archives = await this.readSessionArchives(key);
+            for (const candidate of [
+                ...paths.map(filePath => ({
+                    filePath,
+                    reason: 'live',
+                })),
+                ...archives,
+            ]) {
+                if (candidate.reason === 'reset' || candidate.reason === 'corrupt') {
+                    break;
+                }
+                let contents: string;
+                try {
+                    contents = await readFile(candidate.filePath, 'utf8');
+                } catch (error) {
+                    if (isErrnoException(error) && error.code === 'ENOENT') {
+                        continue;
+                    }
+                    throw error;
+                }
+                let file;
+                try {
+                    file = this.recoverSessionContents(candidate.filePath, key, contents);
+                } catch (error) {
+                    await this.quarantineCorruptSession(candidate.filePath);
+                    this.onError(`Quarantined corrupt assistant chat session "${key}" during lookup`, error);
+                    break;
+                }
+                if (file) {
+                    recovered = {
+                        key: file.key,
+                        session: interruptRecoveredSession(file.session),
+                        filePath: candidate.filePath,
+                        sizeBytes: Buffer.byteLength(contents),
+                    };
+                }
+                // An empty/reset live transcript is authoritative, as is the
+                // newest retained eviction snapshot. Never resurrect older data.
+                break;
+            }
+        }, true);
+        return recovered;
+    }
+
+    private async readSessionArchives(key: string) {
+        const prefixes = [
+            `${basename(this.sessionPath(key), '.jsonl')}.`,
+            `${Buffer.from(key).toString('base64url')}.`,
+        ];
+        const entries = await readdir(this.archiveDir, {withFileTypes: true});
+        const archives = [];
+        for (const entry of entries) {
+            const prefix = prefixes.find(value => entry.name.startsWith(value));
+            const match = prefix && /^(evicted|expired|reset|corrupt)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(entry.name.slice(prefix.length));
+            if (entry.isFile() && match) {
+                archives.push({
+                    filePath: join(this.archiveDir, entry.name),
+                    reason: match[1]!,
+                    archivedAt: Number(match[2]),
+                });
+            }
+        }
+        return archives.sort((left, right) => right.archivedAt - left.archivedAt);
+    }
+
     // fallow-ignore-next-line unused-class-member
     recordSessionSnapshot(key: string, session: IAssistantChatPersistenceSession): void {
         const record = createSnapshotRecord(key, session);
@@ -655,17 +732,18 @@ export class AssistantChatPersistence {
     // fallow-ignore-next-line unused-class-member
     archiveSession(key: string, reason: string): void {
         this.enqueueAfterSnapshots(key, async () => {
+            if (reason === 'reset') {
+                for (const archive of await this.readSessionArchives(key)) {
+                    if (archive.reason !== 'reset') {
+                        await rm(archive.filePath, {force: true});
+                    }
+                }
+            }
             const sourcePath = this.sessionPath(key);
             if (!await this.pathExists(sourcePath)) {
                 return;
             }
-            await mkdir(this.archiveDir, { recursive: true });
-            const archivedPath = join(
-                this.archiveDir,
-                `${basename(sourcePath, '.jsonl')}.${reason}.${this.now()}.${randomSuffix()}.jsonl`,
-            );
-            await rename(sourcePath, archivedPath);
-            await fsyncParentDirectory(sourcePath);
+            await this.archiveSessionFile(sourcePath, reason);
             await this.runMaintenance(async () => {
                 await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
                 await this.writeIndex();
@@ -1025,10 +1103,15 @@ export class AssistantChatPersistence {
         if (!await this.pathExists(filePath)) {
             return;
         }
+        await this.archiveSessionFile(filePath, 'corrupt');
+    }
+
+    private async archiveSessionFile(filePath: string, reason: string) {
         await mkdir(this.archiveDir, {recursive: true});
+        const name = basename(filePath, '.jsonl').replace(/\.(?:evicted|expired|reset|corrupt)\.\d+\.[a-f0-9]+$/u, '');
         const archivedPath = join(
             this.archiveDir,
-            `${basename(filePath, '.jsonl')}.corrupt.${this.now()}.${randomSuffix()}.jsonl`,
+            `${name}.${reason}.${this.now()}.${randomSuffix()}.jsonl`,
         );
         await rename(filePath, archivedPath);
         await fsyncParentDirectory(filePath);
@@ -1043,8 +1126,9 @@ export class AssistantChatPersistence {
         entries = entries.sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs);
         const removeCount = entries.length - this.maxSessions;
         for (const entry of entries.slice(0, removeCount)) {
-            await rm(entry.filePath, { force: true });
+            await this.archiveSessionFile(entry.filePath, 'evicted');
         }
+        await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
         await this.writeIndex();
     }
 
@@ -1114,7 +1198,7 @@ export class AssistantChatPersistence {
         const removable = [...recovered].sort((left, right) => left.session.lastAccessedAtMs - right.session.lastAccessedAtMs);
         for (const entry of removable.slice(0, recovered.length - this.maxSessions)) {
             try {
-                await rm(entry.filePath, {force: true});
+                await this.archiveSessionFile(entry.filePath, 'evicted');
                 recovered.splice(recovered.indexOf(entry), 1);
             } catch (error) {
                 this.onError(`Failed to prune recovered assistant chat session "${entry.key}"`, error);

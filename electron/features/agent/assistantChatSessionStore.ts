@@ -141,7 +141,7 @@ function cloneAssistantMessage(message: IAgentAssistantChatMessage): IAgentAssis
 }
 
 function isEvictableChatSession(session: IAssistantChatSession) {
-    return !isAssistantTurnActive(session.turnOwner);
+    return !isAssistantTurnActive(session.turnOwner) && session.sendInFlight === null;
 }
 
 function normalizeRecoveredLastAccessedAt(value: number, now = Date.now()) {
@@ -226,6 +226,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             for (const session of recovered) {
                 addRecoveredSession(session);
             }
+            pruneSessions();
         })
         : Promise.resolve();
 
@@ -301,7 +302,6 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         }
 
         options.onSessionDeleted?.(session, reason);
-        persistence?.archiveSession(key, reason);
     }
 
     function pruneSessions(now = Date.now()) {
@@ -339,8 +339,8 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         getOptions: { create?: boolean } = {},
     ) {
         const now = Date.now();
-        pruneSessions(now);
         if (!scope) {
+            pruneSessions(now);
             return null;
         }
 
@@ -357,6 +357,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             existing.effort = selection.effort;
             existing.speedMode = selection.speedMode;
             touchSession(existing, now);
+            pruneSessions(now);
             persistence?.recordSessionSnapshot(sessionKey, existing);
             return existing;
         }
@@ -391,6 +392,33 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         persistence?.recordSessionSnapshot(sessionKey, session);
         pruneSessions(now);
         return session;
+    }
+
+    async function loadSession(scope: IAgentAssistantChatScope, selection: IAssistantSelection, getOptions: {create: true}): Promise<IAssistantChatSession>;
+    async function loadSession(scope: IAgentAssistantChatScope | null, selection?: IAssistantSelection): Promise<IAssistantChatSession | null>;
+    async function loadSession(
+        scope: IAgentAssistantChatScope | null,
+        selection: IAssistantSelection = lastSelection,
+        getOptions: {create?: boolean} = {},
+    ) {
+        await ready;
+        const normalizedScope = normalizeAssistantScope(scope);
+        if (!normalizedScope) {
+            return null;
+        }
+        const cached = getSession(normalizedScope, selection);
+        if (cached) {
+            return cached;
+        }
+        const recovered = await persistence?.recoverSession(createChatSessionKey(selection.provider, normalizedScope.key));
+        if (recovered) {
+            addRecoveredSession(recovered);
+        }
+        // Another lookup or reset may have populated the owner while disk I/O
+        // was pending. Reuse it instead of replacing newer live messages.
+        return getOptions.create
+            ? getSession(normalizedScope, selection, {create: true})
+            : getSession(normalizedScope, selection);
     }
 
     function getActiveSession(provider?: TAgentAssistantProviderId) {
@@ -539,6 +567,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         flushPersistence,
         keyForSession,
         listSessions,
+        loadSession,
         rememberStateScope,
         recordSessionSnapshot,
         recordTurnBoundary,
