@@ -526,10 +526,38 @@ describe('browser document lifecycle UI', () => {
                 'privacy',
                 'about',
             ]) {
+                if (informationPage === 'privacy') {
+                    await page.locator(`${paneSelector(right)} .pdf-annotation-editor-note`).last().click();
+                    await page.getByRole('button', {
+                        name: 'Minimize note',
+                        exact: true,
+                    }).click();
+                    expect(await page.locator(`${paneSelector(right)} .pdf-annotation-editor-note.is-selected`).count()).toBe(1);
+                } else {
+                    await page.getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    }).click();
+                    await page.locator(`${paneSelector(right)} [data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle`).click();
+                    expect(await page.locator(`${paneSelector(right)} [data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle`).getAttribute('aria-pressed')).toBe('true');
+                    await page.getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    }).click();
+                }
+                const currentPage = await page.locator('.page-controls-current-primary:visible').textContent();
+                const activeTabs = await page.locator('.tab.is-active[data-tab-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-tab-id')));
+                let unexpectedChoosers = 0;
+                let unexpectedDownloads = 0;
+                const onChooser = () => { unexpectedChoosers += 1; };
+                const onDownload = () => { unexpectedDownloads += 1; };
+                page.on('filechooser', onChooser);
+                page.on('download', onDownload);
                 await page.getByRole('button', {
                     name: 'Settings',
                     exact: true,
                 }).filter({visible: true}).first().click();
+                const tabCount = await page.locator('.tab[data-tab-id]').count();
                 await page.getByRole('link', {
                     name: informationPage === 'privacy'
                         ? 'Read the complete privacy notice' : 'Open About and Acknowledgements',
@@ -538,6 +566,26 @@ describe('browser document lifecycle UI', () => {
                 await expect.poll(() => new URL(page.url()).pathname).toBe(`/${informationPage}`);
                 await page.locator(`.${informationPage}-document h1`).waitFor();
                 await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}.png`)});
+                const documentKeys = [
+                    'Backspace',
+                    'Delete',
+                    'Control+s',
+                    'PageDown',
+                    'Control+=',
+                    'Control+b',
+                ];
+                for (const key of documentKeys) {
+                    await page.keyboard.press(key);
+                }
+                // Window-level tab and file accelerators must also belong to
+                // the visible shell, rather than its retained document owner.
+                await page.keyboard.press('Control+Shift+Tab');
+                for (const key of [
+                    ...documentKeys,
+                    'Control+o',
+                ]) {
+                    await page.keyboard.press(key);
+                }
                 if (informationPage === 'about') {
                     await page.getByRole('link', {
                         name: 'Back to viewer',
@@ -547,8 +595,19 @@ describe('browser document lifecycle UI', () => {
                     await page.goBack();
                 }
                 await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+                await page.locator('.editor-pane .tab[data-tab-id]').first().waitFor();
+                page.off('filechooser', onChooser);
+                page.off('download', onDownload);
+                expect(unexpectedChoosers).toBe(0);
+                expect(unexpectedDownloads).toBe(0);
+                expect(await page.locator('.tab[data-tab-id]').count()).toBe(tabCount);
+                // Settings itself is a new empty tab; the document tab in
+                // each pane remains selected when returning to it below.
+                expect(await page.locator(`${paneSelector(panes[0]!)} .tab.is-active[data-tab-id]`).getAttribute('data-tab-id')).toBe(activeTabs[0]);
                 await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}-returned-shell.png`)});
                 await page.locator(`${paneSelector(right)} .tab`).filter({hasText: 'generated-text.pdf'}).click();
+                await page.locator('.page-controls-current-primary:visible').waitFor();
+                expect(await page.locator('.page-controls-current-primary:visible').textContent()).toBe(currentPage);
                 await page.getByRole('button', {
                     name: 'Open Note',
                     exact: true,
@@ -565,6 +624,17 @@ describe('browser document lifecycle UI', () => {
                     name: 'Save',
                     exact: true,
                 }).isEnabled()).toBe(true);
+                if (informationPage === 'about') {
+                    await page.getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    }).click();
+                    expect(await page.locator(`${paneSelector(right)} [data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle`).getAttribute('aria-pressed')).toBe('true');
+                    await page.getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    }).click();
+                }
                 expect(await Promise.all(panes.map(pane => readPanePageWidth(page, pane)))).toEqual(widths);
                 await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}-return.png`)});
             }
