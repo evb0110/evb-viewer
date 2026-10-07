@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Ricerca…',
         'pagesProgress': '{processed} di {total} pagine',
         'enterSearchTerm': 'Inserisci un termine di ricerca',
-        'enterSearchHint': 'La ricerca viene eseguita pagina per pagina, quindi le frasi non possono estendersi oltre un’interruzione di pagina. Usa le virgolette doppie per conservare gli spazi iniziali o finali.',
+        'enterSearchHint': 'La ricerca viene eseguita pagina per pagina, quindi le frasi non possono estendersi oltre un’interruzione di pagina. Usa le virgolette doppie ("...") per conservare gli spazi iniziali o finali.',
         'typeMinChars': plural({
             one: 'Digita almeno {count} carattere',
             other: 'Digita almeno {count} caratteri',

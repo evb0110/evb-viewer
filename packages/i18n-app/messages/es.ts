@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Buscando…',
         'pagesProgress': '{processed} de {total} páginas',
         'enterSearchTerm': 'Introduzca un término de búsqueda',
-        'enterSearchHint': 'La búsqueda se realiza página por página, por lo que las frases no pueden abarcar saltos de página. Use comillas dobles para conservar los espacios iniciales o finales.',
+        'enterSearchHint': 'La búsqueda se realiza página por página, por lo que las frases no pueden abarcar saltos de página. Use comillas dobles ("...") para conservar los espacios iniciales o finales.',
         'typeMinChars': plural({
             one: 'Escriba al menos {count} carácter',
             other: 'Escriba al menos {count} caracteres',

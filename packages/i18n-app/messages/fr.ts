@@ -1275,7 +1275,7 @@ export default {
         'searching': 'Recherche…',
         'pagesProgress': '{processed} sur {total} pages',
         'enterSearchTerm': 'Saisissez un terme de recherche',
-        'enterSearchHint': 'La recherche s’effectue page par page : les expressions ne peuvent donc pas s’étendre sur plusieurs pages. Utilisez des guillemets doubles pour conserver les espaces au début ou à la fin.',
+        'enterSearchHint': 'La recherche s’effectue page par page : les expressions ne peuvent donc pas s’étendre sur plusieurs pages. Utilisez des guillemets doubles ("...") pour conserver les espaces au début ou à la fin.',
         'typeMinChars': plural({
             zero: 'Saisissez au moins {count} caractères',
             one: 'Saisissez au moins {count} caractère',

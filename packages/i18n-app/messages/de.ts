@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Suche läuft…',
         'pagesProgress': '{processed} von {total} Seiten',
         'enterSearchTerm': 'Suchbegriff eingeben',
-        'enterSearchHint': 'Die Suche erfolgt seitenweise; Phrasen können daher keine Seitenumbrüche übergreifen. Verwenden Sie doppelte Anführungszeichen, um Leerzeichen am Anfang oder Ende beizubehalten.',
+        'enterSearchHint': 'Die Suche erfolgt seitenweise; Phrasen können daher keine Seitenumbrüche übergreifen. Verwenden Sie doppelte Anführungszeichen ("..."), um Leerzeichen am Anfang oder Ende beizubehalten.',
         'typeMinChars': plural({
             one: 'Mindestens {count} Zeichen eingeben',
             other: 'Mindestens {count} Zeichen eingeben',

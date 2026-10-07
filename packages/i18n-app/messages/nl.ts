@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Zoeken…',
         'pagesProgress': '{processed} van {total} pagina\'s',
         'enterSearchTerm': 'Voer een zoekterm in',
-        'enterSearchHint': 'Er wordt per pagina gezocht, dus woordgroepen kunnen geen pagina-einden overspannen. Gebruik dubbele aanhalingstekens om spaties aan het begin of einde te behouden.',
+        'enterSearchHint': 'Er wordt per pagina gezocht, dus woordgroepen kunnen geen pagina-einden overspannen. Gebruik dubbele aanhalingstekens ("...") om spaties aan het begin of einde te behouden.',
         'typeMinChars': plural({
             one: 'Typ minstens {count} teken',
             other: 'Typ minstens {count} tekens',

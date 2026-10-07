@@ -1275,7 +1275,7 @@ export default {
         'searching': 'Pesquisando…',
         'pagesProgress': '{processed} de {total} páginas',
         'enterSearchTerm': 'Insira um termo de pesquisa',
-        'enterSearchHint': 'A pesquisa é feita página por página, portanto as expressões não podem abranger quebras de página. Use aspas duplas para preservar os espaços no início ou no fim.',
+        'enterSearchHint': 'A pesquisa é feita página por página, portanto as expressões não podem abranger quebras de página. Use aspas duplas ("...") para preservar os espaços no início ou no fim.',
         'typeMinChars': plural({
             zero: 'Digite pelo menos {count} caracteres',
             one: 'Digite pelo menos {count} caractere',
