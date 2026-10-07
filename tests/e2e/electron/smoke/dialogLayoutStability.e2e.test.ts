@@ -3,6 +3,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {
     existsSync,
@@ -15,7 +16,10 @@ import {tmpdir} from 'node:os';
 import {
     join, resolve,
 } from 'node:path';
-import type {Page} from 'puppeteer-core';
+import type {
+    ConsoleMessage,
+    Page,
+} from 'puppeteer-core';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {LOCALE_MESSAGES} from '@i18n-app';
@@ -622,6 +626,15 @@ describe('Electron E2E - dialog layout stability', () => {
         const {page} = session;
         await page.setViewport(DIALOG_VIEWPORT);
         const malformedPath = createTruncatedPdf();
+        const invalidProgress: string[] = [];
+        const observeProgress = (message: ConsoleMessage) => {
+            const text = message.text();
+            if (text.includes('ProgressRoot') && text.includes('Invalid prop')) {
+                invalidProgress.push(text);
+            }
+        };
+        page.on('console', observeProgress);
+        onTestFinished(() => { page.off('console', observeProgress); });
 
         try {
             await setSavedLocale(page, 'ru');
@@ -653,6 +666,9 @@ describe('Electron E2E - dialog layout stability', () => {
         await clickToastButton(page, 'Copy details');
         await expect.poll(async () => (await readFailureToast(page))?.buttons ?? [], {timeout: DIALOG_TIMEOUT_MS})
             .toContain('Copied');
+
+        console.info('Failure toast progress diagnostics:', invalidProgress);
+        expect(invalidProgress).toEqual([]);
 
         // A good PDF still opens afterwards.
         await openPdfInApp(page, resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf'), DIALOG_TIMEOUT_MS);

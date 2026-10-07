@@ -130,6 +130,7 @@ export function createFailureToastPresenter(
         // The receipt names the toast, so a failure that more than one path
         // reports stays one toast; the toaster pulses it instead of stacking.
         const toastId = presentation.failure.eventId;
+        const duration = presentation.persistent ? Number.POSITIVE_INFINITY : FAILURE_TOAST_DURATION_MS;
         // The caller's own actions (Retry, Details) come first; Copy details
         // is always there, and says when it has copied.
         const actions = (copied: boolean): IFailureToastAction[] => [
@@ -142,7 +143,10 @@ export function createFailureToastPresenter(
                 onClick: () => {
                     void copyFailurePresentation(presentation).then((didCopy) => {
                         if (didCopy) {
-                            toast.update?.(toastId, {actions: actions(true)});
+                            toast.update?.(toastId, {
+                                duration,
+                                actions: actions(true),
+                            });
                         }
                     });
                 },
@@ -156,7 +160,7 @@ export function createFailureToastPresenter(
             title: presentation.title,
             description: renderFailureDescription(presentation, () => t('errors.runtime.errorId')),
             actions: actions(false),
-            duration: presentation.persistent ? Number.POSITIVE_INFINITY : FAILURE_TOAST_DURATION_MS,
+            duration,
             ...(presentation.persistent ? {progress: false} : {}),
         });
     };
