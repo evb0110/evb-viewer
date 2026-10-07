@@ -44,6 +44,7 @@ export interface IPerformanceProfileEnvironment {
 }
 
 export interface IPerformanceProfile {
+    performanceMode: TPerformanceMode;
     tier: THostResourceTier;
     lowMemory: boolean;
     lowCpu: boolean;
@@ -118,6 +119,7 @@ function resolveCanonicalPerformanceProfile(
     tier: THostResourceTier,
     hardwareConcurrency: number | null,
     totalMemoryGiB: number | null,
+    performanceMode: TPerformanceMode,
 ): IPerformanceProfile {
     const workstationProfile = resolveWorkstationProfile(
         tier,
@@ -127,6 +129,7 @@ function resolveCanonicalPerformanceProfile(
     const lowTier = tier === 'low';
 
     return {
+        performanceMode,
         tier,
         lowMemory: lowTier,
         lowCpu: lowTier,
@@ -211,6 +214,7 @@ export function resolvePerformanceProfile(
                 effectiveTier,
                 hardwareConcurrency,
                 totalMemoryGiB,
+                environment.performanceMode ?? 'auto',
             ),
             environment.gpuStatus,
         );
@@ -251,6 +255,7 @@ export function resolvePerformanceProfile(
                 : PDF_RENDER_CONCURRENCY_DEFAULT;
 
     return applySoftwareCanvasConstraint({
+        performanceMode: environment.performanceMode ?? 'auto',
         tier,
         lowMemory,
         lowCpu,

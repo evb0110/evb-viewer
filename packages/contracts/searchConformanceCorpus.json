@@ -6,7 +6,8 @@
     "matching": "Default matching is Unicode-aware, case-insensitive literal matching. wholeWord adds letter/number/underscore boundaries. Regex cases use the guarded PDF search regex validator.",
     "excerpt": "Excerpts use a UTF-16 code unit context window. Only the before and after text collapse JavaScript whitespace runs to one space, then trim the outer edge nearest the excerpt boundary.",
     "geometry": "OCR/PDF text geometry attaches to the same UTF-16 range used for text matching. Geometry is omitted when no usable page word boxes and dimensions exist.",
-    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b a boundary and \\B a non-boundary of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator."
+    "regex": "Regex queries follow one Unicode dialect in every shell, the default of the desktop matcher (Rust regex): \\d is any decimal digit (Nd), \\w any Alphabetic, mark, Nd, Pc or Join_Control character, \\s the White_Space property, \\b a boundary and \\B a non-boundary of that \\w, and . any character but a line feed. \\W inside a character class keeps that meaning; \\b inside one is refused. Look-around, backreferences and nested quantifiers are refused by the guarded validator.",
+    "normalization": "NFC plus PDF presentation-ligature and long-s folds, not general NFKC. Composed spans map to their complete original text; unchanged characters retain their own UTF-16 positions, including adjacent noncomposing Jamo and ZWJ components."
   },
   "cases": [
     {
@@ -766,6 +767,1509 @@
             "before": "cd, ",
             "match": "ёж",
             "after": "! 12"
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-000",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-000",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-001",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-001",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-010",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-010",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-011",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-011",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-100",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-100",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-101",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-101",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-110",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-110",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-composed-111",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lv-decomposed-111",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 가 가",
+      "query": "가",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 5,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "😀 ",
+            "match": "가",
+            "after": " 가"
+          }
+        },
+        {
+          "startOffset": 6,
+          "endOffset": 7,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "가 ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-000",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-000",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-001",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-001",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-010",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-010",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-011",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-011",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": false,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-100",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-100",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-101",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-101",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": false,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-110",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-110",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": false
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-composed-111",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-lvt-decomposed-111",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "😀 각 각 각",
+      "query": "각",
+      "options": {
+        "matchCase": true,
+        "wholeWord": true,
+        "useRegex": true
+      },
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 3,
+          "endOffset": 6,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "😀 ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 7,
+          "endOffset": 9,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "ᅡᆨ ",
+            "match": "각",
+            "after": " 각"
+          }
+        },
+        {
+          "startOffset": 10,
+          "endOffset": 11,
+          "excerpt": {
+            "prefix": true,
+            "suffix": false,
+            "before": "각 ",
+            "match": "각",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-leading-jamo",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "ᄀ가",
+      "query": "가",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 1,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "ᄀ",
+            "match": "가",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-noncomposing-trailing-jamo",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "각ᆨ",
+      "query": "각",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "각",
+            "after": "ᆨ"
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-reordered-marks",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "ẹ́ x",
+      "query": "ẹ́",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "ẹ́",
+            "after": " x"
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-long-s",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "ſ s",
+      "query": "s",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 1,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "",
+            "match": "ſ",
+            "after": " s"
+          }
+        },
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "ſ ",
+            "match": "s",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-nfc-not-nfkc",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "① 1",
+      "query": "1",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 2,
+          "endOffset": 3,
+          "excerpt": {
+            "prefix": false,
+            "suffix": false,
+            "before": "① ",
+            "match": "1",
+            "after": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "np-06-zwj-part-on-normalized-page",
+      "description": "Canonical NFC matching retains exact original UTF-16 spans and excerpts; unrelated characters do not join the match.",
+      "text": "👩‍💻 가",
+      "query": "👩",
+      "options": {},
+      "contextChars": 3,
+      "nativeSupported": true,
+      "expectedMatches": [
+        {
+          "startOffset": 0,
+          "endOffset": 2,
+          "excerpt": {
+            "prefix": false,
+            "suffix": true,
+            "before": "",
+            "match": "👩",
+            "after": "‍💻"
           }
         }
       ]

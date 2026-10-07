@@ -513,7 +513,6 @@ const SEARCH_LIGATURE_FOLDS: Readonly<Record<string, string>> = {
     // Long s, as early printed books and their OCR spell it.
     '\u017F': 's',
 };
-const searchTextEncoder = new TextEncoder();
 
 interface INormalizedSearchText {
     text: string;
@@ -529,16 +528,12 @@ export class SearchTextBudgetError extends Error {
 }
 
 function normalizedTextByteLength(text: string) {
-    let isAscii = true;
-    for (let index = 0; index < text.length; index += 1) {
-        if (text.charCodeAt(index) > 0x7F) {
-            isAscii = false;
-            break;
-        }
+    let bytes = 0;
+    for (const character of text) {
+        const point = character.codePointAt(0)!;
+        bytes += point <= 0x7F ? 1 : point <= 0x7FF ? 2 : point <= 0xFFFF ? 3 : 4;
     }
-    return isAscii
-        ? text.length
-        : searchTextEncoder.encode(text).byteLength;
+    return bytes;
 }
 
 /**
@@ -571,12 +566,13 @@ function normalizeSearchTextWithOffsets(text: string): INormalizedSearchText {
     const normalizedParts: string[] = [];
     const sourceStarts: number[] = [];
     const sourceEnds: number[] = [];
-    const graphemePattern = /\P{M}\p{M}*|\p{M}+/gu;
+    // Include Hangul L+V(+T) and syllable+T before separating other starters.
+    const compositionPattern = /(?:[\u1100-\u1112][\u1161-\u1175][\u11A8-\u11C2]?|[\uAC00-\uD7A3][\u11A8-\u11C2]|\P{M})\p{M}*|\p{M}+/gu;
     let normalizedBytes = 0;
 
-    for (const match of text.matchAll(graphemePattern)) {
-        const source = match[0];
-        const sourceStart = match.index;
+    for (const {
+        0: source, index: sourceStart,
+    } of text.matchAll(compositionPattern)) {
         const sourceEnd = sourceStart + source.length;
         const normalized = normalizeSearchText(source);
         normalizedBytes += normalizedTextByteLength(normalized);
@@ -585,8 +581,8 @@ function normalizeSearchTextWithOffsets(text: string): INormalizedSearchText {
         }
         normalizedParts.push(normalized);
         for (let index = 0; index < normalized.length; index += 1) {
-            sourceStarts.push(sourceStart);
-            sourceEnds.push(sourceEnd);
+            sourceStarts.push(normalized === source ? sourceStart + index : sourceStart);
+            sourceEnds.push(normalized === source ? sourceStart + index + 1 : sourceEnd);
         }
     }
 
