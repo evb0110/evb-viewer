@@ -122,7 +122,7 @@ const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
 /**
  * `evb-pdf-search index` and `stat` stdout: how much of the document the
- * index covers. `truncated` means the index ends before the document does.
+ * index covers. `truncated` means a text budget ended the index early.
  */
 export const SEARCH_INDEX_COVERAGE_SCHEMA = v.pipe(v.looseObject({
     pageCount: count,
@@ -132,11 +132,12 @@ export const SEARCH_INDEX_COVERAGE_SCHEMA = v.pipe(v.looseObject({
     missingTextPageSample: v.array(v.pipe(count, v.minValue(1))),
 }), v.check(
     ({
-        pageCount, pagesScanned, pagesWritten, missingTextPageSample,
+        pageCount, pagesScanned, pagesWritten, truncated, missingTextPageSample,
     }) => pagesWritten <= pagesScanned
         && pagesScanned <= pageCount
+        && (!truncated || pagesScanned < pageCount)
         && missingTextPageSample.every(page => page <= pagesScanned),
-    'Coverage counts must nest: pages written, scanned, then in the document',
+    'Coverage counts must nest; a truncated index must leave pages unscanned',
 ));
 
 export type ISearchIndexCoverage = v.InferOutput<typeof SEARCH_INDEX_COVERAGE_SCHEMA>;

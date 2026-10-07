@@ -126,6 +126,33 @@ describe('contracts search compatibility exports', () => {
                 pagesWritten: 4,
             },
         })).toBeNull();
+        const completeCoverage = {
+            ...coverage,
+            pagesScanned: coverage.pageCount,
+        };
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: completeCoverage,
+        })).toBeNull();
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
+            ...progress,
+            coverage: completeCoverage,
+        })).toBeNull();
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: {
+                ...completeCoverage,
+                truncated: false,
+            },
+        })).not.toBeNull();
+        // Native input can end before pageCount without breaching its budget.
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: {
+                ...coverage,
+                truncated: false,
+            },
+        })).not.toBeNull();
     });
 
     it('owns the two distinct minimum query lengths every search surface honors', () => {
