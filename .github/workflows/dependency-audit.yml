@@ -99,6 +99,7 @@ jobs:
             "Advisories never block push CI or a release cut. Fix them as ordinary dependency work:" \
             "update or override the affected package, keep \`pnpm run check:production-dependency-audit:production-only\` green locally," \
             "and note in the commit when a fix version is younger than the seven-day \`minimumReleaseAge\` hold in \`pnpm-workspace.yaml\`." \
+            "Advisories without a patched release are listed in the run log and do not fail the audit until a patched release appears." \
             "" \
             "This issue is maintained by \`dependency-audit.yml\`. The first clean run after a failing one comments here instead of closing it.")"
 
