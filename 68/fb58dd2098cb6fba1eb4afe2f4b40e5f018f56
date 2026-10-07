@@ -1,0 +1,19 @@
+tests/e2e/electron/viewer/assistantDraftRevision.e2e.test.ts
+  s_4e1028c7d603a3::t_185bf0db2a498e 1,3-4,6-8,10-55,57-91,97-103,105-110,112-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "68fb58dd2098cb6fba1eb4afe2f4b40e5f018f56",
+  "prompts": {},
+  "sessions": {
+    "s_4e1028c7d603a3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117e9-bc29-7a52-8923-eaa1625b96d3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
