@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
@@ -7,7 +9,7 @@ import {
 } from '@scripts/electron-run/electronRunProcessTree';
 import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
-    PDFDocument,
+    PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
     StandardFonts,
 } from 'pdf-lib';
 import {chromium} from 'playwright';
@@ -185,6 +187,118 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    // T4: every accepted note belongs to the document's Save As frontier.
+    it.each([
+        'single',
+        'split',
+    ])('writes the accepted note through browser Save As from %s view', async (view) => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1600,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const fixture = resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
+            await (await chooser).setFiles(fixture);
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!bounds) throw new Error('The first PDF page is not visible');
+            await page.mouse.click(bounds.x + 200, bounds.y + 200);
+            const text = 'Accepted note survives information routes';
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).pressSequentially(text);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).click();
+            expect(await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).inputValue()).toBe(text);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            if (view === 'split') {
+                await clickCenter(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
+                await page.getByRole('menuitem', {
+                    name: 'Split Right',
+                    exact: true,
+                }).click();
+                await expect.poll(() => page.locator('.editor-pane').count()).toBe(2);
+                const panes = await page.locator('.editor-pane').evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.editorPaneId!));
+                const right = panes[1]!;
+                await page.locator(`${paneSelector(right)} .page_container--rendered canvas`).first().waitFor({timeout: 30000});
+                await zoomActivePane(page, right, 'Zoom Out', 1);
+            }
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
+            const savedContents: string[] = [];
+            const downloads: Array<Promise<void>> = [];
+            page.on('download', download => {
+                const index = downloads.length;
+                downloads.push((async () => {
+                    const path = resolve(process.cwd(), `.devkit/browser-save-as-${process.pid}-${view}-${index}.pdf`);
+                    await download.saveAs(path);
+                    const bytes = readFileSync(path);
+                    const pdf = await PDFDocument.load(bytes);
+                    for (const pdfPage of pdf.getPages()) {
+                        const annotations = pdfPage.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                        for (let i = 0; i < (annotations?.size() ?? 0); i += 1) {
+                            const annotation = annotations!.lookup(i, PDFDict);
+                            const contents = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
+                            if (contents) savedContents.push(contents.decodeText());
+                        }
+                    }
+                    console.info('SAVE_AS_BYTES', JSON.stringify({
+                        view,
+                        path,
+                        byteLength: bytes.length,
+                        originalChecksum: createHash('sha256').update(readFileSync(fixture)).digest('hex'),
+                        savedChecksum: createHash('sha256').update(bytes).digest('hex'),
+                        savedContents,
+                    }));
+                })());
+            });
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            try {
+                await expect.poll(() => savedContents, {timeout: 30000}).toContain(text);
+            } finally {
+                await Promise.all(downloads);
+            }
+        } finally {
+            await browser.close();
+        }
+    }, 120000);
     it('withdraws hosted diagnostics in another open window and allows an explicit regrant', async () => {
         const browser = await chromium.launch({headless: true});
         try {
