@@ -113,6 +113,47 @@ describe('createHttpHandler', () => {
         expect(JSON.stringify(body.result)).toContain('evb_workspace_snapshot');
     });
 
+    it.each([
+        '한',
+        '🦀',
+    ])('rejects an authorized %s body over one MiB despite its shorter UTF-16 length', async (character) => {
+        const url = await listen(createHttpHandler(createOptions(), {bearerToken: 'secret'}));
+        const body = JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: {padding: character.repeat(400_000)},
+        });
+        expect(body.length).toBeLessThan(1024 * 1024);
+        expect(Buffer.byteLength(body)).toBeGreaterThan(1024 * 1024);
+        await expect(fetch(url, {
+            method: 'POST',
+            headers: {Authorization: 'Bearer secret'},
+            body,
+        })).rejects.toThrow();
+    });
+
+    it('accepts an authorized multibyte body exactly at the one MiB boundary', async () => {
+        const url = await listen(createHttpHandler(createOptions(), {bearerToken: 'secret'}));
+        const envelope = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: {padding: ''},
+        };
+        const remainingBytes = 1024 * 1024 - Buffer.byteLength(JSON.stringify(envelope));
+        envelope.params.padding = '한'.repeat(Math.floor(remainingBytes / 3)) + ' '.repeat(remainingBytes % 3);
+        const body = JSON.stringify(envelope);
+        expect(Buffer.byteLength(body)).toBe(1024 * 1024);
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {Authorization: 'Bearer secret'},
+            body,
+        });
+        expect(response.status).toBe(200);
+        expect(JSON.stringify(await response.json())).toContain('evb_workspace_snapshot');
+    });
+
     it('does not abort completed requests when Node emits data, end, then close', async () => {
         const events: string[] = [];
         const options = createOptions();
