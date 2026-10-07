@@ -1,0 +1,25 @@
+electron/features/search/main/searchService.ts
+  s_4a55d07b23b2fb::t_7952acd4a7ffe4 85,88-89,143,150,161,167
+packages/contracts/search.ts
+  s_4a55d07b23b2fb::t_7952acd4a7ffe4 121-143,152,157,199,225
+packages/contracts/searchIndexWire.ts
+  s_4a55d07b23b2fb::t_7952acd4a7ffe4 4,39,41
+tests/unit/app/components/documentSearchResults.test.ts
+  s_4a55d07b23b2fb::t_9e882262bd9332 71-74,81-88,97-101,114-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9e7284dfce2b34f9148737ffe6aa72d85ffd74b4",
+  "prompts": {},
+  "sessions": {
+    "s_4a55d07b23b2fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1157a-8b7c-72d2-9e09-20232f7bb0f0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
