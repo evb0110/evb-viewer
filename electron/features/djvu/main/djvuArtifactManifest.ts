@@ -24,6 +24,10 @@ import {
 } from 'node:path';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import * as v from 'valibot';
+import {
+    getNativeToolBuildIdentity,
+    getRuntimeToolArchiveIdentity,
+} from '@electron/native-tools/runNativeToolCommand';
 
 
 
@@ -379,10 +383,21 @@ export async function openDjvuArtifactJob(
         ?? await captureDjvuSourceIdentity(sourcePath, options.signal);
     await assertDjvuSourceIdentity(sourcePath, sourceIdentity, options.signal);
     const sourceSha256 = sourceIdentity.sourceSha256;
-    const fingerprint = createHash('sha256')
-        .update(`${sourcePath}\0${sourceSha256}\0${options.subsample ?? 1}\0${options.artifactKind ?? 'pdf-range'}\0${options.qualityPreset ?? ''}\0`)
-        .update(JSON.stringify(pageRanges))
-        .digest('hex');
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+        sourcePath,
+        sourceSha256,
+        subsample: options.subsample ?? 1,
+        artifactKind: options.artifactKind ?? 'pdf-range',
+        qualityPreset: options.qualityPreset ?? '',
+        pageRanges,
+        recipe: {
+            // Bump when TypeScript compact representation/fidelity semantics change.
+            version: 1,
+            djvulibre: getRuntimeToolArchiveIdentity('djvulibre'),
+            imageCombine: options.artifactKind === 'compact-page'
+                ? getNativeToolBuildIdentity('evb-pdf-image-combine') : null,
+        },
+    })).digest('hex');
     const jobRoot = await ensureJobRoot();
     const releaseFingerprintLock = await acquireFingerprintLock(fingerprint);
     const directory = join(jobRoot, fingerprint);

@@ -12,6 +12,20 @@ import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTermin
  */
 declare const __EVB_NATIVE_BUILD_IDS__: Readonly<Record<string, string>> | undefined;
 
+declare const __EVB_RUNTIME_ARCHIVE_IDS__: Readonly<Record<string, string>> | undefined;
+
+/** The same build identity the command owner validates before native execution. */
+export function getNativeToolBuildIdentity(binaryName: string) {
+    return typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined' ? null : __EVB_NATIVE_BUILD_IDS__[binaryName] ?? null;
+}
+
+/** Archive pins already verified when the bundled third-party tools are installed. */
+export function getRuntimeToolArchiveIdentity(familyId: string) {
+    return typeof __EVB_RUNTIME_ARCHIVE_IDS__ === 'undefined'
+        ? null
+        : __EVB_RUNTIME_ARCHIVE_IDS__[`${familyId}-${process.platform}-${process.arch}`] ?? null;
+}
+
 export interface IRunNativeToolCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
