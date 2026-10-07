@@ -17,6 +17,7 @@ import { useOcrPopupPresenter } from '@app/modules/ocr-panel/public/runtime';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/public';
 
 interface IOcrCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
@@ -29,6 +30,7 @@ interface IOcrApplyReloadResult {
 }
 
 interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
+    documentAnnotations: TPdfDocumentAnnotations;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     pdfViewerRef: Ref<{
@@ -256,6 +258,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             if (!await refreshDocumentRevision(payload.sourceWorkingCopyPath)) {
                 throw new Error('Failed to refresh the working-copy revision after OCR apply');
             }
+            options.documentAnnotations.adoptCurrentRevision();
 
             restorePromise = waitForPdfReload(pageToRestore).catch((error: unknown) => {
                 restoreError = error;

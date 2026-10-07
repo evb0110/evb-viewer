@@ -132,11 +132,10 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         storeRevision = currentRevision;
     }
 
-    // A revision a save mints holds this store's annotations, so its reloads
-    // keep the store and its history, even when they land after the save
-    // has let the document go.
-    function adoptSavedRevision(revision: TDocumentRevisionToken) {
-        storeRevision = revision;
+    // Saves and OCR retain accepted edits. The native parse reconciles the
+    // replacement bytes with this store instead of discarding pending edits.
+    function adoptCurrentRevision() {
+        storeRevision = options.documentRevisionToken.value;
     }
 
     // One editor per annotation: editing it in one viewer first commits the
@@ -191,7 +190,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         setTextBoxDraft,
         restoreTextBoxDrafts,
         replaceLoadedDocument,
-        adoptSavedRevision,
+        adoptCurrentRevision,
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
             for (const view of views) {

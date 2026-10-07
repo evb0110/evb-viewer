@@ -1,9 +1,11 @@
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
 import {
-    copyFile, mkdtemp, readFile, rename, stat, writeFile,
+    dirname, join,
+} from 'node:path';
+import {
+    copyFile, mkdir, mkdtemp, readFile, readdir, rename, stat, writeFile,
 } from 'node:fs/promises';
 import {
     GlobalFonts, createCanvas,
@@ -25,6 +27,9 @@ import {
 } from 'vitest';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
+import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     activateMenuItemAsUser,
@@ -33,8 +38,12 @@ import {
 import {
     createFixturePath,
     createScannedTextFixturePdf,
+    readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {assertOcrPdfSemanticOutput} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {
+    assertOcrPdfSemanticOutput, getActiveWorkspaceWorkingCopyPath,
+} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {createStickyNoteWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
 import {
     openDocumentSidebarTab,
@@ -105,6 +114,8 @@ async function waitForTextLayerWord(page: Page) {
 /** A scanned document long enough that its OCR run is still going when the user moves on. */
 async function createScannedPagesFixturePdf(filename: string, pageCount: number) {
     const doc = await PDFDocument.create();
+    doc.setCreationDate(new Date('2020-01-01T00:00:00Z'));
+    doc.setModificationDate(new Date('2020-01-01T00:00:00Z'));
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         const canvas = createCanvas(1224, 1584);
         const context = canvas.getContext('2d');
@@ -208,6 +219,104 @@ async function installLateOcrCompletionControl(page: Page) {
 }
 
 describe('Electron E2E - OCR journey', () => {
+    it('preserves an accepted note through OCR cancel, crash recovery, resumed OCR and Save', async () => {
+        let session = sessionFixture.getSession();
+        const evidence = join(process.cwd(), '.devkit', session.name, 'ocr-note-recovery');
+        await mkdir(evidence, {recursive: true});
+        const sourcePath = await createScannedPagesFixturePdf('ocr-note-recovery.pdf', 6);
+        const originalBytes = await readFile(sourcePath);
+        await copyFile(sourcePath, join(evidence, 'input.pdf'));
+        await openPdfInApp(session.page, sourcePath, 90_000);
+        await waitForViewerInteractive(session.page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        const marker = 'Accepted note survives cancelled and resumed OCR';
+        await createStickyNoteWithPointer(session.page, marker, {
+            x: 0.8,
+            y: 0.1,
+        }, 1, {allowClearPointSearch: true});
+        const workingPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        const checkpointDirectory = join(dirname(dirname(workingPath)), 'ocr-checkpoints');
+        await copyFile(workingPath, join(evidence, 'before-ocr.pdf'));
+
+        async function startAllPagesOcr(page: Page) {
+            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            const allPages = await page.waitForFunction(() => (
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
+                    .find(label => label.textContent?.trim() === 'All pages (6)' && label.checkVisibility())
+            ), {timeout: 30_000});
+            await clickAsUser(page, allPages.asElement() as ElementHandle<HTMLElement>);
+            await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        }
+
+        await startAllPagesOcr(session.page);
+        await expect.poll(async () => (
+            await readdir(checkpointDirectory, {recursive: true}).catch(() => [])
+        ).some(file => file.endsWith('page-1.json')), {timeout: OCR_TIMEOUT_MS}).toBe(true);
+        await clickVisibleButton(session.page, '[role="dialog"]', 'Cancel OCR');
+        await session.page.waitForFunction(() => (
+            Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                .some(button => button.textContent?.trim() === 'Start OCR' && !button.disabled)
+        ), {timeout: 30_000});
+        await clickVisibleButton(session.page, '[role="dialog"]', 'Close');
+        expect(await readFile(sourcePath)).toEqual(originalBytes);
+
+        await expect.poll(async () => {
+            const checkpoint = readWorkspaceRecoveryRecords(session.name)
+                .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
+            const recovery = checkpoint?.tabs.find(tab => tab.workingCopyRef === workingPath)?.annotationRecovery;
+            if (!recovery) return false;
+            const payloadBytes = await readFile(join(
+                electronUserDataPath(session.name), 'workspace-annotation-recovery', `${recovery.artifactId}.json`,
+            ));
+            const payload = JSON.parse(payloadBytes.toString()) as {payload?: {entities?: Array<{contents?: string}>}};
+            const notePresent = payload.payload?.entities?.some(entity => entity.contents === marker) ?? false;
+            if (notePresent) {
+                await writeFile(join(evidence, 'workspace-before-crash.json'), JSON.stringify(checkpoint, null, 2));
+                await writeFile(join(evidence, 'annotation-recovery.json'), payloadBytes);
+            }
+            return notePresent;
+        }, {timeout: 30_000}).toBe(true);
+
+        session = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+        });
+        await waitForViewerInteractive(session.page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        expect(await getActiveWorkspaceWorkingCopyPath(session.page)).toBe(workingPath);
+        await openDocumentSidebarTab(session.page, 'Annotations');
+        await session.page.waitForFunction((text: string) => (
+            Array.from(document.querySelectorAll('.notes-panel .note-item'))
+                .some(item => item.textContent?.includes(text))
+        ), {timeout: 30_000}, marker);
+        await copyFile(workingPath, join(evidence, 'after-recovery.pdf'));
+        await session.page.screenshot({path: join(evidence, 'recovered-note.png')});
+
+        await startAllPagesOcr(session.page);
+        await session.page.waitForFunction(() => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable')
+        ), {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(session.page, '[role="dialog"]', 'Close');
+        await waitForViewerInteractive(session.page, 90_000);
+        await copyFile(workingPath, join(evidence, 'after-resumed-ocr.pdf'));
+        await session.page.screenshot({path: join(evidence, 'after-resumed-ocr.png')});
+        await saveViaVisibleToolbar(session.page, 90_000);
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        const records = await readPdfTextAnnotationRecords(sourcePath);
+        await writeFile(join(evidence, 'saved-annotations.json'), JSON.stringify(records, null, 2));
+        expect(records).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+        const pages = await extractTextWithPdfjs(sourcePath);
+        expect(pages).toHaveLength(6);
+        for (const page of pages) expect(page.text.toLocaleLowerCase()).toContain(SEARCHED_WORD);
+        await sessionFixture.resetForE2E();
+    }, 420_000);
+
     it('makes a scanned page searchable, saves it, and finds a recognized word after reopening', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;

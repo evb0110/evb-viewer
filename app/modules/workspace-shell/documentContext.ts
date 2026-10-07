@@ -136,6 +136,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         runDocumentOpen,
         assignDocument: controller.assign,
     });
+    const loadRecentFiles = () => void file.loadRecentFiles();
     const {
         workingCopyPath,
         documentRevisionToken,
@@ -257,9 +258,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         saveWorkingCopyAs: file.saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
         persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
-        loadRecentFiles: () => {
-            void file.loadRecentFiles();
-        },
+        loadRecentFiles,
         currentPage,
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
@@ -593,6 +592,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     });
 
     const {ocr} = useWorkspaceDocumentLifecycleEffects({
+        documentAnnotations: pdfDocumentAnnotations,
         currentPage,
         totalPages,
         pdfDocument,
@@ -627,9 +627,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         closeAnnotationContextMenu: views.closeAnnotationContextMenus,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
-        loadRecentFiles: () => {
-            void file.loadRecentFiles();
-        },
+        loadRecentFiles,
         isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value || isHistoryBusy.value),
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
