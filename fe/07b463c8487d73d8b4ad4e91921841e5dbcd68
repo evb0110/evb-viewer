@@ -1,0 +1,19 @@
+app/platform/browser-api/browserPageOpsWorkerClient.ts
+  s_9f279db081c874::t_72cae6da1d0e2d 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fe07b463c8487d73d8b4ad4e91921841e5dbcd68",
+  "prompts": {},
+  "sessions": {
+    "s_9f279db081c874": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a116be-e0fc-7de3-8358-a60d2a84f6ba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
