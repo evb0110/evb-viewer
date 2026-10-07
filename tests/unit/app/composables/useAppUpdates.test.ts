@@ -102,6 +102,13 @@ describe('useAppUpdates', () => {
         expect(updates.status.value.origin).toBe('manual');
         expect(updates.dialog.value.open).toBe(true);
         expect(updates.dialog.value.kind).toBe('status');
+
+        const anotherConsumer = useAppUpdates();
+        expect(anotherConsumer.dialog.value.open).toBe(true);
+        updates.dialog.value.open = false;
+        expect(anotherConsumer.dialog.value.open).toBe(false);
+        locale.value = 'ru';
+        expect(updates.dialog.value.open).toBe(false);
     });
 
     it('keeps pushed update status when it arrives before the initial state fetch resolves', async () => {
