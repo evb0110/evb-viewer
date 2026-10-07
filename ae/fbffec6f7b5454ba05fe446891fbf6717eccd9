@@ -1,0 +1,31 @@
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_2262c471ce2997::t_e984eae961e779 577-623
+electron/features/ocr/main/jobManager.ts
+  s_2262c471ce2997::t_da3fbe535a008c 305
+tests/unit/electron/ocrJobManager.test.ts
+  s_2262c471ce2997::t_83fc279e5eb24c 281-304
+  s_2262c471ce2997::t_b13b9e7f922045 254-268
+electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep.ts
+  s_2262c471ce2997::t_da3fbe535a008c 37
+tests/e2e/electron/smoke/ocrJourney.e2e.test.ts
+  s_2262c471ce2997::t_739b375c7adc26 4,739-740,821
+  s_2262c471ce2997::t_0ecf08114226ca 748,760,782-784,859-861
+  s_2262c471ce2997::t_a395f60f3f9a0d 745-747,749,752-759,761,812-819,825-828,846-848
+  s_2262c471ce2997::t_c883423b4f2e50 1-3,7,28,735-738,741-744,750-751,762-781,785-811,820,822-824,829-845,849-858,862-872
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "aefbffec6f7b5454ba05fe446891fbf6717eccd9",
+  "prompts": {},
+  "sessions": {
+    "s_2262c471ce2997": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11767-ebf5-79c0-b74b-72e27279d05f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}
