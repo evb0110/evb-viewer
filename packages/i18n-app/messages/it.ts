@@ -1768,6 +1768,8 @@ export default {
             'convert': 'Conversione non riuscita',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'Le ultime modifiche non sono protette',
+            'recoveryProtectionDescription': 'Salva {fileName} per proteggere le ultime modifiche. La creazione della copia di ripristino è stata rifiutata: {message}',
             'loadTitle': 'Impossibile caricare l’area di lavoro del documento',
             'loadDescription': 'Prova a caricare di nuovo l’area di lavoro.',
             'loadDescriptionWithMessage': 'Prova a caricare di nuovo l’area di lavoro. ({message})',

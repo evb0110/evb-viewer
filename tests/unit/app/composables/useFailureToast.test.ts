@@ -228,12 +228,18 @@ describe('useFailureToast', () => {
         const {useFailureToast} = await loadFailureToast();
 
         useFailureToast().presentNoticeToast({
+            id: 'rejected-recovery-tab',
+            duration: Number.POSITIVE_INFINITY,
+            progress: false,
             tone: 'warning',
             title: 'Recent file is no longer available',
             description: 'gone.pdf was removed',
         });
 
         expect(toastAdd.mock.calls[0]?.[0]).toEqual({
+            id: 'rejected-recovery-tab',
+            duration: Number.POSITIVE_INFINITY,
+            progress: false,
             color: 'warning',
             icon: 'i-ph-warning',
             title: 'Recent file is no longer available',

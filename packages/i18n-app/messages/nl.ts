@@ -1768,6 +1768,8 @@ export default {
             'convert': 'Conversie mislukt',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'De laatste wijzigingen zijn niet beschermd',
+            'recoveryProtectionDescription': 'Sla {fileName} op om de laatste wijzigingen te beschermen. De herstelopname is geweigerd: {message}',
             'loadTitle': 'Kan de documentwerkruimte niet laden',
             'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',

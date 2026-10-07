@@ -1,5 +1,6 @@
+import {encode} from 'fast-png';
 import {
-    copyFileSync, readFileSync, mkdtempSync, rmSync,
+    copyFileSync, readFileSync, mkdtempSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {
     clickAsUser, clickFoundAsUser,
@@ -114,6 +115,108 @@ describe('checkpointed annotation recovery', () => {
             await session.stop();
         }
     }, 240_000);
+
+    it('protects another document after an admitted image exceeds the recovery budget', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-recovery-isolation-'));
+        const imagePath = join(outputDirectory, 'accepted-large-image.png');
+        const pixels = new Uint8Array(1200 * 1000 * 3);
+        let seed = 0x12345678;
+        for (let index = 0; index < pixels.length; index += 1) {
+            seed ^= seed << 13;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;
+            pixels[index] = seed & 255;
+        }
+        writeFileSync(imagePath, encode({
+            width: 1200,
+            height: 1000,
+            channels: 3,
+            depth: 8,
+            data: pixels,
+        }));
+        const imageDocumentPath = join(outputDirectory, 'image-document.pdf');
+        const noteDocumentPath = join(outputDirectory, 'note-document.pdf');
+        copyFileSync(FIXTURE_PATH, imageDocumentPath);
+        copyFileSync(FIXTURE_PATH, noteDocumentPath);
+        const sourceBytes = readFileSync(noteDocumentPath);
+        const sessionName = `e2e-recovery-isolation-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            extraEnv: {EVB_E2E_OPEN_IMAGE_PATH: imagePath},
+            initialOpenPaths: [
+                imageDocumentPath,
+                noteDocumentPath,
+            ],
+        });
+        const clickTab = (fileName: string) => clickFoundAsUser(session!.page, (name: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane .tab[data-tab-id]'),
+        ).find(tab => tab.querySelector('.tab-label')?.textContent?.includes(name)), fileName, {description: `${fileName} tab`});
+        await waitForPdfLoaded(session.page, 60_000);
+        await clickTab(basename(imageDocumentPath));
+        await waitForActiveDocumentSource(session.page, imageDocumentPath, 30_000);
+        await waitForViewerInteractive(session.page, 30_000);
+        await clickAsUser(session.page, '.editor-pane.is-active .page_container[data-page="1"]', {button: 'right'});
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('.annotation-context-menu [role="menuitem"]'),
+        ).find(item => item.textContent?.trim() === 'Insert Image from File...'), null, {description: 'Insert Image from File menu item'});
+        await session.page.waitForSelector('.editor-pane.is-active .pdf-image-placement', {
+            visible: true,
+            timeout: 30_000,
+        });
+        await clickAsUser(session.page, '.editor-pane.is-active .pdf-image-placement__action--primary');
+        await session.page.waitForSelector('.editor-pane.is-active .pdf-image-placement', {
+            hidden: true,
+            timeout: 30_000,
+        });
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {
+            visible: true,
+            timeout: 30_000,
+        });
+        await clickTab(basename(noteDocumentPath));
+        await waitForActiveDocumentSource(session.page, noteDocumentPath, 30_000);
+        await waitForViewerInteractive(session.page, 30_000);
+        const marker = 'Other document accepted text survives the oversized image';
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await expect.poll(() => {
+            const checkpoint = readWorkspaceRecoveryRecords(session!.name)
+                .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
+            const imageTab = checkpoint?.tabs.find(tab => tab.fileName === basename(imageDocumentPath));
+            const noteTab = checkpoint?.tabs.find(tab => tab.fileName === basename(noteDocumentPath));
+            const artifact = noteTab?.annotationRecovery;
+            if (!imageTab?.annotationRecoveryFailure || !artifact) return null;
+            const payload = JSON.parse(readFileSync(join(electronUserDataPath(session!.name), 'workspace-annotation-recovery', `${artifact.artifactId}.json`), 'utf8')) as {payload?: {entities?: Array<{text?: string}>}};
+            return {
+                rejected: imageTab.annotationRecoveryFailure.reason,
+                notePresent: payload.payload?.entities?.some(entity => entity.text === marker) ?? false,
+            };
+        }, {timeout: 20_000}).toEqual({
+            rejected: 'capture-rejected',
+            notePresent: true,
+        });
+        await session.page.waitForFunction(() => document.body.textContent?.includes('Latest edits are not protected'), {timeout: 5_000});
+        expect(readFileSync(noteDocumentPath)).toEqual(sourceBytes);
+        const crashed = session;
+        await crashed.browser.disconnect();
+        await stopSingleSession(crashed.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = null;
+        session = await startElectronE2ESession(sessionName, {clean: false});
+        await waitForPdfLoaded(session.page, 60_000);
+        await clickTab(basename(noteDocumentPath));
+        await waitForActiveDocumentSource(session.page, noteDocumentPath, 30_000);
+        await waitForViewerInteractive(session.page, 30_000);
+        await session.page.waitForFunction((text: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-annotation-kind="text-box"]'),
+        ).some(entity => entity.textContent?.trim() === text), {timeout: 20_000}, marker);
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await expect.poll(() => readPdfTextAnnotationRecords(noteDocumentPath), {timeout: 30_000})
+            .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+    }, 180_000);
 
     it('restores an unsaved bookmark title after a crash and saves the recovered edit', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-metadata-recovery-'));

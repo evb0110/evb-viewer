@@ -1768,6 +1768,8 @@ export default {
             'convert': 'Conversion failed',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'Latest edits are not protected',
+            'recoveryProtectionDescription': 'Save {fileName} to protect its latest edits. Recovery capture was rejected: {message}',
             'loadTitle': 'Unable to load the document workspace',
             'loadDescription': 'Try loading the workspace again.',
             'loadDescriptionWithMessage': 'Try loading the workspace again. ({message})',

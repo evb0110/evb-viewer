@@ -4,6 +4,7 @@ import pdfjsRuntime, {
 } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
 import type {IPdfjsLinkService} from '@app/types/pdfjsLinkService';
+import {getPdfjsAssetDir} from '@app/utils/viewerAssets';
 import type {
     IPdfAnnotation,
     IPdfPage,
@@ -80,6 +81,7 @@ export function renderPdfjsAnnotationLayer(
         page: options.page as never,
         linkService: options.linkService as never,
         renderForms: options.renderForms,
+        imageResourcesPath: getPdfjsAssetDir('images'),
     });
 }
 
@@ -99,7 +101,6 @@ export async function createPdfjsStructTreeLayer(options: {
     const { StructTreeLayerBuilder } = await import('pdfjs-dist/web/pdf_viewer.mjs');
     return new StructTreeLayerBuilder(options.page, options.rawDims);
 }
-
 
 
 

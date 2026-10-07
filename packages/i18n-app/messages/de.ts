@@ -1768,6 +1768,8 @@ export default {
             'convert': 'Konvertierung fehlgeschlagen',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'Die letzten Änderungen sind nicht geschützt',
+            'recoveryProtectionDescription': 'Speichern Sie {fileName}, um die letzten Änderungen zu schützen. Die Erstellung des Wiederherstellungsabbilds wurde abgelehnt: {message}',
             'loadTitle': 'Der Dokument-Arbeitsbereich konnte nicht geladen werden',
             'loadDescription': 'Versuchen Sie, den Arbeitsbereich erneut zu laden.',
             'loadDescriptionWithMessage': 'Versuchen Sie, den Arbeitsbereich erneut zu laden. ({message})',
