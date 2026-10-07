@@ -982,7 +982,7 @@ pub(crate) fn wrap_free_text_lines(text: &str, width: f64, font_size: f64) -> Ve
         .collect()
 }
 
-fn build_text_box_appearance(
+pub(crate) fn build_text_box_appearance(
     document: &mut Document,
     editor: &TextBoxMutation,
     rect: PdfRect,
