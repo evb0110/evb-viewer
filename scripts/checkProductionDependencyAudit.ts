@@ -98,7 +98,8 @@ const NO_PATCHED_RELEASE = '<0.0.0';
 
 function describeAdvisory(advisory: Record<string, unknown>) {
     const id = advisory.github_advisory_id ?? advisory.id;
-    return `${String(advisory.module_name)} ${String(advisory.severity)} ${String(id)} (patched: ${String(advisory.patched_versions)})`;
+    const patched = typeof advisory.patched_versions === 'string' ? advisory.patched_versions : 'unknown';
+    return `${String(advisory.module_name)} ${String(advisory.severity)} ${String(id)} (patched: ${patched})`;
 }
 
 export function partitionAuditAdvisories(report: unknown, label = 'project'): IAuditAdvisories {
@@ -112,9 +113,11 @@ export function partitionAuditAdvisories(report: unknown, label = 'project'): IA
         unpatched: [],
     };
     for (const advisory of Object.values(advisories)) {
-        if (!isRecord(advisory) || typeof advisory.module_name !== 'string' || typeof advisory.patched_versions !== 'string') {
+        if (!isRecord(advisory) || typeof advisory.module_name !== 'string') {
             throw new Error(`${label} pnpm audit report has a malformed advisory.`);
         }
+        // Only pnpm's explicit no-release range is exempt; an advisory with an
+        // unknown patched status fails like a fixable one.
         const target = advisory.patched_versions === NO_PATCHED_RELEASE ? partition.unpatched : partition.fixable;
         target.push(describeAdvisory(advisory));
     }
@@ -131,11 +134,11 @@ export function assertProductionAuditIsClean(report: unknown, label = 'project')
     const summary = summarizeProductionAuditReport(report, label);
     const advisories = partitionAuditAdvisories(report, label);
     const listed = advisories.fixable.length + advisories.unpatched.length;
-    if (summary.total > 0 && listed === 0) {
-        throw new Error(`${label} pnpm audit counts ${summary.total} vulnerabilities but lists no advisories.`);
+    if (listed !== summary.total) {
+        throw new Error(`${label} pnpm audit counts ${summary.total} vulnerabilities but lists ${listed} advisories.`);
     }
     if (advisories.fixable.length > 0) {
-        throw new Error(`${label} dependency audit found ${advisories.fixable.length} advisories with a patched release:\n${advisories.fixable.join('\n')}`);
+        throw new Error(`${label} dependency audit found ${advisories.fixable.length} advisories with a patched release or an unknown patched status:\n${advisories.fixable.join('\n')}`);
     }
 
     return {

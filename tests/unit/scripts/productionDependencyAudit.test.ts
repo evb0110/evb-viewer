@@ -69,7 +69,7 @@ describe('production dependency audit policy', () => {
             },
             critical: 1,
             high: 2,
-        }), 'landing')).toThrow('landing dependency audit found 2 advisories with a patched release:\nshell-quote critical GHSA-shell-quote (patched: >=1.11.0)\nsource-map-js high GHSA-source-map-js (patched: >=1.2.2)');
+        }), 'landing')).toThrow('landing dependency audit found 2 advisories with a patched release or an unknown patched status:\nshell-quote critical GHSA-shell-quote (patched: >=1.11.0)\nsource-map-js high GHSA-source-map-js (patched: >=1.2.2)');
     });
 
     it('reports advisories without a patched release instead of failing on them', () => {
@@ -79,8 +79,23 @@ describe('production dependency audit policy', () => {
         }), 'root').unpatched).toEqual(['braces high GHSA-braces (patched: <0.0.0)']);
     });
 
-    it('rejects vulnerability counts that list no advisories', () => {
-        expect(() => assertProductionAuditIsClean(createAuditReport({high: 2}), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but lists no advisories.');
+    it('rejects vulnerability counts that the advisory list does not match', () => {
+        expect(() => assertProductionAuditIsClean(createAuditReport({high: 2}), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but lists 0 advisories.');
+        expect(() => assertProductionAuditIsClean(createAuditReport({
+            advisories: {1: createAdvisory('braces', 'high', '<0.0.0')},
+            high: 2,
+        }), 'root')).toThrow('root pnpm audit counts 2 vulnerabilities but lists 1 advisories.');
+    });
+
+    it('fails on an advisory whose patched status is unknown', () => {
+        expect(() => assertProductionAuditIsClean(createAuditReport({
+            advisories: {1: {
+                github_advisory_id: 'GHSA-x',
+                module_name: 'braces',
+                severity: 'high',
+            }},
+            high: 1,
+        }), 'root')).toThrow('root dependency audit found 1 advisories with a patched release or an unknown patched status:\nbraces high GHSA-x (patched: unknown)');
     });
 
     it('rejects muted advisories instead of silently accepting exceptions', () => {
@@ -90,6 +105,6 @@ describe('production dependency audit policy', () => {
     it('rejects malformed or incomplete audit output', () => {
         expect(() => summarizeProductionAuditReport({}, 'root')).toThrow('root pnpm audit report is missing metadata.vulnerabilities.');
         expect(() => summarizeProductionAuditReport(createAuditReport({high: -1}), 'root')).toThrow('root pnpm audit report has an invalid high vulnerability count.');
-        expect(() => assertProductionAuditIsClean(createAuditReport({advisories: {1: {module_name: 'braces'}}}), 'root')).toThrow('root pnpm audit report has a malformed advisory.');
+        expect(() => assertProductionAuditIsClean(createAuditReport({advisories: {1: {patched_versions: '<0.0.0'}}}), 'root')).toThrow('root pnpm audit report has a malformed advisory.');
     });
 });
