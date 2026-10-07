@@ -33,6 +33,7 @@
 <script setup lang="ts">
 import type { ISettingsData } from '@contracts/shared';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
 const PERFORMANCE_MODE_OPTION_DEFINITIONS = [
     {
@@ -62,9 +63,7 @@ const emit = defineEmits<{'update:performance-mode': [value: string | { value: s
 
 const { t } = useTypedI18n();
 
-const appliedPerformanceMode = props.settings.performanceMode;
-
-const showRestartNotice = computed(() => props.settings.performanceMode !== appliedPerformanceMode);
+const showRestartNotice = computed(() => props.settings.performanceMode !== getPerformanceProfile().performanceMode);
 
 const settingsFormFieldUi = {
     label: 'settings-field-label',
