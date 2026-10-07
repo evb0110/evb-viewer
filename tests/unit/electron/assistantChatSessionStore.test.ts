@@ -22,6 +22,10 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+} from '@contracts/agent';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireTabId} from '@contracts/windowTabs';
 import {
@@ -203,6 +207,246 @@ describe('assistant chat session store persistence', () => {
         expect(session.messages.map(message => message.text)).toEqual([
             'current question',
             'answer '.repeat(200),
+        ]);
+    });
+
+    it('keeps exact UTF-8 cap boundaries across split surrogates, empty deltas and recovery', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxSessionBytes: 1024});
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            id: 'old',
+            role: 'system',
+            text: '',
+        });
+        const question = 'q'.repeat(250);
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: question,
+        });
+        store.appendAssistantDelta(session, 'reply', 'ab');
+        store.appendAssistantDelta(session, 'reply', '\uD83E');
+        const beforeRestart = store.getMessages(scope, selection);
+        expect(beforeRestart.map(message => message.text)).toEqual([
+            '',
+            question,
+            'ab\uD83E',
+        ]);
+        expect(beforeRestart.reduce((total, message) => total + Buffer.byteLength(message.text) + 256, 0)).toBe(1023);
+        await store.flushPersistenceForTests();
+
+        const restarted = createAssistantChatSessionStore({persistence: createPersistence(rootDir, {maxSessionBytes: 1024})});
+        const recovered = await restarted.loadSession(scope, selection, {create: true});
+        expect(restarted.getMessages(scope, selection)).toEqual(beforeRestart);
+        restarted.appendAssistantDelta(recovered, 'reply', '');
+        restarted.appendAssistantDelta(recovered, 'reply', '\uDD80');
+        expect(restarted.getMessages(scope, selection).map(message => message.text)).toEqual([
+            '',
+            question,
+            'ab🦀',
+        ]);
+        expect(recovered.messages.reduce((total, message) => total + Buffer.byteLength(message.text) + 256, 0)).toBe(1024);
+        restarted.appendAssistantDelta(recovered, 'reply', 'x');
+        restarted.upsertAssistantMessage(recovered, 'reply', {pending: false});
+        expect(recovered.messages.map(message => [
+            message.id,
+            message.text,
+            message.pending,
+        ])).toEqual([
+            [
+                'question',
+                question,
+                undefined,
+            ],
+            [
+                'reply',
+                'ab🦀x',
+                false,
+            ],
+        ]);
+        await restarted.flushPersistenceForTests();
+        const completed = createAssistantChatSessionStore({persistence: createPersistence(rootDir, {maxSessionBytes: 1024})});
+        await completed.ready;
+        expect(completed.getMessages(scope, selection)).toEqual(restarted.getMessages(scope, selection));
+    });
+
+    it('uses replacement text and metadata-only completion at exact retention boundaries', () => {
+        const store = createAssistantChatSessionStore({persistence: createPersistence(createTempRoot(), {maxSessionBytes: 1024})});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            id: 'old',
+            role: 'system',
+            text: '',
+        });
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'q',
+        });
+        store.appendAssistantDelta(session, 'reply', 'x'.repeat(255));
+        store.upsertAssistantMessage(session, 'reply', {
+            text: '한',
+            pending: false,
+        });
+        store.appendAssistantDelta(session, 'reply', 'x'.repeat(252));
+        expect(session.messages.map(message => message.text)).toEqual([
+            '',
+            'q',
+            `한${'x'.repeat(252)}`,
+        ]);
+        store.upsertAssistantMessage(session, 'reply', {
+            pending: false,
+            error: 'interrupted',
+        });
+        expect(session.messages.at(-1)).toMatchObject({
+            pending: false,
+            error: 'interrupted',
+        });
+        store.appendAssistantDelta(session, 'reply', 'x');
+        expect(session.messages.map(message => message.text)).toEqual([
+            'q',
+            `한${'x'.repeat(253)}`,
+        ]);
+    });
+
+    it('updates attachment metadata budgets independently of text when a message changes', () => {
+        const store = createAssistantChatSessionStore({persistence: false});
+        const session = store.getSession(scope, selection, {create: true});
+        const image = {
+            type: 'image',
+            id: 'image',
+            name: 'image.png',
+            mimeType: 'image/png',
+            sizeBytes: ASSISTANT_MAX_IMAGE_BYTES,
+            dataUrl: 'data:image/png;base64,AA==',
+        } as const;
+        store.addMessage(session, {
+            id: 'old',
+            role: 'system',
+            text: 'older image',
+            attachments: [image],
+        });
+        const attachments = Array.from({length: ASSISTANT_MAX_IMAGE_ATTACHMENTS - 1}, (_, index) => ({
+            ...image,
+            id: `image-${index}`,
+        }));
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'current image question',
+            attachments,
+        });
+        store.appendAssistantDelta(session, 'reply', '한글🦀');
+        expect(session.messages.map(message => message.id)).toEqual([
+            'old',
+            'question',
+            'reply',
+        ]);
+        store.upsertAssistantMessage(session, 'reply', {
+            attachments: [image],
+            pending: false,
+        });
+        expect(store.getMessages(scope, selection).map(message => [
+            message.id,
+            message.text,
+            message.attachments,
+            message.pending,
+        ])).toEqual([
+            [
+                'question',
+                'current image question',
+                attachments,
+                undefined,
+            ],
+            [
+                'reply',
+                '한글🦀',
+                [image],
+                false,
+            ],
+        ]);
+    });
+
+    it('keeps canonical transcript output through reentrant callbacks, pending trimming and reset', () => {
+        const store = createAssistantChatSessionStore({
+            persistence: false,
+            onSessionMessageEvent: (event, session) => {
+                if (event.type === 'message-delta' && event.delta === 'first') {
+                    store.upsertAssistantMessage(session, 'reply', {
+                        text: '한\uD83E',
+                        pending: false,
+                    });
+                    store.removeMessage(session, 'canceled');
+                }
+            },
+        });
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'q',
+        });
+        store.addMessage(session, {
+            id: 'canceled',
+            role: 'user',
+            text: 'not submitted',
+        });
+        store.appendAssistantDelta(session, 'reply', 'first');
+        store.appendAssistantDelta(session, 'reply', '\uDD80');
+        expect(store.getMessages(scope, selection).map(message => [
+            message.id,
+            message.text,
+        ])).toEqual([
+            [
+                'question',
+                'q',
+            ],
+            [
+                'reply',
+                '한🦀',
+            ],
+        ]);
+        // The service filters failed pending bubbles directly on this owner.
+        session.messages = session.messages.filter(message => !message.pending);
+        store.addMessage(session, {
+            id: 'failure',
+            role: 'system',
+            text: 'failed',
+            error: 'failed',
+        });
+        store.appendAssistantDelta(session, 'reply', 'new reply');
+        expect(store.getMessages(scope, selection).map(message => message.text)).toEqual([
+            'q',
+            'failed',
+            'new reply',
+        ]);
+        session.messages.length = 0;
+        store.resetSessionTranscript(session);
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'reset question',
+        });
+        store.appendAssistantDelta(session, 'reply', '\uDD80');
+        store.upsertAssistantMessage(session, 'reply', {pending: false});
+        expect(store.getMessages(scope, selection).map(message => [
+            message.id,
+            message.text,
+            message.pending,
+        ])).toEqual([
+            [
+                'question',
+                'reset question',
+                undefined,
+            ],
+            [
+                'reply',
+                '\uDD80',
+                false,
+            ],
         ]);
     });
 
