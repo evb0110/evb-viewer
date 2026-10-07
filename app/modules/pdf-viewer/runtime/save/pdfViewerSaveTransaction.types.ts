@@ -163,9 +163,9 @@ export interface IPdfViewerSaveTransactionSource {
     readonly [key: string]: unknown;
 }
 
-export interface IPdfViewerSaveTransactionRequest {
-    annotationSerializationPlan?: ISerializationPlan;
+export interface IPdfViewerNativeMaterializationRequest extends IPdfViewerSaveTransactionDescriptors {
     mode: TPdfViewerSaveTransactionMode;
+    annotationSerializationPlan?: ISerializationPlan;
     saveMode?: TPdfSaveMode;
     saveFlowMode?: 'save' | 'save_as';
     forceRewrite?: boolean;
@@ -176,17 +176,20 @@ export interface IPdfViewerSaveTransactionRequest {
     workingPath?: TDocumentRef | null;
     markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;
     markupSubtypeHints?: IMarkupSubtypeHint[] | undefined;
-    nativeCapabilities?: IPdfViewerSaveTransactionNativeCapabilities;
-    dirtyState?: IPdfViewerSaveTransactionDirtyState;
-    documentStructure?: IPdfViewerSaveTransactionDocumentStructure;
     source?: IPdfViewerSaveTransactionSource;
+}
+
+export interface IPdfViewerSaveTransactionDescriptors {
+    nativeCapabilities: IPdfViewerSaveTransactionNativeCapabilities;
+    dirtyState: IPdfViewerSaveTransactionDirtyState;
+    documentStructure: IPdfViewerSaveTransactionDocumentStructure;
 }
 
 export interface IPdfViewerSaveTransactionResult {
     source: TPdfViewerSaveTransactionSource;
     nativeMutationProjection: INativePdfMutationProjection | null;
     nativeRequiredFailure?: IPdfViewerNativeRequiredFailure;
-    /** A captured canonical frontier proves no PDF mutations remain after draft deletion or undo. */
+    /** Even with native-required-failure, a captured empty frontier proves the current working bytes need no mutation. */
     verifiedUnchangedWorkingCopy?: boolean;
     /** Exact classifier-owned alternate; consumers must not independently plan another route. */
     fallbackDecision: IPdfSaveByteRouteDecision;

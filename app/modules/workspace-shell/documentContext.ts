@@ -481,9 +481,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
 
     const getPrintableSourceData = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
-        pdfData,
         pdfViewerRef,
-        source: {getSourcePdfData: saveService.getSourcePdfData},
+        save: saveService,
         workingCopyPath,
         originalPath,
         documentRevisionToken,
