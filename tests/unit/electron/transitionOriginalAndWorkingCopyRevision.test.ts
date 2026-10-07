@@ -2,6 +2,7 @@ import {
     appendFile,
     link,
     mkdtemp,
+    open,
     readFile,
     readdir,
     rename,
@@ -114,56 +115,73 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         };
     }
 
-    it('links an immutable original into the working-copy path when reflinks are unavailable', async () => {
-        const {
-            originalPath,
-            stagedPath,
-            workingCopyPath,
-        } = await prepare();
-        const phases: string[] = [];
-        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
-        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
-        const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
-        const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
+    it.each([
+        'append',
+        'overwrite',
+        'atomic replacement',
+    ] as const)(
+        'isolates the accepted working bytes from external %s without reflinks',
+        async (mutation) => {
+            const {
+                originalPath,
+                stagedPath,
+                workingCopyPath,
+            } = await prepare();
+            const phases: string[] = [];
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+            const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
 
-        await expect(transitionOriginalAndWorkingCopyRevision({
-            workingCopyPath,
-            originalPath,
-            reason: 'native-mutation',
-            senderId: 7,
-            publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
-            afterWorkingCopySync: async () => {
-                expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
-            },
-            onPhase: phase => phases.push(phase),
-        })).resolves.toMatchObject({
-            contentRevision: 2,
-            reason: 'native-mutation',
-        });
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath,
+                reason: 'native-mutation',
+                senderId: 7,
+                publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+                afterWorkingCopySync: async () => {
+                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+                },
+                onPhase: phase => phases.push(phase),
+            })).resolves.toMatchObject({
+                contentRevision: 2,
+                reason: 'native-mutation',
+            });
 
-        const [
-            originalStat,
-            workingStat,
-        ] = await Promise.all([
-            stat(originalPath, {bigint: true}),
-            stat(workingCopyPath, {bigint: true}),
-        ]);
-        expect(originalStat.ino).toBe(workingStat.ino);
-        expect(originalStat.nlink).toBeGreaterThanOrEqual(2n);
-        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
-        expect(phases).toContain('transition-sync-working-copy-link');
-        expect(phases).not.toContain('transition-sync-working-copy-copy');
-        expect(phases.indexOf('transition-sync-working-copy-fsync-file')).toBeGreaterThan(-1);
-        expect(phases.indexOf('transition-sync-working-copy-fsync-directory')).toBeGreaterThan(-1);
-        expect(phases.indexOf('transition-sync-working-copy-fsync-file'))
-            .toBeLessThan(phases.indexOf('revision-write-manifest'));
-        expect(phases.indexOf('transition-sync-working-copy-fsync-directory'))
-            .toBeLessThan(phases.indexOf('revision-write-manifest'));
-        await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(true);
+            const [
+                originalStat,
+                workingStat,
+            ] = await Promise.all([
+                stat(originalPath, {bigint: true}),
+                stat(workingCopyPath, {bigint: true}),
+            ]);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
+            expect(phases.indexOf('transition-sync-working-copy-fsync-file')).toBeGreaterThan(-1);
+            expect(phases.indexOf('transition-sync-working-copy-fsync-directory')).toBeGreaterThan(-1);
+            expect(phases.indexOf('transition-sync-working-copy-fsync-file'))
+                .toBeLessThan(phases.indexOf('revision-write-manifest'));
+            expect(phases.indexOf('transition-sync-working-copy-fsync-directory'))
+                .toBeLessThan(phases.indexOf('revision-write-manifest'));
+            await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(true);
 
-        await appendFile(originalPath, '-external-change');
-        await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(false);
-    });
+            const acceptedRevision = await getWorkingCopyRevision(workingCopyPath, 7);
+            if (mutation === 'append') {
+                await appendFile(originalPath, '-external-change');
+            } else if (mutation === 'overwrite') {
+                await writeFile(originalPath, 'external');
+            } else {
+                const externalPath = join(tempRoot, 'external.pdf');
+                await writeFile(externalPath, 'external-replacement');
+                await rename(externalPath, originalPath);
+            }
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
+            expect(originalStat.ino).not.toBe(workingStat.ino);
+            expect(workingStat.nlink).toBe(1n);
+            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toEqual(acceptedRevision);
+            await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(false);
+        },
+    );
 
     it('refreshes the original witness after a managed replacement detaches a linked working copy', async () => {
         const {
@@ -480,7 +498,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         expect((await readdir(tempRoot)).filter(name => name.endsWith('.bak'))).toEqual([]);
     });
 
-    it('publishes a second witnessed save when the original and working copy share an inode', async () => {
+    it('publishes a second witnessed save from a legacy shared inode', async () => {
         const {
             originalPath,
             stagedPath,
@@ -516,7 +534,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             stat(originalPath, {bigint: true}),
             stat(workingCopyPath, {bigint: true}),
         ]);
-        expect(firstOriginalStat.ino).toBe(firstWorkingStat.ino);
+        expect(firstOriginalStat.ino).not.toBe(firstWorkingStat.ino);
+        // Existing linked working copies predate the durable publication baseline.
+        const {updateWorkingCopyManifest} = await import('@electron/file-access/workingCopyManifest');
+        await updateWorkingCopyManifest(workingCopyPath, current => ({
+            version: 1,
+            revision: current!.revision,
+        }));
+        await rm(workingCopyPath);
+        await link(originalPath, workingCopyPath);
+        expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
 
         await expect(transitionOriginalAndWorkingCopyRevision({
             workingCopyPath,
@@ -571,8 +598,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             },
         })).resolves.toMatchObject({contentRevision: 2});
 
+        await rm(stagedPath);
+
         // A checkpoint can outlive the first app-owned atomic publication. A
-        // hard reopen restores that checkpoint witness onto the now-linked
+        // hard reopen restores that checkpoint witness onto the independent
         // original and working-copy paths before the next native save.
         clearWorkingCopyOriginalPaths();
         await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {
@@ -628,51 +657,74 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
     });
 
-    it('rejects a distinct-inode external replacement after restoring a stale checkpoint', async () => {
-        const {
-            originalPath,
-            stagedPath,
-            workingCopyPath,
-        } = await prepare();
-        const replacementPath = join(tempRoot, 'external-replacement.pdf');
-        await writeFile(replacementPath, 'external-replacement');
-        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
-        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
-        const {
-            clearWorkingCopyOriginalPaths,
-            getWorkingCopyOriginalFileExpectation,
-            refreshWorkingCopyOriginalFileExpectation,
-            setWorkingCopyOriginalPath,
-        } = await import('@electron/file-access/workingCopyStore');
-        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
-        const staleExpectation = getWorkingCopyOriginalFileExpectation(workingCopyPath, 7);
-        expect(staleExpectation).not.toBeNull();
-
-        await expect(transitionOriginalAndWorkingCopyRevision({
-            workingCopyPath,
-            originalPath,
-            reason: 'native-mutation',
-            senderId: 7,
-            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                stagedPath,
+    it.each([
+        'atomic replacement',
+        'interior write',
+    ] as const)(
+        'rejects external %s after restoring a stale checkpoint',
+        async (mutation) => {
+            const {
                 originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
-            afterWorkingCopySync: async () => {
-                expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
-            },
-        })).resolves.toMatchObject({contentRevision: 2});
+                stagedPath,
+                workingCopyPath,
+            } = await prepare();
+            await writeFile(stagedPath, Buffer.alloc(320 * 1024, 65));
+            const replacementPath = join(tempRoot, 'external-replacement.pdf');
+            await writeFile(replacementPath, 'external-replacement');
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {
+                clearWorkingCopyOriginalPaths,
+                getWorkingCopyOriginalFileExpectation,
+                refreshWorkingCopyOriginalFileExpectation,
+                setWorkingCopyOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const staleExpectation = getWorkingCopyOriginalFileExpectation(workingCopyPath, 7);
+            expect(staleExpectation).not.toBeNull();
 
-        clearWorkingCopyOriginalPaths();
-        await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {
-            backingState: 'eager',
-            originalFileExpectation: staleExpectation!,
-        });
-        await rename(replacementPath, originalPath);
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath,
+                reason: 'native-mutation',
+                senderId: 7,
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+                publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
+                    stagedPath,
+                    originalPath,
+                    {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
+                ),
+                afterWorkingCopySync: async () => {
+                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+                },
+            })).resolves.toMatchObject({contentRevision: 2});
 
-        await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
-    });
+            clearWorkingCopyOriginalPaths();
+            await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {
+                backingState: 'eager',
+                originalFileExpectation: staleExpectation!,
+            });
+            await rm(stagedPath);
+            if (mutation === 'atomic replacement') {
+                await rename(replacementPath, originalPath);
+            } else {
+                const handle = await open(originalPath, 'r+');
+                try {
+                    await handle.write(Buffer.from([66]), 0, 1, 80 * 1024);
+                } finally {
+                    await handle.close();
+                }
+                const {readWorkingCopyManifest} = await import('@electron/file-access/workingCopyManifest');
+                const {assertPathMatchesSaveWitnessSnapshot} = await import('@electron/file-access/originalPathSaveWitness');
+                const manifest = await readWorkingCopyManifest(workingCopyPath);
+                await expect(assertPathMatchesSaveWitnessSnapshot(
+                    originalPath, manifest!.originalSaveBase!.snapshot, {contentOnly: true},
+                )).rejects.toThrow('Original file changed on disk');
+            }
+
+            await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
+        },
+    );
 
     it('rejects Save after recovering a dirty materialized checkpoint over an external replacement', async () => {
         const originalBytes = Buffer.from('%PDF-1.7\n% issue-398 source A\n%%EOF\n');

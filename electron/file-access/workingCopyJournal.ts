@@ -18,7 +18,10 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import {readWorkingCopyManifest} from '@electron/file-access/workingCopyManifest';
+import {
+    originalSaveSnapshotSchema,
+    readWorkingCopyManifest,
+} from '@electron/file-access/workingCopyManifest';
 import {
     copyFileAtomic,
     linkOrCopyFileDurably,
@@ -42,16 +45,6 @@ const log = createLogger('workingCopyJournal');
 export type TWorkingCopyContentBackupMode = 'copy-on-write' | 'hard-link' | 'append';
 
 /** The original file a save publishes in the same transition. */
-const snapshotSchema = v.object({
-    ctimeNs: v.string(),
-    deviceId: v.string(),
-    inode: v.string(),
-    linkCount: v.string(),
-    mtimeNs: v.string(),
-    sampleSha256: v.string(),
-    size: v.string(),
-});
-
 const originalSchema = v.object({
     path: v.string(),
     backupPath: v.string(),
@@ -60,8 +53,8 @@ const originalSchema = v.object({
         'published',
         'restored',
     ]),
-    preparedSnapshot: v.optional(snapshotSchema),
-    publishedSnapshot: v.optional(snapshotSchema),
+    preparedSnapshot: v.optional(originalSaveSnapshotSchema),
+    publishedSnapshot: v.optional(originalSaveSnapshotSchema),
 });
 
 export type IWorkingCopyJournalOriginal = v.InferOutput<typeof originalSchema>;

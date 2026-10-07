@@ -45,10 +45,26 @@ const syncRequiredSchema = v.pipe(v.object({
         ? {ownerWebContentsId}
         : {}),
 })));
+export const originalSaveSnapshotSchema = v.object({
+    contentFingerprint: v.exactOptional(v.pipe(v.string(), v.regex(/^sha256-full-v1:[0-9a-f]{64}$/u))),
+    ctimeNs: v.string(),
+    deviceId: v.string(),
+    inode: v.string(),
+    linkCount: v.string(),
+    mtimeNs: v.string(),
+    sampleSha256: v.string(),
+    size: v.string(),
+});
+const originalSaveBaseSchema = v.object({
+    path: v.string(),
+    snapshot: originalSaveSnapshotSchema,
+});
+
 const workingCopyManifestSchema = v.object({
     version: v.literal(1),
     revision: revisionSchema,
     syncRequired: v.optional(syncRequiredSchema),
+    originalSaveBase: v.optional(originalSaveBaseSchema),
 });
 
 export type IWorkingCopySyncRequired = v.InferOutput<typeof syncRequiredSchema>;
@@ -203,10 +219,12 @@ export function writeWorkingCopyManifestRevision(
     workingCopyPath: string,
     revision: TWorkingCopyRevision,
     options: Parameters<typeof writeJsonAtomic>[2] = {},
+    originalSaveBase?: v.InferOutput<typeof originalSaveBaseSchema>,
 ) {
     return updateWorkingCopyManifest(workingCopyPath, current => ({
         ...current,
         version: 1,
         revision,
+        ...(originalSaveBase ? {originalSaveBase} : {}),
     }), options);
 }

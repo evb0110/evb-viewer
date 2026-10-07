@@ -12,6 +12,11 @@ import {
     refreshWorkingCopyOriginalFileExpectation,
     type IWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
+import * as v from 'valibot';
+import {
+    originalSaveSnapshotSchema,
+    readWorkingCopyManifest,
+} from '@electron/file-access/workingCopyManifest';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {createLogger} from '@electron/utils/createLogger';
@@ -21,6 +26,7 @@ const SAVE_WITNESS_SAMPLE_BYTES = 64 * 1024;
 const SAVE_WITNESS_HASH_CHUNK_BYTES = 1024 * 1024;
 
 interface IOriginalPathSaveSnapshot {
+    contentFingerprint?: string;
     ctimeNs: bigint;
     deviceId: bigint;
     inode: bigint;
@@ -31,6 +37,7 @@ interface IOriginalPathSaveSnapshot {
 }
 
 export interface IOriginalPathSaveJournalSnapshot {
+    contentFingerprint?: string;
     ctimeNs: string;
     deviceId: string;
     inode: string;
@@ -300,6 +307,7 @@ function createSnapshot(
 
 function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSaveJournalSnapshot {
     return {
+        ...(snapshot.contentFingerprint ? {contentFingerprint: snapshot.contentFingerprint} : {}),
         ctimeNs: snapshot.ctimeNs.toString(),
         deviceId: snapshot.deviceId.toString(),
         inode: snapshot.inode.toString(),
@@ -311,31 +319,21 @@ function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSa
 }
 
 function deserializeSnapshot(value: unknown): IOriginalPathSaveSnapshot | null {
-    if (!value || typeof value !== 'object') {
+    const parsed = v.safeParse(originalSaveSnapshotSchema, value);
+    if (!parsed.success) {
         return null;
     }
-    const candidate = value as Record<string, unknown>;
-    const fields = [
-        'ctimeNs',
-        'deviceId',
-        'inode',
-        'linkCount',
-        'mtimeNs',
-        'sampleSha256',
-        'size',
-    ] as const;
-    if (fields.some(field => typeof candidate[field] !== 'string')) {
-        return null;
-    }
+    const candidate = parsed.output;
     try {
         return {
-            ctimeNs: BigInt(candidate.ctimeNs as string),
-            deviceId: BigInt(candidate.deviceId as string),
-            inode: BigInt(candidate.inode as string),
-            linkCount: BigInt(candidate.linkCount as string),
-            mtimeNs: BigInt(candidate.mtimeNs as string),
-            sampleSha256: candidate.sampleSha256 as string,
-            size: BigInt(candidate.size as string),
+            ...(candidate.contentFingerprint ? {contentFingerprint: candidate.contentFingerprint} : {}),
+            ctimeNs: BigInt(candidate.ctimeNs),
+            deviceId: BigInt(candidate.deviceId),
+            inode: BigInt(candidate.inode),
+            linkCount: BigInt(candidate.linkCount),
+            mtimeNs: BigInt(candidate.mtimeNs),
+            sampleSha256: candidate.sampleSha256,
+            size: BigInt(candidate.size),
         };
     } catch {
         return null;
@@ -431,6 +429,7 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         try {
             nextHandle = await open(this.originalPath, 'r');
             const nextSnapshot = await captureHandleSnapshot(nextHandle);
+            nextSnapshot.contentFingerprint = await hashContentFingerprintFileHandle(nextHandle, nextSnapshot.size);
             const pathSnapshot = await capturePathSnapshot(this.originalPath);
             if (!snapshotsMatch(nextSnapshot, pathSnapshot)) {
                 throw new OriginalPathSaveConflictError();
@@ -483,6 +482,20 @@ export async function assertPathMatchesSaveWitnessSnapshot(
         const actualSnapshot = await capturePathSnapshot(originalPath);
         if (!snapshotsMatch(expectedSnapshot, actualSnapshot, options)) {
             throw new OriginalPathSaveConflictError();
+        }
+        if (expectedSnapshot.contentFingerprint !== undefined) {
+            const handle = await open(originalPath, 'r');
+            try {
+                if (!await matchesBaselineOnWitnessHandle(handle, originalPath, {
+                    mtimeMs: Number(expectedSnapshot.mtimeNs) / 1_000_000,
+                    size: Number(expectedSnapshot.size),
+                    contentFingerprint: expectedSnapshot.contentFingerprint,
+                }, actualSnapshot)) {
+                    throw new OriginalPathSaveConflictError();
+                }
+            } finally {
+                await handle.close();
+            }
         }
     } catch (error) {
         rethrowWitnessSnapshotError(error);
@@ -627,50 +640,30 @@ async function restoreAppPublishedOriginalExpectation(
     expected: IWorkingCopyOriginalFileExpectation,
     originalStat: BigIntStats,
 ) {
-    if (
-        expected.deviceId === undefined
-        || expected.inode === undefined
-        || (
-            expected.deviceId === originalStat.dev.toString()
-            && expected.inode === originalStat.ino.toString()
-        )
-    ) {
-        return null;
-    }
-
     const registration = getWorkingCopyBackingEntry(workingPath, senderWebContentsId);
     if (!registration || registration.originalPath !== originalPath) {
         return null;
     }
-
-    let workingStat: BigIntStats;
-    try {
-        workingStat = await stat(workingPath, {bigint: true});
-    } catch {
-        return null;
+    const saved = (await readWorkingCopyManifest(workingPath))?.originalSaveBase;
+    if (saved) {
+        if (saved.path !== originalPath) {
+            return null;
+        }
+        // The revision commit retains the journal's witnessed publication.
+        // A stale workspace checkpoint cannot erase this save baseline.
+        await assertPathMatchesSaveWitnessSnapshot(originalPath, saved.snapshot, {allowBackupMetadataChange: saved.snapshot.contentFingerprint !== undefined});
+    } else {
+        // Older saved copies prove publication only through their shared inode.
+        const workingStat = await stat(workingPath, {bigint: true});
+        if (!workingStat.isFile() || workingStat.dev !== originalStat.dev
+            || workingStat.ino !== originalStat.ino || originalStat.nlink < 2n
+            || expected.deviceId === undefined || expected.inode === undefined
+            || expected.deviceId === originalStat.dev.toString() && expected.inode === originalStat.ino.toString()) {
+            return null;
+        }
     }
-    // The transition publishes a new inode, then links that immutable inode
-    // into the managed working-copy path. A restored checkpoint may still name
-    // the pre-publication inode. Recover only that exact pair. An in-place edit
-    // keeps the expected inode, while an external replacement leaves the
-    // working copy on a different inode, so both remain conflicts.
-    if (
-        !workingStat.isFile()
-        || workingStat.dev !== originalStat.dev
-        || workingStat.ino !== originalStat.ino
-        || originalStat.nlink < 2n
-    ) {
-        return null;
-    }
-    if (!await refreshWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId)) {
-        return null;
-    }
-    const currentRegistration = getWorkingCopyBackingEntry(workingPath, senderWebContentsId);
-    if (
-        !currentRegistration
-        || currentRegistration.registrationId !== registration.registrationId
-        || currentRegistration.originalPath !== originalPath
-    ) {
+    if (getWorkingCopyBackingEntry(workingPath, senderWebContentsId)?.registrationId !== registration.registrationId
+        || !await refreshWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId)) {
         return null;
     }
     const restored = getWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);

@@ -436,7 +436,13 @@ async function runWorkingCopyContentRevisionTransition(
             commit(revision, journal));
         // The durable manifest write is the transaction commit point.
         await measureRevisionTransitionPhase('revision-write-manifest', onPhase, () =>
-            writeWorkingCopyManifestRevision(normalizedWorkingPath, revision));
+            writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {},
+                journal.original?.state === 'published' && journal.original.publishedSnapshot
+                    ? {
+                        path: journal.original.path,
+                        snapshot: journal.original.publishedSnapshot,
+                    }
+                    : undefined));
     } catch (error) {
         await rollbackWorkingCopyTransition(journal);
         throw error;
