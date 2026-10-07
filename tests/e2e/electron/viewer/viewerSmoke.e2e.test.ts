@@ -1,4 +1,5 @@
 import {execFile} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {promisify} from 'node:util';
 import {
     activateMenuItemAsUser,
@@ -4812,7 +4813,7 @@ describe('Electron E2E - Document Output', () => {
 
     it('hands off the first dirty path-backed print without saving the original', async () => {
         const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);
-        const sourceBytes = await readFile(fixturePath);
+        const sourceChecksum = createHash('sha256').update(await readFile(fixturePath)).digest('hex');
         const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-dirty-print-${Date.now()}`);
         const printedPath = join(printDirectory, 'printed.pdf');
         await mkdir(printDirectory, {recursive: true});
@@ -4852,7 +4853,7 @@ describe('Electron E2E - Document Output', () => {
             if (!existsSync(printedPath)) return [];
             return readPdfTextAnnotationRecords(printedPath);
         }, {timeout: 30_000}).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
-        expect(await readFile(fixturePath)).toEqual(sourceBytes);
+        expect(createHash('sha256').update(await readFile(fixturePath)).digest('hex')).toBe(sourceChecksum);
         await session.page.waitForSelector('.tab.is-dirty', {visible: true});
     }, 120_000);
 

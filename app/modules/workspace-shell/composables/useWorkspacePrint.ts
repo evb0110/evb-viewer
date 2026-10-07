@@ -997,7 +997,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
             throw new Error(result.error ?? 'Failed to open the native print dialog');
         } finally {
-            await snapshot?.dispose();
+            await snapshot?.dispose().catch((error: unknown) => {
+                BrowserLogger.warn('workspace-print', 'Failed to release the detached print snapshot', {error: getErrorMessage(error)});
+            });
         }
     }
 
