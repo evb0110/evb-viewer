@@ -28,6 +28,8 @@ import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {IWorkspaceDocumentRecovery} from '@app/types/workspaceDocumentRecovery';
+import {createWorkspaceExposeFixture} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import {
     buildWorkspaceCheckpoint,
@@ -184,6 +186,36 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         });
         const afterDocumentInstanceChange = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterDocumentInstanceChange.tabSignatures.get('tab-a')).not.toBe(afterTokenChange.tabSignatures.get('tab-a'));
+    });
+
+    it('detects successive metadata edits while the document is already dirty', () => {
+        const options = createSignatureOptions();
+        const recovery: IWorkspaceDocumentRecovery = {
+            version: 1,
+            annotationMutationGeneration: 0,
+            entities: [],
+            foreign: [],
+            drafts: [],
+            metadata: {bookmarks: {
+                revision: 1,
+                dirty: true,
+                items: [],
+            }},
+        };
+        const workspace = createWorkspaceExposeFixture({captureCanonicalAnnotationRecovery: () => recovery});
+        options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
+        const before = buildWorkspaceCheckpointChangeSignature(options);
+        recovery.metadata!.bookmarks!.revision += 1;
+        const after = buildWorkspaceCheckpointChangeSignature(options);
+        expect(after.workspace).not.toBe(before.workspace);
+        recovery.metadata = {pageLabels: {
+            revision: 1,
+            dirty: true,
+            ranges: [],
+        }};
+        const labels = buildWorkspaceCheckpointChangeSignature(options);
+        recovery.metadata.pageLabels!.revision += 1;
+        expect(buildWorkspaceCheckpointChangeSignature(options).workspace).not.toBe(labels.workspace);
     });
 
     it('tracks live document refs owned by a mounted workspace', () => {

@@ -8,6 +8,34 @@ import {
 import { useBookmarkState } from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 
 describe('useBookmarkState', () => {
+    it.each([
+        {items: []},
+        {items: [{
+            title: 'Recovered child',
+            pageIndex: requirePageIndex(2),
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }]},
+    ])('preserves an unsaved bookmark replacement, including deletion, through recovery', ({items}) => {
+        const source = useBookmarkState({markDirty: vi.fn()});
+        source.handleBookmarksChange({
+            bookmarks: items,
+            dirty: true,
+        });
+        const recovery = source.captureRecovery();
+        expect(recovery).toBeDefined();
+        const restored = useBookmarkState({markDirty: vi.fn()});
+        restored.restoreRecovery(recovery!);
+        expect(restored.bookmarkItems.value).toEqual(items);
+        expect(restored.bookmarksDirty.value).toBe(true);
+        expect(restored.bookmarksResolved.value).toBe(true);
+        restored.markBookmarksSaved();
+        expect(restored.captureRecovery()).toBeUndefined();
+    });
+
     it('records dirty bookmark updates through the source-specific callback hook', () => {
         const markDirty = vi.fn();
         const onBookmarksDirty = vi.fn();

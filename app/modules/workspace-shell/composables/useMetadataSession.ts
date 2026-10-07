@@ -10,6 +10,7 @@ import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 
 interface IMetadataSessionOptions {
@@ -108,5 +109,20 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preserveMetadataForNextSourceReload: () => metadataHistory?.preserveCurrentStateForNextSourceReload(),
         workspaceUndoTimeline,
         workspaceCommandSink: commandSink,
+        captureRecovery: (): IWorkspaceMetadataRecovery => {
+            const bookmarks = bookmarkState.captureRecovery();
+            const labels = pageLabelState.captureRecovery();
+            return {
+                ...(bookmarks ? {bookmarks} : {}),
+                ...(labels ? {pageLabels: labels} : {}),
+            };
+        },
+        restoreRecovery: (recovery: IWorkspaceMetadataRecovery) => {
+            // Restored edits stay dirty, but do not create a second authored history.
+            metadataHistory.restoreCurrentState(() => {
+                if (recovery.bookmarks) bookmarkState.restoreRecovery(recovery.bookmarks);
+                if (recovery.pageLabels) pageLabelState.restoreRecovery(recovery.pageLabels);
+            });
+        },
     };
 };

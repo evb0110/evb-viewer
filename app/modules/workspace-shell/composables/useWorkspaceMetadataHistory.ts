@@ -109,13 +109,29 @@ export const useWorkspaceMetadataHistory = (deps: {
         }
     }
 
-    function resetToCurrentState() {
+    function resetHistoryToCurrentState() {
         const snapshot = captureCurrentSnapshot();
         history.value = [snapshot];
         historyIndex.value = 0;
-        cleanSnapshot.value = cloneSnapshot(snapshot);
         metadataHistoryResetVersion.value += 1;
         deps.commandSink?.reset('metadata');
+        return snapshot;
+    }
+
+    function resetToCurrentState() {
+        const snapshot = resetHistoryToCurrentState();
+        cleanSnapshot.value = cloneSnapshot(snapshot);
+        syncDirtyFlags(snapshot);
+    }
+
+    function restoreCurrentState(restore: () => void) {
+        isApplyingSnapshot.value = true;
+        try {
+            restore();
+        } finally {
+            isApplyingSnapshot.value = false;
+        }
+        const snapshot = resetHistoryToCurrentState();
         syncDirtyFlags(snapshot);
     }
 
@@ -236,6 +252,7 @@ export const useWorkspaceMetadataHistory = (deps: {
         metadataHistoryMutationVersion,
         metadataHistoryResetVersion,
         resetToCurrentState,
+        restoreCurrentState,
         markCurrentStateClean,
         clearPreservedSourceReloadState,
         consumePreservedSourceReloadState,
