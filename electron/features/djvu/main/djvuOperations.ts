@@ -49,6 +49,7 @@ import { searchIndexedDocument } from '@electron/features/search/public';
 import { validateSearchQuery } from '@pdf-core';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { isAbortError } from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import { pageIndexToPageNumber } from '@contracts/pageNumbers';
@@ -775,6 +776,17 @@ export function handleDjvuCancelTextSearch(
     return Promise.resolve({canceled: true});
 }
 
+// Browsing can omit an unreadable optional outline; export preservation cannot.
+async function getOptionalDjvuOutline(filePath: string) {
+    try {
+        return await getDjvuOutline(filePath);
+    } catch (error) {
+        if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        logger.debug(`Failed to read optional DjVu outline for ${filePath}: ${String(error)}`);
+        return '';
+    }
+}
+
 export async function handleDjvuGetInfo(
     context: IDjvuOperationContext,
     djvuPath: string,
@@ -795,7 +807,7 @@ export async function handleDjvuGetInfo(
     ] = await Promise.all([
         getDjvuPageCount(normalizedDjvuPath),
         getDjvuResolution(normalizedDjvuPath),
-        getDjvuOutline(normalizedDjvuPath),
+        getOptionalDjvuOutline(normalizedDjvuPath),
         getDjvuHasText(normalizedDjvuPath),
         getDjvuMetadata(normalizedDjvuPath),
     ]);
@@ -899,7 +911,7 @@ export async function handleDjvuGetOutline(
         throw new Error('DjVu viewing path is not active');
     }
     return parseDjvuOutline(
-        await getDjvuOutline(normalizedDjvuPath),
+        await getOptionalDjvuOutline(normalizedDjvuPath),
     ).map(mapDjvuOutlineItem);
 }
 
