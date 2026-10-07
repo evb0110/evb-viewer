@@ -1,0 +1,11 @@
+app/pages/index.vue
+  ai_agent 12
+app/pages/electron.vue
+  ai_agent 15-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cf6c3d5cda0d003190982741fe312ae1400ee7c7",
+  "prompts": {}
+}
