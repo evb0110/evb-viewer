@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import type {
     IScanCleanupRasterRenderLimits,
+    IScanCleanupRunCommandOptions,
     TScanCleanupLog,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
@@ -16,6 +17,14 @@ import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
+
+interface IRenderCommandOptions extends IScanCleanupRunCommandOptions {onTerminationProof?: (proof: Promise<boolean>) => void;}
+
+type TRenderCommand = (
+    command: string,
+    args: string[],
+    options?: IRenderCommandOptions,
+) => ReturnType<TScanCleanupRunCommand>;
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const DEFAULT_RASTER_LIMITS = {
@@ -67,7 +76,7 @@ function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
 }
 
 async function renderPage(
-    runCommand: TScanCleanupRunCommand,
+    runCommand: TRenderCommand,
     format: 'png' | 'ppm',
     paths: Parameters<TScanCleanupRenderPage>[0],
     log: TScanCleanupLog,
@@ -80,6 +89,7 @@ async function renderPage(
     crop?: Parameters<TScanCleanupRenderPage>[8],
     limits?: Parameters<TScanCleanupRenderPage>[9],
     useMediaBox = false,
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
     validateCrop(crop);
     validateRenderLimits(limits);
@@ -120,12 +130,16 @@ async function renderPage(
         ...(popplerEnv === undefined ? {} : {env: popplerEnv}),
         ...(signal === undefined ? {} : {signal}),
         log,
+        ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
     });
 }
 
 export function createScanCleanupRenderers(
-    runCommand: TScanCleanupRunCommand,
+    runCommand: TRenderCommand,
     fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
+    // The platform that observes termination supplies its existing error policy.
+    // Shared renderers do not know Electron's native-termination marker.
+    retainOutputOnFailure: (error: unknown) => boolean = () => false,
 ) {
     const validateRenderedDimensions = async (
         format: 'png' | 'ppm',
@@ -150,12 +164,12 @@ export function createScanCleanupRenderers(
             );
         }
     };
-    const renderPageToPng: TScanCleanupRenderPage = async (
+    const createRenderer = (format: 'png' | 'ppm'): TScanCleanupRenderPage => async (
         paths,
         log,
         pageNumber,
         sourcePdfPath,
-        outputPngPath,
+        outputPath,
         dpi,
         popplerEnv,
         signal,
@@ -163,71 +177,42 @@ export function createScanCleanupRenderers(
         limits,
         renderBox,
     ) => {
+        let terminationProof: Promise<boolean> | undefined;
+        const cleanup = () => rm(outputPath, {force: true}).catch(() => undefined);
         try {
             await renderPage(
                 runCommand,
-                'png',
+                format,
                 paths,
                 log,
                 pageNumber,
                 sourcePdfPath,
-                outputPngPath,
+                outputPath,
                 dpi,
                 popplerEnv,
                 signal,
                 crop,
                 limits,
                 renderBox === 'mediabox',
+                proof => { terminationProof = proof; },
             );
             signal?.throwIfAborted();
-            await validateRenderedDimensions('png', outputPngPath, limits);
+            await validateRenderedDimensions(format, outputPath, limits);
             signal?.throwIfAborted();
         } catch (error) {
-            // The renderer error is the useful failure. A best-effort cleanup
-            // must not replace it when the output path cannot be removed.
-            await rm(outputPngPath, {force: true}).catch(() => undefined);
-            throw error;
-        }
-    };
-    const renderPageToPpm: TScanCleanupRenderPage = async (
-        paths,
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPpmPath,
-        dpi,
-        popplerEnv,
-        signal,
-        crop,
-        limits,
-        renderBox,
-    ) => {
-        try {
-            await renderPage(
-                runCommand,
-                'ppm',
-                paths,
-                log,
-                pageNumber,
-                sourcePdfPath,
-                outputPpmPath,
-                dpi,
-                popplerEnv,
-                signal,
-                crop,
-                limits,
-                renderBox === 'mediabox',
-            );
-            signal?.throwIfAborted();
-            await validateRenderedDimensions('ppm', outputPpmPath, limits);
-            signal?.throwIfAborted();
-        } catch (error) {
-            await rm(outputPpmPath, {force: true}).catch(() => undefined);
+            if (retainOutputOnFailure(error)) {
+                // A bounded rejection does not prove the producer stopped. Use
+                // the runner's proof, never a second timer or close-event guess.
+                void terminationProof?.then(proven => (proven ? cleanup() : undefined)).catch(() => undefined);
+            } else {
+                // Best-effort removal must preserve the useful renderer error.
+                await cleanup();
+            }
             throw error;
         }
     };
     return {
-        renderPage: renderPageToPng,
-        renderPagePpm: renderPageToPpm,
+        renderPage: createRenderer('png'),
+        renderPagePpm: createRenderer('ppm'),
     };
 }
