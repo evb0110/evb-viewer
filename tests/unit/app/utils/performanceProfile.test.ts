@@ -28,6 +28,24 @@ import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engin
 const MEBIBYTE = 1024 * 1024;
 
 describe('resolvePerformanceProfile', () => {
+    it('retains the startup choice independently of the detected or host tier', () => {
+        expect(resolvePerformanceProfile({
+            performanceMode: 'auto',
+            tier: 'low',
+        })).toMatchObject({
+            performanceMode: 'auto',
+            tier: 'low',
+        });
+        expect(resolvePerformanceProfile({
+            performanceMode: 'low',
+            tier: 'low',
+        })).toMatchObject({
+            performanceMode: 'low',
+            tier: 'low',
+        });
+        expect(resolvePerformanceProfile({})).toMatchObject({performanceMode: 'auto'});
+    });
+
     it('uses the conservative low profile when memory and CPU are unknown', () => {
         expect(resolvePerformanceProfile({})).toMatchObject({
             tier: 'low',
@@ -240,7 +258,10 @@ describe('resolvePerformanceProfile', () => {
             tier,
             hardwareConcurrency: 8,
             totalMemoryBytes: 16 * 1024 ** 3,
-        })).toEqual(expected);
+        })).toEqual({
+            performanceMode: 'auto',
+            ...expected,
+        });
     });
 
     it('applies the existing workstation uplift only to a high canonical tier', () => {
@@ -253,6 +274,7 @@ describe('resolvePerformanceProfile', () => {
             ...environment,
             tier: 'high',
         })).toEqual({
+            performanceMode: 'auto',
             tier: 'high',
             lowMemory: false,
             lowCpu: false,
@@ -267,6 +289,7 @@ describe('resolvePerformanceProfile', () => {
             ...environment,
             tier: 'medium',
         })).toEqual({
+            performanceMode: 'auto',
             tier: 'medium',
             lowMemory: false,
             lowCpu: false,
@@ -285,6 +308,7 @@ describe('resolvePerformanceProfile', () => {
             deviceMemory: 4,
             hardwareConcurrency: 8,
         })).toEqual({
+            performanceMode: 'auto',
             tier: 'low',
             lowMemory: true,
             lowCpu: false,
@@ -300,6 +324,7 @@ describe('resolvePerformanceProfile', () => {
             deviceMemory: 8,
             hardwareConcurrency: 4,
         })).toEqual({
+            performanceMode: 'auto',
             tier: 'high',
             lowMemory: false,
             lowCpu: true,
@@ -338,6 +363,7 @@ describe('resolvePerformanceProfile', () => {
             deviceMemory: 4,
             hardwareConcurrency: 8,
         })).toMatchObject({
+            performanceMode,
             tier: performanceMode,
             concurrentPdfRenders,
             settledMaxCanvasPixels,
