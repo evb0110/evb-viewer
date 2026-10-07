@@ -42,7 +42,9 @@ import {
     getPngDimensionsFromFile,
     runOcrFileBased,
 } from '@electron/features/ocr/pipeline/tesseractRunner';
-import {tryPreprocessOcrImage} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
+import {
+    estimateOcrPageResidentBytes, tryPreprocessOcrImage,
+} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
 import {writeSearchablePdf} from '@electron/features/ocr/pipeline/writeSearchablePdf';
 import {
     buildPopplerEnv,
@@ -99,9 +101,7 @@ const DEFAULT_PAGE_SIZE_INCHES: IOcrPageSizeInches = {
     width: 8.5,
     height: 11,
 };
-const BYTES_PER_RGBA_PIXEL = 4;
 const MAX_RENDERED_PIXELS = 45_000_000;
-const HIGH_DPI_THRESHOLD = 450;
 
 interface IOcrJobProgress {
     currentPage: number;
@@ -131,40 +131,40 @@ function throwIfAborted(signal: AbortSignal) {
 
 /**
  * Each page's render, preprocessing and recognition run under one broker
- * lease sized by the raster it will hold. A page that would exceed the pixel
+ * lease sized by their peak working set. A page that would exceed the pixel
  * cap is refused before anything renders.
  */
-function acquireOcrPageLease(
-    jobId: string,
-    pageNumber: number,
+async function acquireOcrPageLease(
+    context: IOcrPageProcessingContext,
+    page: IOcrPdfPageRequest,
     dpi: number,
     pageSize: IOcrPageSizeInches | undefined,
-    signal: AbortSignal,
 ): Promise<IJobBrokerLease> {
     const {
-        width,
-        height,
+        width, height,
     } = pageSize ?? DEFAULT_PAGE_SIZE_INCHES;
     const pixels = Math.ceil(width * dpi) * Math.ceil(height * dpi);
     if (pixels > MAX_RENDERED_PIXELS) {
         throw new RangeError(
-            `OCR page ${pageNumber} at ${dpi} DPI requires ${pixels} rendered pixels; maximum is ${MAX_RENDERED_PIXELS}. Choose a lower quality setting explicitly.`,
+            `OCR page ${page.pageNumber} at ${dpi} DPI requires ${pixels} rendered pixels; maximum is ${MAX_RENDERED_PIXELS}. Choose a lower quality setting explicitly.`,
         );
     }
     const {globalPageSlots} = getOcrRuntimePolicy();
-    const heavy = dpi >= HIGH_DPI_THRESHOLD || pixels > MAX_RENDERED_PIXELS / 2;
+    const cpuCapacity = mainJobBroker.getSnapshot().capacity.cpuTokens;
     return mainJobBroker.acquire({
-        ownerId: `ocr:${jobId}`,
+        ownerId: `ocr:${context.jobId}`,
         kind: 'ocr-page',
         priority: 'user',
         perOwnerLimit: globalPageSlots,
         resources: {
-            cpuTokens: heavy ? Math.min(2, globalPageSlots) : 1,
-            estimatedResidentBytes: pixels * BYTES_PER_RGBA_PIXEL,
+            cpuTokens: context.paths.scanCleanupBinary && cpuCapacity > 2
+                && (context.options.preprocessingMode === 'clean' || context.options.preprocessingMode === 'off')
+                ? Math.max(1, Math.ceil(cpuCapacity / globalPageSlots)) : 1,
+            estimatedResidentBytes: await estimateOcrPageResidentBytes(pixels, page.languages, context.paths, context.options),
             nativeProcesses: 1,
             ioWeight: 1,
         },
-        signal,
+        signal: context.signal,
     });
 }
 
@@ -243,7 +243,6 @@ export interface IOcrPageProcessingContext {
     getPopplerSourcePdfPath: () => string;
     preparePopplerFallback: () => Promise<IPreparedPopplerPdf>;
     extractionDpi: number;
-    tesseractThreads: number;
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
     pageSourceDpiByNumber: Map<number, number>;
     options: IOcrSearchablePdfOptions;
@@ -334,7 +333,7 @@ async function processOcrPage(
             }, pageSizeProbeImagePath);
         const pageSourceDpi = context.pageSourceDpiByNumber.get(page.pageNumber);
         const effectiveDpi = Math.min(context.extractionDpi, pageSourceDpi ?? context.extractionDpi);
-        lease = await acquireOcrPageLease(context.jobId, page.pageNumber, effectiveDpi, pageSize, context.signal);
+        lease = await acquireOcrPageLease(context, page, effectiveDpi, pageSize);
         throwIfAborted(context.signal);
         if (effectiveDpi < context.extractionDpi) {
             log('debug', 'Reduced OCR render DPI', {
@@ -381,6 +380,7 @@ async function processOcrPage(
                 preprocessMetadataPath,
                 effectiveDpi,
                 context.options.preprocessingMode === 'off' ? 'polarity-only' : 'clean',
+                lease.resources.cpuTokens,
             );
             if (candidateOcrImage.path !== pageImagePath) {
                 const candidateDims = await readPngDimensions(candidateOcrImage.path);
@@ -414,7 +414,7 @@ async function processOcrPage(
             effectiveDpi,
             paths.tesseractBinary,
             paths.tessdataPath,
-            context.tesseractThreads,
+            getTesseractThreadLimit(lease.resources.cpuTokens),
             context.signal,
             context.options,
         );
@@ -575,7 +575,7 @@ function logPopplerEnvironment(log: TWorkerLog, popplerEnv?: NodeJS.ProcessEnv) 
     }
 }
 
-type TOcrPlanContext = Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'>;
+type TOcrPlanContext = Omit<IOcrPageProcessingContext, 'extractionDpi' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'>;
 
 async function buildOcrPageProcessingPlan(
     pages: IOcrPdfPageRequest[],
@@ -613,7 +613,6 @@ async function buildOcrPageProcessingPlan(
     }
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(pages.length);
-    const tesseractThreads = getTesseractThreadLimit(concurrency);
     sendStage('page-size-probing');
     const pageSizeProbe = await readOcrPdfPageSizesInches({
         pdfPath: popplerSourcePdfPath,
@@ -636,7 +635,6 @@ async function buildOcrPageProcessingPlan(
         pages: pages.length,
         dpi: extractionDpi,
         concurrency,
-        threads: tesseractThreads,
     });
 
     return {
@@ -645,7 +643,6 @@ async function buildOcrPageProcessingPlan(
         pageContext: {
             ...baseContext,
             extractionDpi,
-            tesseractThreads,
             pageSizeByNumber: pageSizeProbe.pageSizes,
             pageSourceDpiByNumber,
         },

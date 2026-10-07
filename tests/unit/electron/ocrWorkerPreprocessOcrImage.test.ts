@@ -123,6 +123,20 @@ describe('tryPreprocessOcrImage', () => {
         });
     });
 
+    it('uses the granted Rayon allowance even when the parent environment requests more threads', async () => {
+        vi.stubEnv('RAYON_NUM_THREADS', '16');
+        try {
+            const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+            await expect(tryPreprocessOcrImage(
+                '/tmp/raw.png', '/tmp/clean.png', mocks.log, new AbortController().signal,
+                undefined, '/bin/evb-scan-cleanup', '/tmp/clean.json', 300, 'clean', 1,
+            )).resolves.toEqual({path: '/tmp/clean.png'});
+            expect(mocks.runOcrCommand.mock.calls[0]?.[2].env.RAYON_NUM_THREADS).toBe('1');
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
     it('returns the native inverse transform for same-size deskew output', async () => {
         const inverseTransform = {matrix: [
             [
