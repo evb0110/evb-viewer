@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {
     beforeEach,
     describe,
@@ -1494,6 +1496,67 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
 
         expect(createWritable).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'save',
+        'cancel',
+        'stale',
+        'altered-stage',
+    ])('publishes only the admitted Save As bytes when %s', async (outcome) => {
+        const originalBytes = Uint8Array.of(37, 80, 68, 70, 1);
+        const stagedBytes = Uint8Array.of(37, 80, 68, 70, 2, 3);
+        let savedBytes: Uint8Array<ArrayBuffer> | null = null;
+        const handle = createFileSystemFileHandle({
+            name: 'frontier-save-as.pdf',
+            getFile: async () => new File([savedBytes ?? originalBytes], 'frontier-save-as.pdf', {type: 'application/pdf'}),
+            createWritable: async () => createFileSystemWritableFileStream({write: async (chunk) => {
+                savedBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+            }}),
+        });
+        const {
+            capability, browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
+            if (outcome === 'cancel') throw new DOMException('Canceled', 'AbortError');
+            if (outcome === 'stale') await browserDocumentStore.writeForBootstrap(workingRef, Uint8Array.of(9), 'concurrent-edit');
+            return handle;
+        }}});
+        const sourceRef = await browserDocumentStore.createStoredDocument('frontier-original.pdf', originalBytes, PDF_SOURCE_OPTIONS);
+        await browserDocumentStore.touchRecentFile(sourceRef);
+        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+        const stagedRef = await browserDocumentStore.createStoredDocument('frontier-staged.pdf', stagedBytes, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'output',
+            retention: 'transient',
+        });
+        const stagedOutput = await createBrowserStoreStagedArtifact(browserDocumentStore, stagedRef, {
+            leaseId: 'save-as-frontier',
+            sha256: createHash('sha256').update(stagedBytes).digest('hex'),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: true,
+                semanticScopeSha256: 'a'.repeat(64),
+            },
+        });
+        if (outcome === 'altered-stage') await browserDocumentStore.writeForBootstrap(stagedRef, Uint8Array.of(7), 'changed-stage');
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+        const save = capability.savePdfAs(workingRef, {stagedOutput}, revisionOptions);
+        if (outcome === 'save') {
+            const savedRef = await save;
+            expect(savedBytes).toEqual(stagedBytes);
+            await expect(browserDocumentStore.read(savedRef!)).resolves.toEqual(stagedBytes);
+        } else if (outcome === 'cancel') {
+            await expect(save).resolves.toBeNull();
+            expect(savedBytes).toBeNull();
+        } else {
+            await expect(save).rejects.toThrow(outcome === 'stale' ? /STALE_REVISION/u : /changed after staging/u);
+            expect(savedBytes).toBeNull();
+        }
+        await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(originalBytes);
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : outcome === 'save' ? stagedBytes : originalBytes);
+        await expect(browserDocumentStore.exists(stagedRef)).resolves.toBe(true);
     });
 
     it('streams oversized browser save-as to a picked file handle', async () => {

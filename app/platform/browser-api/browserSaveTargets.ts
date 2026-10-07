@@ -1,4 +1,8 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
     IDocumentMutationRevisionOptions,
     TDocumentSaveResult,
@@ -15,6 +19,7 @@ import {
     pickSaveTarget,
     saveBytesToPickerOrDownload,
     writeDocumentRefToHandle,
+    writeBytesToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -189,4 +194,137 @@ export async function saveWorkingBytesToSourceStructured(
             validation: null,
         };
     }
+}
+
+/** Publishes the captured Save As frontier without changing the source or consuming its staging lease. */
+export async function savePdfAsFromWorkingCopy(
+    workingCopyPath: TDocumentRef,
+    revisionOptions?: IDocumentMutationRevisionOptions,
+    stagedOutput?: ITypedStagedArtifact,
+    useNativeAppMessage?: string,
+) {
+    if (stagedOutput && (!revisionOptions?.expectedDocumentRevisionToken || stagedOutput.path === workingCopyPath)) {
+        throw new Error('Browser staged Save As requires a revision-checked target distinct from its output');
+    }
+    await browserDocumentStore.assertDocumentRevisionCurrent(
+        workingCopyPath,
+        revisionOptions?.expectedDocumentRevisionToken,
+    );
+    const saveTarget =
+        await browserDocumentStore.getSaveTarget(workingCopyPath);
+    const previousSourceRef =
+        await browserDocumentStore.getSourceRef(workingCopyPath);
+    const suggestedName = ensurePdfExtension(saveTarget.saveName);
+    const saveResult = await pickSaveTarget({
+        suggestedName,
+        pickerTypes: buildPdfSaveTypes(),
+    });
+
+    if (saveResult.canceled) {
+        return null;
+    }
+    let externalWriteCommitted: boolean | null = false;
+    let savedSourceRef: TDocumentRef | null;
+    try {
+        const savedSourceRefResult = await browserDocumentStore.runDocumentMutationWithSource(
+            workingCopyPath,
+            previousSourceRef,
+            revisionOptions?.expectedDocumentRevisionToken,
+            async (mutation) => {
+                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
+                let normalizedFileName = ensurePdfExtension(saveResult.fileName);
+                let savedHandle = saveResult.handle;
+                let sourceRef: TDocumentRef;
+
+                if (saveResult.handle) {
+                    if (staged) await writeBytesToHandle(saveResult.handle, staged.bytes);
+                    else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
+                    externalWriteCommitted = true;
+                    const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
+                    sourceRef = await browserDocumentStore.createStoredDocument(
+                        normalizedFileName,
+                        new Uint8Array(),
+                        {
+                            mimeType: 'application/pdf',
+                            saveKind: 'pdf',
+                            kind: 'source',
+                            saveHandle: saveResult.handle,
+                            storageMode: 'handle',
+                        },
+                    );
+                    await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
+                        fileSize: size,
+                        saveHandle: saveResult.handle,
+                        saveName: normalizedFileName,
+                    });
+                    await browserDocumentStore.assignSaveTarget(
+                        sourceRef,
+                        normalizedFileName,
+                        'pdf',
+                        saveResult.handle,
+                    );
+                } else {
+                    if (!staged) {
+                        await assertBrowserPathWithinFullReadBudget(
+                            workingCopyPath,
+                            'Saving documents',
+                            useNativeAppMessage,
+                        );
+                    }
+                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
+                    const downloadResult = await saveBytesToPickerOrDownload(bytes, {
+                        suggestedName,
+                        mimeType: 'application/pdf',
+                        pickerTypes: buildPdfSaveTypes(),
+                        downloadFallbackLabel: 'Saving documents',
+                    });
+
+                    if (downloadResult.canceled) {
+                        return null;
+                    }
+
+                    externalWriteCommitted = true;
+                    normalizedFileName = ensurePdfExtension(downloadResult.fileName);
+                    savedHandle = downloadResult.handle;
+                    sourceRef = await browserDocumentStore.createStoredDocument(
+                        normalizedFileName,
+                        bytes,
+                        {
+                            mimeType: 'application/pdf',
+                            saveKind: 'pdf',
+                            kind: 'source',
+                            saveHandle: downloadResult.handle,
+                        },
+                    );
+                }
+                await mutation.replaceWorkingCopySource(
+                    sourceRef,
+                    normalizedFileName,
+                    savedHandle,
+                );
+                await browserDocumentStore.touchRecentFile(sourceRef);
+                browserDocumentStore.unload(sourceRef);
+                return sourceRef;
+            },
+        );
+        savedSourceRef = parseDocumentRef(savedSourceRefResult);
+    } catch (error) {
+        if (error instanceof BrowserFileWriteOutcomeError) {
+            externalWriteCommitted = error.externalWriteCommitted;
+        }
+        if (externalWriteCommitted !== false) {
+            throw new BrowserExternalSaveSyncRequiredError(error, externalWriteCommitted);
+        }
+        throw error;
+    }
+
+    if (
+        savedSourceRef
+        && savedSourceRef !== previousSourceRef
+        && previousSourceRef !== workingCopyPath
+    ) {
+        await browserDocumentStore.cleanupDetachedDocument(previousSourceRef)
+            .catch(() => undefined);
+    }
+    return savedSourceRef;
 }
