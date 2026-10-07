@@ -7,6 +7,9 @@ import type {ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
 import {resolve} from 'node:path';
 import {
+    createCanvas, loadImage,
+} from '@napi-rs/canvas';
+import {
     findFreePort, isProcessAlive, killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
 import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
@@ -189,7 +192,7 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
-    // C2/L2: foreign annotation icons load from the packaged PDF.js assets.
+    // C2/L2/A1: foreign icons paint beside the app's single canonical note marker.
     it('loads a foreign attachment icon from the packaged PDF.js image directory', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -253,6 +256,26 @@ describe('browser document lifecycle UI', () => {
             const icon = page.locator('.page_container--rendered .fileAttachmentAnnotation img').first();
             await icon.waitFor({state: 'attached'});
             await expect.poll(() => icon.evaluate(image => (image as HTMLImageElement).complete)).toBe(true);
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            const pageBounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!pageBounds) throw new Error('The attachment page is not visible');
+            await page.mouse.click(pageBounds.x + 300, pageBounds.y + 300);
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).pressSequentially('Canonical note beside a foreign attachment');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).count()).toBe(1);
+            expect(await page.locator('.textAnnotation img:visible').count()).toBe(0);
             const dimensions = await icon.evaluate((image) => {
                 const rect = image.getBoundingClientRect();
                 return {
@@ -279,6 +302,20 @@ describe('browser document lifecycle UI', () => {
             expect(response.status()).toBe(200);
             expect(bytes).toEqual(readFileSync(resolve(process.cwd(), 'node_modules/pdfjs-dist/web/images/annotation-paperclip.svg')));
             expect(dimensions.naturalWidth).toBeGreaterThan(0);
+            expect(dimensions.width).toBeGreaterThan(0);
+            expect(dimensions.height).toBeGreaterThan(0);
+            expect(await icon.isVisible()).toBe(true);
+            const paintedIcon = await loadImage(Buffer.from(await icon.screenshot()));
+            const iconContext = createCanvas(paintedIcon.width, paintedIcon.height).getContext('2d');
+            iconContext.drawImage(paintedIcon, 0, 0);
+            const pixels = iconContext.getImageData(0, 0, paintedIcon.width, paintedIcon.height).data;
+            let inkPixels = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) {
+                    inkPixels += 1;
+                }
+            }
+            expect(inkPixels).toBeGreaterThan(0);
             expect(consoleProblems).toEqual([]);
         } finally {
             await browser.close();
