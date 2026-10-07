@@ -1,5 +1,6 @@
 use super::*;
 use evb_native_support::output::AtomicOutput;
+use lopdf::dictionary;
 
 /// Print layout places each selected page, with its printable annotation
 /// appearances flattened, on an A4 sheet as a Form XObject: one page per sheet
@@ -435,9 +436,50 @@ fn numbers(document: &Document, object: &Object, count: usize) -> Option<Vec<f64
         .collect()
 }
 
-/// The normal appearance of an annotation: the /N stream, or the /AS state of
-/// an /N subdictionary.
-fn normal_appearance(document: &Document, annotation: &Dictionary) -> Option<ObjectId> {
+/// Resolve an explicit normal appearance, or draw the standard Note icon for
+/// a /Text annotation without /AP. Saved notes rely on viewers drawing this
+/// icon; print layout must materialize it before flattening the page.
+fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
+    if !annotation.has(b"AP")
+        && annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Text")
+        && annotation
+            .get(b"Name")
+            .and_then(Object::as_name)
+            .unwrap_or(b"Note")
+            == b"Note"
+    {
+        let color = match annotation.get(b"C") {
+            Ok(color) => {
+                let count = document.dereference(color).ok()?.1.as_array().ok()?.len();
+                let operator = match count {
+                    1 => "g",
+                    3 => "rg",
+                    4 => "k",
+                    _ => return None,
+                };
+                let components = numbers(document, color, count)?;
+                if components.iter().any(|value| !(0.0..=1.0).contains(value)) {
+                    return None;
+                }
+                format!("{} {operator}", format_operands(&components))
+            }
+            Err(_) => "1 1 0 rg".to_string(),
+        };
+        let content = format!(
+            "q {color} 0 G 0.8 w 1 1 m 19 1 l 19 15 l 15 19 l 1 19 l h B\n\
+             15 19 m 15 15 l 19 15 l S\n\
+             4 12 m 16 12 l 4 9 m 16 9 l 4 6 m 12 6 l S Q\n"
+        );
+        return Some(document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
+                "Resources" => Dictionary::new(),
+            },
+            content.into_bytes(),
+        )));
+    }
     let appearances = document
         .dereference(annotation.get(b"AP").ok()?)
         .ok()?
@@ -782,7 +824,7 @@ mod tests {
             ));
             annotations.push(Object::Reference(document.add_object(
                 Dictionary::from_iter([
-                    ("Subtype", Object::Name(b"Square".to_vec())),
+                    ("Subtype", Object::Name(b"Text".to_vec())),
                     ("F", Object::Integer(flags)),
                     ("Rect", Object::Array(rect.map(Object::Integer).to_vec())),
                     ("CA", Object::Real(0.5)),
@@ -796,6 +838,13 @@ mod tests {
                 ]),
             )));
         }
+        annotations.push(Object::Reference(document.add_object(lopdf::dictionary! {
+            "Subtype" => "Text",
+            "Name" => "Note",
+            "F" => 4,
+            "Rect" => vec![400.into(), 500.into(), 420.into(), 520.into()],
+            "C" => vec![1.into(), 1.into(), 0.into()],
+        })));
         let page = document.get_dictionary_mut(page_id).unwrap();
         page.set("Annots", Object::Array(annotations));
         page.set(
@@ -828,7 +877,8 @@ mod tests {
         assert!(content.contains(
             "q /PrintAnnot0 gs 100 400 200 100 re W n 2 0 0 2 100 400 cm /PrintAnnot0 Do Q"
         ));
-        assert_eq!(content.matches(" Do Q").count(), 1);
+        assert!(content.contains("400 500 20 20 re W n 1 0 0 1 400 500 cm /PrintAnnot1 Do Q"));
+        assert_eq!(content.matches(" Do Q").count(), 2);
         assert!(sheet.get(b"Annots").is_err());
     }
 
