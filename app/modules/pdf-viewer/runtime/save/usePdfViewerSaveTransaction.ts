@@ -14,7 +14,7 @@ import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/n
 import { buildNativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import type {
     IPdfViewerNativeRequiredFailure,
-    IPdfViewerSaveTransactionRequest,
+    IPdfViewerNativeMaterializationRequest,
     IPdfViewerSaveTransactionResult,
     TNativeSaveRouteRejection,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
@@ -80,7 +80,7 @@ async function commitPdfEditorsForSave(commitPendingEditorDraftsForSave?: () => 
  */
 
 function logSaveRouteDecision(
-    request: IPdfViewerSaveTransactionRequest,
+    request: IPdfViewerNativeMaterializationRequest,
     decision: TPdfSaveRouteDecision,
 ) {
     const {
@@ -163,7 +163,7 @@ export const usePdfViewerSaveTransaction = (
     }
 
     async function runSaveTransaction(
-        initialRequest: IPdfViewerSaveTransactionRequest,
+        initialRequest: IPdfViewerNativeMaterializationRequest,
     ): Promise<IPdfViewerSaveTransactionResult> {
         const capturedTarget = {
             annotationApplication: options.annotationApplication?.value,
@@ -208,7 +208,7 @@ export const usePdfViewerSaveTransaction = (
                 throw staleTargetError('Document open fence changed after the save frontier was captured');
             }
         }
-        let request = {...initialRequest};
+        const request = {...initialRequest};
         const measurePreparationStep = async <T>(phase: string, operation: () => Promise<T> | T) => {
             return measureOperationPhase(async () => operation(), durationMs => {
                 if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
@@ -260,10 +260,7 @@ export const usePdfViewerSaveTransaction = (
                 entityBaselineHash: 'no-canonical-annotation-frontier',
                 revisions: new Map(),
             }, [], [], planInputs);
-        request = {
-            ...request,
-            annotationSerializationPlan: globalSerializationPlan,
-        };
+        request.annotationSerializationPlan = globalSerializationPlan;
         const nativeTextBoxes = await measurePreparationStep(
             'collect-native-text-box-mutations',
             () => collectNativeTextBoxMutationsForSave(getPdfDocument(), globalSerializationPlan),

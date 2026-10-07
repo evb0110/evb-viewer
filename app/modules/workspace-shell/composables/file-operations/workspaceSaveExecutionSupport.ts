@@ -27,7 +27,7 @@ import {
     type IPdfViewerSaveExpose,
     type IPdfViewerSaveTransactionDocumentStructure,
     type IPdfViewerSaveTransactionNativeCapabilities,
-    type IPdfViewerSaveTransactionRequest,
+    type IPdfViewerNativeMaterializationRequest,
 } from '@app/modules/pdf-viewer/public';
 import type {
     IPdfPersistResult, IPdfSaveResult,
@@ -37,7 +37,9 @@ import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/compos
 import {collectDirtyState} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
 import {readDocumentBytes} from '@app/utils/documentBytes';
-import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability, getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import {
     consumeNativePdfMutationProjection,
     type INativePdfSaveTransactionOptions,
@@ -363,7 +365,7 @@ export function buildSaveTransactionRequest(
     deps: IWorkspaceSaveDependencies,
     body: IWorkspaceSerializedSaveBody,
     options: {allowNativeMutationPlan: boolean},
-): IPdfViewerSaveTransactionRequest {
+): IPdfViewerNativeMaterializationRequest {
     const documentStructure: IPdfViewerSaveTransactionDocumentStructure = {
         pageLabelsDirty: plan.dirtyState.pageLabels,
         pageLabelRanges: deps.metadata.pageLabelRanges.value,
@@ -651,26 +653,18 @@ export function createRecoverySnapshotBytes(
             forceRewrite: deps.metadata.pageLabelsDirty.value
                 || deps.metadata.bookmarksDirty.value
                 || shapeStateDirty,
-            dirtyState: {
-                annotationDirty: deps.annotations.dirty.value,
-                hasAnnotationChanges: deps.annotations.hasChanges(),
-                shapeStateDirty,
-            },
-            documentStructure: {
-                pageLabelsDirty: deps.metadata.pageLabelsDirty.value,
-                pageLabelRanges: deps.metadata.pageLabelRanges.value,
-                bookmarksDirty: deps.metadata.bookmarksDirty.value,
-                bookmarkItems: deps.metadata.bookmarkItems.value,
-                untitledBookmarkLabel: deps.metadata.untitledBookmarkLabel,
-                totalPages: deps.metadata.totalPages.value > 0
-                    ? deps.metadata.totalPages.value
-                    : (deps.pdf.document.value?.numPages ?? 0),
-            },
+            ...getNativeSaveTransactionOptions(deps),
             source: {getSourcePdfData: deps.pdf.getSourceData},
         });
-        if (!result.nativeMutationProjection || capturedDocumentRevisionToken === null || !ownsCapturedDocument()) {
-            return null;
+        if (capturedDocumentRevisionToken === null || !ownsCapturedDocument()) return null;
+        if (result.verifiedUnchangedWorkingCopy) {
+            await result.assertAnnotationSaveCurrent?.();
+            const bytes = await readDocumentBytes(capturedWorkingCopyPath);
+            await result.assertAnnotationSaveCurrent?.();
+            return ownsCapturedDocument() ? bytes : null;
         }
+        if (result.nativeRequiredFailure) throw new NativePdfSaveRequiredError(result.nativeRequiredFailure);
+        if (!result.nativeMutationProjection) return null;
         const snapshotRef = await consumeNativePdfMutationProjection({
             workingPath: capturedWorkingCopyPath,
             expectedDocumentRevisionToken: capturedDocumentRevisionToken,
@@ -680,10 +674,14 @@ export function createRecoverySnapshotBytes(
             ...(result.verifyAnnotationSavePath ? {verifyPathBeforeExpose: result.verifyAnnotationSavePath} : {}),
             ...(result.assertAnnotationSaveCurrent ? {assertBeforeExpose: result.assertAnnotationSaveCurrent} : {}),
         });
-        if (!snapshotRef || !ownsCapturedDocument()) {
-            return null;
+        if (!snapshotRef) return null;
+        try {
+            const bytes = await readDocumentBytes(snapshotRef);
+            await result.assertAnnotationSaveCurrent?.();
+            return ownsCapturedDocument() ? bytes : null;
+        } finally {
+            await getDocumentWorkingCopyCapability().cleanupFile(snapshotRef);
         }
-        return readDocumentBytes(snapshotRef);
     }
     return () => runWithDocumentOperationLease('recovery-snapshot', createRecoverySnapshotBytesUnlocked);
 }

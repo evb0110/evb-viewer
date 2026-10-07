@@ -54,7 +54,8 @@ export type {
     IPdfViewerNativeRequiredFailure,
     IPdfViewerSaveTransactionDocumentStructure,
     IPdfViewerSaveTransactionNativeCapabilities,
-    IPdfViewerSaveTransactionRequest,
+    IPdfViewerNativeMaterializationRequest,
+    IPdfViewerSaveTransactionDescriptors,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 export { escapeCssAttr } from '@app/modules/pdf-viewer/engine/annotation-css-utils/escapeCssAttr';

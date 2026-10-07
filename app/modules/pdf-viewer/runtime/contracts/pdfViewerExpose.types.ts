@@ -21,7 +21,7 @@ import type {
 } from '@app/modules/document-viewer/public';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type {
-    IPdfViewerSaveTransactionRequest,
+    IPdfViewerNativeMaterializationRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
@@ -155,9 +155,7 @@ export interface IPdfViewerCropExpose {
 }
 
 export interface IPdfViewerSaveExpose {
-    runSaveTransaction: (
-        request: IPdfViewerSaveTransactionRequest,
-    ) => Promise<IPdfViewerSaveTransactionResult>;
+    runSaveTransaction: (request: IPdfViewerNativeMaterializationRequest) => Promise<IPdfViewerSaveTransactionResult>;
     commitPdfEditorsForSave?: () => Promise<void>;
 }
 
