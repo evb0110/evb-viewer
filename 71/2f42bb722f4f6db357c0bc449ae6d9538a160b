@@ -1,0 +1,25 @@
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_039b79c6f828f3::t_abc5b4216df901 2196-2201,2273-2274,2426-2427,2522-2523,2631-2632,2743-2744,2909-2910,2997-2998,3170-3171,3365-3366,3526-3527,3631-3632,3882-3883,4055-4056,4134-4135,4255-4256
+tests/e2e/electron/smoke/scanCleanupLeafEdgeTextPage.e2e.test.ts
+  s_039b79c6f828f3::t_aebfae023164a9 3,20-22,290-291,316
+  s_039b79c6f828f3::t_d4677aba07eb31 32-34,106-112,114-126,132-152,159-164,167-176,179-184,190-199,201-206
+  s_039b79c6f828f3::t_2905713307374a 1,97-98,100-102,105,113,127-131,153-158,165-166,177-178,185-186,207,265-277,341
+  s_039b79c6f828f3::t_6d6e7c92c8d5f4 5,30,103-104,208,315,317-340
+  s_039b79c6f828f3::t_6104a6642e13ea 99,187-189,200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "712f42bb722f4f6db357c0bc449ae6d9538a160b",
+  "prompts": {},
+  "sessions": {
+    "s_039b79c6f828f3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117c6-a98c-7363-9763-c21497a74f01",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
