@@ -112,15 +112,10 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                             ...(witness === null ? {} : {publishedSnapshot: witness.getSnapshotForJournal()}),
                         }));
                     await measureTransitionPhase('transition-sync-working-copy', input.onPhase, () =>
-                        copyFileAtomic(input.originalPath, input.workingCopyPath, {
-                            // The published original is immutable from the app's point of view.
-                            // Working-copy writers must keep staging a sibling and renaming it.
-                            linkImmutableSource: true,
-                            onPhase: (phase, durationMs) => input.onPhase?.(
-                                `transition-sync-working-copy-${phase}`,
-                                durationMs,
-                            ),
-                        }));
+                        copyFileAtomic(input.originalPath, input.workingCopyPath, {onPhase: (phase, durationMs) => input.onPhase?.(
+                            `transition-sync-working-copy-${phase}`,
+                            durationMs,
+                        )}));
                     await measureTransitionPhase(
                         'transition-rebase-original-witness-after-working-sync',
                         input.onPhase,
