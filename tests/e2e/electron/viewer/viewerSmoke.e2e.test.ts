@@ -1,4 +1,5 @@
 import {execFile} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {promisify} from 'node:util';
 import {
     activateMenuItemAsUser,
@@ -50,6 +51,7 @@ import {
     fixtureBookmark,
     NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
     readPdfAnnotationSummary,
+    readPdfTextAnnotationRecords,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -96,6 +98,7 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
+import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -4807,6 +4810,52 @@ describe('Electron E2E - Viewer Smoke', () => {
 // print dialog, so these run under their own session instead of the shared one.
 describe('Electron E2E - Document Output', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-document-output-${Date.now()}`});
+
+    it('hands off the first dirty path-backed print without saving the original', async () => {
+        const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);
+        const sourceChecksum = createHash('sha256').update(await readFile(fixturePath)).digest('hex');
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-dirty-print-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        // The existing native-dialog test mode retains the actual path handoff
+        // artifact. It does not exercise a physical printer or its OS dialog.
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-dirty-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const marker = 'First dirty print contains accepted text';
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const submit = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await clickAsUser(session.page, submit!);
+        await expect.poll(async () => {
+            if (!existsSync(printedPath)) return [];
+            return readPdfTextAnnotationRecords(printedPath);
+        }, {timeout: 30_000}).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+        expect(createHash('sha256').update(await readFile(fixturePath)).digest('hex')).toBe(sourceChecksum);
+        await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+    }, 120_000);
 
     it('prints a typed page range of a PDF through the print dialog', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-range-${Date.now()}.pdf`, 4);

@@ -479,7 +479,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         emitOpenInNewTab,
     });
 
-    const getPrintableSourceData = createPrintableSourceDataResolver({
+    const printableSource = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
         pdfViewerRef,
         save: saveService,
@@ -531,9 +531,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         ensurePrintReady: async () => (
             !annotations.hasOpenAnnotationNotes.value || annotations.persistAllAnnotationNotes()
         ),
-        ensureWorkingCopyFreshForRead,
-        getLastFailurePresentation: failure.getLastFailurePresentation,
-        getPrintableSourceData,
+        ...printableSource,
         renderLoadedPdfPagesForBrowserPrint: async (
             targetDocument: IBrowserPrintDocument,
             pageNumbers: number[],
