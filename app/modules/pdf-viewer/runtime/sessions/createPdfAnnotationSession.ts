@@ -318,7 +318,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     // the reloads of that revision may land after it has let go.
     watch(options.documentRevisionToken, (revision) => {
         if (options.isAnySaving.value && revision !== null) {
-            documentAnnotations.adoptSavedRevision(revision);
+            documentAnnotations.adoptCurrentRevision();
         }
     }, {flush: 'sync'});
 
