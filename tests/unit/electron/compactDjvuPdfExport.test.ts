@@ -1,3 +1,4 @@
+import type * as TNativeCommandModule from '@electron/native-tools/runNativeCommand';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     mkdir,
@@ -20,7 +21,9 @@ import {
     it,
     vi,
 } from 'vitest';
-import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    mainJobBroker, MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
+} from '@electron/resources/jobBroker';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
@@ -167,12 +170,84 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     });
 
     afterEach(async () => {
+        mainJobBroker.reconfigureCapacity(MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES);
         vi.restoreAllMocks();
         vi.unstubAllEnvs();
         await rm(tempDir, {
             recursive: true,
             force: true,
         });
+    });
+
+    it('cancels and drains a real writing sibling before returning the initiating failure', async () => {
+        mainJobBroker.reconfigureCapacity({
+            cpuTokens: 4,
+            estimatedResidentBytes: 1024 * 1024 * 1024,
+            nativeProcesses: 4,
+            ioWeight: 8,
+        });
+        const {runNativeCommand} = await vi.importActual<typeof TNativeCommandModule>('@electron/native-tools/runNativeCommand');
+        const started = Promise.withResolvers<undefined>();
+        const cleanup = new AbortController();
+        const children: Array<Promise<unknown>> = [];
+        const childPath = join(tempDir, 'child-writes');
+        const childPidPath = join(tempDir, 'child-pid');
+        setDjvuDump(Array.from({length: 4}, (_, index) => ({pageNumber: index + 1})));
+        mocks.renderDjvuPageToImage.mockImplementation(async (_source: string, _output: string, page: number,
+            _job: string, options: {signal?: AbortSignal}) => {
+            if (page === 1) {
+                await started.promise;
+                return {
+                    success: false,
+                    error: 'first page failed',
+                };
+            }
+            try {
+                const child = runNativeCommand(process.execPath, [
+                    '-e',
+                    `
+                    const fs = require('node:fs');
+                    fs.writeFileSync(process.argv[2], String(process.pid));
+                    fs.appendFileSync(process.argv[1], 'x');
+                    process.stdout.write('ready');
+                    setInterval(() => fs.appendFileSync(process.argv[1], 'x'), 10);
+                `,
+                    childPath,
+                    childPidPath,
+                ], {
+                    signal: options.signal ?? cleanup.signal,
+                    timeoutMs: 2000,
+                    onStdout: () => started.resolve(undefined),
+                });
+                children.push(child);
+                await child;
+                return {success: true};
+            } catch (cause) {
+                return {
+                    success: false,
+                    error: 'sibling stopped',
+                    cause,
+                };
+            }
+        });
+        try {
+            await expect(buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'terminal-drain',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'output.pdf'),
+                tempDir,
+                pageCount: 4,
+                sourceDpi: 300,
+                pageSizes: null,
+            })).rejects.toThrow('first page failed');
+            const bytes = await readFile(childPath);
+            const pid = Number(await readFile(childPidPath, 'utf8'));
+            expect(() => process.kill(pid, 0)).toThrow();
+            expect(await readFile(childPath)).toEqual(bytes);
+        } finally {
+            cleanup.abort();
+            await Promise.allSettled(children);
+        }
     });
 
     it('uses bitonal mask output for native masks over a flat background', async () => {

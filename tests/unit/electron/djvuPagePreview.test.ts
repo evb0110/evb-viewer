@@ -45,6 +45,12 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('fs/promises', () => ({
+    mkdir: vi.fn(),
+    writeFile: vi.fn(),
+    lstat: vi.fn(async () => ({
+        isDirectory: () => true,
+        isSymbolicLink: () => false,
+    })),
     mkdtemp: mocks.mkdtemp,
     readFile: mocks.readFile,
     rm: mocks.rm,

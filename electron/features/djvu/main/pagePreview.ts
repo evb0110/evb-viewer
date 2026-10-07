@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
-    mkdtemp,
     readFile,
-    rm,
     stat,
 } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -502,11 +502,10 @@ export async function renderDjvuPagePreview(
     }
     const renderPlan = await resolvePreviewRenderPlan(djvuPath, pageNumber, options, lifecycleOptions);
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'djvu-preview-'));
-    const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
-    const pngPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.png`);
+    return usingManagedScratchScope('djvu-image-export-', tmpdir(), async (tempDir) => {
+        const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
+        const pngPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.png`);
 
-    try {
         throwIfAborted(lifecycleOptions.signal);
         const processId = lifecycleOptions.cancelGroup ?? `djvu-preview-page-${pageNumber}-${randomUUID()}`;
         const result = await convertDjvuPageToImage(
@@ -526,6 +525,7 @@ export async function renderDjvuPagePreview(
                 ...(lifecycleOptions.signal ? { signal: lifecycleOptions.signal } : {}),
             },
         );
+        if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
         throwIfAborted(lifecycleOptions.signal);
         if (!result.success) {
             throw new Error(result.error ?? `Failed to render DjVu page ${pageNumber}`);
@@ -555,10 +555,5 @@ export async function renderDjvuPagePreview(
             };
         }
         throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
-    } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
-    }
+    });
 }

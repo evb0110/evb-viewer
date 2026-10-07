@@ -235,6 +235,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
     return {
         signal,
         checkNow,
+        cancel: (reason: unknown) => controller.abort(reason),
         get failure() {
             return failure;
         },
