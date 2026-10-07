@@ -311,7 +311,7 @@ describe('DjVu conversion lifecycle', () => {
         }
 
         // Corrupt only the compressed text chunk written by DjVuLibre. Page
-        // images remain readable, but failed source text is not known empty.
+        // images remain readable. The optional notice probe must not refuse export.
         const sourceBytes = readFileSync(textSource);
         const textChunk = sourceBytes.indexOf('TXTz');
         expect(textChunk).toBeGreaterThan(0);
@@ -345,9 +345,17 @@ describe('DjVu conversion lifecycle', () => {
         });
         const readNotices = () => session.page.$$eval('[role="status"], [role="alert"]', elements => elements
             .map(element => (element as HTMLElement).innerText).join('\n'));
-        await expect.poll(readNotices, {timeout: 30_000}).toContain('Corrupted decoder input');
+        await waitForPdfLoaded(session.page, 120_000);
         expect(await readNotices()).not.toContain(notice);
-        expect(readFileSync(savePath, 'utf8')).toBe(previousBytes);
+        const loadingTask = getDocument({data: new Uint8Array(readFileSync(savePath))});
+        try {
+            const savedPdf = await loadingTask.promise;
+            expect(savedPdf.numPages).toBe(2);
+            expect((await (await savedPdf.getPage(1)).getTextContent()).items).toEqual([]);
+        } finally {
+            await loadingTask.destroy();
+        }
+        expect(readFileSync(join(artifactRoot, 'session.log'), 'utf8')).toContain('Source text notice probe failed:');
         expect(sha256(textSource)).toBe(boundedSourceSha);
         await session.page.screenshot({path: join(artifactRoot, 'source-text-read-failure.png')});
         copyFileSync(textSource, join(artifactRoot, 'source.djvu'));

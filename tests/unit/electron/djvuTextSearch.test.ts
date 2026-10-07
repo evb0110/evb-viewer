@@ -1,3 +1,5 @@
+import type * as TNativeRunCommandModule from '@electron/native-tools/runNativeCommand';
+import type {IRunCommandOptions} from '@electron/native-tools/runNativeCommand';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
@@ -179,6 +181,24 @@ describe('DjVu native streamed text search', () => {
         await expect(detectDjvuHasText('/library/empty.djvu')).resolves.toBe(false);
     });
 
+    it('streams all 5010 empty pages without treating a redundant output capture as unreadable text', async () => {
+        const {runNativeCommand} = await vi.importActual<typeof TNativeRunCommandModule>(
+            '@electron/native-tools/runNativeCommand',
+        );
+        mocks.runNativeCommand.mockImplementation((_command: string, _args: string[], options: IRunCommandOptions) =>
+            runNativeCommand(process.execPath, [
+                '-e',
+                'process.stdout.write(\'(page 0 0 100 100 "")\\n\'.repeat(5010))',
+            ], options));
+
+        await expect(detectDjvuHasText('/library/empty.djvu')).resolves.toBe(false);
+    });
+
+    it('detects the first nonempty zone without waiting for the rest of the page or book', async () => {
+        streamOutput('(page 0 0 100 100 (line 0 0 100 100 (word 0 0 100 100 "Found")', 11);
+        await expect(detectDjvuHasText('/library/book.djvu')).resolves.toBe(true);
+    });
+
     it('keeps unproven termination visible after finding text rather than reporting a settled positive probe', async () => {
         const unproven = markUnprovenNativeTermination(abortError(), 'DjVu reader still owns its source alias');
         mocks.runNativeCommand.mockImplementation(async (_command: string, _args: string[], options: IRunOptions) => {
@@ -203,7 +223,7 @@ describe('DjVu native streamed text search', () => {
     it('rejects unreadable or malformed source text rather than treating it as known empty', async () => {
         mocks.runNativeCommand.mockRejectedValueOnce(new Error('DjVu source is unreadable'));
         await expect(detectDjvuHasText('/library/book.djvu')).rejects.toThrow('DjVu source is unreadable');
-        streamOutput('(page 0 0 100 100 "Incomplete"');
+        streamOutput('(page 0 0 100 100 "Incomplete');
         await expect(detectDjvuHasText('/library/book.djvu')).rejects.toThrow('Malformed or incomplete DjVu text output');
     });
 });

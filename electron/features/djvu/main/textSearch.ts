@@ -29,7 +29,6 @@ const DJVU_TEXT_MAX_PAGE_CHARS = 8 * 1024 * 1024;
 const DJVU_TEXT_MAX_PAGE_ZONES = 200_000;
 const DJVU_TEXT_MAX_TOKEN_CHARS = 1024 * 1024;
 const DJVU_TEXT_MAX_DEPTH = 64;
-const DJVU_TEXT_CAPTURED_STDOUT_BYTES = 32 * 1024;
 const DJVU_TEXT_CAPTURED_STDERR_BYTES = 256 * 1024;
 const DJVU_SEARCH_MAX_WORDS_PER_MATCH = 256;
 const INTERNAL_STOP_REASON = Symbol('djvu-text-internal-stop');
@@ -69,10 +68,12 @@ interface IDjvuPageBuildState {
     zones: IDjvuTextZone[];
 }
 
-interface IDjvuTextParserOptions {onPage: (page: IDjvuParsedTextPage) => false | undefined;}
+interface IDjvuTextParserOptions {
+    onPage?: ((page: IDjvuParsedTextPage) => false | undefined) | undefined;
+    onText?: ((text: string) => false | undefined) | undefined;
+}
 
-interface IDjvuTextStreamOptions {
-    onPage: (page: IDjvuParsedTextPage) => false | undefined;
+interface IDjvuTextStreamOptions extends IDjvuTextParserOptions {
     /** A djvused script; the default prints every page. */
     script?: string;
     signal?: AbortSignal | undefined;
@@ -276,6 +277,7 @@ export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions)
         const frame = currentFrame();
         frame.text = decodeDjvuString(stringToken);
         stringToken = '';
+        stopped = options.onText?.(frame.text) === false;
     }
 
     function openFrame() {
@@ -304,7 +306,7 @@ export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions)
             const parsedPage = buildParsedPage(currentPage);
             currentPage = null;
             pageCount += 1;
-            stopped = options.onPage(parsedPage) === false;
+            stopped = options.onPage?.(parsedPage) === false;
         } else if (currentPage && frame.childCount === 0) {
             const zone = createZone(frame, currentPage);
             if (zone) {
@@ -324,6 +326,9 @@ export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions)
         assertHealthy();
         try {
             for (const character of chunk) {
+                if (stopped) {
+                    break;
+                }
                 if (inString) {
                     if (stringEscaped) {
                         stringToken += character;
@@ -358,9 +363,6 @@ export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions)
                     if (atom.length > DJVU_TEXT_MAX_TOKEN_CHARS) {
                         fail('DjVu text token exceeds the supported limit');
                     }
-                }
-                if (stopped) {
-                    break;
                 }
             }
         } catch (error) {
@@ -401,13 +403,7 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
     if (options.signal?.aborted) {
         relayAbort();
     }
-    const parser = createDjvuTextSExpressionParser({onPage(page) {
-        const shouldContinue = options.onPage(page);
-        if (shouldContinue === false) {
-            stop();
-        }
-        return shouldContinue;
-    }});
+    const parser = createDjvuTextSExpressionParser(options);
     try {
         await runDjvuSourceCommand(djvused, [
             filePath,
@@ -416,7 +412,7 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
         ], 0, {
             env: buildDjvuRuntimeEnv(),
             timeoutMs: DJVU_TEXT_TIMEOUT_MS,
-            maxStdoutBytes: DJVU_TEXT_CAPTURED_STDOUT_BYTES,
+            longLived: true,
             maxStderrBytes: DJVU_TEXT_CAPTURED_STDERR_BYTES,
             commandLabel: 'djvused text stream',
             defaultCwdToCommandDir: true,
@@ -563,8 +559,8 @@ export async function detectDjvuHasText(filePath: string, signal?: AbortSignal) 
     let hasText = false as boolean;
     await streamDjvuTextPages(filePath, {
         signal,
-        onPage(page) {
-            if (page.text.trim().length > 0) {
+        onText(text) {
+            if (text.trim().length > 0) {
                 hasText = true;
                 return false;
             }

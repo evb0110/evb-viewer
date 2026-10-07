@@ -1134,9 +1134,9 @@ async function runDjvuConvertToPdf(
                 }
                 throwIfCanceled(job.signal);
 
-                const notice = strategy === 'compact-djvu-aware'
+                const hasSourceText = strategy === 'compact-djvu-aware'
                     && await runDjvuMetadataWithSlot(jobId, job.signal, () => detectDjvuHasText(djvuPath, job.signal))
-                    ? 'source-text-not-preserved' as const : undefined;
+                        .catch(error => logger.warn(`[${jobId}] Source text notice probe failed: ${getErrorMessage(error)}`));
                 throwIfCanceled(job.signal);
 
                 const bookmarks = options.preserveBookmarks !== false
@@ -1194,7 +1194,7 @@ async function runDjvuConvertToPdf(
                     jobId,
                     ...progressScope,
                     ...(pageSizes ? {pageSizes} : {}),
-                    ...(notice === undefined ? {} : {notice}),
+                    ...(hasSourceText ? {notice: 'source-text-not-preserved' as const} : {}),
                 };
             });
         });
@@ -1229,14 +1229,13 @@ async function runDjvuConvertToPdf(
                 code: 'MAIN_DJVU_EXPORT_FAILED',
                 cause: error,
             });
-        const result = {
+        return {
             success: false,
             jobId,
             ...progressScope,
             error: errorMessage,
             ...(failure === undefined ? {} : {failure}),
         };
-        return result;
     } finally {
         activePdfWorkerByJobId.delete(jobId);
     }
