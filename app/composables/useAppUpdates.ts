@@ -360,6 +360,9 @@ export const useAppUpdates = () => {
     const { t } = useTypedI18n();
     const presentedDialog = computed<IUpdateDialogState>(() => ({
         ...dialog.value,
+        // Localized reads are a view; modal writes still belong to the shared dialog.
+        get open() { return dialog.value.open; },
+        set open(open: boolean) { dialog.value.open = open; },
         message: dialog.value.phase === 'error' || dialog.value.phase === 'unsupported'
             ? dialog.value.reason === 'feed-unavailable'
                 ? t('updates.feedUnavailable', {version: dialog.value.version ?? t('updates.unknownVersion')})
