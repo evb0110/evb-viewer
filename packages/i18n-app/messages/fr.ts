@@ -1770,6 +1770,8 @@ export default {
             'convert': 'Échec de la conversion',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'Les dernières modifications ne sont pas protégées',
+            'recoveryProtectionDescription': 'Enregistrez {fileName} pour protéger les dernières modifications. La capture de récupération a été refusée : {message}',
             'loadTitle': 'Impossible de charger l’espace de travail du document',
             'loadDescription': 'Essayez de recharger l’espace de travail.',
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',

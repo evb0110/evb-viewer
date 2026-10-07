@@ -1799,6 +1799,8 @@ export default {
             'convert': 'Не удалось выполнить конвертацию',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'Последние изменения не защищены',
+            'recoveryProtectionDescription': 'Сохраните {fileName}, чтобы защитить последние изменения. Создание снимка восстановления отклонено: {message}',
             'loadTitle': 'Не удалось загрузить рабочую область документа',
             'loadDescription': 'Попробуйте загрузить рабочую область снова.',
             'loadDescriptionWithMessage': 'Попробуйте загрузить рабочую область снова. ({message})',

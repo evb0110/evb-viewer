@@ -1770,6 +1770,8 @@ export default {
             'convert': 'Falha na conversão',
         },
         'workspace': {
+            'recoveryProtectionTitle': 'As últimas alterações não estão protegidas',
+            'recoveryProtectionDescription': 'Guarde {fileName} para proteger as últimas alterações. A captura de recuperação foi rejeitada: {message}',
             'loadTitle': 'Não foi possível carregar a área de trabalho do documento',
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
