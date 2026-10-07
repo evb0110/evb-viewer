@@ -1148,7 +1148,6 @@ async function runDjvuConvertToPdf(
                         ]);
                         return parseDjvuOutline(outline, components);
                     })
-                        .catch(() => [] as IPdfBookmarkEntry[])
                     : [];
                 if (bookmarks.length > 0) {
                     throwIfCanceled(job.signal);

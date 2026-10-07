@@ -56,20 +56,12 @@ export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataO
 }
 
 export async function getDjvuOutline(filePath: string, options: IDjvuMetadataOptions = {}) {
-    try {
-        const result = await runDjvused([
-            filePath,
-            '-e',
-            'print-outline',
-        ], options);
-        return result.stdout.trim();
-    } catch (error) {
-        if (isAbortError(error)) {
-            throw error;
-        }
-        logger.debug(`Failed to read DjVu outline for ${filePath}: ${String(error)}`);
-        return '';
-    }
+    const result = await runDjvused([
+        filePath,
+        '-e',
+        'print-outline',
+    ], options);
+    return result.stdout.trim();
 }
 
 export async function getDjvuPageComponentMap(filePath: string, options: IDjvuMetadataOptions = {}) {

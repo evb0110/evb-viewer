@@ -1280,6 +1280,9 @@ export default {
             other: 'Digita almeno {count} caratteri',
         }),
         'noResults': 'Nessun risultato trovato',
+        'noResultsInCoverage': 'Nessuna corrispondenza nelle pagine esaminate',
+        'incompleteCoverage': 'Sono state esaminate solo {processed} pagine su {total} perché l’indice di testo ha raggiunto il limite di dimensione.',
+        'incompleteCoverageHint': 'Per continuare, estrai le pagine {nextPage}–{total} in un nuovo PDF ed esegui la ricerca al suo interno.',
         'noResultsHint': 'Prova un termine diverso o modifica le opzioni di ricerca.',
         'unavailable': 'Ricerca non disponibile',
         'resultCount': plural({

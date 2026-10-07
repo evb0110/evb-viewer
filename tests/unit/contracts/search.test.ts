@@ -97,6 +97,64 @@ describe('contracts search compatibility exports', () => {
         }, 1)).toBeNull();
     });
 
+    it('preserves incomplete coverage separately from the match limit', () => {
+        const coverage = {
+            pageCount: 3,
+            pagesScanned: 2,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+        const response = {
+            results: [],
+            truncated: false,
+            coverage,
+        };
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse(response)).toEqual(response);
+        const progress = {
+            requestId: 'coverage-test',
+            processed: 1,
+            total: 3,
+            status: 'success',
+            coverage,
+        };
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress(progress)).toEqual(progress);
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: {
+                ...coverage,
+                pagesWritten: 4,
+            },
+        })).toBeNull();
+        const completeCoverage = {
+            ...coverage,
+            pagesScanned: coverage.pageCount,
+        };
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: completeCoverage,
+        })).toBeNull();
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
+            ...progress,
+            coverage: completeCoverage,
+        })).toBeNull();
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: {
+                ...completeCoverage,
+                truncated: false,
+            },
+        })).not.toBeNull();
+        // Native input can end before pageCount without breaching its budget.
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            coverage: {
+                ...coverage,
+                truncated: false,
+            },
+        })).not.toBeNull();
+    });
+
     it('owns the two distinct minimum query lengths every search surface honors', () => {
         expect(contractsSearch.PDF_SEARCH_MIN_QUERY_LENGTH).toBe(1);
         expect(contractsSearch.DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH).toBe(2);
