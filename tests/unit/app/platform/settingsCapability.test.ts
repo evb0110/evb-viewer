@@ -250,6 +250,144 @@ describe('browserSettingsCapability', () => {
         expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('clientDiagnosticsPreference');
     });
 
+    it('delivers current shared settings and fails closed when storage is cleared or unsupported', async () => {
+        const localStorage = new MemoryStorage();
+        const browserWindow = Object.assign(new EventTarget(), {localStorage});
+        vi.stubGlobal('window', browserWindow);
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        }));
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        const reporter = await import('@app/utils/failureReporter');
+        await browserSettingsCapability.get();
+        const changes: unknown[] = [];
+        const unsubscribe = browserSettingsCapability.onChanged(settings => changes.push(settings));
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'denied',
+        }));
+        browserWindow.dispatchEvent(Object.assign(new Event('storage'), {
+            storageArea: localStorage,
+            key: SETTINGS_STORAGE_KEY,
+            // A queued notification must not replay its old granted snapshot.
+            newValue: JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                clientDiagnosticsPreference: 'granted',
+            }),
+        }));
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'denied'});
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('denied');
+        expect(changes).toEqual([expect.objectContaining({clientDiagnosticsPreference: 'denied'})]);
+        localStorage.clear();
+        browserWindow.dispatchEvent(Object.assign(new Event('storage'), {
+            storageArea: localStorage,
+            key: null,
+        }));
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'unknown'});
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('unknown');
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            version: 99,
+            clientDiagnosticsPreference: 'granted',
+        }));
+        browserWindow.dispatchEvent(new Event('pageshow'));
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'unknown'});
+        expect(reporter.getRendererDiagnosticsPreference()).toBe('unknown');
+        expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('99');
+        unsubscribe();
+    });
+
+    it('drops delayed consent replay and queued hosted envelopes after shared withdrawal', async () => {
+        const localStorage = new MemoryStorage();
+        const browserWindow = Object.assign(new EventTarget(), {localStorage});
+        vi.stubGlobal('window', browserWindow);
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        const envelopes: unknown[] = [];
+        const queued: Array<() => void> = [];
+        let releaseSdk!: () => void;
+        const sdkReady = new Promise<void>((resolve) => { releaseSdk = resolve; });
+        let sendEnvelope: (envelope: unknown) => Promise<unknown> = () => Promise.resolve({});
+        const options = {enabled: false};
+        vi.doMock('@sentry/browser', async () => {
+            await sdkReady;
+            return {
+                init(config: {
+                    enabled: boolean;
+                    transport: (options: object) => {send: typeof sendEnvelope}
+                }) {
+                    options.enabled = config.enabled;
+                    sendEnvelope = config.transport({}).send;
+                },
+                getClient: () => ({getOptions: () => options}),
+                captureException: (_error: unknown, capture: {event_id: string}) => {
+                    queued.push(() => { void sendEnvelope({event_id: capture.event_id}); });
+                },
+                makeFetchTransport: () => ({
+                    send(envelope: unknown) {
+                        envelopes.push(envelope);
+                        return Promise.resolve({});
+                    },
+                    flush: () => Promise.resolve(true),
+                }),
+            };
+        });
+        try {
+            const reporter = await import('@app/utils/failureReporter');
+            const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+            reporter.initializeRendererDiagnostics({
+                dsn: 'https://public@example.invalid/1',
+                release: 'test',
+                environment: 'test',
+            });
+            const input = {
+                code: 'TEST_FAILURE',
+                local: {
+                    source: 'test',
+                    message: 'Failure',
+                    cause: new Error('Failure'),
+                },
+            };
+            const held = reporter.captureFailureForPresentation(input);
+            await browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+            expect(held.pendingDiagnostic?.resendOnceAfterGrant()).toBe(true);
+            reporter.captureRendererFailure(input);
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                clientDiagnosticsPreference: 'denied',
+            }));
+            browserWindow.dispatchEvent(Object.assign(new Event('storage'), {
+                storageArea: localStorage,
+                key: SETTINGS_STORAGE_KEY,
+            }));
+            releaseSdk();
+            await vi.waitFor(() => expect(options.enabled).toBe(false));
+            // Wait for the actual async import to initialize, without a timer.
+            await import('@sentry/browser');
+            await Promise.resolve();
+            queued.splice(0).forEach(deliver => deliver());
+            expect(envelopes).toEqual([]);
+
+            await browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+            const granted = reporter.captureRendererFailure(input);
+            queued.splice(0).forEach(deliver => deliver());
+            expect(envelopes).toEqual([{event_id: granted.eventId}]);
+            reporter.captureRendererFailure(input);
+            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                clientDiagnosticsPreference: 'denied',
+            }));
+            // A resumed context refreshes even before a queued storage event.
+            browserWindow.dispatchEvent(new Event('visibilitychange'));
+            queued.splice(0).forEach(deliver => deliver());
+            expect(envelopes).toEqual([{event_id: granted.eventId}]);
+            expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'denied'});
+        } finally {
+            releaseSdk();
+            vi.doUnmock('@sentry/browser');
+        }
+    });
+
     it('changes the live diagnostics gate before browser persistence resolves', async () => {
         const localStorage = new MemoryStorage();
         vi.stubGlobal('window', {localStorage});
@@ -309,12 +447,20 @@ describe('browserSettingsCapability', () => {
     });
 
     it('keeps a failed browser revoke closed', async () => {
-        vi.stubGlobal('window', {localStorage: {
-            getItem: () => null,
+        const durableStorage = new MemoryStorage();
+        const {DEFAULT_SETTINGS} = await import('@contracts/settings');
+        durableStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        }));
+        const localStorage = {
+            getItem: durableStorage.getItem.bind(durableStorage),
             setItem: () => {
                 throw new Error('quota exceeded');
             },
-        }});
+        };
+        const browserWindow = Object.assign(new EventTarget(), {localStorage});
+        vi.stubGlobal('window', browserWindow);
         const failureReporter = await import('@app/utils/failureReporter');
         failureReporter.setRendererDiagnosticsPreference('granted');
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
@@ -322,7 +468,12 @@ describe('browserSettingsCapability', () => {
         const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
         expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
         await expect(savePromise).rejects.toThrow('localStorage');
+        browserWindow.dispatchEvent(Object.assign(new Event('storage'), {
+            storageArea: localStorage,
+            key: SETTINGS_STORAGE_KEY,
+        }));
         expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'denied'});
     });
 
     it('keeps an otherwise valid browser settings snapshot when diagnostics preference is invalid', async () => {
