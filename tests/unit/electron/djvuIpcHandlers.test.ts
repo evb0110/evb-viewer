@@ -23,6 +23,8 @@ import {
     vi,
 } from 'vitest';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import {createAbortError} from '@electron/utils/abort';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
     requireJobId,
     requireRequestId,
@@ -312,6 +314,52 @@ describe('registerDjvuIpcAdapter', () => {
             rmSync(tempRoot, {
                 force: true,
                 recursive: true,
+            });
+        }
+    });
+
+    it.each([
+        createAbortError('outline read canceled'),
+        markUnprovenNativeTermination(new Error('outline termination unproven'), 'child remains alive'),
+    ])('propagates cancellation and liveness evidence from optional outline reads: $message', async (failure) => {
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-optional-outline-'));
+        try {
+            const path = join(directory, 'book.djvu');
+            writeFileSync(path, 'AT&TFORM');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(1);
+            allowOpenPath(path, event.sender as never);
+            mocks.getDjvuOutline.mockRejectedValue(failure);
+            registerDjvuIpcAdapter();
+            await expect(getHandler('djvu:getInfo')(event, path)).rejects.toThrow(failure.message);
+            await expect(getHandler('djvu:getOutline')(event, path)).rejects.toThrow(failure.message);
+        } finally {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('keeps browsing available when an optional outline cannot be read', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'djvu-optional-outline-'));
+        try {
+            const path = join(directory, 'book.djvu');
+            writeFileSync(path, 'AT&TFORM');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const event = createIpcEvent(1);
+            allowOpenPath(path, event.sender as never);
+            mocks.getDjvuOutline.mockRejectedValue(new Error('outline output exceeded limit'));
+            registerDjvuIpcAdapter();
+            await expect(getHandler('djvu:getInfo')(event, path)).resolves.toMatchObject({
+                pageCount: 1,
+                hasBookmarks: false,
+            });
+            await expect(getHandler('djvu:getOutline')(event, path)).resolves.toEqual([]);
+        } finally {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
             });
         }
     });
