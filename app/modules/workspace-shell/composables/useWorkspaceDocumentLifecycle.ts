@@ -235,7 +235,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     function presentWhenShown() {
         const current = snapshot.value;
         const path = current.identity.originalPath;
-        if (!options.isShown() || current.phase !== 'presented') {
+        if (!options.isShown() || current.phase !== 'presented' || current.activeTransaction !== null) {
             return;
         }
         if (hasDocument.value) {
@@ -246,19 +246,16 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                     provisional: true,
                 }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
             }
-            return;
+        } else if (path && !(current.dirty && current.recoveryWorkingCopyPath)) {
+            void runOpen({
+                kind: 'restore',
+                target: {
+                    fileName: current.identity.fileName,
+                    originalPath: path,
+                    isDjvu: current.identity.isDjvu,
+                },
+            }, async () => didOpenDocument(await options.openPath(path)));
         }
-        if (!path || (current.dirty && current.recoveryWorkingCopyPath)) {
-            return;
-        }
-        void runOpen({
-            kind: 'restore',
-            target: {
-                fileName: current.identity.fileName,
-                originalPath: path,
-                isDjvu: current.identity.isDjvu,
-            },
-        }, async () => didOpenDocument(await options.openPath(path)));
     }
     watch(
         [
