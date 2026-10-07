@@ -54,6 +54,9 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             }
             try {
                 await getWindowTabsCapability().saveWorkspaceCheckpoint(checkpoint);
+                if (!disposed && options.enabled.value) {
+                    reconcileRecoveryNotices(checkpoint);
+                }
                 firstError = undefined;
             } catch (error) {
                 firstError ??= error;
@@ -109,7 +112,6 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             reconcileRecoveryNotices(null);
             return;
         }
-        reconcileRecoveryNotices(checkpoint);
         if (inFlight) {
             pendingLatest = checkpoint;
             return;
