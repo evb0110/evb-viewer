@@ -36,16 +36,7 @@ interface IOriginalPathSaveSnapshot {
     size: bigint;
 }
 
-export interface IOriginalPathSaveJournalSnapshot {
-    contentFingerprint?: string;
-    ctimeNs: string;
-    deviceId: string;
-    inode: string;
-    linkCount: string;
-    mtimeNs: string;
-    sampleSha256: string;
-    size: string;
-}
+export interface IOriginalPathSaveJournalSnapshot extends v.InferOutput<typeof originalSaveSnapshotSchema> {}
 
 export class OriginalPathSaveConflictError extends Error {
     constructor() {
@@ -494,7 +485,7 @@ export async function assertPathMatchesSaveWitnessSnapshot(
                     throw new OriginalPathSaveConflictError();
                 }
             } finally {
-                await handle.close();
+                await handle.close().catch(() => undefined);
             }
         }
     } catch (error) {
