@@ -24,6 +24,10 @@ import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {parseTabId} from '@contracts/windowTabs';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+} from '@contracts/agent';
 import {createIsoTimestamp} from '@contracts/timestamps';
 import type { ClaudeAgentAssistantSession } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
@@ -146,25 +150,29 @@ function normalizeRecoveredLastAccessedAt(value: number, now = Date.now()) {
         : now;
 }
 
-function assistantMessageBytes(message: IAgentAssistantChatMessage) {
-    const attachmentBytes = message.attachments?.reduce((total, attachment) => total
-        + Buffer.byteLength(attachment.dataUrl, 'utf8'), 0) ?? 0;
-    return Buffer.byteLength(message.text, 'utf8') + attachmentBytes + 256;
-}
-
 function boundAssistantMessages(messages: IAgentAssistantChatMessage[], maxBytes: number) {
     let totalBytes = 0;
+    let totalImageBytes = 0;
     let firstKeptIndex = messages.length;
+    // The accepted question and its answer share a retention boundary. Binary
+    // images use their admission budget and the existing snapshot blob storage,
+    // independently of the text budget.
+    const latestUserIndex = messages.findLastIndex(message => message.role === 'user');
+    const latestTurnStart = latestUserIndex < 0 ? messages.length - 1 : latestUserIndex;
+    const maxImageBytes = ASSISTANT_MAX_IMAGE_ATTACHMENTS * ASSISTANT_MAX_IMAGE_BYTES;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
         if (!message) {
             continue;
         }
-        const messageBytes = assistantMessageBytes(message);
-        if (firstKeptIndex < messages.length && totalBytes + messageBytes > maxBytes) {
+        const messageBytes = Buffer.byteLength(message.text, 'utf8') + 256;
+        const imageBytes = message.attachments?.reduce((total, attachment) => total + attachment.sizeBytes, 0) ?? 0;
+        if (firstKeptIndex < messages.length && index < latestTurnStart
+            && (totalBytes + messageBytes > maxBytes || totalImageBytes + imageBytes > maxImageBytes)) {
             break;
         }
         totalBytes += messageBytes;
+        totalImageBytes += imageBytes;
         firstKeptIndex = index;
     }
     if (firstKeptIndex > 0) {
