@@ -1,0 +1,21 @@
+packages/i18n-app/messages/pt.ts
+  ai_agent 1278,1288
+packages/i18n-app/messages/ptBr.ts
+  ai_agent 1278,1288
+packages/i18n-app/messages/es.ts
+  ai_agent 1277,1286
+packages/i18n-app/messages/nl.ts
+  ai_agent 1277,1286
+packages/i18n-app/messages/fr.ts
+  ai_agent 1278,1288
+packages/i18n-app/messages/it.ts
+  ai_agent 1277,1286
+packages/i18n-app/messages/de.ts
+  ai_agent 1277,1286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d4120074e085308627920d83ece7af393857e4b4",
+  "prompts": {}
+}
