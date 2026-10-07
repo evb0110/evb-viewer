@@ -166,6 +166,20 @@ impl ComponentMap {
         (sums, counts)
     }
 
+    /// Black `mask` pixels under each foreground component.
+    pub fn mask_counts_by_component(&self, mask: &BinaryImage) -> Vec<usize> {
+        assert_eq!((mask.width(), mask.height()), (self.width, self.height));
+        let mut counts = vec![0usize; self.components.len() + 1];
+        for y in 0..self.height {
+            for run in &self.runs[self.row_offsets[y]..self.row_offsets[y + 1]] {
+                counts[run.label as usize] += (run.start as usize..run.end as usize)
+                    .filter(|&x| mask.get(x, y))
+                    .count();
+            }
+        }
+        counts
+    }
+
     pub fn retain(&self, keep: impl Fn(&Component) -> bool) -> BinaryImage {
         let mut accepted = vec![false; self.components.len() + 1];
         for component in &self.components {
