@@ -1,7 +1,9 @@
 import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
+    TAppUpdateReason,
 } from '@contracts/updatesPlatformFeature';
+import type { TTranslationKey } from '@i18n-app';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -12,6 +14,8 @@ import {
     isUpdatesCapabilitySupported,
 } from '@app/utils/platformUpdates';
 
+type TUpdateFailureCapture = IPresentedFailureCapture & {technicalDetails?: string};
+
 export type TStatusDialogPhase = Exclude<TAppUpdatePhase, 'idle' | 'downloaded'>;
 
 export interface IUpdateDialogState {
@@ -21,7 +25,8 @@ export interface IUpdateDialogState {
     version: string | null;
     percent: number | null;
     message: string | null;
-    failure: IPresentedFailureCapture | null;
+    failure: TUpdateFailureCapture | null;
+    reason?: TAppUpdateReason | undefined;
 }
 
 type TUpdateFailureAction = 'load' | 'check' | 'download' | 'install' | 'defer' | 'skip' | 'status';
@@ -49,7 +54,7 @@ const dialog = ref<IUpdateDialogState>({ ...DEFAULT_DIALOG });
 const initialized = ref(false);
 let statusUnsubscribe: (() => void) | null = null;
 let initializationPromise: Promise<boolean> | null = null;
-let activeUpdateFailure: IPresentedFailureCapture | null = null;
+let activeUpdateFailure: TUpdateFailureCapture | null = null;
 
 function toErrorMessage(error: unknown) {
     const message = getErrorMessage(error);
@@ -61,7 +66,7 @@ function toErrorMessage(error: unknown) {
 
 function openStatusDialog(
     nextStatus: IAppUpdateStatus,
-    failure: IPresentedFailureCapture | null,
+    failure: TUpdateFailureCapture | null,
 ) {
     if (nextStatus.phase === 'idle' || nextStatus.phase === 'downloaded') {
         return;
@@ -74,6 +79,7 @@ function openStatusDialog(
         version: nextStatus.version,
         percent: nextStatus.percent,
         message: nextStatus.message,
+        reason: nextStatus.reason,
         failure,
     };
 }
@@ -110,7 +116,7 @@ function captureUpdateFailure(
     error: unknown,
     action: TUpdateFailureAction,
     message: string,
-): IPresentedFailureCapture {
+): TUpdateFailureCapture {
     const existingFailure = getFailureReceipt(error);
     const presentation = existingFailure
         ? {failure: existingFailure}
@@ -124,12 +130,15 @@ function captureUpdateFailure(
             },
         });
     BrowserLogger.error('updates', message, error, presentation.failure);
-    return presentation;
+    return {
+        ...presentation,
+        technicalDetails: toErrorMessage(error),
+    };
 }
 
 function applyStatus(
     nextStatus: IAppUpdateStatus,
-    failure: IPresentedFailureCapture | null = null,
+    failure: TUpdateFailureCapture | null = null,
 ) {
     status.value = nextStatus;
 
@@ -171,6 +180,7 @@ async function downloadUpdate() {
         const failure = captureUpdateFailure(error, 'download', 'Failed to download update');
         applyStatus({
             phase: 'error',
+            reason: 'download-failed',
             origin: 'manual',
             version: status.value.version,
             percent: null,
@@ -220,6 +230,7 @@ async function ensureInitialized() {
 
             applyStatus({
                 phase: 'error',
+                reason: 'check-failed',
                 origin: 'manual',
                 version: status.value.version,
                 percent: null,
@@ -253,6 +264,7 @@ async function checkForUpdates() {
         const failure = captureUpdateFailure(error, 'check', 'Failed to check for updates');
         applyStatus({
             phase: 'error',
+            reason: 'check-failed',
             origin: 'manual',
             version: status.value.version,
             percent: null,
@@ -270,6 +282,7 @@ async function installUpdateNow() {
         const failure = captureUpdateFailure(error, 'install', 'Failed to install update');
         applyStatus({
             phase: 'error',
+            reason: 'install-failed',
             origin: 'manual',
             version: status.value.version,
             percent: null,
@@ -287,6 +300,7 @@ async function deferUpdate() {
         const failure = captureUpdateFailure(error, 'defer', 'Failed to defer update');
         applyStatus({
             phase: 'error',
+            reason: 'check-failed',
             origin: 'manual',
             version: status.value.version,
             percent: null,
@@ -310,6 +324,7 @@ async function skipUpdateVersion() {
         const failure = captureUpdateFailure(error, 'skip', 'Failed to skip update version');
         applyStatus({
             phase: 'error',
+            reason: 'check-failed',
             origin: 'manual',
             version: status.value.version,
             percent: null,
@@ -328,10 +343,33 @@ const isUpdateSupported = computed(() => {
 
 const dialogVersion = computed(() => dialog.value.version?.length ? dialog.value.version : status.value.version);
 
+const updateReasonKeys = {
+    'check-failed': 'updates.checkFailed',
+    'check-timed-out': 'updates.checkTimedOut',
+    'network-unavailable': 'updates.networkUnavailable',
+    'feed-unavailable': 'updates.feedUnavailable',
+    'download-failed': 'updates.downloadFailed',
+    'install-failed': 'updates.installFailed',
+    'install-preparation-failed': 'updates.installPreparationFailed',
+    'store-updates': 'updates.storeUpdates',
+    'signed-build-required': 'updates.signedBuildRequired',
+    'runtime-unsupported': 'updates.unsupportedDescription',
+} as const satisfies Record<TAppUpdateReason, TTranslationKey>;
+
 export const useAppUpdates = () => {
+    const { t } = useTypedI18n();
+    const presentedDialog = computed<IUpdateDialogState>(() => ({
+        ...dialog.value,
+        message: dialog.value.phase === 'error' || dialog.value.phase === 'unsupported'
+            ? dialog.value.reason === 'feed-unavailable'
+                ? t('updates.feedUnavailable', {version: dialog.value.version ?? t('updates.unknownVersion')})
+                : t(dialog.value.reason ? updateReasonKeys[dialog.value.reason]
+                    : dialog.value.phase === 'unsupported' ? 'updates.unsupportedDescription' : 'updates.unknownError')
+            : dialog.value.message,
+    }));
     return {
         status,
-        dialog,
+        dialog: presentedDialog,
         dialogVersion,
         isCheckInProgress,
         isUpdateSupported,

@@ -23,6 +23,18 @@ const appUpdatePhaseSchema = v.picklist([
     'unsupported',
 ], 'invalid app update status');
 const appUpdateStatusSchema = v.object({
+    reason: v.optional(v.picklist([
+        'check-failed',
+        'check-timed-out',
+        'network-unavailable',
+        'feed-unavailable',
+        'download-failed',
+        'install-failed',
+        'install-preparation-failed',
+        'store-updates',
+        'signed-build-required',
+        'runtime-unsupported',
+    ], 'invalid app update reason')),
     phase: appUpdatePhaseSchema,
     origin: v.picklist([
         'auto',
@@ -44,6 +56,7 @@ const appUpdateStatusSchema = v.object({
     )),
 }, 'invalid app update status');
 export type IAppUpdateStatus = v.InferOutput<typeof appUpdateStatusSchema>;
+export type TAppUpdateReason = NonNullable<IAppUpdateStatus['reason']>;
 export type TAppUpdateCheckOrigin = IAppUpdateStatus['origin'];
 export type TAppUpdatePhase = IAppUpdateStatus['phase'];
 

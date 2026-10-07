@@ -179,6 +179,6 @@ export async function fetchLatestReleaseMetadataVersion(
         if (isAbortError(error)) {
             throw error;
         }
-        throw new Error(`Release rollout metadata failed (${metadataUrl}: ${getErrorMessage(error)})`);
+        throw new Error(`Release rollout metadata failed (${metadataUrl}: ${getErrorMessage(error)})`, {cause: error});
     }
 }
