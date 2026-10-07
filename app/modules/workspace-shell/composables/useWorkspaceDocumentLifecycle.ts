@@ -162,23 +162,22 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             }
         }
         const hadDocument = identityHasDocument(snapshot.value.identity);
+        const path = request.target?.originalPath ?? null;
+        const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
+        const pageShape = request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource);
         let transactionId = null as string | null;
         let presented = false;
         try {
-            presented = await session.runOpen(request, async () => {
-                transactionId = activeOpen.value?.id ?? null;
-                const path = request.target?.originalPath ?? null;
-                const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
-                const shape = await (request.pageShape?.path === shapeSource
-                    ? request.pageShape : readPdfPageShape(shapeSource))?.answer;
-                if (!transactionId || activeOpen.value?.id !== transactionId) {
-                    return false;
-                }
+            presented = await session.runOpen({
+                ...request,
+                pageShape,
+            }, async (shape, id) => {
+                transactionId = id;
                 const surface = options.openSurface.snapshot.value;
                 if (surface.phase === 'idle' || surface.phase === 'ready' || surface.phase === 'failed') {
                     beginOpenSurfaceWithPageShape(options.openSurface, {
-                        documentId: String(path ?? transactionId),
-                        documentRevision: `open-intent:${transactionId}`,
+                        documentId: String(path ?? id),
+                        documentRevision: `open-intent:${id}`,
                         provisional: true,
                     }, request.kind === 'restore' ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)) : 1,
                     shape ?? null, request.kind === 'open' && !request.carriesView ? {

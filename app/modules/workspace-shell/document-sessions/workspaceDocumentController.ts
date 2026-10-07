@@ -1,4 +1,5 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -85,7 +86,7 @@ export interface IWorkspaceDocumentController {
     readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
-    runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>): Promise<boolean>;
+    runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>): Promise<boolean>;
     setOpeningLabel(label: string | null): void;
     commitDocument(document: IWorkspaceCommittedDocument): void;
     markPresented(): void;
@@ -173,7 +174,7 @@ export function getDocumentWorkspace(controller: Pick<IWorkspaceDocumentControll
 
 /** The tab holds a document or is opening or closing one. A tab whose open failed is empty again. */
 export function snapshotOccupiesTab(snapshot: IWorkspaceDocumentSnapshot) {
-    return identityHasDocument(snapshot.identity) || snapshot.phase === 'opening' || snapshot.phase === 'closing';
+    return identityHasDocument(snapshot.identity) || snapshot.activeTransaction !== null;
 }
 
 function createDocumentOperationLease(): IDocumentOperationLease {
@@ -318,7 +319,7 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
+    function runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>) {
         supersedeActiveTransaction();
         nextTransactionIndex += 1;
         const transaction: IWorkspaceDocumentTransaction = {
@@ -330,15 +331,24 @@ export function createWorkspaceDocumentController(options: {
         const settled = Promise.withResolvers<boolean>();
         settleWaiters.set(transaction.id, settled);
         update({
-            phase: 'opening',
             activeTransaction: transaction,
             openingLabel: null,
             failure: null,
         }, true);
         const isActive = () => snapshot.value.activeTransaction?.id === transaction.id;
+        // The intent is busy while its shape is admitted. Publishing opening
+        // and claiming its surface happen together, so Start never uncovers
+        // an idle viewport between the two owners.
+        const begin = (shape: IPdfOpeningGeometry | null = null) => {
+            if (!isActive()) {
+                return false;
+            }
+            update({phase: 'opening'});
+            return run(shape, transaction.id);
+        };
         // The open ends when the viewer presents or fails, or when a newer
         // open or a close takes the tab, even if the source is still loading.
-        run().then((accepted) => {
+        Promise.resolve(request.pageShape ? request.pageShape.answer.then(begin) : begin()).then((accepted) => {
             if (!accepted && isActive()) {
                 markFailed(null);
             }
