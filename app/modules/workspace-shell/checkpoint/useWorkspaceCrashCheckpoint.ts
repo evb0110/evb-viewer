@@ -13,6 +13,7 @@ import { guardAsync } from '@app/utils/asyncGuard';
 import { getErrorMessage } from '@app/utils/error';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import {useFailureToast} from '@app/composables/useFailureToast';
 import { resolveDocumentSavePerformanceTier } from '@contracts/hostResourceProfile';
 
 interface IUseWorkspaceCrashCheckpointOptions {
@@ -27,6 +28,9 @@ interface IUseWorkspaceCrashCheckpointOptions {
 }
 
 export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpointOptions) => {
+    const {t} = useTypedI18n();
+    const toast = useToast();
+    const {presentNoticeToast} = useFailureToast();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
     let pendingLatest: IWorkspaceCheckpoint | null = null;
@@ -75,10 +79,37 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         }
     }
 
+    function reconcileRecoveryNotices(checkpoint: IWorkspaceCheckpoint | null) {
+        const rejectedTabs = checkpoint?.tabs.filter(tab => tab.annotationRecoveryFailure) ?? [];
+        for (const tab of rejectedTabs) {
+            presentNoticeToast({
+                id: `workspace-recovery-${tab.tabId}`,
+                tone: 'warning',
+                title: t('errors.workspace.recoveryProtectionTitle'),
+                description: t('errors.workspace.recoveryProtectionDescription', {
+                    fileName: tab.fileName ?? tab.sourceRef ?? tab.tabId,
+                    message: tab.annotationRecoveryFailure!.message,
+                }),
+                duration: Number.POSITIVE_INFINITY,
+                progress: false,
+            });
+        }
+        // The existing toaster owns notice lifetime; derive it from the current
+        // admission outcomes instead of keeping another failure-state registry.
+        for (const notice of toast.toasts.value) {
+            if (String(notice.id).startsWith('workspace-recovery-')
+                && !rejectedTabs.some(tab => notice.id === `workspace-recovery-${tab.tabId}`)) {
+                toast.remove(notice.id);
+            }
+        }
+    }
+
     function persistCheckpoint(checkpoint: IWorkspaceCheckpoint) {
         if (!options.enabled.value || disposed) {
+            reconcileRecoveryNotices(null);
             return;
         }
+        reconcileRecoveryNotices(checkpoint);
         if (inFlight) {
             pendingLatest = checkpoint;
             return;
@@ -174,11 +205,18 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         () => options.enabled.value
             ? buildWorkspaceCheckpointChangeSignature(options).workspace
             : null,
-        () => scheduleCheckpoint(),
+        () => {
+            if (options.enabled.value) {
+                scheduleCheckpoint();
+            } else {
+                reconcileRecoveryNotices(null);
+            }
+        },
         {immediate: true},
     );
 
     onBeforeUnmount(() => {
+        reconcileRecoveryNotices(null);
         disposed = true;
         pendingLatest = null;
         stop();

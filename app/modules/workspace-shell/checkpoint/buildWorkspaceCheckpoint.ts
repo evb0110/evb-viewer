@@ -8,6 +8,7 @@ import type {
     IWorkspaceCheckpointAnnotationRecovery,
 } from '@contracts/workspaceCheckpoint';
 import { createEpochMs } from '@contracts/timestamps';
+import {getErrorMessage} from '@app/utils/error';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -70,13 +71,25 @@ function findDocumentWorkspace(session: IWorkspaceDocumentController, tabId: str
 // A document's unsaved annotations are one payload. Any of its views can
 // capture it; one whose viewer is still mounting captures nothing.
 function captureDocumentAnnotationRecovery(session: IWorkspaceDocumentController) {
-    for (const view of session.views.value.values()) {
-        const recovery = view.mountedWorkspace.value?.captureCanonicalAnnotationRecovery?.() ?? null;
-        if (recovery) {
-            return recovery;
+    try {
+        for (const view of session.views.value.values()) {
+            const recovery = view.mountedWorkspace.value?.captureCanonicalAnnotationRecovery?.() ?? null;
+            if (recovery) {
+                return {recovery};
+            }
         }
+        return {recovery: null};
+    } catch (error) {
+        // Keep this document's files and last admitted artifact; a rejected
+        // capture must not prevent the other documents from checkpointing.
+        return {
+            recovery: null,
+            failure: {
+                reason: 'capture-rejected' as const,
+                message: getErrorMessage(error).slice(0, 4096),
+            },
+        };
     }
-    return null;
 }
 
 // A document none of whose views is mounted still names its files.
@@ -124,8 +137,8 @@ export function buildWorkspaceCheckpoint(
             const capturedAnnotationRecovery = snapshot.isDirty && session && firstTabOfDocument
                 ? captureDocumentAnnotationRecovery(session)
                 : null;
-            const annotationRecovery = capturedAnnotationRecovery && workingByteRevision
-                ? capturedAnnotationRecovery
+            const annotationRecovery = capturedAnnotationRecovery?.recovery && workingByteRevision
+                ? capturedAnnotationRecovery.recovery
                 : null;
             const toolbar = view?.toolbarSnapshot.value ?? null;
             return {
@@ -146,6 +159,7 @@ export function buildWorkspaceCheckpoint(
                 // A cleanup surface is not restorable without its file-backed
                 // page mapping. Keep the checkpoint on the reader surface;
                 // completed outputs are recovered through the main journal.
+                ...(capturedAnnotationRecovery?.failure ? {annotationRecoveryFailure: capturedAnnotationRecovery.failure} : {}),
                 ...(annotationRecovery
                     ? {annotationRecovery: {
                         artifactId: `capture-${snapshot.tabId}`,

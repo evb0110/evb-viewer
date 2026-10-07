@@ -506,7 +506,13 @@ describe('workspace checkpoint store', () => {
                 activeTabId: requireTabId('tab-2'),
             }],
             tabs: [
-                {...checkpoint.tabs[0]!},
+                {
+                    ...checkpoint.tabs[0]!,
+                    annotationRecoveryFailure: {
+                        reason: 'capture-rejected',
+                        message: 'Recovery state exceeds the 4194304-byte annotation budget',
+                    },
+                },
                 {
                     ...checkpoint.tabs[0]!,
                     tabId: requireTabId('tab-2'),
@@ -514,6 +520,17 @@ describe('workspace checkpoint store', () => {
                     sourceRef: requireDocumentRef('/documents/unrelated.pdf'),
                     workingCopyRef: requireDocumentRef(secondWorkingCopyRef),
                     currentPage: 1,
+                    annotationRecovery: {
+                        artifactId: 'capture-tab-2',
+                        documentInstanceId: 'document-2',
+                        workingCopyRef: requireDocumentRef(secondWorkingCopyRef),
+                        workingByteRevision: 'revision-2',
+                        annotationMutationGeneration: 8,
+                        payload: {
+                            ...payload,
+                            annotationMutationGeneration: 8,
+                        },
+                    },
                 },
             ],
         });
@@ -551,6 +568,18 @@ describe('workspace checkpoint store', () => {
         expect(restored?.tabs[0]?.annotationRecovery).toMatchObject({
             ...recoveryRef,
             payload,
+        });
+        expect(restored?.tabs[0]?.annotationRecoveryFailure).toEqual({
+            reason: 'capture-rejected',
+            message: 'Recovery state exceeds the 4194304-byte annotation budget',
+        });
+        expect(restored?.tabs[1]?.annotationRecovery).toMatchObject({
+            documentInstanceId: 'document-2',
+            annotationMutationGeneration: 8,
+            payload: {
+                ...payload,
+                annotationMutationGeneration: 8,
+            },
         });
         expect(restored?.tabs.map(tab => tab.tabId)).toEqual([
             requireTabId('tab-1'),

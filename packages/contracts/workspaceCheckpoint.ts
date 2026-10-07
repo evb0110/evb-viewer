@@ -114,6 +114,10 @@ const checkpointTabSchema = v.object({
     viewMode: v.optional(v.nullable(viewModeSchema)),
     viewRotation: v.optional(v.nullable(viewRotationSchema)),
     annotationRecovery: v.optional(annotationRecoverySchema),
+    annotationRecoveryFailure: v.optional(v.object({
+        reason: v.literal('capture-rejected'),
+        message: v.pipe(v.string(), v.maxLength(4096)),
+    })),
     surfaceMode: v.optional(v.picklist([
         'reader',
         'scan-cleanup',
