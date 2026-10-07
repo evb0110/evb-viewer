@@ -79,6 +79,8 @@ describe('DjVu converted bookmark destinations', () => {
             {timeout: 60_000}).toBe(true);
         expect(await hasFailure(), 'the failed preservation is visible').toBe(true);
         expect(await readFile(outputPath, 'utf8'), 'failure leaves previous destination bytes intact').toBe(previousBytes);
+        const diagnostics = await readFile(join(process.cwd(), '.devkit', 'sessions', session.name, 'session.log'), 'utf8');
+        expect(diagnostics, 'the failure belongs to outline extraction').toContain('stdout exceeded 262144 bytes');
     });
 
     it('preserves component-ID bookmark targets in the saved PDF and navigates after reopening', async () => {
