@@ -2143,3 +2143,178 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 });
+
+describe('optional search-cache mutation completion proof', () => {
+    it.each([
+        'denied',
+        'blocked',
+    ] as const)('commits and displays rotation while optional cache is %s', async (fault) => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdfPage.drawText('Optional cache rotation proof', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const browser = await chromium.launch({headless: true});
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-search-cache-mutation-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, `${fault}-source.pdf`), bytes);
+        let page: Page | undefined;
+        try {
+            page = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 900,
+                },
+                recordVideo: {dir: evidenceDir},
+            });
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'optional-cache-rotation.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30000});
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Initial real PDF did not settle');
+            });
+            const workingPath = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{workingCopyPath?: string}>(['workingCopyPath']).workingCopyPath;
+            });
+            if (!workingPath) throw new Error('Real working document identity is missing');
+            if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+            }
+            await page.locator('[data-thumbnail-page="1"]').first().waitFor({state: 'visible'});
+            await page.evaluate(async (mode) => {
+                const cacheName = 'evb-browser-search-cache';
+                const original = IDBFactory.prototype.open;
+                Reflect.set(window, '__br02CacheRequests', 0);
+                if (mode === 'denied') {
+                    IDBFactory.prototype.open = function(name: string, version?: number) {
+                        if (name === cacheName) {
+                            Reflect.set(window, '__br02CacheRequests', Reflect.get(window, '__br02CacheRequests') + 1);
+                            throw new DOMException('BR02 injected optional cache denial', 'SecurityError');
+                        }
+                        return version === undefined ? original.call(this, name) : original.call(this, name, version);
+                    };
+                    Reflect.set(window, '__br02ReleaseCache', () => {IDBFactory.prototype.open = original;});
+                    return;
+                }
+                await new Promise<void>((resolveDelete, rejectDelete) => {
+                    const request = indexedDB.deleteDatabase(cacheName);
+                    request.onsuccess = () => resolveDelete();
+                    request.onerror = () => rejectDelete(request.error);
+                    request.onblocked = () => rejectDelete(new Error('Healthy initial cache retained an unexpected connection'));
+                });
+                const legacy = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                    const request = original.call(indexedDB, cacheName, 1);
+                    request.onsuccess = () => resolveDb(request.result);
+                    request.onerror = () => rejectDb(request.error);
+                });
+                legacy.onversionchange = () => {};
+                IDBFactory.prototype.open = function(name: string, version?: number) {
+                    const request = version === undefined ? original.call(this, name) : original.call(this, name, version);
+                    if (name === cacheName) request.onblocked = () => {
+                        Reflect.set(window, '__br02CacheRequests', Reflect.get(window, '__br02CacheRequests') + 1);
+                    };
+                    return request;
+                };
+                Reflect.set(window, '__br02ReleaseCache', () => {IDBFactory.prototype.open = original; legacy.close();});
+            }, fault);
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            let storedBytes: number[] = [];
+            await expect.poll(async () => {
+                storedBytes = await page!.evaluate(async (ref) => {
+                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                        const request = indexedDB.open('evb-viewer-browser-documents');
+                        request.onsuccess = () => resolveDb(request.result);
+                        request.onerror = () => rejectDb(request.error);
+                    });
+                    try {
+                        return await new Promise<number[]>((resolveBytes, rejectBytes) => {
+                            const request = db.transaction('documents', 'readonly').objectStore('documents').get(ref);
+                            request.onsuccess = () => resolveBytes(Array.from(request.result?.data ?? []));
+                            request.onerror = () => rejectBytes(request.error);
+                        });
+                    } finally {db.close();}
+                }, workingPath);
+                if (!storedBytes.length) return null;
+                return (await PDFDocument.load(Uint8Array.from(storedBytes))).getPage(0).getRotation().angle;
+            }, {timeout: 15000}).toBe(90);
+            writeFileSync(resolve(evidenceDir, `${fault}-committed.pdf`), Buffer.from(storedBytes));
+            await expect.poll(() => page!.evaluate(() => Reflect.get(window, '__br02CacheRequests'))).toBeGreaterThan(0);
+            writeFileSync(resolve(evidenceDir, `${fault}-committed.json`), JSON.stringify({
+                workingPath,
+                rotation: 90,
+                problems,
+            }, null, 2));
+            await expect.poll(() => page!.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                const r = element.getBoundingClientRect();
+                return r.width > r.height;
+            }), {timeout: 15000}).toBe(true);
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+            expect(await page.locator('.page_container--rendered[data-page="1"] .textLayer').first().textContent()).toContain('Optional cache rotation proof');
+            const download = page.waitForEvent('download');
+            await page.locator('button[aria-label="Save options"]').first().click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const savedPath = resolve(evidenceDir, `${fault}-saved.pdf`);
+            await (await download).saveAs(savedPath);
+            const saved = await PDFDocument.load(readFileSync(savedPath));
+            expect(saved.getPage(0).getRotation().angle).toBe(90);
+            expect(saved.getPageCount()).toBe(1);
+            expect(problems.every(problem => problem.includes('[search] Optional search-cache invalidation failed'))).toBe(true);
+            writeFileSync(resolve(evidenceDir, `${fault}-result.json`), JSON.stringify({
+                workingPath,
+                rotation: 90,
+                savedRotation: saved.getPage(0).getRotation().angle,
+                cacheRequests: await page.evaluate(() => Reflect.get(window, '__br02CacheRequests')),
+                problems,
+            }, null, 2));
+        } finally {
+            if (page) {
+                await page.screenshot({path: resolve(evidenceDir, `${fault}-final.png`)}).catch(() => {});
+                await page.evaluate(() => Reflect.get(window, '__br02ReleaseCache')?.()).catch(() => {});
+                const video = page.video();
+                await page.close();
+                await video?.saveAs(resolve(evidenceDir, `${fault}-proof.webm`));
+            }
+            await browser.close();
+        }
+    }, 90000);
+});
