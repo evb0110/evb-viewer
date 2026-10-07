@@ -12,7 +12,10 @@ const { setFatalRuntimeError } = useFatalRuntimeError();
 const hasDesktopBridge = ref(false);
 const isDesktopRuntime = useState('runtime:is-desktop', () => true);
 
-definePageMeta({ preloadWorkspaceShell: false });
+definePageMeta({
+    preloadWorkspaceShell: false,
+    keepalive: true,
+});
 if (import.meta.server) useSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
