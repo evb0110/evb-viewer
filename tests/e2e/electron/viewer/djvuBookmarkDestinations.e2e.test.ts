@@ -4,7 +4,9 @@ import {
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
-import {rm} from 'node:fs/promises';
+import {
+    copyFile, readFile, writeFile, rm,
+} from 'node:fs/promises';
 import {
     existsSync, mkdtempSync,
 } from 'node:fs';
@@ -23,12 +25,61 @@ import {
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
 const sourcePath = resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu');
 
 describe('DjVu converted bookmark destinations', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-bookmark-destinations-${Date.now()}`});
+
+    it('reports bookmark metadata failure and preserves the existing destination', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-outline-failure-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const djvuPath = join(directory, 'large-outline.djvu');
+        const outlinePath = join(directory, 'outline.txt');
+        const outputPath = join(directory, 'converted.pdf');
+        const previousBytes = '%PDF-1.4\nprevious destination bytes\n';
+        await copyFile(sourcePath, djvuPath);
+        await writeFile(outlinePath, `(bookmarks ("${'Large outline title '.repeat(16_000)}" "#1"))`);
+        await execFileAsync(getDjvuNativeToolPaths().djvused, [
+            djvuPath,
+            '-e',
+            `set-outline "${outlinePath.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
+            '-s',
+        ]);
+        await writeFile(outputPath, previousBytes);
+        const session = await sessions.restart({
+            clean: true,
+            sessionName: () => `e2e-djvu-outline-failure-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: outputPath},
+        });
+        await openDjvuInApp(session.page, djvuPath, 120_000);
+        await waitForDjvuLoaded(session.page, 120_000);
+        await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
+        await clickAsUser(session.page, '.convert-advanced-toggle');
+        await waitForFunctionInPage(session.page, () => {
+            const radio = document.querySelector<HTMLButtonElement>('[role="radio"][value="direct-1"]');
+            return Boolean(radio && !radio.disabled);
+        }, {timeout: 30_000});
+        await clickAsUser(session.page, '[role="radio"][value="direct-1"]');
+        await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .find(element => element.textContent?.includes('Convert DjVu to PDF'))
+            ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+            .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
+            description: 'Convert with default bookmark preservation',
+            timeoutMs: 30_000,
+        });
+        const hasFailure = () => session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[role="status"], [role="alert"]'))
+            .some(element => element.innerText.includes('Conversion failed')));
+        await expect.poll(async () => await hasFailure() || await readFile(outputPath, 'utf8') !== previousBytes,
+            {timeout: 60_000}).toBe(true);
+        expect(await hasFailure(), 'the failed preservation is visible').toBe(true);
+        expect(await readFile(outputPath, 'utf8'), 'failure leaves previous destination bytes intact').toBe(previousBytes);
+    });
 
     it('preserves component-ID bookmark targets in the saved PDF and navigates after reopening', async () => {
         const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-bookmarks-'));

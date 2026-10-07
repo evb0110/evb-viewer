@@ -21,11 +21,31 @@ vi.mock('@electron/features/djvu/main/getCachedDjvuHasText', () => ({getCachedDj
 const {
     getDjvuPageCount,
     getDjvuResolution,
+    getDjvuOutline,
+    getDjvuPageComponentMap,
 } = await import('@electron/features/djvu/main/metadata');
 
 describe('DjVu metadata', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    it('distinguishes an empty source outline from failed outline extraction', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+        await expect(getDjvuOutline('/tmp/no-bookmarks.djvu')).resolves.toBe('');
+        const failure = new Error('outline subprocess failed');
+        mocks.runNativeCommand.mockRejectedValueOnce(failure);
+        await expect(getDjvuOutline('/tmp/failed-outline.djvu')).rejects.toBe(failure);
+    });
+
+    it('refuses a failed component map instead of returning empty metadata', async () => {
+        const failure = new Error('component map subprocess failed');
+        mocks.runNativeCommand.mockRejectedValueOnce(failure);
+        await expect(getDjvuPageComponentMap('/tmp/failed-components.djvu')).rejects.toBe(failure);
     });
 
     it('accepts page counts beyond the former desktop product cap', async () => {
