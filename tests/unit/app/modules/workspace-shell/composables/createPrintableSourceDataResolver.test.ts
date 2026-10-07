@@ -16,7 +16,8 @@ import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     INativePdfMutationProjection,
-    IPdfViewerSaveTransactionRequest,
+    IPdfViewerNativeMaterializationRequest,
+    IPdfViewerSaveTransactionDescriptors,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -60,7 +61,28 @@ const PRINT_PROJECTION: INativePdfMutationProjection = {
     phase: 'persist-native-pdf-mutations',
 };
 
-interface IPrintTestViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
+const PRINT_DESCRIPTORS: IPdfViewerSaveTransactionDescriptors = {
+    nativeCapabilities: {
+        hasNativePdfMutationCapability: true,
+        canPersistNativeMetadataMutations: true,
+    },
+    dirtyState: {
+        annotationDirty: true,
+        hasAnnotationChanges: true,
+        shapeStateDirty: false,
+    },
+    documentStructure: {
+        pageLabelsDirty: false,
+        pageLabelRanges: [],
+        bookmarksDirty: false,
+        bookmarkItems: [],
+        untitledBookmarkLabel: 'Untitled',
+        totalPages: 1,
+    },
+};
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({cleanupFile: async (path: TDocumentRef) => {clonedBytesByRef.delete(path);}})}));
+
+interface IPrintTestViewer {runSaveTransaction(request: IPdfViewerNativeMaterializationRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
 function createTransactionResult(
     finalBytes: Uint8Array,
@@ -102,14 +124,16 @@ function createResolverHarness(options: {
     const serializePdfForSave = vi.fn(async (data: Uint8Array) => data);
     const getPrintableSourceData = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
-        pdfData,
         pdfViewerRef,
         workingCopyPath: shallowRef(WORKING_COPY_REF),
         originalPath: shallowRef(ORIGINAL_REF),
         documentRevisionToken: shallowRef(DOCUMENT_REVISION),
-        source: {
-            getSourcePdfData,
-            serializePdfForSave,
+        save: {
+            getSourcePdfData: async () => pdfData.value ?? await getSourcePdfData(),
+            getNativeSaveTransactionOptions: () => ({
+                ...PRINT_DESCRIPTORS,
+                forceWriterSave: false,
+            }),
         },
         ...(options.runWithDocumentOperationLease
             ? {runWithDocumentOperationLease: options.runWithDocumentOperationLease}
@@ -119,7 +143,6 @@ function createResolverHarness(options: {
     return {
         getPrintableSourceData,
         hasPendingUnsavedChanges,
-        pdfData,
         pdfViewerRef,
         getSourcePdfData,
         serializePdfForSave,
@@ -148,6 +171,11 @@ describe('createPrintableSourceDataResolver', () => {
 
         const result = await runSaveTransaction({
             mode: 'snapshot',
+            ...PRINT_DESCRIPTORS,
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: false,
+                canPersistNativeMetadataMutations: false,
+            },
             source: {getSourcePdfData},
         });
 
@@ -207,17 +235,34 @@ describe('createPrintableSourceDataResolver', () => {
         await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(3, 2, 1));
 
         expect(leaseKinds).toEqual(['print-materialize']);
-        expect(runSaveTransaction).toHaveBeenCalledWith({
-            mode: 'print',
-            forceWriterSave: true,
-            includeManagedShapes: true,
-            rewriteShapeState: true,
-            source: {
-                getSourcePdfData: harness.getSourcePdfData,
-                serializePdfForSave: harness.serializePdfForSave,
-            },
-        });
         expect(commitAnnotationSave).not.toHaveBeenCalled();
+        expect(harness.hasPendingUnsavedChanges.value).toBe(true);
+    });
+
+    it('refuses dirty output when native materialization fails instead of printing saved bytes', async () => {
+        const harness = createResolverHarness({
+            pdfData: Uint8Array.of(1, 2, 3),
+            viewer: {runSaveTransaction: async () => ({
+                source: 'native-required-failure',
+                nativeMutationProjection: null,
+                nativeRequiredFailure: {
+                    code: 'native-save-required',
+                    phase: 'pre-write',
+                    reason: 'native-error',
+                    detail: 'Mutation validation failed',
+                },
+                fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
+                annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,
+            })},
+        });
+        await expect(harness.getPrintableSourceData()).rejects.toThrow('Mutation validation failed');
+        expect(harness.hasPendingUnsavedChanges.value).toBe(true);
+    });
+
+    it('releases detached output after reading it and preserves dirty work', async () => {
+        const harness = createResolverHarness({viewer: {runSaveTransaction: async () => createTransactionResult(Uint8Array.of(7, 8))}});
+        await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(7, 8));
+        expect(clonedBytesByRef.size).toBe(0);
         expect(harness.hasPendingUnsavedChanges.value).toBe(true);
     });
 
@@ -322,7 +367,7 @@ describe('createPrintableSourceDataResolver', () => {
         expect(runSaveTransaction).not.toHaveBeenCalled();
     });
 
-    it('falls back to persisted bytes when the viewer is gone by the time the lease is granted', async () => {
+    it('does not print persisted bytes when the viewer is gone by the time the lease is granted', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-print'});
         const closed = Promise.withResolvers<undefined>();
         const runSaveTransaction = vi.fn(async () => createTransactionResult(Uint8Array.of(1)));
@@ -343,7 +388,7 @@ describe('createPrintableSourceDataResolver', () => {
         closed.resolve(undefined);
         await teardown;
 
-        await expect(print).resolves.toEqual(Uint8Array.of(2, 2));
+        await expect(print).resolves.toBeNull();
         expect(runSaveTransaction).not.toHaveBeenCalled();
     });
 
@@ -478,27 +523,34 @@ describe('createPrintableSourceDataResolver', () => {
             annotationApplication: shallowRef(application),
             documentRevisionToken: computed(() => PRINT_FRONTIER_REVISION),
         });
-        const runTransaction = vi.fn(async (request: IPdfViewerSaveTransactionRequest) => {
+        const runTransaction = vi.fn(async (request: IPdfViewerNativeMaterializationRequest) => {
             events.push(`transaction-start:${request.mode}`);
             const result = await runSaveTransaction(request);
             events.push(`transaction-settled:${request.mode}`);
             return result;
         });
-        // Page labels stay dirty once the save acknowledges the annotation
-        // frontier, so the queued print still has to materialize.
-        const pageLabelsDirty = ref(true);
+        // Working bytes may still be dirty after their annotation frontier
+        // was acknowledged by an in-place page mutation.
+        const workingBytesDirty = ref(true);
         const getPrintableSourceData = createPrintableSourceDataResolver({
             hasPendingUnsavedChanges: computed(() => (
-                application.store.hasChangesSinceSavedBaseline() || pageLabelsDirty.value
+                application.store.hasChangesSinceSavedBaseline() || workingBytesDirty.value
             )),
-            pdfData: shallowRef(null),
             pdfViewerRef: shallowRef<IPrintTestViewer | null>({runSaveTransaction: runTransaction}),
             workingCopyPath: shallowRef(WORKING_COPY_REF),
             originalPath: shallowRef(ORIGINAL_REF),
             documentRevisionToken: shallowRef(DOCUMENT_REVISION),
-            source: {
+            save: {
                 getSourcePdfData: async () => documentBytes.value,
-                serializePdfForSave: async (bytes: Uint8Array) => bytes,
+                getNativeSaveTransactionOptions: () => ({
+                    ...PRINT_DESCRIPTORS,
+                    dirtyState: {
+                        annotationDirty: application.store.hasChangesSinceSavedBaseline(),
+                        hasAnnotationChanges: application.store.hasChangesSinceSavedBaseline(),
+                        shapeStateDirty: false,
+                    },
+                    forceWriterSave: false,
+                }),
             },
             runWithDocumentOperationLease: controller.operationLease.runExclusive,
         });
@@ -507,10 +559,15 @@ describe('createPrintableSourceDataResolver', () => {
         const durableWriteCompleted = Promise.withResolvers<undefined>();
         let openTransactionsAtAcknowledgement = 0;
         const save = controller.operationLease.runExclusive('save', async () => {
-            const saveTransaction = await runTransaction({mode: 'persist'});
+            const saveTransaction = await runTransaction({
+                mode: 'persist',
+                saveFlowMode: 'save',
+                ...PRINT_DESCRIPTORS,
+            });
             saveFrontierCaptured.resolve(undefined);
             await durableWriteCompleted.promise;
             documentBytes.value = savedSourceBytes;
+            clonedBytesByRef.set(WORKING_COPY_REF, savedSourceBytes);
             await saveTransaction.assertAnnotationSaveCurrent?.();
             openTransactionsAtAcknowledgement = runTransaction.mock.calls.length;
             saveTransaction.commitAnnotationSave?.();
@@ -551,7 +608,7 @@ describe('createPrintableSourceDataResolver', () => {
         expect(runTransaction).toHaveBeenCalledTimes(2);
         expect(runTransaction.mock.calls[1]?.[0]).toMatchObject({
             mode: 'print',
-            forceWriterSave: true,
+            forceWriterSave: false,
         });
         // The print owns a post-acknowledgement frontier of its own.
         const printTransaction = await runTransaction.mock.results[1]?.value;

@@ -58,7 +58,7 @@ interface IUseWorkspaceSplitPayloadOptions {
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
-    getNativeSaveTransactionOptions?: () => INativePdfSaveTransactionOptions;
+    getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
@@ -166,7 +166,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 saveFlowMode: 'save',
                 forceWriterSave: false,
                 ...(workingCopyPath ? {workingPath: workingCopyPath} : {}),
-                ...(options.getNativeSaveTransactionOptions?.() ?? {}),
+                ...options.getNativeSaveTransactionOptions(),
                 source: {getSourcePdfData: async () => {
                     if (options.pdfData.value) {
                         return options.pdfData.value;
@@ -225,7 +225,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 saveFlowMode: 'save',
                 forceWriterSave: false,
                 workingPath: sourcePath,
-                ...(options.getNativeSaveTransactionOptions?.() ?? {}),
+                ...options.getNativeSaveTransactionOptions(),
             });
             if (!viewerTransaction) {
                 throw new NativePdfSaveRequiredError({

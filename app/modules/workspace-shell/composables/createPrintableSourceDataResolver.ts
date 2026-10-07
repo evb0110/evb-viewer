@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
+import { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/public';
+import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
+import type { INativePdfSaveTransactionOptions } from '@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection';
 import type {
-    IPdfViewerSaveTransactionRequest,
+    IPdfViewerNativeMaterializationRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -10,13 +13,15 @@ import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentO
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection';
 
-interface IPrintSaveViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
+interface IPrintSaveViewer {runSaveTransaction(request: IPdfViewerNativeMaterializationRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
 interface ICreatePrintableSourceDataResolverDeps {
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
-    pdfData: Readonly<Ref<Uint8Array | null>>;
     pdfViewerRef: Readonly<Ref<IPrintSaveViewer | null>>;
-    source: NonNullable<IPdfViewerSaveTransactionRequest['source']>;
+    save: {
+        getSourcePdfData: () => Promise<Uint8Array | null>;
+        getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
+    };
     workingCopyPath: Readonly<Ref<TDocumentRef | null>>;
     originalPath: Readonly<Ref<TDocumentRef | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
@@ -38,21 +43,35 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         ?? runWithoutDocumentOperationLease;
 
     async function readPersistedPrintableBytes() {
-        return deps.pdfData.value ?? await deps.source.getSourcePdfData();
+        return deps.save.getSourcePdfData();
     }
 
     async function materializeDirtyPrintableBytes() {
-        const printTransaction = await deps.pdfViewerRef.value?.runSaveTransaction({
-            mode: 'print',
-            forceWriterSave: true,
-            includeManagedShapes: true,
-            rewriteShapeState: true,
-            source: deps.source,
-        });
+        const viewer = deps.pdfViewerRef.value;
         const workingCopyPath = deps.workingCopyPath.value;
         const expectedDocumentRevisionToken = deps.documentRevisionToken.value;
-        if (!printTransaction?.nativeMutationProjection || !workingCopyPath || !expectedDocumentRevisionToken) {
-            return readPersistedPrintableBytes();
+        if (!viewer || !workingCopyPath || !expectedDocumentRevisionToken) return null;
+        const printTransaction = await viewer.runSaveTransaction({
+            mode: 'print',
+            saveFlowMode: 'save',
+            ...deps.save.getNativeSaveTransactionOptions(),
+            includeManagedShapes: true,
+            rewriteShapeState: true,
+            source: {getSourcePdfData: deps.save.getSourcePdfData},
+        });
+        if (printTransaction.verifiedUnchangedWorkingCopy) {
+            await printTransaction.assertAnnotationSaveCurrent?.();
+            const bytes = await readDocumentBytes(workingCopyPath);
+            await printTransaction.assertAnnotationSaveCurrent?.();
+            return bytes;
+        }
+        if (printTransaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(printTransaction.nativeRequiredFailure);
+        if (!printTransaction.nativeMutationProjection) {
+            throw new NativePdfSaveRequiredError({
+                code: 'native-save-required',
+                phase: 'pre-write',
+                reason: 'missing-native-projection',
+            });
         }
         // Print never acknowledges the frontier: the document stays dirty and
         // the clone is a detached snapshot handed to the print pipeline. The
@@ -71,7 +90,14 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
                 ? {assertBeforeExpose: printTransaction.assertAnnotationSaveCurrent}
                 : {}),
         });
-        return snapshotRef ? readDocumentBytes(snapshotRef) : readPersistedPrintableBytes();
+        if (!snapshotRef) return null;
+        try {
+            const bytes = await readDocumentBytes(snapshotRef);
+            await printTransaction.assertAnnotationSaveCurrent?.();
+            return bytes;
+        } finally {
+            await getDocumentWorkingCopyCapability().cleanupFile(snapshotRef);
+        }
     }
 
     return async function getPrintableSourceData(options?: {signal?: AbortSignal}) {

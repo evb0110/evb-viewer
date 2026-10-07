@@ -182,6 +182,127 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    // T2/T3: accepted note text must reach durable recovery bytes while Save
+    // remains available. The recovery timer runs the real save transaction.
+    it('materializes an unsaved note for browser recovery and print without saving the original', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 800,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!bounds) throw new Error('The first PDF page is not visible');
+            await page.mouse.click(bounds.x + 200, bounds.y + 200);
+            const text = 'Recovery descriptor regression note';
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).pressSequentially(text);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).click();
+            expect(await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).inputValue()).toBe(text);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            // Observe the persisted detached print artifact before its owner
+            // releases it. The separate print-layout /Text appearance refusal
+            // occurs after this byte-preparation boundary.
+            await page.evaluate((noteText) => {
+                const put = IDBObjectStore.prototype.put;
+                Reflect.set(window, '__restorePrintArtifactObserver', () => {IDBObjectStore.prototype.put = put;});
+                const encoded = [...noteText].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+                IDBObjectStore.prototype.put = function observePrintArtifact(value, key) {
+                    const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
+                    if (this.name === 'documents' && value?.kind === 'working'
+                        && value?.retention === 'transient' && value?.fileName?.endsWith('.staged-native-save.pdf')) {
+                        request.transaction?.addEventListener('complete', () => {
+                            Reflect.set(window, '__preparedPrintNote', new TextDecoder().decode(value.data).toLowerCase().includes(encoded));
+                        }, {once: true});
+                    }
+                    return request;
+                };
+            }, text);
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => Reflect.get(window, '__preparedPrintNote') ?? false), {timeout: 15_000}).toBe(true);
+            await page.evaluate(() => {Reflect.get(window, '__restorePrintArtifactObserver')(); Reflect.deleteProperty(window, '__restorePrintArtifactObserver');});
+            await page.getByRole('button', {
+                name: 'Cancel',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(async (noteText) => {
+                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents');
+                    request.onsuccess = () => resolveDb(request.result);
+                    request.onerror = () => rejectDb(request.error);
+                });
+                try {
+                    const rows = await new Promise<Array<{
+                        data: Uint8Array;
+                        fileName: string;
+                        kind: string
+                    }>>((resolveRows, rejectRows) => {
+                        const request = db.transaction('documents', 'readonly').objectStore('documents').getAll();
+                        request.onsuccess = () => resolveRows(request.result);
+                        request.onerror = () => rejectRows(request.error);
+                    });
+                    const encoded = [...noteText].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+                    return {
+                        recovered: rows.some(row => row.fileName.endsWith('.recovery.pdf') && new TextDecoder().decode(row.data).toLowerCase().includes(encoded)),
+                        originalChanged: rows.some(row => row.kind === 'source' && new TextDecoder().decode(row.data).toLowerCase().includes(encoded)),
+                    };
+                } finally {
+                    db.close();
+                }
+            }, text), {timeout: 15_000}).toEqual({
+                recovered: true,
+                originalChanged: false,
+            });
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     it('starts and opens a PDF without desktop diagnostics or recovery warnings under an Electron-shaped user agent', async () => {
         const browser = await chromium.launch({headless: true});
         try {
