@@ -95,33 +95,20 @@ export async function createBrowserStoreStagedArtifact(
     return artifact.output;
 }
 
-/**
- * Commits a browser-store staged receipt into a revision-checked target. The
- * staged record is removed only after the target write succeeds. A browser
- * receipt never enters the native path and never needs an invented OS id.
- */
-export async function commitBrowserStoreStagedArtifact(
+/** Reads one immutable, admitted receipt for publication or revision-checked commit. */
+export async function readBrowserStoreStagedArtifact(
     store: IBrowserStagedArtifactStore,
     stagedArtifact: unknown,
-    targetRef: TDocumentRef,
-    expectedTargetRevisionToken: TDocumentRevisionToken,
-): Promise<boolean> {
+) {
     const parsed = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, stagedArtifact, {abortEarly: true});
     if (!parsed.success || !isBrowserStoreStagedArtifact(parsed.output)) {
         throw new Error('Expected a browser-store staged artifact');
     }
     const decoded = parsed.output;
-    if (!isBrowserLegacyDocumentRef(targetRef) || targetRef === decoded.path) {
-        throw new Error('Browser staged commit requires a different browser target ref');
-    }
     if (decoded.size > BROWSER_MAX_FULL_READ_BYTES) {
         throw new Error(
             `Browser staged PDF output exceeds the browser full-read limit of ${BROWSER_MAX_FULL_READ_BYTES} bytes`,
         );
-    }
-    const expectedRevision = parseDocumentRevisionToken(expectedTargetRevisionToken);
-    if (expectedRevision === null) {
-        throw new Error('Browser staged commit requires a document revision token');
     }
 
     const initialRevision = await store.getDocumentRevision(decoded.path);
@@ -145,11 +132,34 @@ export async function commitBrowserStoreStagedArtifact(
         throw new Error('Browser staged artifact content or revision changed during commit');
     }
 
+    return {
+        artifact: decoded,
+        bytes,
+    };
+}
+
+/** Commits the admitted receipt; only the successful target write consumes staging. */
+export async function commitBrowserStoreStagedArtifact(
+    store: IBrowserStagedArtifactStore,
+    stagedArtifact: unknown,
+    targetRef: TDocumentRef,
+    expectedTargetRevisionToken: TDocumentRevisionToken,
+): Promise<boolean> {
+    const expectedRevision = parseDocumentRevisionToken(expectedTargetRevisionToken);
+    if (expectedRevision === null) {
+        throw new Error('Browser staged commit requires a document revision token');
+    }
+    const {
+        artifact, bytes,
+    } = await readBrowserStoreStagedArtifact(store, stagedArtifact);
+    if (!isBrowserLegacyDocumentRef(targetRef) || targetRef === artifact.path) {
+        throw new Error('Browser staged commit requires a different browser target ref');
+    }
     return store.commitStagedDocument(
-        decoded.path,
+        artifact.path,
         targetRef,
         bytes,
-        decoded.revision,
+        artifact.revision,
         expectedRevision,
     );
 }
