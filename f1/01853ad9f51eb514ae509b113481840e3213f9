@@ -1,0 +1,24 @@
+scripts/release/runPackagedAutomation.ts
+  s_2d9828c61ed5ba::t_3c545fd9d626f9 231-233
+  s_2d9828c61ed5ba::t_413c5bcbebe92f 272,280,285-292
+tests/unit/scripts/packagedAutomationRunner.test.ts
+  s_2d9828c61ed5ba::t_bd0d0012b77406 2-4,142,166,382,392-407
+  s_2d9828c61ed5ba::t_c12dd7729967ff 375-381,419,422-424
+  s_2d9828c61ed5ba::t_74ee5241b62fd1 383-391,408-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f101853ad9f51eb514ae509b113481840e3213f9",
+  "prompts": {},
+  "sessions": {
+    "s_2d9828c61ed5ba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a118aa-dfd5-7b20-8a76-ce42a010a3e0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
