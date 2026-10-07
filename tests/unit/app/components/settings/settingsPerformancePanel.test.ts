@@ -4,6 +4,7 @@ import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -19,6 +20,9 @@ import {
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
+
+const appliedProfile = vi.hoisted(() => ({performanceMode: 'auto' as TPerformanceMode}));
+vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => appliedProfile}));
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -101,6 +105,10 @@ function mount(performanceMode: TPerformanceMode) {
     };
 }
 
+beforeEach(() => {
+    appliedProfile.performanceMode = 'auto';
+});
+
 afterEach(() => {
     for (const unmount of [...activeUnmounts]) {
         unmount();
@@ -134,7 +142,7 @@ describe('SettingsPerformancePanel', () => {
         expect(emitted).toEqual(['high']);
     });
 
-    it('hides the restart notice while the mode matches the value applied at mount', () => {
+    it('hides the restart notice while the mode matches the application startup choice', () => {
         const { host } = mount('auto');
         expect(host.querySelector(RESTART_NOTICE_SELECTOR)).toBeNull();
     });
@@ -146,6 +154,22 @@ describe('SettingsPerformancePanel', () => {
         } = mount('auto');
         await setPersistedMode('low');
         expect(host.querySelector(RESTART_NOTICE_SELECTOR)?.textContent).toContain('settings.performanceRestartNotice');
+    });
+
+    it('retains the notice after a panel remount and clears it only when reverted to the startup choice', async () => {
+        const first = mount('auto');
+        await first.setPersistedMode('low');
+        first.unmount();
+        const second = mount('low');
+        expect(second.host.querySelector(RESTART_NOTICE_SELECTOR)?.textContent).toContain('settings.performanceRestartNotice');
+        await second.setPersistedMode('auto');
+        expect(second.host.querySelector(RESTART_NOTICE_SELECTOR)).toBeNull();
+        second.unmount();
+        appliedProfile.performanceMode = 'low';
+        const restarted = mount('low');
+        expect(restarted.host.querySelector(RESTART_NOTICE_SELECTOR)).toBeNull();
+        await restarted.setPersistedMode('auto');
+        expect(restarted.host.querySelector(RESTART_NOTICE_SELECTOR)).not.toBeNull();
     });
 
     it('clears the restart notice when the mode is reverted to the applied one before restart', async () => {
