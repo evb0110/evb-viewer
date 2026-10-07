@@ -66,13 +66,6 @@
             background: transparent !important;
         }
 
-        /* Hide native PDF.js popup trigger bubbles; custom inline note anchors
-           provide the single source of truth for note interaction. */
-        .popupTriggerArea {
-            display: none !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-        }
     }
 
     /* Suppress highlight editor chrome — the floating note indicator is the
