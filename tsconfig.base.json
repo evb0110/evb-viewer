@@ -36,6 +36,8 @@
             "@scripts/*": ["./scripts/*"],
             "@server/*": ["./server/*"],
             "@landing/*": ["./landing/*"],
+            "~/i18n/*": ["./landing/app/i18n/*"],
+            "~/types/i18nComposer": ["./landing/app/types/i18nComposer.ts"],
             "@tests/*": ["./tests/*"]
         }
     }

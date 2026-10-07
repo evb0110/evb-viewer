@@ -516,6 +516,8 @@ export default {
         'runCount': '{completed} von {total} Seiten',
         'runStatus': '{phase} — {counter}',
         'summary': 'Aus {input} Quellseiten wurden {output} Ausgabeseiten; {spreads} Doppelseiten wurden geteilt und {offcuts} Randstücke verworfen.',
+        'sourceTextOmitted': 'Der Quelltext wurde bei der Ausgabe von {count} Quellseite(n) weggelassen: {pages}. Auf den betroffenen Ausgabeseiten sind Textsuche und Kopieren nicht verfügbar. Führen Sie OCR für die bereinigte PDF aus, um durchsuchbaren Text wiederherzustellen.',
+        'sourceTextOmittedMorePages': '{pages} und {remaining} weitere',
     },
     'app': {
         'title': 'EVB Viewer',

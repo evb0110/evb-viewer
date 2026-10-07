@@ -516,6 +516,8 @@ export default {
         'runCount': '{completed} van {total} pagina’s',
         'runStatus': '{phase} — {counter}',
         'summary': '{input} bronpagina\'s werden {output} uitvoerpagina\'s; {spreads} dubbele pagina\'s zijn gesplitst en {offcuts} randstroken verwijderd.',
+        'sourceTextOmitted': 'De brontekst is weggelaten in de uitvoer van {count} bronpagina’s: {pages}. Zoeken en kopiëren zijn niet beschikbaar op de betrokken uitvoerpagina’s. Voer OCR uit op de opgeschoonde PDF om doorzoekbare tekst te herstellen.',
+        'sourceTextOmittedMorePages': '{pages} en nog {remaining}',
     },
     'app': {
         'title': 'EVB Viewer',

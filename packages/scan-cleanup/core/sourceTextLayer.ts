@@ -1,10 +1,71 @@
 import type {IScanCleanupTextLayerInstruction} from '@evb/scan-cleanup/core/compactManifest';
 import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
+    type TScanCleanupRunCommand,
+    type TScanCleanupLog,
     assertCanonicalPdfPageSizes,
     type IPdfPageSize,
 } from '@evb/scan-cleanup/core/types';
 import {resolveScanCleanupMatchedCanvasPlacement} from '@evb/scan-cleanup/core/policy/documentCanvas';
+import {decodePdfOcrTextVisibilityReport} from '@contracts/pdfOcrTextVisibility';
+import type {TScanCleanupSummary} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+
+/**
+ * Inspect only the source pages the geometric plan refused. The job owns the
+ * page file, so streaming children contribute their plans without reparsing the
+ * source PDF. Native parses once, with its existing page/content limits; no
+ * recognized text is requested and the fixed-size report has a byte budget.
+ */
+export async function inspectScanCleanupSourceTextOmission(input: {
+    pdfPath: string;
+    pagesPath: string;
+    pdfPageOpsBinary: string;
+    qpdfBinary: string;
+    signal: AbortSignal;
+    runCommand: TScanCleanupRunCommand;
+    log: TScanCleanupLog;
+}): Promise<TScanCleanupSummary['sourceTextOmission']> {
+    const result = await input.runCommand(input.pdfPageOpsBinary, [
+        'ocr-text-visibility',
+        '--input',
+        input.pdfPath,
+        '--pages-file',
+        input.pagesPath,
+        '--qpdf',
+        input.qpdfBinary,
+    ], {
+        signal: input.signal,
+        commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:scan-cleanup)',
+        timeoutMs: 2 * 60 * 1000,
+        // Covers the existing native 200,000-page admission bound without
+        // retaining recognized strings or an unbounded stdout capture.
+        maxStdoutBytes: 64 * 1024 * 1024,
+        rejectOnStdoutTruncation: true,
+        log: input.log,
+    });
+    try {
+        const report = decodePdfOcrTextVisibilityReport(JSON.parse(result.stdout));
+        let count = 0;
+        const pages: NonNullable<TScanCleanupSummary['sourceTextOmission']>['pages'] = [];
+        for (const page of report.pages) {
+            if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) continue;
+            count += 1;
+            if (pages.length < 20) pages.push(requirePageNumber(page.pageNumber));
+        }
+        return count === 0 ? undefined : {
+            count,
+            pages,
+        };
+    } catch (error) {
+        input.signal.throwIfAborted();
+        // Only successful-command evidence is optional. Command failures must
+        // reach the existing job owner, including native termination proof.
+        input.log('warn', `Could not inspect omitted scan cleanup source text: ${getErrorMessage(error)}`);
+        return undefined;
+    }
+}
 
 export interface IScanCleanupTextLayerPlan {
     pages: IScanCleanupTextLayerInstruction[];

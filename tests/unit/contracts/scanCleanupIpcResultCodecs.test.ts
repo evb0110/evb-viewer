@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import * as v from 'valibot';
+import {SCAN_CLEANUP_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {
     SCAN_CLEANUP_JOB_STATE_SCHEMA,
     SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA,
@@ -207,5 +208,85 @@ describe('scan cleanup preview result geometry', () => {
                 rightPx: 100,
             })),
         )).toThrow('invalid scan-cleanup preview intrinsic/canvas placement');
+    });
+});
+
+
+describe('scan cleanup source text omission summary', () => {
+    const summary = {
+        inputPages: 65,
+        outputPages: 65,
+        spreadsSplit: 0,
+        offcutsDiscarded: 0,
+        deskewSkipped: 0,
+        cropSkipped: 0,
+        excludedPages: 0,
+        blankPagesSkipped: 0,
+        warnings: [],
+    };
+
+    it('keeps legacy summaries compatible and preserves positive omission evidence', () => {
+        expect(v.parse(SCAN_CLEANUP_SUMMARY_SCHEMA, summary)).toEqual(summary);
+        const withOmission = {
+            ...summary,
+            sourceTextOmission: {
+                count: 1,
+                pages: [3],
+            },
+        };
+        expect(v.parse(SCAN_CLEANUP_SUMMARY_SCHEMA, withOmission)).toEqual(withOmission);
+        const bounded = {
+            ...summary,
+            sourceTextOmission: {
+                count: 65,
+                pages: Array.from({length: 20}, (_, index) => index + 1),
+            },
+        };
+        expect(v.parse(SCAN_CLEANUP_SUMMARY_SCHEMA, bounded)).toEqual(bounded);
+    });
+
+    it.each([
+        {
+            count: 0,
+            pages: [],
+        },
+        {
+            count: 1,
+            pages: [],
+        },
+        {
+            count: 1,
+            pages: [0],
+        },
+        {
+            count: 1,
+            pages: [
+                1,
+                2,
+            ],
+        },
+        {
+            count: 2,
+            pages: [
+                1,
+                1,
+            ],
+        },
+        {
+            count: 2,
+            pages: [
+                2,
+                1,
+            ],
+        },
+        {
+            count: 21,
+            pages: Array.from({length: 21}, (_, index) => index + 1),
+        },
+    ])('rejects inconsistent source text omission evidence: %j', sourceTextOmission => {
+        expect(() => v.parse(SCAN_CLEANUP_SUMMARY_SCHEMA, {
+            ...summary,
+            sourceTextOmission,
+        })).toThrow();
     });
 });
