@@ -1,7 +1,9 @@
 import {
     copyFileSync, readFileSync, mkdtempSync, rmSync,
 } from 'node:fs';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser, clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {tmpdir} from 'node:os';
 import {
     basename, join, resolve,
@@ -10,11 +12,12 @@ import {
     afterEach, describe, expect, it,
 } from 'vitest';
 import {
-    createMultiPageTextFixturePdf, readPdfTextAnnotationRecords,
+    createMultiPageTextFixturePdf, createOutlinePageLabelFixturePdf, fixtureBookmark,
+    readPdfMetadataWithQpdf, readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
-    openDocumentSidebarTab, waitForActiveDocumentSource, waitForPdfLoaded, waitForViewerInteractive,
+    clickVisibleToolbarButton, openDocumentSidebarTab, waitForActiveDocumentSource, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     activatePaneByTab, splitActiveTabFromTabMenu,
@@ -28,6 +31,7 @@ import {
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
 
@@ -109,6 +113,61 @@ describe('checkpointed annotation recovery', () => {
         } finally {
             await session.stop();
         }
+    }, 240_000);
+
+    it('restores an unsaved bookmark title after a crash and saves the recovered edit', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-metadata-recovery-'));
+        const originalTitle = 'Original crash-test bookmark';
+        const editedTitle = 'Accepted unsaved bookmark survives crash';
+        const fixture = await createOutlinePageLabelFixturePdf(`metadata-recovery-${Date.now()}.pdf`, [fixtureBookmark(originalTitle, 0)]);
+        const sourcePath = join(outputDirectory, 'metadata-source.pdf');
+        copyFileSync(fixture, sourcePath);
+        const sourceBytes = readFileSync(sourcePath);
+        const sessionName = `e2e-metadata-recovery-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await openDocumentSidebarTab(session.page, 'Bookmarks');
+        await clickAsUser(session.page, '.document-bookmarks-toolbar__actions button');
+        await session.page.waitForSelector('.pdf-bookmarks-tree', {visible: true});
+        await clickFoundAsUser(session.page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'))
+            .find(row => row.textContent?.trim() === title), originalTitle, {
+            button: 'right',
+            description: 'Existing bookmark context menu',
+        });
+        await session.page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
+        await clickAsUser(session.page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await session.page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await session.page.keyboard.press('A');
+        await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await session.page.keyboard.type(editedTitle);
+        await session.page.keyboard.press('Enter');
+        const bookmarkTitles = () => session!.page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
+        await expect.poll(bookmarkTitles).toContain(editedTitle);
+        await expect.poll(() => readWorkspaceRecoveryRecords(session!.name)
+            .some(record => decodeWorkspaceCheckpoint(record.checkpoint)?.tabs.some(tab => tab.isDirty)), {timeout: 30_000}).toBe(true);
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+
+        const crashed = session;
+        await crashed.browser.disconnect();
+        await stopSingleSession(crashed.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = null;
+        session = await startElectronE2ESession(sessionName, {clean: false});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await openDocumentSidebarTab(session.page, 'Bookmarks');
+        await expect.poll(bookmarkTitles, {timeout: 20_000}).toContain(editedTitle);
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await expect.poll(async () => (await readPdfMetadataWithQpdf(sourcePath)).outlines.map(item => item.title), {timeout: 30_000})
+            .toContain(editedTitle);
     }, 240_000);
 
     it('recovers a split PDF as one document when its first view is hidden', async () => {
