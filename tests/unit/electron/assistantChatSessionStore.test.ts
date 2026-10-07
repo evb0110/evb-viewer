@@ -30,6 +30,8 @@ import {
 import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
+import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
+import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
 
 const tempRoots: string[] = [];
 
@@ -135,6 +137,72 @@ describe('assistant chat session store persistence', () => {
 
         expect(session.messages.length).toBeLessThan(20);
         expect(session.messages.at(-1)?.text).toContain('message-19');
+    });
+
+    it.each([
+        1,
+        3,
+    ])('retains a prompt with %i accepted large images through the answer and restart', async (imageCount) => {
+        const rootDir = createTempRoot();
+        const persistence = new AssistantChatPersistence({rootDir});
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        const png = createLargeAssistantImage();
+        expect(png.length).toBeGreaterThan(2 * 1024 * 1024);
+        const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+        const outgoing = normalizeOutgoingMessageRequest({
+            scope,
+            text: 'Explain these images.',
+            attachments: Array.from({length: imageCount}, (_, index) => ({
+                type: 'image',
+                id: `image-${index}`,
+                name: `image-${index}.png`,
+                mimeType: 'image/png',
+                sizeBytes: 0,
+                dataUrl,
+            })),
+        });
+        store.addMessage(session, {
+            id: 'image-question',
+            role: 'user',
+            ...outgoing,
+        });
+        store.appendAssistantDelta(session, 'reply', 'An answer begins.');
+        expect(store.getMessages(scope, selection).map(message => message.text)).toEqual([
+            outgoing.text,
+            'An answer begins.',
+        ]);
+        store.upsertAssistantMessage(session, 'reply', {pending: false});
+        await store.flushPersistenceForTests();
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        expect(readFileSync(transcriptPath, 'utf8')).toContain('session-snapshot-ref');
+        expect(statSync(transcriptPath).size).toBeLessThanOrEqual(persistence.getMaxSessionBytes());
+        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        await restarted.ready;
+        expect(restarted.getMessages(scope, selection)).toEqual(store.getMessages(scope, selection));
+    });
+
+    it('keeps the latest question and answer together when older text is pruned', () => {
+        const store = createAssistantChatSessionStore({persistence: createPersistence(createTempRoot(), {maxSessionBytes: 1024})});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'old question',
+        });
+        store.addMessage(session, {
+            role: 'assistant',
+            text: 'old answer',
+        });
+        store.addMessage(session, {
+            role: 'user',
+            text: 'current question',
+        });
+        store.appendAssistantDelta(session, 'current-reply', 'answer '.repeat(200));
+        expect(session.messages.map(message => message.text)).toEqual([
+            'current question',
+            'answer '.repeat(200),
+        ]);
     });
 
     it('keeps visible history after the old inactivity window passes', () => {
