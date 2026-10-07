@@ -46,7 +46,7 @@ import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequestType,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 

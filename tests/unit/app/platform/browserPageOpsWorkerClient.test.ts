@@ -509,4 +509,101 @@ describe('browserPageOpsWorkerClient', () => {
         expect(failedWorker.terminated).toBe(true);
         expect(siblingWorker.terminated).toBe(true);
     });
+    it.each([
+        'saveMutations',
+        'decrypt',
+        'printLayout',
+    ] as const)(
+        'isolates cancellation of %s from an overlapping page operation', async (type) => {
+            FakeWorker.autoRespond = false;
+            const {runBrowserPageOpsWorkerRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
+            const controller = new AbortController();
+            const input = new Uint8Array([
+                1,
+                2,
+                3,
+            ]);
+            const payload = type === 'saveMutations'
+                ? {
+                    data: input,
+                    mutations: {updates: [{
+                        objectNumber: 1,
+                        generationNumber: 0,
+                        text: 'Saved',
+                    }]},
+                    modifiedAt: 'D:20260102000000Z',
+                }
+                : type === 'decrypt'
+                    ? {
+                        data: input,
+                        password: 'transient',
+                    }
+                    : {
+                        data: input,
+                        pageNumbers: [],
+                        viewMode: 'facing' as const,
+                        orientation: 'landscape' as const,
+                    };
+            const canceled = runBrowserPageOpsWorkerRequest(type, payload, {signal: controller.signal});
+            await Promise.resolve();
+            const sibling = runBrowserPageOpsWorkerRequest('rotate', {
+                data: new Uint8Array([4]),
+                pages: [1],
+                angle: 90,
+            });
+            const reason = new Error('Document closed');
+            const rejection = expect(canceled).rejects.toBe(reason);
+            controller.abort(reason);
+            await rejection;
+            const siblingWorker = FakeWorker.lastInstance;
+            if (!siblingWorker) throw new Error('Missing sibling worker');
+            siblingWorker.dispatchMessage({
+                id: 1,
+                type: 'rotate',
+                ok: true,
+                data: {
+                    data: new Uint8Array([5]),
+                    pageCount: 1,
+                },
+            });
+            await expect(sibling).resolves.toEqual({
+                data: new Uint8Array([5]),
+                pageCount: 1,
+            });
+            expect(input).toEqual(new Uint8Array([
+                1,
+                2,
+                3,
+            ]));
+        },
+    );
+
+    it('preserves typed decrypt failures and unavailable WASM results across the worker boundary', async () => {
+        FakeWorker.autoRespond = false;
+        const {runBrowserPageOpsWorkerRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
+        for (const result of [
+            null,
+            {
+                status: 'failed',
+                error: {
+                    code: 'needs-password',
+                    message: 'Password required',
+                },
+            },
+        ]) {
+            const request = runBrowserPageOpsWorkerRequest('decrypt', {
+                data: new Uint8Array([1]),
+                password: '',
+            });
+            await Promise.resolve();
+            FakeWorker.lastInstance?.dispatchMessage({
+                id: 1,
+                type: 'decrypt',
+                ok: true,
+                data: result,
+            });
+            await expect(request).resolves.toEqual(result);
+        }
+    });
+
 });
