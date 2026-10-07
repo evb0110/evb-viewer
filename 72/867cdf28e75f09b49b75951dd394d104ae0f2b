@@ -1,0 +1,21 @@
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_85576087dc28f6::t_c9b2e4520760e3 185-186,230-233
+  s_85576087dc28f6::t_ee9529aa47873f 198-216,282
+  s_85576087dc28f6::t_13da6d5b5ae9ef 226-229,234-243,281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "72867cdf28e75f09b49b75951dd394d104ae0f2b",
+  "prompts": {},
+  "sessions": {
+    "s_85576087dc28f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a115bc-dbcc-7561-90a3-1cb4872920fb",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
