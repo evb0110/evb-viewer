@@ -285,6 +285,67 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    it('keeps the performance restart notice through Settings remount until reload', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({recordVideo: {dir: resolve(process.cwd(), '.devkit/lane-b/evidence/op-03-video')}});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            const settings = page.locator('nav[aria-label="Workspace"]').getByRole('button', {
+                name: 'Settings',
+                exact: true,
+            });
+            const notice = page.locator('.settings-performance-restart-notice');
+            const chooseMode = async (label: string, mode: string) => {
+                await page.getByRole('button', {
+                    name: 'Performance mode',
+                    exact: true,
+                }).click();
+                await page.getByRole('option', {
+                    name: label,
+                    exact: true,
+                }).click();
+                await page.waitForFunction(value => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').performanceMode === value, mode);
+            };
+            await settings.click();
+            expect(await notice.count()).toBe(0);
+            await chooseMode('Low — minimize background work', 'low');
+            await expect.poll(() => notice.textContent()).toBe('Restart to apply this change.');
+            await page.getByRole('button', {
+                name: 'Recent Files',
+                exact: true,
+            }).click();
+            await settings.click();
+            await page.getByRole('button', {
+                name: 'Performance mode',
+                exact: true,
+            }).click();
+            await page.keyboard.press('Escape');
+            await page.getByRole('listbox').waitFor({state: 'hidden'});
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/lane-b/evidence/op-03-remount.png')});
+            expect(await notice.count()).toBe(1);
+            expect(await notice.textContent()).toBe('Restart to apply this change.');
+            expect(await notice.isVisible()).toBe(true);
+            await chooseMode('Auto (recommended)', 'auto');
+            await expect.poll(() => notice.count()).toBe(0);
+            await chooseMode('Low — minimize background work', 'low');
+            await expect.poll(() => notice.count()).toBe(1);
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await settings.click();
+            expect(await notice.count()).toBe(0);
+            await chooseMode('Auto (recommended)', 'auto');
+            await expect.poll(() => notice.count()).toBe(1);
+            await chooseMode('Low — minimize background work', 'low');
+            await expect.poll(() => notice.count()).toBe(0);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
     // T4: every accepted note belongs to the document's Save As frontier.
     it.each([
         'single',

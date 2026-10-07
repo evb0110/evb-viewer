@@ -97,6 +97,7 @@ describe('workspace memory budget', () => {
 
     it('uses the canonical performance profile tier without reclassifying it', () => {
         expect(resolveWorkspaceMemoryDeviceTier({
+            performanceMode: 'auto',
             tier: 'medium',
             lowMemory: false,
             lowCpu: false,
