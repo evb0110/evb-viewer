@@ -25,6 +25,10 @@ import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/cr
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
+import {
+    scanCleanupSourceIdentityKey,
+    type TScanCleanupSourceIdentityState,
+} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
 import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
@@ -624,9 +628,16 @@ describe('scan cleanup renderer preference store', () => {
         app.unmount();
     });
 
-    it('exports legacy localStorage only for initial hydration and clears it after success', async () => {
+    it('clears the legacy storage the file-backed store adopted at hydration', async () => {
+        const {store} = await createDurableSettingsStore();
+        capability.value.getSettings.mockImplementation(store.get);
+        capability.value.updateSettings.mockImplementation(store.update);
+        const legacyOverrides = JSON.stringify({'/documents/legacy.pdf': {
+            updatedAt: Date.now(),
+            outputMode: 'color',
+        }});
         localStorage.setItem('evb.scanCleanup.settings.v1', JSON.stringify({readingOrder: 'rtl'}));
-        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'/documents/legacy.pdf': {outputMode: 'color'}}));
+        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', legacyOverrides);
         getScanCleanupPreferencesStore({
             sourceSha256: 'd'.repeat(64),
             legacyDocumentKey: '/documents/legacy.pdf',
@@ -636,15 +647,144 @@ describe('scan cleanup renderer preference store', () => {
 
         expect(capability.value.getSettings.mock.calls[0]?.[0]).toMatchObject({legacyStorage: {
             settingsRaw: JSON.stringify({readingOrder: 'rtl'}),
-            documentOverridesRaw: JSON.stringify({'/documents/legacy.pdf': {outputMode: 'color'}}),
+            documentOverridesRaw: legacyOverrides,
         }});
         expect(localStorage.getItem('evb.scanCleanup.settings.v1')).toBeNull();
         expect(localStorage.getItem('evb.scanCleanup.documentOverrides.v1')).toBeNull();
+        expect((await store.get()).documentOverrides['d'.repeat(64)]?.outputMode).toBe('color');
 
         await loadScanCleanupDocumentSettings('e'.repeat(64), '/documents/next.pdf');
 
         expect(capability.value.getSettings).toHaveBeenCalledTimes(2);
         expect(capability.value.getSettings.mock.calls[1]?.[0]).not.toHaveProperty('legacyStorage');
+    });
+
+    // Settings saved before the file-backed store are keyed by document path.
+    // Scan cleanup opens before the document's hash is known, and hydrating
+    // then used to delete every legacy entry the file could not yet map.
+    it('keeps a path-keyed legacy entry until its document hash is known', async () => {
+        const {store} = await createDurableSettingsStore();
+        capability.value.getSettings.mockImplementation(store.get);
+        capability.value.updateSettings.mockImplementation(store.update);
+        const legacyDocumentKey = '/documents/legacy-before-hash.pdf';
+        const sourceSha256 = 'a'.repeat(64);
+        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({[legacyDocumentKey]: {
+            updatedAt: Date.now(),
+            outputMode: 'color',
+            marginsMm: {
+                leftMm: 12,
+                topMm: 12,
+                rightMm: 12,
+                bottomMm: 12,
+            },
+            overrides: {'1': createScanCleanupPageOverride({layoutOverride: 'spread'})},
+        }}));
+        getScanCleanupPreferencesStore({
+            sourceSha256: null,
+            legacyDocumentKey,
+        });
+        await whenScanCleanupPreferencesReady();
+
+        expect(localStorage.getItem('evb.scanCleanup.documentOverrides.v1')).not.toBeNull();
+
+        const restored = await loadScanCleanupDocumentSettings(sourceSha256, legacyDocumentKey);
+
+        expect(restored.marginsMm?.topMm).toBe(12);
+        expect(restored.outputMode).toBe('color');
+        expect(restored.overrides['1']?.layoutOverride).toBe('spread');
+        expect((await store.get()).documentOverrides[sourceSha256]?.marginsMm?.topMm).toBe(12);
+        expect(localStorage.getItem('evb.scanCleanup.documentOverrides.v1')).toBeNull();
+    });
+
+    // Desktop document settings are keyed by the source hash, which Scan
+    // cleanup acquires as it opens. Loading before it arrives used to present
+    // defaults as the document's settings and log a missing-hash warning.
+    it('waits for the document hash instead of presenting defaults as loaded', async () => {
+        const {store} = await createDurableSettingsStore();
+        const sourceSha256 = 'b'.repeat(64);
+        const legacyDocumentKey = '/documents/hash-pending.pdf';
+        await store.update({document: {
+            sourceSha256,
+            patch: {marginsMm: {
+                leftMm: 12,
+                topMm: 12,
+                rightMm: 12,
+                bottomMm: 12,
+            }},
+        }});
+        capability.value.getSettings.mockImplementation(store.get);
+        capability.value.updateSettings.mockImplementation(store.update);
+        const warn = vi.spyOn(BrowserLogger, 'warn');
+        const identityState = ref<TScanCleanupSourceIdentityState>('pending');
+        const source = ref<string | null>(null);
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => `${source.value ?? legacyDocumentKey}\u0000revision-1`),
+                documentRevision: computed(() => 'revision-1'),
+                sourceSha256: computed(() => source.value),
+                legacyDocumentKey: computed(() => legacyDocumentKey),
+            });
+            return () => h('div');
+        }}));
+        app.provide(scanCleanupSourceIdentityKey, {
+            state: identityState,
+            retry: () => undefined,
+        });
+        app.mount(host);
+        try {
+            await whenScanCleanupPreferencesReady();
+            await nextTick();
+
+            expect(settings.documentSettingsReady.value).toBe(false);
+            expect(warn).not.toHaveBeenCalledWith('scan-cleanup', expect.stringContaining('authoritative source SHA-256'), expect.anything());
+
+            source.value = sourceSha256;
+            identityState.value = 'ready';
+
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            expect(settings.values.marginsMm.topMm).toBe(12);
+        } finally {
+            app.unmount();
+            host.remove();
+        }
+    });
+
+    it('reports a document hash that could not be read, with a retry', async () => {
+        const identityState = ref<TScanCleanupSourceIdentityState>('pending');
+        const retry = vi.fn(() => {
+            identityState.value = 'pending';
+        });
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => '/documents/unreadable.pdf\u0000revision-1'),
+                documentRevision: computed(() => 'revision-1'),
+                sourceSha256: computed(() => null),
+                legacyDocumentKey: computed(() => '/documents/unreadable.pdf'),
+            });
+            return () => h('div');
+        }}));
+        app.provide(scanCleanupSourceIdentityKey, {
+            state: identityState,
+            retry,
+        });
+        app.mount(host);
+        try {
+            identityState.value = 'failed';
+            await vi.waitFor(() => expect(settings.documentSettingsLoadFailure.value).not.toBeNull());
+            expect(settings.documentSettingsReady.value).toBe(false);
+
+            settings.documentSettingsLoadFailure.value?.actions?.[0]?.onClick();
+
+            expect(retry).toHaveBeenCalledOnce();
+            await vi.waitFor(() => expect(settings.documentSettingsLoadFailure.value).toBeNull());
+        } finally {
+            app.unmount();
+            host.remove();
+        }
     });
 
     it('does not enqueue a pending global snapshot equal to the latest main-process value', async () => {

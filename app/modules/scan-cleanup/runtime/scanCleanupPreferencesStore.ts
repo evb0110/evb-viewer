@@ -20,6 +20,7 @@ import {isEqual} from 'es-toolkit/predicate';
 import {
     clearScanCleanupLegacyStorage,
     exportScanCleanupLegacyStorage,
+    hasScanCleanupLegacyDocumentEntry,
     loadScanCleanupDocumentMargins,
     loadScanCleanupDocumentPageOverrideDefaults,
     loadScanCleanupDocumentOutputMode,
@@ -452,7 +453,15 @@ async function hydratePreferences() {
         Object.assign(preferences, result.settings, localPatch);
         await nextTick();
         observedPreferences = cloneScanCleanupPreferenceValue(preferences);
-        clearScanCleanupLegacyStorage();
+        const hydratedSourceSha256 = isScanCleanupSourceSha256(migrationContext.sourceSha256)
+            ? migrationContext.sourceSha256.toLowerCase()
+            : null;
+        clearScanCleanupLegacyStorage(legacyDocumentKey => {
+            const adoptedSha256 = isScanCleanupSourceSha256(legacyDocumentKey)
+                ? legacyDocumentKey.toLowerCase()
+                : legacyDocumentKey === migrationContext.legacyDocumentKey ? hydratedSourceSha256 : null;
+            return adoptedSha256 !== null && result.documentOverrides[adoptedSha256] !== undefined;
+        });
         preferencesHydrated = true;
         pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences);
         if (pendingGlobalFields.size > 0) void flushScanCleanupPreferencesStore().catch(() => undefined);
@@ -665,15 +674,23 @@ export function loadScanCleanupDocumentSettings(
             };
         }
         const normalizedSourceSha256 = sourceSha256.toLowerCase();
-        if (!remoteSettingsFile?.documentOverrides[normalizedSourceSha256]) {
+        // A legacy entry saved under this document's path is adopted on the
+        // first read that knows the document's hash.
+        const legacyEntryPending = Boolean(legacyDocumentKey)
+            && hasScanCleanupLegacyDocumentEntry(legacyDocumentKey!);
+        if (legacyEntryPending || !remoteSettingsFile?.documentOverrides[normalizedSourceSha256]) {
             try {
                 remoteSettingsFile = await readRemoteSettings(createSettingsReadRequest(
                     normalizedSourceSha256,
                     legacyDocumentKey,
+                    legacyEntryPending,
                 ));
             } catch (error) {
                 BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
                 throw error;
+            }
+            if (legacyEntryPending && remoteSettingsFile.documentOverrides[normalizedSourceSha256] !== undefined) {
+                clearScanCleanupLegacyStorage(key => key === legacyDocumentKey);
             }
         }
         const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];
