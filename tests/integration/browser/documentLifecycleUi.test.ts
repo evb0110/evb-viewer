@@ -182,6 +182,125 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    // T2/T4: reading an information page keeps accepted work and both live views.
+    it('preserves an unsaved note and linked view zoom through Privacy and About routes', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({
+                viewport: {
+                    width: 1_600,
+                    height: 900,
+                },
+                recordVideo: {dir: resolve(process.cwd(), '.devkit/browser-information-video')},
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!bounds) throw new Error('The first PDF page is not visible');
+            await page.mouse.click(bounds.x + 200, bounds.y + 200);
+            const text = 'Accepted note survives information routes';
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).pressSequentially(text);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).click();
+            expect(await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).inputValue()).toBe(text);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await clickCenter(page, '.editor-pane.is-active .tab.is-active[data-tab-id]', 'right');
+            await page.getByRole('menuitem', {
+                name: 'Split Right',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.editor-pane').count()).toBe(2);
+            const panes = await page.locator('.editor-pane').evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.editorPaneId!));
+            const right = panes[1]!;
+            await page.locator(`${paneSelector(right)} .page_container--rendered canvas`).first().waitFor({timeout: 30_000});
+            await zoomActivePane(page, right, 'Zoom Out', 1);
+            const widths = await Promise.all(panes.map(pane => readPanePageWidth(page, pane)));
+            expect(widths[0]).not.toBe(widths[1]);
+            await page.screenshot({path: resolve(process.cwd(), '.devkit/browser-information-before.png')});
+
+            for (const informationPage of [
+                'privacy',
+                'about',
+            ]) {
+                await page.getByRole('button', {
+                    name: 'Settings',
+                    exact: true,
+                }).filter({visible: true}).first().click();
+                await page.getByRole('link', {
+                    name: informationPage === 'privacy'
+                        ? 'Read the complete privacy notice' : 'Open About and Acknowledgements',
+                    exact: true,
+                }).filter({visible: true}).click();
+                await expect.poll(() => new URL(page.url()).pathname).toBe(`/${informationPage}`);
+                await page.locator(`.${informationPage}-document h1`).waitFor();
+                await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}.png`)});
+                if (informationPage === 'about') {
+                    await page.getByRole('link', {
+                        name: 'Back to viewer',
+                        exact: true,
+                    }).click();
+                } else {
+                    await page.goBack();
+                }
+                await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+                await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}-returned-shell.png`)});
+                await page.locator(`${paneSelector(right)} .tab`).filter({hasText: 'generated-text.pdf'}).click();
+                await page.getByRole('button', {
+                    name: 'Open Note',
+                    exact: true,
+                }).filter({visible: true}).last().click();
+                expect(await page.getByRole('textbox', {
+                    name: 'Write annotation note',
+                    exact: true,
+                }).inputValue()).toBe(text);
+                await page.getByRole('button', {
+                    name: 'Minimize note',
+                    exact: true,
+                }).click();
+                expect(await page.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).isEnabled()).toBe(true);
+                expect(await Promise.all(panes.map(pane => readPanePageWidth(page, pane)))).toEqual(widths);
+                await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}-return.png`)});
+            }
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     // T2/T3: accepted note text must reach durable recovery bytes while Save
     // remains available. The recovery timer runs the real save transaction.
     it('materializes an unsaved note for browser recovery and print without saving the original', async () => {
