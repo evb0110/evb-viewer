@@ -12,11 +12,12 @@ import {
     refreshWorkingCopyOriginalFileExpectation,
     type IWorkingCopyOriginalFileExpectation,
 } from '@electron/file-access/workingCopyStore';
-import * as v from 'valibot';
+import type * as v from 'valibot';
+import type {originalSaveSnapshotSchema} from '@electron/file-access/readWorkingCopyManifest';
 import {
-    originalSaveSnapshotSchema,
-    readWorkingCopyManifest,
-} from '@electron/file-access/workingCopyManifest';
+    deserializeSnapshot,
+    readPersistedWorkingCopyManifest,
+} from '@electron/file-access/readWorkingCopyManifest';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {createLogger} from '@electron/utils/createLogger';
@@ -307,28 +308,6 @@ function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSa
         sampleSha256: snapshot.sampleSha256,
         size: snapshot.size.toString(),
     };
-}
-
-function deserializeSnapshot(value: unknown): IOriginalPathSaveSnapshot | null {
-    const parsed = v.safeParse(originalSaveSnapshotSchema, value);
-    if (!parsed.success) {
-        return null;
-    }
-    const candidate = parsed.output;
-    try {
-        return {
-            ...(candidate.contentFingerprint ? {contentFingerprint: candidate.contentFingerprint} : {}),
-            ctimeNs: BigInt(candidate.ctimeNs),
-            deviceId: BigInt(candidate.deviceId),
-            inode: BigInt(candidate.inode),
-            linkCount: BigInt(candidate.linkCount),
-            mtimeNs: BigInt(candidate.mtimeNs),
-            sampleSha256: candidate.sampleSha256,
-            size: BigInt(candidate.size),
-        };
-    } catch {
-        return null;
-    }
 }
 
 async function capturePathSnapshot(originalPath: string) {
@@ -635,7 +614,12 @@ async function restoreAppPublishedOriginalExpectation(
     if (!registration || registration.originalPath !== originalPath) {
         return null;
     }
-    const saved = (await readWorkingCopyManifest(workingPath))?.originalSaveBase;
+    const saved = (await readPersistedWorkingCopyManifest(workingPath).catch(error => {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    }))?.originalSaveBase;
     if (saved) {
         if (saved.path !== originalPath) {
             return null;
