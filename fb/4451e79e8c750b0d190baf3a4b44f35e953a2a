@@ -1,0 +1,44 @@
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 59,332
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 6-9,16,29-31,48,55,64-66,477,650
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_b69bfedcaaa8cb::t_37321ebc539991 954-957,959,985-996,1011-1012,1014
+  s_b69bfedcaaa8cb::t_53861ad813b7bc 215,960-964,966-968,970-972,980-984,997-1008,1010,1015-1016,1018-1020
+  s_b69bfedcaaa8cb::t_3dcd005066fdc9 267
+app/platform/browser-api/browserPageOps.worker.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 25-27,143-146,190-211,277-280
+app/platform/browser-api/browserPageOpsWorkerClient.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 20-21,210-211,215,254-277,288-297,314-317,324
+  s_b69bfedcaaa8cb::t_6312abb7ad2fc0 278-279
+app/platform/browser-api/browserPageOpsCore.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 17,182,185-190
+tests/unit/app/platform/browserPageOpsWorkerClient.test.ts
+  s_b69bfedcaaa8cb::t_53861ad813b7bc 512-514,516-523,525-531,533,535-538,540-544,546-551,553-565,568-570,572-575,577-589,593-595,597-602,604-608
+packages/contracts/browserPageOpsWorker.ts
+  s_b69bfedcaaa8cb::t_2941ad8426b3b8 1-84,86-92,94-97,99-107,109-112,114-117,119-213,215-221,223-225,227,232-250,252-256,258-262,264-374,380-400
+tests/unit/app/platform/browserWorkerRequestParsers.test.ts
+  s_b69bfedcaaa8cb::t_37321ebc539991 296-305,307,309-318,322-327,330-337,340-342
+app/platform/browser-api/browserWorkingCopyService.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 33-34,52,89,91,94,113
+app/platform/browser-api/browserPageOpsWorker.types.ts
+  s_b69bfedcaaa8cb::t_87229b40717fb3 1-2
+tests/integration/browser/browserAnnotationSaveAcceptanceEntry.ts
+  s_b69bfedcaaa8cb::t_00a38144926234 243-244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fb4451e79e8c750b0d190baf3a4b44f35e953a2a",
+  "prompts": {},
+  "sessions": {
+    "s_b69bfedcaaa8cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11748-84bb-7292-aa53-a2cc869735c0",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
