@@ -9,6 +9,46 @@ import {
     ZOOM_MODE_SCHEMA as zoomModeSchema,
 } from '@contracts/recentReadingView';
 import {parseEpochMs} from '@contracts/timestamps';
+import {parsePageIndex} from '@contracts/pageNumbers';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
+
+const editRevisionSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const bookmarkRecoveryEntrySchema: v.GenericSchema<unknown, IPdfBookmarkEntry> = v.lazy(() => v.object({
+    title: v.string(),
+    pageIndex: v.nullable(v.pipe(v.number(), v.check(value => parsePageIndex(value) !== null), v.transform(value => parsePageIndex(value)!))),
+    pageYRatio: v.exactOptional(v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)))),
+    namedDest: v.nullable(v.string()),
+    bold: v.boolean(),
+    italic: v.boolean(),
+    color: v.nullable(v.string()),
+    items: v.array(bookmarkRecoveryEntrySchema),
+}));
+
+/** Metadata travels in the existing identity-bound document recovery artifact. */
+export const workspaceMetadataRecoverySchema = v.object({
+    bookmarks: v.optional(v.object({
+        revision: editRevisionSchema,
+        dirty: v.literal(true),
+        items: v.array(bookmarkRecoveryEntrySchema),
+    })),
+    pageLabels: v.optional(v.object({
+        revision: editRevisionSchema,
+        dirty: v.literal(true),
+        ranges: v.array(v.object({
+            startPage: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+            style: v.nullable(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
+            prefix: v.string(),
+            startNumber: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+        })),
+    })),
+});
+export type IWorkspaceMetadataRecovery = v.InferOutput<typeof workspaceMetadataRecoverySchema>;
+
+const documentRecoveryMetadataSchema = v.object({metadata: v.optional(workspaceMetadataRecoverySchema)});
+export function readWorkspaceRecoveryMetadata(value: unknown) {
+    return v.parse(documentRecoveryMetadataSchema, value).metadata;
+}
 
 const MAX_CHECKPOINT_TABS = 128;
 const paneIdSchema = v.pipe(v.string(), v.check(value => parsePaneId(value) !== null), v.transform(value => parsePaneId(value)!));

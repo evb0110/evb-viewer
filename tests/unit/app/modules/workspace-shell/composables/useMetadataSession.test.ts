@@ -39,6 +39,43 @@ function createSession() {
 }
 
 describe('useMetadataSession', () => {
+    it('recovers metadata against the admitted saved baseline without manufacturing undo history', async () => {
+        const source = createSession();
+        source.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Base')],
+            dirty: false,
+        });
+        source.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Recovered')],
+            dirty: true,
+        });
+        source.pageLabelState.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'r',
+            prefix: 'Recovered ',
+            startNumber: 1,
+        }]);
+        const recovery = source.captureRecovery();
+        const restored = createSession();
+        restored.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Base')],
+            dirty: false,
+        });
+        restored.restoreRecovery(recovery);
+        expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
+        expect(restored.pageLabelState.labelAt(1)).toBe('Recovered i');
+        expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
+        expect(restored.pageLabelState.pageLabelsDirty.value).toBe(true);
+        expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(false);
+        restored.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Later')],
+            dirty: true,
+        });
+        expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
+        expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
+    });
+
     it('keeps bookmark edits undoable when the edit returns to the clean state', async () => {
         const session = createSession();
         const bookmark = createBookmark('Transient bookmark');

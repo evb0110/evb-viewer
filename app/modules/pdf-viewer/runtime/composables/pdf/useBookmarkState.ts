@@ -1,5 +1,6 @@
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
+import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 
 export const useBookmarkState = (deps: {
     markDirty: () => void;
@@ -47,6 +48,23 @@ export const useBookmarkState = (deps: {
         return bookmarkRevision;
     }
 
+    function captureRecovery(): IWorkspaceMetadataRecovery['bookmarks'] {
+        return bookmarksDirty.value ? {
+            revision: bookmarkRevision,
+            dirty: true,
+            items: structuredClone(bookmarkItems.value),
+        } : undefined;
+    }
+
+    function restoreRecovery(recovery: NonNullable<IWorkspaceMetadataRecovery['bookmarks']>) {
+        handleBookmarksChange({
+            bookmarks: structuredClone(recovery.items),
+            dirty: true,
+            history: 'record',
+        });
+        bookmarkRevision = Math.max(bookmarkRevision, recovery.revision);
+    }
+
     return {
         bookmarkItems,
         bookmarksResolved,
@@ -55,5 +73,7 @@ export const useBookmarkState = (deps: {
         markBookmarksSaved,
         getBookmarksRevision,
         handleBookmarksChange,
+        captureRecovery,
+        restoreRecovery,
     };
 };

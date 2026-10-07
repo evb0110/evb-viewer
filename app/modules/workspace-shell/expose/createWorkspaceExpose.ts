@@ -15,6 +15,7 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
+import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 
 /** Commands and display state the workspace owns beyond the document context. */
 export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
@@ -295,25 +296,11 @@ export function createWorkspaceExpose(
         handleOcrComplete: async payload => document.ocr.applyResult(
             payload as Parameters<typeof document.ocr.applyResult>[0],
         ),
-        captureCanonicalAnnotationRecovery: () => {
-            const viewer = pdfViewer();
-            const initial = viewer?.captureCanonicalAnnotationRecovery?.();
-            if (!initial || !viewer?.captureCanonicalAnnotationRecovery) {
-                return null;
-            }
-            const drafts = annotations.captureAnnotationNoteDrafts((annotationId) => (
-                initial.entities.find(entity => entity.identity.id === annotationId)?.revision ?? null
-            ));
-            return viewer.captureCanonicalAnnotationRecovery(drafts);
-        },
-        restoreCanonicalAnnotationRecovery: (value) => {
-            const recovery = pdfViewer()?.restoreCanonicalAnnotationRecovery?.(value);
-            if (!recovery) {
-                throw new Error('Canonical annotation recovery is unavailable');
-            }
-            recovery.drafts.forEach(draft => annotations.restoreAnnotationNoteDraft(draft));
-            return recovery;
-        },
+        ...createWorkspaceDocumentRecovery({
+            pdfViewer,
+            annotations,
+            metadata: document.metadata,
+        }),
         pageOpsDelete: (pages, totalPages) => runPageOperation(() => pageOps.pageOpsDelete(pages, totalPages)),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),
         pageOpsInsert: (totalPages, afterPage) => runPageOperation(() => pageOps.pageOpsInsert(totalPages, afterPage)),

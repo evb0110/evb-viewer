@@ -3,7 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import { decodeWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import {
+    decodeWorkspaceCheckpoint, readWorkspaceRecoveryMetadata,
+} from '@contracts/workspaceCheckpoint';
 
 function createCheckpoint() {
     return {
@@ -36,6 +38,44 @@ function createCheckpoint() {
 }
 
 describe('decodeWorkspaceCheckpoint', () => {
+    it('admits explicit metadata deletion and keeps legacy annotation artifacts readable', () => {
+        const metadata = {
+            bookmarks: {
+                revision: 2,
+                dirty: true,
+                items: [],
+            },
+            pageLabels: {
+                revision: 3,
+                dirty: true,
+                ranges: [],
+            },
+        };
+        expect(readWorkspaceRecoveryMetadata({
+            version: 1,
+            metadata,
+        })).toEqual(metadata);
+        expect(readWorkspaceRecoveryMetadata({
+            version: 1,
+            entities: [],
+        })).toBeUndefined();
+        expect(() => readWorkspaceRecoveryMetadata({metadata: {bookmarks: {
+            revision: -1,
+            dirty: true,
+            items: [],
+        }}})).toThrow();
+        expect(() => readWorkspaceRecoveryMetadata({metadata: {pageLabels: {
+            revision: 1,
+            dirty: true,
+            ranges: [{
+                startPage: 0,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            }],
+        }}})).toThrow();
+    });
+
     it('decodes a versioned pane, tab, document, and view-state snapshot', () => {
         expect(decodeWorkspaceCheckpoint(createCheckpoint())).toEqual(createCheckpoint());
     });
