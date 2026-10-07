@@ -19,6 +19,11 @@ interface IAuditSummary {
     total: number;
 }
 
+interface IAuditAdvisories {
+    fixable: string[];
+    unpatched: string[];
+}
+
 interface IAuditProject {
     cwd: string;
     label: string;
@@ -88,17 +93,55 @@ export function summarizeProductionAuditReport(report: unknown, label = 'project
     };
 }
 
-export function assertProductionAuditIsClean(report: unknown, label = 'project') {
-    const summary = summarizeProductionAuditReport(report, label);
-    if (summary.total === 0) {
-        return summary;
+// pnpm writes this range when an advisory has no patched release.
+const NO_PATCHED_RELEASE = '<0.0.0';
+
+function describeAdvisory(advisory: Record<string, unknown>) {
+    const id = advisory.github_advisory_id ?? advisory.id;
+    return `${String(advisory.module_name)} ${String(advisory.severity)} ${String(id)} (patched: ${String(advisory.patched_versions)})`;
+}
+
+export function partitionAuditAdvisories(report: unknown, label = 'project'): IAuditAdvisories {
+    const advisories = isRecord(report) ? report.advisories : undefined;
+    if (!isRecord(advisories)) {
+        throw new Error(`${label} pnpm audit report is missing advisories.`);
     }
 
-    const details = AUDIT_SEVERITIES
-        .filter(severity => summary.counts[severity] > 0)
-        .map(severity => `${severity}=${summary.counts[severity]}`)
-        .join(', ');
-    throw new Error(`${label} dependency audit found ${summary.total} vulnerabilities (${details}).`);
+    const partition: IAuditAdvisories = {
+        fixable: [],
+        unpatched: [],
+    };
+    for (const advisory of Object.values(advisories)) {
+        if (!isRecord(advisory) || typeof advisory.module_name !== 'string' || typeof advisory.patched_versions !== 'string') {
+            throw new Error(`${label} pnpm audit report has a malformed advisory.`);
+        }
+        const target = advisory.patched_versions === NO_PATCHED_RELEASE ? partition.unpatched : partition.fixable;
+        target.push(describeAdvisory(advisory));
+    }
+
+    return partition;
+}
+
+/**
+ * Fails on every advisory that a dependency update can fix. An advisory with
+ * no patched release leaves no dependency work to do, so it is reported and
+ * fails the audit again as soon as a patched release appears.
+ */
+export function assertProductionAuditIsClean(report: unknown, label = 'project') {
+    const summary = summarizeProductionAuditReport(report, label);
+    const advisories = partitionAuditAdvisories(report, label);
+    const listed = advisories.fixable.length + advisories.unpatched.length;
+    if (summary.total > 0 && listed === 0) {
+        throw new Error(`${label} pnpm audit counts ${summary.total} vulnerabilities but lists no advisories.`);
+    }
+    if (advisories.fixable.length > 0) {
+        throw new Error(`${label} dependency audit found ${advisories.fixable.length} advisories with a patched release:\n${advisories.fixable.join('\n')}`);
+    }
+
+    return {
+        ...summary,
+        unpatched: advisories.unpatched,
+    };
 }
 
 function runProjectAudit(project: IAuditProject) {
@@ -140,12 +183,16 @@ function runProjectAudit(project: IAuditProject) {
     const report = parseAuditReport(result.stdout, project.label);
     const summary = assertProductionAuditIsClean(report, project.label);
 
-    if (result.status !== 0) {
+    // pnpm audit exits non-zero whenever it lists an advisory.
+    if (result.status !== 0 && summary.total === 0) {
         const detail = result.stderr.trim();
         throw new Error(`${project.label} pnpm audit failed with exit code ${result.status ?? '<unknown>'}${detail === '' ? '' : `: ${detail}`}`);
     }
 
-    console.log(`${project.label} dependency audit passed (${summary.total} vulnerabilities).`);
+    for (const advisory of summary.unpatched) {
+        console.warn(`${project.label}: no patched release yet for ${advisory}`);
+    }
+    console.log(`${project.label} dependency audit passed (${summary.unpatched.length} advisories without a patched release).`);
 }
 
 export function runProductionDependencyAudits({includeFullGraph = true} = {}) {
