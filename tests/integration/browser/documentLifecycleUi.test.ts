@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {
-    readFileSync, writeFileSync,
+    mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
@@ -1024,6 +1024,146 @@ describe('browser document lifecycle UI', () => {
                 await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}-return.png`)});
             }
         } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
+    // T3/C2, issue #1037: foreign FreeText is printable when its viewer supplies
+    // the appearance. Explicit /AP remains authoritative (ADR 0003).
+    it('prints existing FreeText without AP and preserves explicit appearances', async () => {
+        const evidence = resolve(process.cwd(), `.devkit/1037/browser-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        const browser = await chromium.launch({headless: true});
+        const page = await browser.newPage({
+            viewport: {
+                width: 1_280,
+                height: 800,
+            },
+            recordVideo: {dir: evidence},
+        });
+        const problems = collectConsoleProblems(page);
+        let printStartedAt: number | undefined;
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                window.print = () => {
+                    const canvas = document.querySelector<HTMLCanvasElement>('.browser-print-page canvas');
+                    if (!canvas) throw new Error('No printed page');
+                    const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+                    const red: number[][] = [];
+                    const cyan: number[][] = [];
+                    for (let index = 0; index < pixels.length; index += 4) {
+                        const point = [
+                            (index / 4) % canvas.width / canvas.width,
+                            Math.floor(index / 4 / canvas.width) / canvas.height,
+                        ];
+                        if (pixels[index]! > 150 && pixels[index + 1]! < 100 && pixels[index + 2]! < 100) red.push(point);
+                        if (pixels[index]! < 100 && pixels[index + 1]! > 150 && pixels[index + 2]! > 150) cyan.push(point);
+                    }
+                    Reflect.set(window.top!, '__freeTextPrint', {
+                        red,
+                        cyan,
+                        image: canvas.toDataURL(),
+                    });
+                };
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const pdf = await PDFDocument.load(readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')));
+            const first = pdf.getPage(0);
+            const annotations = first.node.lookup(PDFName.of('Annots'), PDFArray);
+            annotations.push(pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                F: 4,
+                Rect: [
+                    72,
+                    550,
+                    350,
+                    630,
+                ],
+                Contents: PDFHexString.fromText('Foreign FreeText\nПривет мир'),
+                DA: PDFString.of('/Helvetica 18 Tf 1 0 0 rg'),
+            })));
+            const appearance = pdf.context.register(pdf.context.flateStream('0 1 1 rg 0 0 80 80 re f', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    80,
+                    80,
+                ],
+                Resources: {},
+            }));
+            annotations.push(pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                F: 4,
+                Rect: [
+                    400,
+                    550,
+                    480,
+                    630,
+                ],
+                Contents: PDFString.of('Explicit AP overrides this red text'),
+                DA: PDFString.of('/Helvetica 18 Tf 1 0 0 rg'),
+                AP: {N: appearance},
+            })));
+            const input = Buffer.from(await pdf.save());
+            writeFileSync(resolve(evidence, 'input.pdf'), input);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'foreign-freetext-print.pdf',
+                mimeType: 'application/pdf',
+                buffer: input,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.screenshot({path: resolve(evidence, 'opened.png')});
+            printStartedAt = Date.now();
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__freeTextPrint'))), {timeout: 15_000}).toBe(true);
+            const output = await page.evaluate(() => Reflect.get(window, '__freeTextPrint') as {
+                red: number[][];
+                cyan: number[][];
+                image: string;
+            });
+            writeFileSync(resolve(evidence, 'printed.png'), Buffer.from(output.image.split(',')[1]!, 'base64'));
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify({
+                elapsedMs: Date.now() - printStartedAt,
+                red: output.red.length,
+                cyan: output.cyan.length,
+                problems,
+            }));
+            expect(output.red.length).toBeGreaterThan(200);
+            expect(output.cyan.length).toBeGreaterThan(1_000);
+            // A4 fit centers the letter page vertically. Both appearances keep
+            // their source rectangles, and the explicit AP never becomes text.
+            expect(output.red.every(([
+                x,
+                y,
+            ]) => x! >= 72 / 612 && x! < 350 / 612 && y! > 0.2 && y! < 0.34)).toBe(true);
+            expect(output.cyan.every(([
+                x,
+                y,
+            ]) => x! > 0.65 && x! < 0.79 && y! > 0.2 && y! < 0.34)).toBe(true);
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidence, 'console.json'), JSON.stringify(problems));
+            await page.screenshot({path: resolve(evidence, 'final.png')});
             await browser.close();
         }
     }, 90_000);
