@@ -54,6 +54,8 @@ function buildTabSignature(
         annotationRecoverySignature = recovery
             ? [
                 recovery.annotationMutationGeneration,
+                recovery.metadata?.bookmarks?.revision ?? null,
+                recovery.metadata?.pageLabels?.revision ?? null,
                 ...recovery.drafts.map(draft => [
                     draft.annotationId,
                     draft.generation,

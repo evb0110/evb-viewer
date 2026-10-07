@@ -41,6 +41,65 @@ function createPdfDocumentRef(
 }
 
 describe('usePageLabelState', () => {
+    it.each([
+        {ranges: []},
+        {ranges: [{
+            startPage: 1,
+            style: 'r' as const,
+            prefix: 'Accepted ',
+            startNumber: 1,
+        }]},
+    ])(
+        'keeps recovered label edits over an in-flight base-byte read, including empty ranges',
+        async ({ranges}) => {
+            const source = usePageLabelState({
+                pdfDocument: ref(null),
+                totalPages: ref(3),
+                markDirty: vi.fn(),
+            });
+            // Both cases replace an existing label range, so [] means an accepted deletion.
+            source.handlePageLabelRangesUpdate([{
+                startPage: 1,
+                style: 'D',
+                prefix: 'Original ',
+                startNumber: 1,
+            }]);
+            source.handlePageLabelRangesUpdate(ranges);
+            const recovery = source.captureRecovery();
+            expect(recovery).toBeDefined();
+            const pending = createDeferred<string[] | null>();
+            const doc = createPdfDocumentRef(3, () => pending.promise);
+            const restored = usePageLabelState({
+                pdfDocument: doc,
+                totalPages: ref(3),
+                markDirty: vi.fn(),
+            });
+            const reading = restored.syncPageLabelsFromDocument(doc.value);
+            restored.restoreRecovery(recovery!);
+            pending.resolve([
+                'Original 1',
+                'Original 2',
+                'Original 3',
+            ]);
+            await reading;
+            expect(restored.readPageLabelWindow(1, 3)).toEqual(ranges.length
+                ? [
+                    'Accepted i',
+                    'Accepted ii',
+                    'Accepted iii',
+                ]
+                : [
+                    '1',
+                    '2',
+                    '3',
+                ]);
+            expect(restored.pageLabelsDirty.value).toBe(true);
+            expect(restored.pageLabelsResolved.value).toBe(true);
+            restored.markPageLabelsSaved();
+            expect(restored.captureRecovery()).toBeUndefined();
+        },
+    );
+
     it('keeps complete labels visible while refreshed document metadata is unresolved', () => {
         const labels = [
             'i',

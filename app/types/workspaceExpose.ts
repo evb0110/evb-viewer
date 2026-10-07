@@ -15,7 +15,7 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { ICanonicalAnnotationRecovery } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import type {IWorkspaceDocumentRecoveryPort} from '@app/types/workspaceDocumentRecovery';
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -234,7 +234,7 @@ export interface IWorkspaceAutomationStateSnapshot {
 }
 
 /** The command and state surface a mounted DocumentWorkspace publishes to its tab controller. */
-export interface IWorkspaceExpose {
+export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     hasPdf: {value: boolean;} | boolean;
     handleSave: () => Promise<boolean>;
     handleRepairSave: () => Promise<boolean>;
@@ -320,8 +320,6 @@ export interface IWorkspaceExpose {
     ) => Promise<boolean>;
     getAllShapes?: () => unknown[];
     getAutomationStateSnapshot: () => IWorkspaceAutomationStateSnapshot;
-    captureCanonicalAnnotationRecovery?: () => ICanonicalAnnotationRecovery | null;
-    restoreCanonicalAnnotationRecovery?: (value: unknown) => ICanonicalAnnotationRecovery;
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     handleOcrComplete?: (payload: unknown) => Promise<void>;

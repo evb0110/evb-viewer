@@ -3,6 +3,7 @@ import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { isEqual } from 'es-toolkit/predicate';
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
+import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 import {
     createPageLabelModel,
     derivePageLabelRangesFromLabels,
@@ -258,6 +259,26 @@ export const usePageLabelState = (deps: {
         return pageLabelRevision;
     }
 
+    function captureRecovery(): IWorkspaceMetadataRecovery['pageLabels'] {
+        return pageLabelsDirty.value ? {
+            revision: pageLabelRevision,
+            dirty: true,
+            ranges: structuredClone(pageLabelRanges.value),
+        } : undefined;
+    }
+
+    function restoreRecovery(recovery: NonNullable<IWorkspaceMetadataRecovery['pageLabels']>) {
+        // An in-flight read of the admitted base bytes must not overwrite the
+        // edit replayed onto those same bytes. Reuse the source-sync owner.
+        pageLabelSyncGeneration += 1;
+        noticedDocumentBytes = resolvedDocumentBytes = documentBytesOf(pdfDocument.value);
+        updatePageLabelModel(totalPages.value, recovery.ranges);
+        pageLabelsResolved.value = true;
+        pageLabelsDirty.value = true;
+        pageLabelRevision = Math.max(pageLabelRevision + 1, recovery.revision);
+        onPageLabelsDirty?.();
+    }
+
     function labelAt(page: number) {
         return pageLabelModel.value.labelAt(page);
     }
@@ -344,5 +365,7 @@ export const usePageLabelState = (deps: {
         markPageLabelsSaved,
         getPageLabelsRevision,
         handlePageLabelRangesUpdate,
+        captureRecovery,
+        restoreRecovery,
     };
 };
