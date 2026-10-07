@@ -1,0 +1,19 @@
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_9f279db081c874::t_01e81ac88ac61e 4-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d8c32857633502b85d4f785c435f9f99f28899a1",
+  "prompts": {},
+  "sessions": {
+    "s_9f279db081c874": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a116be-e0fc-7de3-8358-a60d2a84f6ba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
