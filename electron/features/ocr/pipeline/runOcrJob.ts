@@ -7,10 +7,7 @@
  * tools do the CPU work in child processes; this code only orchestrates them.
  */
 
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
 import {
     mkdir,
     readFile,
@@ -79,7 +76,9 @@ import {
     type TOcrJobStorageBudget,
 } from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 import {cleanupOcrTempFiles} from '@electron/features/ocr/pipeline/cleanupOcrTempFiles';
-import {persistOcrPageCheckpoint} from '@electron/features/ocr/pipeline/persistOcrPageCheckpoint';
+import {
+    createOcrCheckpointFingerprint, persistOcrPageCheckpoint,
+} from '@electron/features/ocr/pipeline/persistOcrPageCheckpoint';
 import {
     getLastOcrSelectionPage,
     iterateCheckpointPageResults,
@@ -742,12 +741,10 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             throw new Error('replace-all OCR requires explicit acknowledgement');
         }
 
-        const checkpointFingerprint = createHash('sha256').update(JSON.stringify({
-            sourcePdfPath,
-            documentRevision: documentRevision.token,
+        const checkpointFingerprint = createOcrCheckpointFingerprint({
+            ...job,
             pages: requestedSelection,
-            options,
-        })).digest('hex');
+        });
         const checkpointRoot = join(paths.tempDir, 'ocr-checkpoints');
         const useSharedCheckpoint = !activeCheckpointFingerprints.has(checkpointFingerprint);
         if (useSharedCheckpoint) {

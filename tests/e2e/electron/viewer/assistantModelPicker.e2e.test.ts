@@ -99,4 +99,47 @@ describe('Electron E2E - assistant model discovery', () => {
         await page.waitForFunction(() => (document.querySelector('.agent-assistant-message-image') as HTMLImageElement | null)?.naturalWidth);
         expect(await page.$eval('.agent-assistant-message-image', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
     }, 60_000);
+
+    it('restores a document conversation after loaded chat eviction and restart', async () => {
+        let {page} = fixture.getSession();
+        await page.evaluate(async () => {
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
+        });
+        await page.reload();
+        await openPdfInApp(page, resolve('tests/fixtures/release/packaged-core-smoke.pdf'));
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.agent-assistant-input');
+        await page.keyboard.type('Remember this document conversation.');
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('.agent-assistant-message.is-assistant')?.textContent?.includes('Image received.'));
+
+        // Populate the production cache through ordinary state requests. This is
+        // setup for returning to the real open document, not a second chat store.
+        await page.evaluate(async () => {
+            const agent = (window as IE2EWindow).electronAPI!.agent;
+            for (let index = 0; index < 65; index += 1) {
+                await agent.getAssistantState({scope: {
+                    kind: 'document',
+                    key: `eviction-setup-${index}`,
+                    title: null,
+                }});
+            }
+        });
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await page.waitForSelector('.agent-assistant-message.is-user');
+        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Remember this document conversation.');
+
+        ({page} = await fixture.restart({
+            hard: true,
+            clean: false,
+        }));
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
+        await page.waitForSelector('.agent-assistant-message.is-user');
+        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Remember this document conversation.');
+    }, 120_000);
 });
