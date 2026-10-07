@@ -17,11 +17,11 @@ import type {
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
 import {
     getBrowserPageOpsWorkerRequestId,
     parseBrowserPageOpsWorkerRequest,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
 import {
     tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';

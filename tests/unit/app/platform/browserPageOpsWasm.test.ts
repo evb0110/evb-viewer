@@ -20,7 +20,7 @@ import {
     vi,
 } from 'vitest';
 import type { IPageGeometry } from '@contracts/shared';
-import type {IPageMutationWorkerResult} from '@app/platform/browser-api/browserPageOpsWorker.types';
+import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 

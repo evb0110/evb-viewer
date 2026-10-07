@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import { parseBrowserSearchWorkerRequest } from '@app/platform/browser-api/browserSearchWorker.types';
 import { parseBrowserPdfCombineWorkerRequest } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import { parseBrowserPageOpsWorkerRequest } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import { parseBrowserPageOpsWorkerRequest } from '@contracts/browserPageOpsWorker';
 
 describe('browser worker request parsers', () => {
     it('parses and rejects browser search worker requests', () => {

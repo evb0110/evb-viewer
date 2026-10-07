@@ -4,8 +4,8 @@ import type {
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
-import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
+import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@contracts/browserPageOpsWorker';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';

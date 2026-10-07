@@ -1,13 +1,11 @@
 import { getErrorMessage } from '@app/utils/error';
-import type {
-    IBrowserPageOpsWorkerRequestMap,
-    IBrowserPageOpsWorkerResultMap,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import {
     BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
+    type IBrowserPageOpsWorkerRequestMap,
+    type IBrowserPageOpsWorkerResultMap,
     type IBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPageOpsWorker.types';
+import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@contracts/browserPageOpsWorker';
 import {
     BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
     decodeBrowserPdfCatalog,

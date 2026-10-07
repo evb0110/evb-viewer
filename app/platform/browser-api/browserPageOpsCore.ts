@@ -9,7 +9,7 @@ import type {
     IBrowserPdfCombineCatalog,
     IBrowserPdfConformanceFacts,
     IPageMutationWorkerResult,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
 import {
     isBrowserPageOpsWasmFailure,
     tryRunBrowserPageOpsWithWasm,
