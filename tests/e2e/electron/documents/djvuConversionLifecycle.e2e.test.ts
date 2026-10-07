@@ -1,10 +1,14 @@
 import {createHash} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {
+    copyFileSync,
     existsSync,
     mkdirSync,
     readdirSync,
     readFileSync,
     rmSync,
+    writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -20,6 +24,10 @@ import {
     it,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
+import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
+import {buildDjvuRuntimeEnv} from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
@@ -194,4 +202,155 @@ describe('DjVu conversion lifecycle', () => {
         expect(existsSync(join(closeRoot, 'converted.pdf'))).toBe(false);
         expect(sha256(sourcePath)).toBe(sourceSha);
     }, 600_000);
+
+    it('reports omitted source text on compact success, leaving empty and direct exports quiet', async () => {
+        const initialSession = sessions.getSession();
+        writeFileSync(resolve('.devkit/sessions', initialSession.name, 'source-text-session.json'), JSON.stringify(getSessionInfo(initialSession.name)));
+        const notice = 'Source text was not included. This compact PDF contains page images. Run OCR to add searchable text for search and copy.';
+        const directory = join(suiteRoot, 'text-notice');
+        mkdirSync(directory, {recursive: true});
+        const textSource = join(directory, 'text.djvu');
+        const emptySource = join(directory, 'empty.djvu');
+        const textFile = join(directory, 'zones.txt');
+        const corpusSource = resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu');
+        copyFileSync(corpusSource, textSource);
+        copyFileSync(corpusSource, emptySource);
+        // DjVuLibre writes a real source text layer; the page images are the
+        // tracked mixed-DPI corpus. Words, a coarse line and page-only text
+        // all mean that a compact export must report the omitted source text.
+        writeFileSync(textFile, '(page 0 0 640 480 (line 50 350 570 400 '
+            + '(word 50 350 200 400 "Latin") (word 220 350 390 400 "Предисловие") '
+            + '(word 410 350 570 400 "ܐܪܡܝܐ")) (line 50 270 570 320 "Ελληνικά 漢字 📖"))');
+        const djvused = getDjvuNativeToolPaths().djvused;
+        const runDjvused = promisify(execFile);
+        await runDjvused(djvused, [
+            textSource,
+            '-s',
+            '-e',
+            `select 1; set-txt "${textFile.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
+        ], {env: buildDjvuRuntimeEnv()});
+        writeFileSync(textFile, '(page 0 0 512 512 "Page-only source text")');
+        await runDjvused(djvused, [
+            textSource,
+            '-s',
+            '-e',
+            `select 2; set-txt "${textFile.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
+        ], {env: buildDjvuRuntimeEnv()});
+        const {stdout} = await runDjvused(djvused, [
+            textSource,
+            '-e',
+            'print-pure-txt',
+        ], {env: buildDjvuRuntimeEnv()});
+        expect(stdout).toContain('Предисловие');
+        expect(stdout).toContain('Page-only source text');
+        const sourceHashes = [
+            sha256(textSource),
+            sha256(emptySource),
+        ];
+
+        for (const kind of [
+            'text',
+            'empty',
+            'direct',
+        ] as const) {
+            const savePath = join(directory, `${kind}.pdf`);
+            const session = await sessions.start({
+                clean: true,
+                sessionName: () => `e2e-djvu-text-notice-${kind}-${Date.now()}`,
+                extraEnv: {
+                    ...conversionEnv(directory),
+                    EVB_E2E_SAVE_DIALOG_PATH: savePath,
+                },
+            });
+            const artifactRoot = resolve('.devkit/sessions', session.name);
+            writeFileSync(join(artifactRoot, 'source-text-session.json'), JSON.stringify(getSessionInfo(session.name)));
+            await openDjvuInApp(session.page, kind === 'empty' ? emptySource : textSource, 120_000);
+            await waitForDjvuLoaded(session.page, 120_000);
+            await session.page.screenshot({path: join(artifactRoot, 'source-text-notice.png')});
+            await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
+            if (kind === 'direct') {
+                await clickAsUser(session.page, '.convert-advanced-toggle');
+                await waitForFunctionInPage(session.page, () => {
+                    const radio = document.querySelector<HTMLButtonElement>('[role="radio"][value="direct-1"]');
+                    return Boolean(radio && !radio.disabled);
+                }, {timeout: 30_000});
+                await clickAsUser(session.page, '[role="radio"][value="direct-1"]');
+                await waitForFunctionInPage(session.page, () => (
+                    document.querySelector('[role="radio"][value="direct-1"]')?.getAttribute('aria-checked') === 'true'
+                ), {timeout: 5_000});
+            }
+            await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+                .find(element => element.textContent?.includes('Convert DjVu to PDF'))
+                ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+                .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
+                description: 'Convert to PDF and read the result notice',
+                timeoutMs: 60_000,
+            });
+            await waitForPdfLoaded(session.page, 120_000);
+            const visibleNotices = await session.page.$$eval('[role="status"], [role="alert"]', elements => elements
+                .map(element => (element as HTMLElement).innerText).join('\n'));
+            expect(visibleNotices.includes(notice)).toBe(kind === 'text');
+            await session.page.screenshot({path: join(artifactRoot, 'result-text-notice.png')});
+            copyFileSync(kind === 'empty' ? emptySource : textSource, join(artifactRoot, 'source.djvu'));
+            copyFileSync(savePath, join(artifactRoot, 'saved.pdf'));
+            const loadingTask = getDocument({data: new Uint8Array(readFileSync(savePath))});
+            try {
+                const savedPdf = await loadingTask.promise;
+                expect(savedPdf.numPages).toBe(2);
+                if (kind !== 'direct') {
+                    expect((await (await savedPdf.getPage(1)).getTextContent()).items).toEqual([]);
+                    expect((await (await savedPdf.getPage(2)).getTextContent()).items).toEqual([]);
+                }
+            } finally {
+                await loadingTask.destroy();
+            }
+            expect([
+                sha256(textSource),
+                sha256(emptySource),
+            ]).toEqual(sourceHashes);
+        }
+
+        // Corrupt only the compressed text chunk written by DjVuLibre. Page
+        // images remain readable, but failed source text is not known empty.
+        const sourceBytes = readFileSync(textSource);
+        const textChunk = sourceBytes.indexOf('TXTz');
+        expect(textChunk).toBeGreaterThan(0);
+        const textLength = sourceBytes.readUInt32BE(textChunk + 4);
+        expect(textChunk + 8 + textLength).toBeLessThanOrEqual(sourceBytes.length);
+        sourceBytes.fill(0, textChunk + 8, textChunk + 8 + textLength);
+        writeFileSync(textSource, sourceBytes);
+        const boundedSourceSha = sha256(textSource);
+        const savePath = join(directory, 'text-read-failure.pdf');
+        const previousBytes = '%PDF-1.4\nprevious destination bytes\n';
+        writeFileSync(savePath, previousBytes);
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-text-read-failure-${Date.now()}`,
+            extraEnv: {
+                ...conversionEnv(directory),
+                EVB_E2E_SAVE_DIALOG_PATH: savePath,
+            },
+        });
+        const artifactRoot = resolve('.devkit/sessions', session.name);
+        writeFileSync(join(artifactRoot, 'source-text-session.json'), JSON.stringify(getSessionInfo(session.name)));
+        await openDjvuInApp(session.page, textSource, 120_000);
+        await waitForDjvuLoaded(session.page, 120_000);
+        await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
+        await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .find(element => element.textContent?.includes('Convert DjVu to PDF'))
+            ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+            .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
+            description: 'Convert a source with an unreadable text chunk',
+            timeoutMs: 60_000,
+        });
+        const readNotices = () => session.page.$$eval('[role="status"], [role="alert"]', elements => elements
+            .map(element => (element as HTMLElement).innerText).join('\n'));
+        await expect.poll(readNotices, {timeout: 30_000}).toContain('Corrupted decoder input');
+        expect(await readNotices()).not.toContain(notice);
+        expect(readFileSync(savePath, 'utf8')).toBe(previousBytes);
+        expect(sha256(textSource)).toBe(boundedSourceSha);
+        await session.page.screenshot({path: join(artifactRoot, 'source-text-read-failure.png')});
+        copyFileSync(textSource, join(artifactRoot, 'source.djvu'));
+        copyFileSync(savePath, join(artifactRoot, 'destination.pdf'));
+    });
 });

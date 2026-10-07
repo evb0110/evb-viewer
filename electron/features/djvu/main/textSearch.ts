@@ -13,9 +13,11 @@ import type { IPdfSearchResult } from '@contracts/search';
 import { assembleSearchablePageText } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
 import {
+    abortErrorFromSignal,
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     streamItems,
@@ -437,11 +439,17 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
                 }
             },
         });
+        if (options.signal?.aborted) {
+            throw abortErrorFromSignal(options.signal);
+        }
         if (parseFailure.error) {
             throw parseFailure.error;
         }
         parser.finish();
     } catch (error) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || options.signal?.aborted) {
+            throw error;
+        }
         if (parseFailure.error) {
             throw parseFailure.error;
         }
@@ -553,29 +561,15 @@ export async function addDjvuMatchGeometry(
 
 export async function detectDjvuHasText(filePath: string, signal?: AbortSignal) {
     let hasText = false as boolean;
-    const localController = new AbortController();
-    const relayAbort = () => localController.abort(createAbortError());
-    signal?.addEventListener('abort', relayAbort, {once: true});
-    if (signal?.aborted) {
-        relayAbort();
-    }
-    try {
-        await streamDjvuTextPages(filePath, {
-            signal: localController.signal,
-            onPage(page) {
-                if (page.text.trim().length > 0) {
-                    hasText = true;
-                    return false;
-                }
-                return undefined;
-            },
-        });
-    } catch (error) {
-        if (!hasText || !isAbortError(error)) {
-            throw error;
-        }
-    } finally {
-        signal?.removeEventListener('abort', relayAbort);
-    }
+    await streamDjvuTextPages(filePath, {
+        signal,
+        onPage(page) {
+            if (page.text.trim().length > 0) {
+                hasText = true;
+                return false;
+            }
+            return undefined;
+        },
+    });
     return hasText;
 }

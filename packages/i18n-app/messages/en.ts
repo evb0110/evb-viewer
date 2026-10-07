@@ -977,6 +977,7 @@ export default {
         'sourceTextOmittedMorePages': '{pages} and {remaining} more',
     },
     'djvu': {
+        'sourceTextOmitted': 'Source text was not included. This compact PDF contains page images. Run OCR to add searchable text for search and copy.',
         'bannerHint': 'This DjVu file is view-only — convert it to PDF to edit',
         'convertToPdf': 'Convert to PDF...',
         'overlayConverting': 'Converting DjVu to PDF...',
@@ -1001,7 +1002,7 @@ export default {
             'compact': 'Compact',
             'quarterResolution': 'Quarter resolution',
             'sourceDetailCompact': 'Source-detail compact',
-            'sourceDetailCompactDescription': 'Keeps DjVu text and image layers at a small file size. Best for scanned books.',
+            'sourceDetailCompactDescription': 'Preserves image detail in a small PDF. Source text is omitted; run OCR after export to make it searchable.',
             'sourceDetailCompactSizeNote': 'Final size depends on the document.',
             'advancedRaster': 'Raster options (advanced)',
             'advancedRasterHint': 'Rasterize every page at a fixed resolution. Larger files; choose only if you need exact pixel output.',

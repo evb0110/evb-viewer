@@ -291,24 +291,23 @@ export const djvuConvertResultSchema = v.pipe(v.object({
     documentRef: v.optional(documentRefSchema),
     // The source page sizes the conversion read, so its PDF opens without reading them again.
     // Unusable sizes leave the open without this profile; the export itself stands.
-    pageSizes: v.optional(v.unknown()),
+    pageSizes: v.fallback(v.optional(convertedPageSizesSchema), undefined),
+    notice: v.optional(v.literal('source-text-not-preserved', error)),
     error: v.optional(v.string(error)),
     failure: v.optional(failureReceiptSchema),
     expected: v.optional(expectedOutcomeSchema),
-}, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined), error), v.transform((value) => {
-    const pageSizes = value.pageSizes === undefined ? undefined : v.safeParse(convertedPageSizesSchema, value.pageSizes);
-    return {
-        success: value.success,
-        ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
-        ...(pageSizes?.success ? {pageSizes: pageSizes.output} : {}),
-        ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
-        ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
-        ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(value.failure === undefined ? {} : {failure: value.failure}),
-        ...(value.expected === undefined ? {} : {expected: value.expected}),
-    };
-}));
+}, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined) && !(!value.success && value.notice !== undefined), error), v.transform(value => ({
+    success: value.success,
+    ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
+    ...(value.pageSizes === undefined ? {} : {pageSizes: value.pageSizes}),
+    ...(value.notice === undefined ? {} : {notice: value.notice}),
+    ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
+    ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
+    ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
+    ...(value.error === undefined ? {} : {error: value.error}),
+    ...(value.failure === undefined ? {} : {failure: value.failure}),
+    ...(value.expected === undefined ? {} : {expected: value.expected}),
+})));
 export type IDjvuConvertResult = v.InferOutput<typeof djvuConvertResultSchema>;
 export const djvuPrintResultSchema = v.pipe(v.object({
     success: v.boolean(error),
