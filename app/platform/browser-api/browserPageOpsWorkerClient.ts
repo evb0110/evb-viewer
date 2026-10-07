@@ -19,6 +19,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
 import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
@@ -268,7 +269,6 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
         throw new BrowserPageOpsWorkerUnavailableError('Browser page operation exceeds the direct fallback byte budget');
     }
     await yieldToBrowser();
-    const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
     const result = await tryRunBrowserPageOpsWithWasm(type, payload);
     await yieldToBrowser();
     if (signal?.aborted) {
