@@ -162,11 +162,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const hasLocalEffortSelection = ref(false);
     const selectedSpeedMode = ref<TAgentAssistantSpeedMode>(ASSISTANT_DEFAULT_SPEED_MODE);
     const hasLocalSpeedModeSelection = ref(false);
-    const isSwitchingAssistant = ref(false);
+    const isSwitchingAssistant = computed(() => isRefreshingScope.value);
     let sendGeneration = 0;
     let stateGeneration = 0;
     let scopeRefreshGeneration = 0;
-    let assistantSwitchGeneration = 0;
     let lastRefreshStartedAt = 0;
     const acceptAssistantEvent = createAssistantEventFence();
     const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
@@ -750,7 +749,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (nextProvider === selectedProvider.value) {
             return;
         }
-        const nextSwitchGeneration = ++assistantSwitchGeneration;
         const nextModel = selectedAssistantModelForProvider(
             assistantSelectionStorage,
             nextProvider,
@@ -758,32 +756,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         );
         selectedProvider.value = nextProvider;
         selectedModel.value = nextModel;
-        const providerStatus = status.value.providers.find(provider => provider.id === selectedProvider.value);
-        const speedModes = providerStatus
-            ? speedModesForProviderStatus(providerStatus, nextModel)
-            : ASSISTANT_SPEED_MODES;
-        if (!speedModes.includes(selectedSpeedMode.value)) {
-            selectedSpeedMode.value = speedModes[0] ?? 'standard';
-        }
         hasLocalModelSelection.value = true;
         selectedEffort.value = providerDefaultEffort(status.value.providers, nextProvider);
         hasLocalEffortSelection.value = false;
         selectedSpeedMode.value = providerDefaultSpeedMode(status.value.providers, nextProvider);
         hasLocalSpeedModeSelection.value = false;
         persistAssistantSelection(assistantSelectionStorage, nextProvider, nextModel);
-        sendGeneration += 1;
         applyOptimisticSelection(nextProvider, selectedModel.value, selectedEffort.value, selectedSpeedMode.value, false);
-        draft.value = '';
-        clearComposerImages();
-        queuedSteer.value = null;
-        queuedSteerSendInFlight.value = false;
-        isSending.value = false;
-        isSwitchingAssistant.value = true;
-        runAssistantAction(refreshState().finally(() => {
-            if (nextSwitchGeneration === assistantSwitchGeneration) {
-                isSwitchingAssistant.value = false;
-            }
-        }), createAssistantActionOptions('switch-provider', 'Failed to switch assistant provider'));
     }
 
     function updateModel(value: unknown) {
@@ -1092,12 +1071,32 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         return t('assistant.roleAssistant');
     }
-    watch(() => buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value), () => {
+    watch([
+        () => buildAgentAssistantScopeFingerprint(selectedProvider.value, chatScope.value),
+        // Composed work belongs to the document/provider, not its byte revision.
+        () => JSON.stringify([
+            selectedProvider.value,
+            chatScope.value?.key,
+            chatScope.value?.tabId,
+            chatScope.value?.documentSessionKey,
+            chatScope.value?.documentInstanceId ?? chatScope.value?.commandTarget?.documentInstanceId,
+            chatScope.value?.documentRef ?? chatScope.value?.commandTarget?.documentRef,
+        ]),
+    ], ([
+        , draftOwner,
+    ], [
+        , previousDraftOwner,
+    ]) => {
         interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before switching scope');
         stateGeneration += 1;
         sendGeneration += 1;
-        draft.value = '';
-        clearComposerImages();
+        if (draftOwner !== previousDraftOwner) {
+            draft.value = '';
+            clearComposerImages();
+            composerError.value = '';
+        } else if (queuedSteer.value) {
+            composerError.value = t('assistant.steerDraftRestored');
+        }
         queuedSteer.value = null;
         queuedSteerSendInFlight.value = false;
         isSending.value = false;

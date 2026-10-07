@@ -603,6 +603,7 @@ export default {
         'activityCompleted': 'Turno completato',
         'steerQueued': 'Istruzione in coda; interruzione del turno corrente',
         'steerSending': 'Invio dell’istruzione in coda',
+        'steerDraftRestored': 'Il documento è cambiato. La correzione in coda è ora una bozza modificabile; controllala prima di inviarla.',
         'imagePasteBusy': 'L’incollaggio di immagini è disabilitato durante un turno. Invia prima un’istruzione di testo o interrompi il turno.',
         'steerImagesUnsupported': 'Durante l’esecuzione sono supportate solo istruzioni di testo. Interrompi il turno prima di inviare immagini.',
         'btwIdle': 'Al momento non è attivo alcun turno dell’assistente.',

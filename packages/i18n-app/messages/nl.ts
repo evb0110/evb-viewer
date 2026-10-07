@@ -603,6 +603,7 @@ export default {
         'activityCompleted': 'Beurt voltooid',
         'steerQueued': 'Instructie in wachtrij; huidige beurt wordt gestopt',
         'steerSending': 'Instructie uit wachtrij wordt verzonden',
+        'steerDraftRestored': 'Het document is gewijzigd. Uw correctie in de wachtrij is nu een bewerkbaar concept; controleer het voordat u het verstuurt.',
         'imagePasteBusy': 'Afbeeldingen plakken is uitgeschakeld tijdens een actieve beurt. Stuur eerst een tekstinstructie of stop de beurt.',
         'steerImagesUnsupported': 'Tijdens een actieve beurt worden alleen tekstinstructies ondersteund. Stop de beurt voordat je afbeeldingen verstuurt.',
         'btwIdle': 'Er is momenteel geen actieve assistentbeurt.',

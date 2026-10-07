@@ -87,6 +87,7 @@ export default {
         'activityCompleted': 'Turn completed',
         'steerQueued': 'Steer queued; stopping current turn',
         'steerSending': 'Sending queued steer',
+        'steerDraftRestored': 'The document changed. Your queued correction is now an editable draft; review it before sending.',
         'imagePasteBusy': 'Image paste is disabled while a turn is running. Send a text steer or stop first.',
         'steerImagesUnsupported': 'Steering while busy supports text only. Stop first to send images.',
         'btwIdle': 'No assistant turn is active right now.',
