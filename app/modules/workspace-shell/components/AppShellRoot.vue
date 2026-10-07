@@ -55,7 +55,7 @@
                 @open-settings="openSettingsPage"
                 @combine-files="openCombinePage"
                 @toggle-fullscreen="handleToggleFullscreen"
-                @set-view-mode="handleShellToolbarOverflowSetViewMode"
+                @set-view-mode="handleShellToolbarOverflowSetViewMode($event, runFallbackWorkspaceCommand)"
             />
             <div
                 v-show="!showShellToolbar"
@@ -70,7 +70,7 @@
                 :layout="layout"
                 :panes="panes"
                 :tabs="tabs"
-                :active-pane-id="activePaneId"
+                :active-pane-id="isShellActive ? activePaneId : null"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :tab-context-availability-by-pane="tabContextAvailabilityByPane"
                 :start-section-by-tab-id="startSectionByTabId"
@@ -210,7 +210,6 @@ import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/res
 import { createFallbackToolbarCommandListeners } from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
 import { useScanCleanupRunCoordinator } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
 import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
-import type { TPdfViewMode } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
@@ -285,6 +284,9 @@ function handleUnencryptedSaveNoticeDontShowAgainUpdate(value: boolean) {
     unencryptedSaveNoticeDontShowAgain.value = value;
 }
 const activeToolPage = ref<'combine' | null>(null);
+const isShellActive = ref(true);
+onActivated(() => { isShellActive.value = true; });
+onDeactivated(() => { isShellActive.value = false; });
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const isStartupOpenClaimPending = ref(true);
 const {
@@ -444,11 +446,8 @@ const {
     listeners: fallbackToolbarCommandListeners,
     run: runFallbackWorkspaceCommand,
 } = createFallbackToolbarCommandListeners(activeWorkspace);
-function activeWorkspaceHasDocument() {
-    return shellState.activeWorkspaceHasDocument.value;
-}
 function handleToggleFullscreen() {
-    if (!fullscreenSupported.value || (!isFullscreen.value && !activeWorkspaceHasDocument())) {
+    if (!fullscreenSupported.value || (!isFullscreen.value && !shellState.activeWorkspaceHasDocument.value)) {
         return;
     }
     setZenMode(!isFullscreen.value);
@@ -487,7 +486,7 @@ function setZenMode(active: boolean) {
     );
 }
 
-useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+useEventListener(computed(() => isShellActive.value ? window : undefined), 'keydown', (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || !isFullscreen.value) {
         return;
     }
@@ -558,7 +557,7 @@ const {
     shellToolbarZoom,
     shellToolbarZoomMode,
     shellToolbarZoomDropdownOpen,
-    handleShellToolbarOverflowSetViewMode: handleShellToolbarOverflowSetViewModeInternal,
+    handleShellToolbarOverflowSetViewMode,
     showShellToolbar,
 } = useShellWorkspaceToolbar({
     activeDocumentSession,
@@ -566,9 +565,6 @@ const {
     hasWorkspaceToolbarContent,
 });
 
-function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
-    handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceCommand);
-}
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
     updatesStatus,
     updatesDialog,
@@ -843,6 +839,7 @@ watch(windowTitle, (nextTitle) => {
 }, { immediate: true });
 
 useTabsShellBindings({
+    isActive: isShellActive,
     tabs,
     workspaceRefs,
     activeTabId,

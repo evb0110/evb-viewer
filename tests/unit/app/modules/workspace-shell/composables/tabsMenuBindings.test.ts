@@ -31,6 +31,7 @@ function createDeferred() {
 
 function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBindings>[1]> = {}) {
     return {
+        isActive: ref(true),
         activeWorkspace: ref<IWorkspaceExpose | null>(null),
         activeTabId: ref<string | null>(null),
         createTab: vi.fn(() => ({ id: 'tab-1' })),
@@ -213,9 +214,16 @@ function createRegistryMenuApi() {
 }
 
 describe('registerTabsMenuBindings', () => {
-    it('routes menu commands to the active workspace command surface', async () => {
+    it.each([
+        true,
+        false,
+    ])('routes menu commands only while the shell is active (initially %s)', async (isActive) => {
         const workspaceCommands = createWorkspaceExposeFixture({hasPdf: true});
-        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(workspaceCommands)});
+        const shellActive = ref(isActive);
+        const deps = createDeps({
+            isActive: shellActive,
+            activeWorkspace: ref<IWorkspaceExpose | null>(workspaceCommands),
+        });
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
@@ -227,6 +235,14 @@ describe('registerTabsMenuBindings', () => {
             menuApi.emit(commandName);
             await flushMicrotasks();
 
+            expect(workspaceCommands[commandName], commandName).toHaveBeenCalledTimes(Number(isActive));
+        }
+        shellActive.value = !isActive;
+        for (const [
+            ,, commandName,
+        ] of MENU_COMMANDS) {
+            menuApi.emit(commandName);
+            await flushMicrotasks();
             expect(workspaceCommands[commandName], commandName).toHaveBeenCalledTimes(1);
         }
     });
