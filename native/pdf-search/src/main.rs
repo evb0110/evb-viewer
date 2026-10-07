@@ -19,9 +19,7 @@ use std::io::{self, BufRead, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::OnceLock;
-use unicode_normalization::{
-    char::canonical_combining_class, is_nfc_quick, IsNormalized, UnicodeNormalization,
-};
+use unicode_normalization::{is_nfc_quick, IsNormalized, UnicodeNormalization};
 
 const MAGIC: &[u8; 8] = b"EVBSIDX4";
 /// magic, page count, pages scanned, flags, revision length, record count, reserved.
@@ -430,7 +428,7 @@ struct NormalizedCharSpan {
     original_end: usize,
 }
 
-/// Page text normalized per grapheme, with each normalized character mapped
+/// Page text normalized per composition span, with each character mapped
 /// back to the original bytes it came from.
 #[derive(Debug)]
 struct NormalizedText {
@@ -444,45 +442,45 @@ impl NormalizedText {
             text: String::with_capacity(value.len()),
             spans: Vec::with_capacity(value.len()),
         };
-        let mut group_start = 0usize;
-        for (byte_offset, character) in value.char_indices() {
-            if byte_offset > group_start && canonical_combining_class(character) == 0 {
-                normalized.append(&value[group_start..byte_offset], group_start, byte_offset);
-                group_start = byte_offset;
+        static GROUPS: OnceLock<Regex> = OnceLock::new();
+        let groups = GROUPS.get_or_init(|| Regex::new(
+            r"(?:[\u{1100}-\u{1112}][\u{1161}-\u{1175}][\u{11a8}-\u{11c2}]?|[\u{ac00}-\u{d7a3}][\u{11a8}-\u{11c2}]|\P{M})\p{M}*|\p{M}+",
+        ).expect("canonical search grouping is valid"));
+        for group in groups.find_iter(value) {
+            let text = normalize_search_fragment(group.as_str());
+            let unchanged = text == group.as_str();
+            for (offset, character) in text.char_indices() {
+                let (start, end) = if unchanged {
+                    (
+                        group.start() + offset,
+                        group.start() + offset + character.len_utf8(),
+                    )
+                } else {
+                    (group.start(), group.end())
+                };
+                let normalized_start = normalized.text.len();
+                normalized.text.push(character);
+                normalized.spans.push(NormalizedCharSpan {
+                    normalized_start,
+                    normalized_end: normalized.text.len(),
+                    original_start: start,
+                    original_end: end,
+                });
             }
-        }
-        if group_start < value.len() {
-            normalized.append(&value[group_start..], group_start, value.len());
         }
         normalized
     }
 
-    fn append(&mut self, group: &str, original_start: usize, original_end: usize) {
-        for character in normalize_search_fragment(group).chars() {
-            let normalized_start = self.text.len();
-            self.text.push(character);
-            self.spans.push(NormalizedCharSpan {
-                normalized_start,
-                normalized_end: self.text.len(),
-                original_start,
-                original_end,
-            });
-        }
-    }
-
     fn original_byte_range(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let start_span = self
+        let start_span = &self.spans[self
             .spans
             .binary_search_by_key(&start, |span| span.normalized_start)
-            .ok()?;
-        let end_span = self
+            .ok()?];
+        let end_span = &self.spans[self
             .spans
             .binary_search_by_key(&end, |span| span.normalized_end)
-            .ok()?;
-        Some((
-            self.spans[start_span].original_start,
-            self.spans[end_span].original_end,
-        ))
+            .ok()?];
+        Some((start_span.original_start, end_span.original_end))
     }
 }
 

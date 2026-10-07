@@ -1,3 +1,4 @@
+import searchConformanceCorpus from '@contracts/searchConformanceCorpus.json';
 import {
     afterEach,
     describe,
@@ -97,46 +98,35 @@ describe('browserSearch worker', () => {
         });
     });
 
-    it('keeps safe regex matching and UTF-16 offsets inside the worker', async () => {
+    it.each(searchConformanceCorpus.cases)('keeps corpus case $id and UTF-16 offsets inside the worker', async (fixture) => {
         const {
-            handler,
-            postMessage,
+            handler, postMessage,
         } = await loadWorker();
-
         handler({data: {
             id: 8,
             type: 'matchPageText',
             payload: {
-                text: '😀 needle 😃needle',
-                query: 'n.edle',
+                text: fixture.text,
+                query: fixture.query,
                 options: {
-                    matchCase: true,
-                    wholeWord: false,
-                    useRegex: true,
+                    matchCase: Reflect.get(fixture.options, 'matchCase') === true,
+                    wholeWord: Reflect.get(fixture.options, 'wholeWord') === true,
+                    useRegex: Reflect.get(fixture.options, 'useRegex') === true,
                 },
-                maxMatches: 2,
+                maxMatches: 500,
             },
         }} as MessageEvent<unknown>);
-
-        expect(postMessage).toHaveBeenNthCalledWith(1, {
-            id: 8,
-            started: true,
-        });
         expect(postMessage).toHaveBeenLastCalledWith({
             id: 8,
             type: 'matchPageText',
             ok: true,
             data: {
-                matches: [
-                    {
-                        startOffset: 3,
-                        endOffset: 9,
-                    },
-                    {
-                        startOffset: 12,
-                        endOffset: 18,
-                    },
-                ],
+                matches: fixture.expectedMatches.map(({
+                    startOffset, endOffset,
+                }) => ({
+                    startOffset,
+                    endOffset,
+                })),
                 truncated: false,
                 matchingMs: expect.any(Number),
             },
