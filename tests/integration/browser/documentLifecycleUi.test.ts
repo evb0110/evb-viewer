@@ -301,8 +301,8 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
-    // T2/T3: accepted note text must reach durable recovery bytes while Save
-    // remains available. The recovery timer runs the real save transaction.
+    // T2/T3, issue #1027: accepted note text reaches recovery bytes, and its
+    // icon reaches the printed canvas while the original remains unsaved.
     it('materializes an unsaved note for browser recovery and print without saving the original', async () => {
         const browser = await chromium.launch({headless: true});
         try {
@@ -314,6 +314,25 @@ describe('browser document lifecycle UI', () => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                // Observe the system-print boundary in every frame without
+                // opening a native dialog. The canvas is the printed artifact.
+                window.print = () => {
+                    const canvases = [...document.querySelectorAll<HTMLCanvasElement>('.browser-print-page canvas')];
+                    let yellowPixels = 0;
+                    for (const canvas of canvases) {
+                        const pixels = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+                        if (!pixels) throw new Error('The print canvas has no pixels');
+                        for (let index = 0; index < pixels.length; index += 4) {
+                            if (pixels[index]! > 150 && pixels[index + 1]! > 100 && pixels[index + 2]! < 100) {
+                                yellowPixels += 1;
+                            }
+                        }
+                    }
+                    Reflect.set(window.top!, '__printedNote', {
+                        pages: canvases.length,
+                        yellowPixels,
+                    });
+                };
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
@@ -323,7 +342,24 @@ describe('browser document lifecycle UI', () => {
                 name: 'Open File',
                 exact: true,
             }).first().click();
-            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+            // A clean document isolates a newly created /Text note from
+            // foreign annotations whose missing appearances have other causes.
+            const pdf = await PDFDocument.create();
+            const font = await pdf.embedFont(StandardFonts.Helvetica);
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText('Browser sticky-note print regression', {
+                x: 72,
+                y: 720,
+                font,
+                size: 18,
+            });
+            await (await chooser).setFiles({
+                name: 'browser-note-print.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
             await page.getByRole('button', {
                 name: 'Place a sticky note on the page.',
@@ -353,24 +389,6 @@ describe('browser document lifecycle UI', () => {
                 name: 'Minimize note',
                 exact: true,
             }).click();
-            // Observe the persisted detached print artifact before its owner
-            // releases it. The separate print-layout /Text appearance refusal
-            // occurs after this byte-preparation boundary.
-            await page.evaluate((noteText) => {
-                const put = IDBObjectStore.prototype.put;
-                Reflect.set(window, '__restorePrintArtifactObserver', () => {IDBObjectStore.prototype.put = put;});
-                const encoded = [...noteText].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
-                IDBObjectStore.prototype.put = function observePrintArtifact(value, key) {
-                    const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
-                    if (this.name === 'documents' && value?.kind === 'working'
-                        && value?.retention === 'transient' && value?.fileName?.endsWith('.staged-native-save.pdf')) {
-                        request.transaction?.addEventListener('complete', () => {
-                            Reflect.set(window, '__preparedPrintNote', new TextDecoder().decode(value.data).toLowerCase().includes(encoded));
-                        }, {once: true});
-                    }
-                    return request;
-                };
-            }, text);
             await page.getByRole('button', {
                 name: 'Print',
                 exact: true,
@@ -379,12 +397,8 @@ describe('browser document lifecycle UI', () => {
                 name: 'Print...',
                 exact: true,
             }).click();
-            await expect.poll(() => page.evaluate(() => Reflect.get(window, '__preparedPrintNote') ?? false), {timeout: 15_000}).toBe(true);
-            await page.evaluate(() => {Reflect.get(window, '__restorePrintArtifactObserver')(); Reflect.deleteProperty(window, '__restorePrintArtifactObserver');});
-            await page.getByRole('button', {
-                name: 'Cancel',
-                exact: true,
-            }).click();
+            await expect.poll(() => page.evaluate(() => Reflect.get(window, '__printedNote')?.yellowPixels ?? 0), {timeout: 15_000}).toBeGreaterThan(50);
+            expect(await page.evaluate(() => Reflect.get(window, '__printedNote').pages)).toBeGreaterThan(0);
             await expect.poll(() => page.evaluate(async (noteText) => {
                 const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
                     const request = indexedDB.open('evb-viewer-browser-documents');
