@@ -5,10 +5,22 @@ import {
     it,
     vi,
 } from 'vitest';
+import {ref} from 'vue';
+import {
+    LOCALE_MESSAGES, type TLocale,
+} from '@i18n-app';
+import {
+    formatTranslationLeaf, getNestedTranslationLeaf,
+} from '@i18n-core';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import type {IPlatformApi} from '@contracts/platformApi';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
+
+const locale = ref<TLocale>('en');
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, params?: Record<string, string>) => formatTranslationLeaf(
+    getNestedTranslationLeaf(LOCALE_MESSAGES[locale.value], key) ?? key, params, locale.value,
+)})}));
 
 const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
 
@@ -37,6 +49,7 @@ describe('useAppUpdates', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        locale.value = 'en';
         platformApi = createElectronPlatformApiFixture();
     });
 
@@ -246,8 +259,65 @@ describe('useAppUpdates', () => {
             open: true,
             kind: 'status',
             phase: 'error',
-            message: 'offline',
+            message: 'unknown error',
         });
+    });
+
+    it('derives every primary reason from the live locale while keeping raw details', async () => {
+        let listener: ((status: IAppUpdateStatus) => void) | null = null;
+        platformApi = createElectronPlatformApiFixture({updates: {onStatus: vi.fn(callback => {
+            listener = callback;
+            return () => {};
+        })}});
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await updates.ensureInitialized();
+        const reasons = {
+            'check-timed-out': 'checkTimedOut',
+            'network-unavailable': 'networkUnavailable',
+            'feed-unavailable': 'feedUnavailable',
+            'download-failed': 'downloadFailed',
+            'install-preparation-failed': 'installPreparationFailed',
+            'store-updates': 'storeUpdates',
+            'signed-build-required': 'signedBuildRequired',
+            'runtime-unsupported': 'unsupportedDescription',
+            'check-failed': 'checkFailed',
+            'install-failed': 'installFailed',
+        } as const;
+        for (const [
+            reason,
+            key,
+        ] of Object.entries(reasons)) {
+            const raw = 'Raw English technical fault';
+            requireStatusListener(listener)({
+                phase: reason.includes('updates') || reason.includes('required') || reason.includes('unsupported')
+                    ? 'unsupported' : 'error',
+                origin: 'manual',
+                version: '9.9.9',
+                percent: null,
+                message: raw,
+                reason: reason as NonNullable<IAppUpdateStatus['reason']>,
+            });
+            for (const language of Object.keys(LOCALE_MESSAGES)) {
+                locale.value = language as TLocale;
+                expect(updates.dialog.value.message).toBe(formatTranslationLeaf(
+                    getNestedTranslationLeaf(LOCALE_MESSAGES[locale.value], `updates.${key}`) ?? '',
+                    {version: '9.9.9'}, locale.value,
+                ));
+                expect(updates.dialog.value.message).not.toContain(raw);
+                expect(updates.status.value.message).toBe(raw);
+                if (updates.status.value.phase === 'error') {
+                    expect(updates.dialog.value.failure?.technicalDetails).toBe(raw);
+                }
+            }
+            requireStatusListener(listener)({
+                phase: 'idle',
+                origin: 'auto',
+                version: null,
+                percent: null,
+                message: null,
+            });
+        }
     });
 
     it('retries initialization after an initial state fetch failure', async () => {

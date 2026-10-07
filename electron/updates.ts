@@ -9,6 +9,7 @@ import type {
 import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
+    TAppUpdateReason,
 } from '@contracts/updatesPlatformFeature';
 import { config } from '@electron/config';
 import {
@@ -53,6 +54,7 @@ interface IUpdaterCheckDecision {
     shouldCheck: boolean;
     targetVersion: string | null;
     errorMessage?: string;
+    errorReason?: TAppUpdateReason;
 }
 
 const defaultStatus: IAppUpdateStatus = {
@@ -143,6 +145,7 @@ function updateStatus(next: Partial<IAppUpdateStatus>) {
         ...status,
         ...next,
         message,
+        reason: next.reason ?? (next.message === undefined ? status.reason : undefined),
     };
 
     if (status.phase !== 'downloading') {
@@ -195,11 +198,12 @@ function isUpdaterRuntimeSupported() {
             || (process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64')));
 }
 
-function getUnsupportedRuntimeMessage() {
-    if (process.windowsStore === true) {
-        return 'Updates for the Microsoft Store build are delivered by Microsoft Store.';
+function getUpdateFailureReason(error: unknown, operation: 'check' | 'download' | 'install'): TAppUpdateReason {
+    const cause = error instanceof Error && error.cause ? error.cause : error;
+    if (isAbortError(cause) || (cause instanceof Error && cause.name === 'TimeoutError')) {
+        return operation === 'check' ? 'check-timed-out' : `${operation}-failed`;
     }
-    return null;
+    return isExpectedUpdateNetworkError(cause) ? 'network-unavailable' : `${operation}-failed`;
 }
 
 async function ensureUpdaterSupported() {
@@ -289,7 +293,10 @@ async function hasUpdaterMetadataForVersion(version: string) {
         return false;
     }
 
-    const errors: string[] = [];
+    const errors: Array<{
+        baseUrl: string;
+        error: unknown
+    }> = [];
     for (const baseUrl of [
         GITHUB_RELEASE_DOWNLOAD_BASE_URL,
         config.updates.mirrorReleaseBaseUrl,
@@ -309,11 +316,16 @@ async function hasUpdaterMetadataForVersion(version: string) {
             resolvedReleaseFeedBaseUrl = baseUrl;
             return true;
         } catch (error) {
-            errors.push(`${baseUrl}: ${getErrorMessage(error)}`);
+            errors.push({
+                baseUrl,
+                error,
+            });
         }
     }
     if (errors.length > 0) {
-        throw new Error(`Updater feed verification was inconclusive (${errors.join('; ')})`);
+        throw new Error(`Updater feed verification was inconclusive (${errors.map(({
+            baseUrl, error,
+        }) => `${baseUrl}: ${getErrorMessage(error)}`).join('; ')})`, {cause: errors[0]?.error});
     }
     return false;
 }
@@ -553,6 +565,7 @@ function setAutoUpdaterListeners() {
 
         updateStatus({
             phase: 'error',
+            reason: getUpdateFailureReason(error, status.phase === 'downloading' ? 'download' : status.phase === 'downloaded' ? 'install' : 'check'),
             origin: 'manual',
             version: pendingVersion,
             percent: null,
@@ -616,6 +629,7 @@ function setAutoUpdaterListeners() {
                     logger.warn(message);
                     updateStatus({
                         phase: 'error',
+                        reason: 'install-failed',
                         origin: 'manual',
                         version: approvedVersion,
                         percent: null,
@@ -643,6 +657,7 @@ function setAutoUpdaterListeners() {
             });
             updateStatus({
                 phase: 'error',
+                reason: 'install-preparation-failed',
                 origin: currentCheckOrigin,
                 version: pendingVersion,
                 percent: null,
@@ -672,6 +687,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
             shouldCheck: false,
             targetVersion: null,
             errorMessage: message,
+            errorReason: getUpdateFailureReason(error, 'check'),
         };
     }
 
@@ -700,6 +716,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
             return {
                 shouldCheck: false,
                 targetVersion: latestVersion,
+                errorReason: 'feed-unavailable',
                 errorMessage: `Update ${latestVersion} is available, but its ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} feed is not published. Download the release manually.`,
             };
         }
@@ -712,6 +729,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
             shouldCheck: false,
             targetVersion: null,
             errorMessage: message,
+            errorReason: getUpdateFailureReason(error, 'check'),
         };
     }
 
@@ -752,7 +770,8 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                     origin: 'manual',
                     version: getCurrentVersion(),
                     percent: null,
-                    message: getUnsupportedRuntimeMessage(),
+                    message: null,
+                    reason: process.windowsStore === true ? 'store-updates' : 'runtime-unsupported',
                 });
             }
             return;
@@ -765,6 +784,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                     version: getCurrentVersion(),
                     percent: null,
                     message: 'Updates require a signed packaged build.',
+                    reason: 'signed-build-required',
                 });
             } else {
                 updateStatus({
@@ -818,6 +838,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 if (decision.errorMessage && origin === 'manual') {
                     updateStatus({
                         phase: 'error',
+                        reason: decision.errorReason,
                         origin,
                         version: decision.targetVersion ?? pendingVersion ?? getCurrentVersion(),
                         percent: null,
@@ -858,6 +879,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 logUpdateCheckFailure(error, origin);
                 updateStatus({
                     phase: 'error',
+                    reason: getUpdateFailureReason(error, 'check'),
                     origin,
                     version: pendingVersion,
                     percent: null,
@@ -874,6 +896,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
         logger.warn(message);
         updateStatus({
             phase: 'error',
+            reason: getUpdateFailureReason(error, 'check'),
             origin,
             version: pendingVersion,
             percent: null,
@@ -905,6 +928,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                     });
                     updateStatus({
                         phase: 'error',
+                        reason: 'install-failed',
                         origin: 'manual',
                         version: marker.pendingVersion,
                         percent: null,
@@ -1033,6 +1057,7 @@ export function downloadAvailableUpdate() {
             }
             updateStatus({
                 phase: 'error',
+                reason: getUpdateFailureReason(error, 'download'),
                 origin: 'manual',
                 version: candidateVersion,
                 percent: null,
@@ -1068,6 +1093,7 @@ export async function installDownloadedUpdate() {
         logger.warn(message);
         updateStatus({
             phase: 'error',
+            reason: 'install-failed',
             origin: 'manual',
             version: candidateVersion,
             percent: null,
@@ -1096,6 +1122,7 @@ export async function installDownloadedUpdate() {
             });
             updateStatus({
                 phase: 'error',
+                reason: 'install-preparation-failed',
                 origin: 'manual',
                 version: candidateVersion,
                 percent: null,

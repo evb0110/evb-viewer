@@ -316,16 +316,35 @@ describe('updates robustness', () => {
         );
     });
 
-    it('keeps ordinary offline update checks at warning level without an occurrence', async () => {
-        mocks.fetch.mockRejectedValue(Object.assign(new Error('network is offline'), {code: 'ENETUNREACH'}));
+    it.each([
+        {
+            error: Object.assign(new Error('network is offline'), {code: 'ENETUNREACH'}),
+            reason: 'network-unavailable',
+        },
+        {
+            error: Object.assign(new Error('DNS unavailable'), {code: 'ENOTFOUND'}),
+            reason: 'network-unavailable',
+        },
+        {
+            error: new DOMException('Metadata deadline elapsed', 'TimeoutError'),
+            reason: 'check-timed-out',
+        },
+    ])('keeps metadata $reason localized and at warning level without an occurrence', async ({
+        error, reason,
+    }) => {
+        mocks.fetch.mockRejectedValue(error);
 
         const updates = await loadUpdatesModule();
         await updates.triggerManualUpdateCheck();
         await flushPromises();
 
+        expect(updates.getUpdateStatus()).toMatchObject({
+            phase: 'error',
+            reason,
+        });
         expect(mocks.logger.error).not.toHaveBeenCalled();
         expect(mocks.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('network is offline'),
+            expect.stringContaining(error.message),
         );
     });
 
@@ -463,7 +482,8 @@ describe('updates robustness', () => {
         expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
         expect(statuses.at(-1)).toMatchObject({
             phase: 'unsupported',
-            message: 'Updates for the Microsoft Store build are delivered by Microsoft Store.',
+            message: null,
+            reason: 'store-updates',
         });
     });
 
@@ -801,6 +821,7 @@ describe('updates robustness', () => {
             phase: 'error',
             version: '1.1.0',
             message: 'Update 1.1.0 is available, but its latest-mac.yml feed is not published. Download the release manually.',
+            reason: 'feed-unavailable',
         });
     });
 
@@ -900,6 +921,7 @@ describe('updates robustness', () => {
         expect(timeoutSpy).toHaveBeenCalledWith(10_000);
         expect(firstFeedSignal).not.toBeNull();
         expect(firstFeedAborted).toBe(true);
+        expect(updates.getUpdateStatus().reason).toBe('check-timed-out');
         expect(firstFeedSignal?.aborted).toBe(true);
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
@@ -1020,6 +1042,37 @@ describe('updates robustness', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(
             'Update installation failed: Downloaded update 1.1.0 is not newer than the running version 1.1.0',
         );
+    });
+
+    it('reports a download reason and clears it on the next completed check', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
+        mocks.autoUpdater.downloadUpdate.mockRejectedValueOnce(new Error('damaged download'));
+        const updates = await loadUpdatesModule();
+        const terminal = Promise.withResolvers<undefined>();
+        updates.initializeUpdates(status => {
+            if (status.phase === 'error') {
+                terminal.resolve(undefined);
+            }
+        });
+        await updates.triggerManualUpdateCheck();
+        updates.downloadAvailableUpdate();
+        await terminal.promise;
+        expect(updates.getUpdateStatus()).toMatchObject({
+            phase: 'error',
+            reason: 'download-failed',
+            message: 'Update download failed: damaged download',
+            version: '1.1.0',
+        });
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.0.0'));
+        await updates.triggerManualUpdateCheck();
+        expect(updates.getUpdateStatus()).toMatchObject({
+            phase: 'no-update',
+            message: null,
+        });
+        expect(updates.getUpdateStatus().reason).toBeUndefined();
     });
 
     it('routes downloaded update installation through the configured shutdown hook', async () => {
@@ -1179,6 +1232,7 @@ describe('updates robustness', () => {
         await flushPromises();
 
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: true});
+        expect(updates.getUpdateStatus().reason).toBe('install-preparation-failed');
         expect(mocks.logger.error).toHaveBeenCalledWith(
             'Update installation aborted: failed to write update health marker: disk is read-only',
             {

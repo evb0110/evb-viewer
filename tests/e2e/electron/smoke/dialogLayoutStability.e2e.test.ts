@@ -18,6 +18,7 @@ import {
 import type {Page} from 'puppeteer-core';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {LOCALE_MESSAGES} from '@i18n-app';
 import {decodeLogRecord} from '@contracts/logRecord';
 import type {TAppLocale} from '@contracts/shared';
 import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
@@ -355,6 +356,175 @@ describe('Electron E2E - dialog layout stability', () => {
             {timeout: DIALOG_TIMEOUT_MS},
         ).toBeGreaterThan(0);
     }, DIALOG_TIMEOUT_MS * 3);
+
+    it('localizes updater failure reasons after a trusted check in all nine locales', async () => {
+        const {page} = sessionFixture.getSession();
+        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-reasons-'));
+        const observations: Array<{
+            locale: string;
+            reason: string;
+            text: string
+        }> = [];
+        type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+        const cases = [
+            [
+                'check-timed-out',
+                'checkTimedOut',
+                'error',
+            ],
+            [
+                'network-unavailable',
+                'networkUnavailable',
+                'error',
+            ],
+            [
+                'feed-unavailable',
+                'feedUnavailable',
+                'error',
+            ],
+            [
+                'download-failed',
+                'downloadFailed',
+                'error',
+            ],
+            [
+                'install-preparation-failed',
+                'installPreparationFailed',
+                'error',
+            ],
+            [
+                'runtime-unsupported',
+                'unsupportedDescription',
+                'unsupported',
+            ],
+            [
+                'store-updates',
+                'storeUpdates',
+                'unsupported',
+            ],
+            [
+                'signed-build-required',
+                'signedBuildRequired',
+                'unsupported',
+            ],
+        ] as const;
+        console.log(`Updater reason artifacts: ${evidenceDirectory}`);
+        try {
+            // Saved preferences and the existing preload status hook are fixtures.
+            // Linux dev cannot run the signed standalone updater. Each check still
+            // uses trusted input and real IPC before the controlled result arrives.
+            for (const locale of [
+                'ru',
+                'en',
+                'fr',
+                'de',
+                'es',
+                'it',
+                'pt',
+                'pt-BR',
+                'nl',
+            ] as const) {
+                const messages = LOCALE_MESSAGES[locale];
+                for (const [
+                    reason,
+                    key,
+                    phase,
+                ] of (locale === 'ru' ? cases : cases.slice(0, 1))) {
+                    // Each controlled native result starts with a fresh renderer;
+                    // an unsupported runtime cannot become supported in place.
+                    await setSavedLocale(page, locale);
+                    await page.waitForSelector(`button[aria-label="${messages.toolbar.settings}"]`, {visible: true});
+                    const startupStatus = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
+                    if (startupStatus?.origin === 'manual' && startupStatus.phase === 'unsupported') {
+                        // The native owner retains the last requested check. Its
+                        // status dialog is restored on reload; dismiss it as a person.
+                        await page.waitForSelector('[role="dialog"]', {visible: true});
+                        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                            .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close restored update status'});
+                        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                    }
+                    await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                        phase: 'idle',
+                        origin: 'auto',
+                        version: null,
+                        percent: null,
+                        message: null,
+                    }));
+                    await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
+                        messages.toolbar.settings, {description: 'Settings button'});
+                    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
+                        .find(button => button.textContent?.trim() === label), messages.settings.checkForUpdates,
+                    {description: 'Check for updates button'});
+                    await page.waitForFunction((description: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
+                        .some(element => element.getClientRects().length > 0 && element.innerText.trim() === description),
+                    {timeout: DIALOG_TIMEOUT_MS}, messages.updates.unsupportedDescription);
+                    const raw = `Timed out while checking for updates. [${reason}]`;
+                    await page.evaluate((payload: {
+                        phase: string;
+                        reason: string;
+                        message: string
+                    }) => {
+                        const emit = (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation;
+                        if (!emit) {
+                            throw new Error('Existing updater status fixture is unavailable');
+                        }
+                        emit({
+                            ...payload,
+                            origin: 'manual',
+                            version: '9.9.9',
+                            percent: null,
+                        });
+                    }, {
+                        phase,
+                        reason,
+                        message: raw,
+                    });
+                    const localized = messages.updates[key].replace('{version}', '9.9.9');
+                    const expected = phase === 'error'
+                        ? messages.updates.errorDescription.replace('{message}', localized) : localized;
+                    const selector = phase === 'error' ? '.app-toast-failure-reason' : '[role="dialog"] p';
+                    await page.waitForFunction((query: string, localized: string, raw: string) => Array.from(document.querySelectorAll<HTMLElement>(query))
+                        .some(element => element.getClientRects().length > 0
+                            && (element.innerText.trim() === localized || element.innerText.includes(raw))),
+                    {timeout: DIALOG_TIMEOUT_MS}, selector, expected, raw);
+                    const text = await page.evaluate((query: string) => Array.from(document.querySelectorAll<HTMLElement>(query))
+                        .filter(element => element.getClientRects().length > 0).at(-1)?.innerText.trim() ?? '', selector);
+                    observations.push({
+                        locale,
+                        reason,
+                        text,
+                    });
+                    writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+                    await page.screenshot({path: join(evidenceDirectory, `${locale}-${reason}.png`)});
+                    expect(text).toBe(expected);
+                    expect(text).not.toContain(raw);
+                    if (phase === 'error') {
+                        if (reason === 'check-timed-out') {
+                            await clickToastButton(page, messages.errors.runtime.copy);
+                            await page.waitForFunction((label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
+                                .some(button => button.innerText.trim() === label), {timeout: DIALOG_TIMEOUT_MS}, messages.errors.runtime.copied);
+                            expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(raw);
+                        } else {
+                            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button[aria-label]'))
+                                .find(button => button.getClientRects().length > 0), undefined, {description: 'Dismiss update failure'});
+                        }
+                        await page.waitForFunction(() => !Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
+                            .some(element => element.getClientRects().length > 0), {timeout: DIALOG_TIMEOUT_MS});
+                    } else {
+                        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                            .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close update status'});
+                    }
+                    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                }
+            }
+        } catch (error) {
+            await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
+            writeFileSync(join(evidenceDirectory, 'failure.html'), await page.content());
+            throw error;
+        } finally {
+            await setSavedLocale(page, 'en');
+        }
+    }, DIALOG_TIMEOUT_MS * 6);
 
     it('labels a failure toast in the saved interface language', async () => {
         const session: IElectronE2ESession = sessionFixture.getSession();

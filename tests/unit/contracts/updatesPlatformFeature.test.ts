@@ -42,6 +42,14 @@ describe('updates platform feature schemas', () => {
         expect(codecs[channels.defer]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.skipVersion]!.decodeArgs(['2.0.0'])).toEqual(['2.0.0']);
         expect(decodeAppUpdateStatus(validStatus)).toEqual(validStatus);
+        expect(decodeAppUpdateStatus({
+            ...validStatus,
+            reason: 'download-failed',
+        }))
+            .toEqual({
+                ...validStatus,
+                reason: 'download-failed',
+            });
     });
 
     it('rejects malformed update arguments, results, and events', () => {
@@ -53,6 +61,10 @@ describe('updates platform feature schemas', () => {
             percent: 101,
         }))
             .toThrow('invalid app update status');
+        expect(decodeAppUpdateStatus({
+            ...validStatus,
+            reason: 'arbitrary English',
+        })).toBeNull();
         expect(decodeAppUpdateStatus({
             ...validStatus,
             phase: 'future',
