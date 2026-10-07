@@ -1,0 +1,21 @@
+electron/features/agent/mcp/createHttpHandler.ts
+  s_9f279db081c874::t_326ff8a3cc78a2 112-113,118-119,122,124-125,127
+tests/unit/electron/agentMcpHttpHandler.test.ts
+  s_9f279db081c874::t_5993d42f960f78 116-117,119-141,143-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "203994646e912bd1ff161f710e083e0368998048",
+  "prompts": {},
+  "sessions": {
+    "s_9f279db081c874": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a116be-e0fc-7de3-8358-a60d2a84f6ba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
