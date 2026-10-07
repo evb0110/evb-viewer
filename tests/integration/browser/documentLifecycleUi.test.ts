@@ -344,6 +344,7 @@ describe('browser document lifecycle UI', () => {
                 await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
                 const hover = await nativePopups.count();
                 await page.mouse.click(px, py);
+                await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
                 const click = await nativePopups.count();
                 popupObservations.push({
                     label,
