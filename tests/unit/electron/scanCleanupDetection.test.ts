@@ -977,13 +977,21 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
             'base64',
         );
-        const publish = vi.fn();
+        const rastersReady = Promise.withResolvers<undefined>();
+        const secondRasterAllowed = Promise.withResolvers<undefined>();
+        const publish = vi.fn<Parameters<typeof runScanCleanupDetection>[5]>((_results, progress) => {
+            if (progress.stage === 'rasterizing' && progress.rasterizedUnits === pageCount) {
+                rastersReady.resolve(undefined);
+            }
+        });
         const sidecarRoots: Array<string | undefined> = [];
         const manifests: Array<{pages: Array<{
             inputPath: string;
             pageMetadataPath: string;
         }>;}> = [];
         const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
+            // Keep page 2 in flight when the first-page prime starts analysis.
+            if (_pageNumber === 2) await secondRasterAllowed.promise;
             await writeFile(outputPath, png);
         });
         const retention: IScanCleanupDetectionRetention<{id: string}> = {
@@ -1048,6 +1056,13 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                             outputCount: 0,
                         }),
                     )));
+                    secondRasterAllowed.resolve(undefined);
+                    // This case asserts a fully rasterized Analyze frame. Native
+                    // startup alone only guarantees the first input is ready.
+                    await rastersReady.promise;
+                    for (const page of manifest.pages) {
+                        expect(await readFile(page.inputPath)).toEqual(png);
+                    }
                     for (const [index] of manifest.pages.entries()) {
                         onProgress({
                             stage: 'page-analyzed',
