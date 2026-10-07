@@ -410,6 +410,97 @@ describe('Electron E2E - dialog layout stability', () => {
         ] as const;
         console.log(`Updater reason artifacts: ${evidenceDirectory}`);
         try {
+            // Closing writes through to the shared owner, for both the footer
+            // action and Escape. Fixture statuses still enter the real subscription.
+            await setSavedLocale(page, 'en');
+            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+            await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                phase: 'idle',
+                origin: 'auto',
+                version: null,
+                percent: null,
+                message: null,
+            }));
+            await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
+                undefined, {description: 'Settings button'});
+            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
+                .find(button => button.textContent?.trim() === label),
+            LOCALE_MESSAGES.en.settings.checkForUpdates, {description: 'Check for updates button'});
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+            const closedDialogs: Array<{
+                action: string;
+                reopened: boolean
+            }> = [];
+            for (const action of [
+                'Close',
+                'Escape',
+            ] as const) {
+                if (action === 'Escape') {
+                    await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                        phase: 'unsupported',
+                        origin: 'manual',
+                        version: null,
+                        percent: null,
+                        message: null,
+                    }));
+                    await page.waitForSelector('[role="dialog"]', {visible: true});
+                }
+                if (action === 'Close') {
+                    await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                        .find(button => button.textContent?.trim() === 'Close'), undefined, {description: 'Close update dialog'});
+                } else {
+                    await page.keyboard.press('Escape');
+                }
+                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                const previousLanguage = action === 'Close' ? 'English' : 'Русский';
+                const nextLanguage = action === 'Close' ? 'Русский' : 'English';
+                await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]'))
+                    .find(button => button.textContent?.trim() === label), previousLanguage, {description: 'Interface language selector'});
+                await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+                    .find(option => option.textContent?.trim() === label), nextLanguage, {description: `${nextLanguage} interface language`});
+                const settingsLabel = action === 'Close' ? LOCALE_MESSAGES.ru.toolbar.settings : LOCALE_MESSAGES.en.toolbar.settings;
+                await page.waitForSelector(`button[aria-label="${settingsLabel}"]`, {visible: true});
+                const reopened = await page.evaluate(() => Boolean(document.querySelector('[role="dialog"]')));
+                closedDialogs.push({
+                    action,
+                    reopened,
+                });
+                writeFileSync(join(evidenceDirectory, 'closed-dialogs.json'), JSON.stringify(closedDialogs, null, 2));
+                await page.screenshot({path: join(evidenceDirectory, `closed-${action}-after-language.png`)});
+                // Dismiss a reopened baseline modal so both independent actions
+                // can be observed; the final assertion still rejects that outcome.
+                if (reopened) {
+                    await page.keyboard.press('Escape');
+                    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                }
+            }
+            expect(closedDialogs).toEqual([
+                {
+                    action: 'Close',
+                    reopened: false,
+                },
+                {
+                    action: 'Escape',
+                    reopened: false,
+                },
+            ]);
+            for (const phase of [
+                'checking',
+                'available',
+                'unsupported',
+            ] as const) {
+                await page.evaluate((phase: string) => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                    phase,
+                    origin: 'manual',
+                    version: '9.9.9',
+                    percent: null,
+                    message: null,
+                }), phase);
+                await page.waitForSelector('[role="dialog"]', {visible: true});
+                await page.keyboard.press('Escape');
+                await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+                console.log(`Update dialog Escape removed the ${phase} modal`);
+            }
             // Saved preferences and the existing preload status hook are fixtures.
             // Linux dev cannot run the signed standalone updater. Each check still
             // uses trusted input and real IPC before the controlled result arrives.
