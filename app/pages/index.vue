@@ -9,6 +9,7 @@ import { useWebSeo } from '@app/composables/useWebSeo';
 
 const route = useRoute();
 
+definePageMeta({keepalive: true});
 useWebSeo();
 
 if (import.meta.client && resolveInitialDesktopRuntime(route.path)) {
