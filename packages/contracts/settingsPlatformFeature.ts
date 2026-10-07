@@ -12,6 +12,7 @@ import {
 } from '@contracts/settings';
 import {
     defineForwardedPlatformMethod,
+    defineForwardedPlatformEvent,
     definePlatformFeature,
     type TFeatureCapability,
     type TFeatureInvokeMap,
@@ -151,7 +152,11 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
             main: 'save',
         }),
     },
-    events: {},
+    events: {onChanged: defineForwardedPlatformEvent({
+        name: 'onChanged',
+        channel: 'settings:changed',
+        payload: settingsResultSchema,
+    })},
 });
 
 interface ISettingsSupportCapability {
