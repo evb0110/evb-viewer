@@ -21,8 +21,8 @@
         <DocumentPanelEmptyState
             v-else-if="!isSearching && results.length === 0"
             icon="i-ph-magnifying-glass"
-            :title="t('searchResults.noResults')"
-            :description="t('searchResults.noResultsHint')"
+            :title="t(isIncompleteCoverage ? 'searchResults.noResultsInCoverage' : 'searchResults.noResults')"
+            :description="isIncompleteCoverage ? incompleteCoverageText : t('searchResults.noResultsHint')"
         />
         <div
             v-else-if="isSearching || results.length > 0"
@@ -51,6 +51,9 @@
                 >
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
+            </div>
+            <div v-if="!isSearching && isIncompleteCoverage" class="document-search-results-coverage" role="status">
+                {{ incompleteCoverageText }}
             </div>
             <!-- Kept in place when idle so finishing a search does not lift the list. -->
             <AppProgressBar
@@ -108,6 +111,7 @@
 </template>
 
 <script setup lang="ts">
+import type {IPdfSearchProgress} from '@contracts/search';
 import { useVirtualList } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
 import {
@@ -141,10 +145,7 @@ interface IProps {
     pageLabels?: TDocumentPageLabelLookup | undefined;
     isSearching?: boolean | undefined;
     searchError?: string | null | undefined;
-    searchProgress?: {
-        processed: number;
-        total: number;
-    } | undefined;
+    searchProgress?: Pick<IPdfSearchProgress, 'processed' | 'total' | 'coverage'> | undefined;
     isTruncated?: boolean | undefined;
     minQueryLength?: number | undefined;
 }
@@ -167,6 +168,20 @@ const emit = defineEmits<{goToResult: [index: number];}>();
 const trimmedQuery = computed(() => searchQuery.trim());
 const minQueryLength = computed(() => minQueryLengthProp ?? 0);
 const isTruncated = computed(() => isTruncatedProp);
+const isIncompleteCoverage = computed(() => searchProgress?.coverage?.truncated === true);
+const incompleteCoverageText = computed(() => {
+    const coverage = searchProgress?.coverage;
+    if (!coverage?.truncated) {
+        return '';
+    }
+    return `${t('searchResults.incompleteCoverage', {
+        processed: coverage.pagesScanned,
+        total: coverage.pageCount,
+    })} ${t('searchResults.incompleteCoverageHint', {
+        nextPage: coverage.pagesScanned + 1,
+        total: coverage.pageCount,
+    })}`;
+});
 const expandedPages = ref<Set<number>>(new Set());
 const knownGroupPages = ref<Set<number>>(new Set());
 const previousSearchQuery = ref('');
@@ -501,6 +516,12 @@ watch(
 .document-search-results-spinner {
     flex: 0 0 auto;
     animation: document-search-spin 1s linear infinite;
+}
+
+.document-search-results-coverage {
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
+    font-size: var(--app-sidebar-caption-font-size);
+    color: var(--ui-text-muted);
 }
 
 .document-search-results-list {

@@ -1280,6 +1280,9 @@ export default {
             other: 'Type at least {count} characters',
         }),
         'noResults': 'No results found',
+        'noResultsInCoverage': 'No matches in the pages searched',
+        'incompleteCoverage': 'Only {processed} of {total} pages were searched because the text index reached its size limit.',
+        'incompleteCoverageHint': 'To continue, extract pages {nextPage}–{total} into a new PDF and search it.',
         'noResultsHint': 'Try a different term or run OCR if visible scanned text is not found.',
         'unavailable': 'Search unavailable',
         'resultCount': plural({

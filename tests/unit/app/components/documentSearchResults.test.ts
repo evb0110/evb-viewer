@@ -16,6 +16,7 @@ import {
     nextTick,
     reactive,
 } from 'vue';
+import type {ISearchIndexCoverage} from '@contracts/search';
 import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 import DocumentSearchResults from '@app/components/document-viewer/DocumentSearchResults.vue';
 
@@ -28,6 +29,7 @@ const Stub = defineComponent({setup: () => () => h('i')});
 
 interface ISearchResultsHarnessState {
     results: IDocumentSearchMatch[];
+    coverage?: ISearchIndexCoverage;
     currentResultIndex: number;
     currentResultNavigationId: number;
 }
@@ -65,19 +67,25 @@ async function mountResults(state: ISearchResultsHarnessState, clientHeight: num
         currentResultIndex: state.currentResultIndex,
         currentResultNavigationId: state.currentResultNavigationId,
         searchQuery: 'lezgian',
+        searchProgress: state.coverage ? {
+            processed: state.coverage.pagesScanned,
+            total: state.coverage.pageCount,
+            coverage: state.coverage,
+        } : undefined,
     })}));
     app.component('UIcon', Stub);
     app.component('UProgress', Stub);
     app.mount(host);
     await nextTick();
     const list = host.querySelector<HTMLElement>('.document-search-results-list');
-    expect(list).not.toBeNull();
-    Object.defineProperty(list!, 'clientHeight', {
-        configurable: true,
-        value: clientHeight,
-    });
-    list!.dispatchEvent(new Event('scroll'));
-    await nextTick();
+    if (list) {
+        Object.defineProperty(list, 'clientHeight', {
+            configurable: true,
+            value: clientHeight,
+        });
+        list.dispatchEvent(new Event('scroll'));
+        await nextTick();
+    }
     const unmount = () => {
         app.unmount();
         host.remove();
@@ -86,7 +94,11 @@ async function mountResults(state: ISearchResultsHarnessState, clientHeight: num
     activeUnmounts.add(unmount);
     return {
         host,
-        list: list!,
+        get list() {
+            const currentList = host.querySelector<HTMLElement>('.document-search-results-list');
+            expect(currentList).not.toBeNull();
+            return currentList!;
+        },
     };
 }
 
@@ -99,6 +111,39 @@ function groupButton(host: HTMLElement, pageNumber: number) {
 }
 
 describe('DocumentSearchResults', () => {
+    it('distinguishes incomplete zero matches and keeps a coverage notice beside matches', async () => {
+        const coverage = {
+            pageCount: 3,
+            pagesScanned: 2,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+        const state = reactive<ISearchResultsHarnessState>({
+            results: [],
+            coverage,
+            currentResultIndex: -1,
+            currentResultNavigationId: 0,
+        });
+        const {host} = await mountResults(state, 120);
+        await nextTick();
+        expect(host.textContent).toContain('searchResults.noResultsInCoverage');
+        expect(host.textContent).toContain('searchResults.incompleteCoverageHint');
+        state.results = [match(0, 0)];
+        await nextTick();
+        expect(host.textContent).toContain('searchResults.incompleteCoverage');
+        state.coverage = {
+            ...coverage,
+            pagesScanned: 3,
+            pagesWritten: 3,
+            truncated: false,
+        };
+        state.results = [];
+        await nextTick();
+        expect(host.textContent).toContain('searchResults.noResults:');
+        expect(host.textContent).not.toContain('searchResults.incompleteCoverage');
+    });
+
     it('reveals rows inserted below a final group header without another wheel gesture', async () => {
         const state = reactive<ISearchResultsHarnessState>({
             results: [

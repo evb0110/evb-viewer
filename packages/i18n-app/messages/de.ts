@@ -1280,6 +1280,9 @@ export default {
             other: 'Mindestens {count} Zeichen eingeben',
         }),
         'noResults': 'Keine Ergebnisse gefunden',
+        'noResultsInCoverage': 'Keine Treffer auf den durchsuchten Seiten',
+        'incompleteCoverage': 'Nur {processed} von {total} Seiten wurden durchsucht, da der Textindex seine Größenbegrenzung erreicht hat.',
+        'incompleteCoverageHint': 'Um fortzufahren, extrahieren Sie die Seiten {nextPage}–{total} in eine neue PDF-Datei und durchsuchen Sie diese.',
         'noResultsHint': 'Versuchen Sie einen anderen Begriff oder passen Sie die Suchoptionen an.',
         'unavailable': 'Suche nicht verfügbar',
         'resultCount': plural({
