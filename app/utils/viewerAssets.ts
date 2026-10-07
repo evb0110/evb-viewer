@@ -21,7 +21,9 @@ const browserViewerAssets = {
         return `${PDF_ASSET_BASE_URL}${PDF_WORKER_FILE}`;
     },
     pdfAssetUrl(path: string) {
-        return `${PDF_ASSET_BASE_URL}${trimLeadingSlash(path)}`;
+        const relativePath = trimLeadingSlash(path);
+        const baseUrl = /^images(?:\/|$)/u.test(relativePath) ? '/pdfjs/' : PDF_ASSET_BASE_URL;
+        return `${baseUrl}${relativePath}`;
     },
     standardFontUrl(fileName: string) {
         return `${PDF_ASSET_BASE_URL}${STANDARD_FONT_DIR}${trimLeadingSlash(fileName)}`;

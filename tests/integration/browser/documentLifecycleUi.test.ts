@@ -1,5 +1,7 @@
 import {createHash} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {
+    readFileSync, writeFileSync,
+} from 'node:fs';
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
@@ -187,6 +189,102 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    // C2/L2: foreign annotation icons load from the packaged PDF.js assets.
+    it('loads a foreign attachment icon from the packaged PDF.js image directory', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const file = pdf.context.register(pdf.context.flateStream('Foreign attachment', {Type: 'EmbeddedFile'}));
+        const fileSpec = pdf.context.register(pdf.context.obj({
+            Type: 'Filespec',
+            F: PDFString.of('foreign.txt'),
+            EF: {F: file},
+        }));
+        const attachment = pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'FileAttachment',
+            Rect: [
+                100,
+                600,
+                124,
+                624,
+            ],
+            Name: 'Paperclip',
+            FS: fileSpec,
+            Contents: PDFString.of('Foreign attachment icon'),
+        }));
+        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([attachment]));
+        const fixtureBytes = Buffer.from(await pdf.save());
+        writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-attachment-${process.pid}.pdf`), fixtureBytes);
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-${process.pid}`)},
+            });
+            const consoleProblems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const responsePromise = page.waitForResponse(response => response.url().endsWith('/annotation-paperclip.svg'));
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'foreign-attachment.pdf',
+                mimeType: 'application/pdf',
+                buffer: fixtureBytes,
+            });
+            const response = await responsePromise;
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            const icon = page.locator('.page_container--rendered .fileAttachmentAnnotation img').first();
+            await icon.waitFor({state: 'attached'});
+            await expect.poll(() => icon.evaluate(image => (image as HTMLImageElement).complete)).toBe(true);
+            const dimensions = await icon.evaluate((image) => {
+                const rect = image.getBoundingClientRect();
+                return {
+                    naturalWidth: (image as HTMLImageElement).naturalWidth,
+                    width: rect.width,
+                    height: rect.height,
+                    imageStyle: image.getAttribute('style'),
+                    containerStyle: image.parentElement?.getAttribute('style'),
+                    containerDisplay: image.parentElement && getComputedStyle(image.parentElement).display,
+                    scaleFactor: getComputedStyle(image).getPropertyValue('--total-scale-factor'),
+                };
+            });
+            const bytes = await response.body();
+            const observation = {
+                url: new URL(response.url()).pathname,
+                status: response.status(),
+                sha256: createHash('sha256').update(bytes).digest('hex'),
+                ...dimensions,
+            };
+            console.info('Foreign annotation image', JSON.stringify(observation));
+            writeFileSync(resolve(process.cwd(), `.devkit/browser-annotation-icon-${process.pid}.json`), JSON.stringify(observation, null, 2));
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-icon-${process.pid}.png`)});
+            expect(new URL(response.url()).pathname).toBe('/pdfjs/images/annotation-paperclip.svg');
+            expect(response.status()).toBe(200);
+            expect(bytes).toEqual(readFileSync(resolve(process.cwd(), 'node_modules/pdfjs-dist/web/images/annotation-paperclip.svg')));
+            expect(dimensions.naturalWidth).toBeGreaterThan(0);
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     // T4: every accepted note belongs to the document's Save As frontier.
     it.each([
         'single',
