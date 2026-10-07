@@ -629,16 +629,22 @@ describe('browserPageOpsWorkerClient', () => {
         } finally {
             scope.stop();
             // Release the pre-fix pending worker after the failing assertion.
-            FakeWorker.lastInstance?.dispatchMessage({
-                id: 1,
-                type: 'printLayout',
-                ok: true,
-                data: {
-                    data: new Uint8Array([4]),
-                    pageCount: 1,
-                },
-            });
+            const worker = FakeWorker.lastInstance;
+            const request = worker?.postMessageCalls[0]?.message;
+            if (request && typeof request === 'object' && 'id' in request) {
+                worker?.dispatchMessage({
+                    id: request.id,
+                    type: 'printLayout',
+                    ok: true,
+                    data: {
+                        data: new Uint8Array([4]),
+                        pageCount: 1,
+                    },
+                });
+            }
             await preparation;
+            FakeWorker.autoRespond = true;
+            vi.unstubAllGlobals();
         }
     });
 
