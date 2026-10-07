@@ -267,6 +267,15 @@ export const SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA = v.object({
 
 export type TScanCleanupSummaryWarningEvent = v.InferOutput<typeof SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA>;
 
+/** Positively observed source text omitted by unsafe output geometry. */
+const SCAN_CLEANUP_SOURCE_TEXT_OMISSION_SCHEMA = v.pipe(v.object({
+    count: v.pipe(summaryCount, v.minValue(1)),
+    /** First source pages only; count includes every affected source page. */
+    pages: v.pipe(v.array(summaryPageNumber), v.minLength(1), v.maxLength(20)),
+}), v.check(value => value.pages.length === Math.min(value.count, 20)
+    && value.pages.every((page, index) => index === 0 || page > value.pages[index - 1]!),
+'invalid scan-cleanup source text omission'));
+
 export const SCAN_CLEANUP_SUMMARY_SCHEMA = v.object({
     inputPages: summaryCount,
     outputPages: summaryCount,
@@ -276,6 +285,7 @@ export const SCAN_CLEANUP_SUMMARY_SCHEMA = v.object({
     cropSkipped: summaryCount,
     excludedPages: summaryCount,
     blankPagesSkipped: summaryCount,
+    sourceTextOmission: v.optional(SCAN_CLEANUP_SOURCE_TEXT_OMISSION_SCHEMA),
     warnings: v.array(v.string()),
     /**
      * Optional so a summary written before this channel existed still decodes:

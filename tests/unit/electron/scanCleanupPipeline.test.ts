@@ -233,6 +233,32 @@ async function setup() {
     };
 }
 
+
+// These conversion controls are rasters; the native read must not write an
+// assembler output or invent positioned source text on their refused pages.
+async function rasterTextVisibilityResult(args: readonly string[]) {
+    if (args[0] !== 'ocr-text-visibility') return null;
+    const pages = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8'))
+        .trim().split('\n').map(Number);
+    return {
+        exitCode: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+            format: 'evb-pdf-ocr-text-visibility',
+            schemaVersion: 2,
+            pages: pages.map(pageNumber => ({
+                pageNumber,
+                evbOcrLayer: false,
+                paintedText: false,
+                hiddenText: false,
+                uncertain: null,
+                unsupported: null,
+                evbOcrText: null,
+            })),
+        }),
+    };
+}
+
 // Every matched run measures the document through `page-sizes` before it
 // renders, so a harness that replaces runCommand still has to answer it.
 async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
@@ -319,6 +345,8 @@ function dependencies(
         getAvailableScratchBytes: vi.fn(async () => null),
         hashNativeBinary: vi.fn(async (path: string) => createHash('sha256').update(path, 'utf8').digest('hex')),
         runCommand: vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -549,6 +577,8 @@ async function measurePipelineRasterPeak(
         ));
     }
     pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+        const visibility = await rasterTextVisibilityResult(args);
+        if (visibility) return visibility;
         if (args[0] === '--check') {
             return {
                 exitCode: 0,
@@ -1251,6 +1281,8 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -1478,6 +1510,8 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -1679,6 +1713,8 @@ describe('scan cleanup pipeline', () => {
             },
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2109,6 +2145,8 @@ describe('scan cleanup pipeline', () => {
         );
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2126,7 +2164,7 @@ describe('scan cleanup pipeline', () => {
             };
         });
 
-        await runScanCleanupPipeline({
+        const summary = await runScanCleanupPipeline({
             sourcePdfPath: fixture.sourcePdfPath,
             outputPdfPath: fixture.outputPdfPath,
             sourcePageMetadataByPage: Object.fromEntries([
@@ -2155,7 +2193,12 @@ describe('scan cleanup pipeline', () => {
         }, pipelinePaths(fixture.dir), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
 
         expect(pipelineDependencies.detectSourceDpi).not.toHaveBeenCalled();
-        expect(pipelineDependencies.runCommand).toHaveBeenCalledTimes(2);
+        expect(summary).toMatchObject({
+            inputPages: 2,
+            outputPages: 2,
+        });
+        expect(summary.sourceTextOmission).toBeUndefined();
+        expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
     });
 
     it('processes and assembles only scoped source pages with scoped progress totals', async () => {
@@ -2227,6 +2270,8 @@ describe('scan cleanup pipeline', () => {
             await writeFile(outputPath, PPM);
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2378,6 +2423,8 @@ describe('scan cleanup pipeline', () => {
             ]),
         ));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2472,6 +2519,8 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2579,6 +2628,8 @@ describe('scan cleanup pipeline', () => {
         const pdfimagesDetector = pipelineDependencies.detectSourceDpi;
         const baseRunCommand = pipelineDependencies.runCommand;
         pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2689,6 +2740,8 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2853,6 +2906,8 @@ describe('scan cleanup pipeline', () => {
         const baseRunCommand = pipelineDependencies.runCommand;
         let stagedPdfPath: string | undefined;
         pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 stagedPdfPath = args[1];
                 return {
@@ -2939,6 +2994,8 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -3110,6 +3167,8 @@ describe('scan cleanup pipeline', () => {
             return layers;
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -3303,6 +3362,8 @@ describe('scan cleanup pipeline', () => {
             return layers;
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -3462,6 +3523,8 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -3565,6 +3628,8 @@ describe('scan cleanup pipeline', () => {
             ],
         ]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -3814,6 +3879,8 @@ describe('scan cleanup pipeline', () => {
             }
         }));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -3985,6 +4052,8 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -4062,6 +4131,8 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -4181,6 +4252,8 @@ describe('scan cleanup pipeline', () => {
             if (breakPageOps) {
                 const baseRunCommand = pipelineDependencies.runCommand;
                 pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
+                    const visibility = await rasterTextVisibilityResult(args);
+                    if (visibility) return visibility;
                     if (args[0] === '--check') {
                         return {
                             exitCode: 0,
@@ -4311,6 +4384,8 @@ describe('scan cleanup pipeline', () => {
             pipelineDependencies.detectSourceDpi = scopedDetector(pageGeometry, sourceDpiByPage);
         }
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -4837,6 +4912,8 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,

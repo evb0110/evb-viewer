@@ -972,6 +972,8 @@ export default {
         'runCount': '{completed} of {total} pages',
         'runStatus': '{phase} — {counter}',
         'summary': '{input} source pages became {output} output pages; {spreads} spreads split, {offcuts} offcuts discarded.',
+        'sourceTextOmitted': 'Source text was omitted from outputs of {count} source page(s): {pages}. Search and copy are unavailable on the affected output pages. Run OCR on the cleaned PDF to restore searchable text.',
+        'sourceTextOmittedMorePages': '{pages} and {remaining} more',
     },
     'djvu': {
         'bannerHint': 'This DjVu file is view-only — convert it to PDF to edit',

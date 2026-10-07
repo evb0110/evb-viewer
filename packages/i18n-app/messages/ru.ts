@@ -984,6 +984,8 @@ export default {
         'runCount': '{completed} из {total} стр.',
         'runStatus': '{phase} — {counter}',
         'summary': 'Из {input} исходных страниц получено {output}; разделено разворотов: {spreads}, удалено обрезков: {offcuts}.',
+        'sourceTextOmitted': 'Исходный текст не перенесён в результат для {count} исходных страниц: {pages}. На затронутых выходных страницах недоступны поиск и копирование текста. Выполните OCR очищенного PDF, чтобы восстановить поиск по тексту.',
+        'sourceTextOmittedMorePages': '{pages} и ещё {remaining}',
     },
     'djvu': {
         'bannerHint': 'Файл DjVu доступен только для просмотра — конвертируйте в PDF для редактирования',
