@@ -605,6 +605,7 @@ export default {
         'activityCompleted': 'Tour terminé',
         'steerQueued': 'Instruction en attente, arrêt du tour en cours',
         'steerSending': 'Envoi de l’instruction en attente',
+        'steerDraftRestored': 'Le document a changé. Votre correction en attente est maintenant un brouillon modifiable ; vérifiez-le avant de l’envoyer.',
         'imagePasteBusy': 'Le collage d’images est désactivé pendant l’exécution d’un tour. Envoyez d’abord une instruction textuelle ou arrêtez le tour.',
         'steerImagesUnsupported': 'Pendant l’exécution, seules les instructions textuelles sont prises en charge. Arrêtez le tour avant d’envoyer des images.',
         'btwIdle': 'Aucun tour de l’assistant n’est actif pour le moment.',

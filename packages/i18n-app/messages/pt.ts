@@ -605,6 +605,7 @@ export default {
         'activityCompleted': 'Turno concluído',
         'steerQueued': 'Instrução em fila; a parar o turno atual',
         'steerSending': 'A enviar a instrução em fila',
+        'steerDraftRestored': 'O documento foi alterado. A correção em fila é agora um rascunho editável; reveja-o antes de o enviar.',
         'imagePasteBusy': 'A colagem de imagens está desativada enquanto decorre um turno. Envie primeiro uma instrução de texto ou pare o turno.',
         'steerImagesUnsupported': 'Enquanto está ocupado, só são suportadas instruções de texto. Pare o turno antes de enviar imagens.',
         'btwIdle': 'Não existe nenhum turno do assistente ativo neste momento.',
