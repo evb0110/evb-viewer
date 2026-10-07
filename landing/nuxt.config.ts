@@ -52,7 +52,7 @@ export default defineNuxtConfig({
         '@vercel/analytics/nuxt',
     ],
 
-    devtools: { enabled: true },
+    devtools: { enabled: false },
 
     devServer: { port: 3777 },
 
