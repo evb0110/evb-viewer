@@ -1,0 +1,15 @@
+packages/contracts/searchConformanceCorpus.json
+  ai_agent 9-10,773-2272
+native/pdf-search/src/main.rs
+  ai_agent 22,431,445-468,475,478-479,482-483
+tests/unit/app/platform/browserSearchWorker.test.ts
+  ai_agent 1,101,103,109-110,112-114,116,124-129
+packages/pdf-core/pdfSearchAlgorithms.ts
+  ai_agent 531-534,536,569-570,573-575,584-585
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a2810a63eb1a7bd297bf122b82cb8d0190a69b92",
+  "prompts": {}
+}
