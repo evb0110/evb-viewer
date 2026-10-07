@@ -2,6 +2,7 @@
 
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -11,6 +12,7 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
     ref,
     shallowRef,
 } from 'vue';
@@ -86,12 +88,35 @@ const { useWorkspaceCrashCheckpoint } = await import(
     '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint'
 );
 
+// The existing toaster is the notice boundary: a rejected checkpoint must
+// retain its visible warning until a replacement checkpoint becomes durable.
+const notices = ref<Array<{
+    id: string;
+    title: string;
+    description?: string
+}>>([]);
+beforeEach(() => {
+    vi.stubGlobal('useToast', () => ({
+        toasts: notices,
+        add: (notice: (typeof notices.value)[number]) => {
+            const previous = notices.value.findIndex(candidate => candidate.id === notice.id);
+            if (previous < 0) notices.value.push(notice);
+            else notices.value[previous] = notice;
+        },
+        remove: (id: string) => {
+            notices.value = notices.value.filter(notice => notice.id !== id);
+        },
+    }));
+});
+
 const unmounts: Array<() => void> = [];
 
 afterEach(() => {
     unmounts.splice(0).forEach(unmount => unmount());
     stores.documents.length = 0;
     stores.checkpoints.length = 0;
+    notices.value = [];
+    vi.unstubAllGlobals();
     vi.useRealTimers();
 });
 
@@ -247,10 +272,11 @@ describe('desktop crash checkpoint written now', () => {
         }]);
         const tabs = ref<Array<{id: string}>>([{id: 'tab-1'}]);
         const sessions = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({'tab-1': reader});
+        const enabled = ref(true);
         let checkpoint: ReturnType<typeof useWorkspaceCrashCheckpoint> | null = null;
         const app = createApp(defineComponent({setup() {
             checkpoint = useWorkspaceCrashCheckpoint({
-                enabled: ref(true),
+                enabled,
                 panes,
                 tabs: cast(tabs),
                 layout: ref<TEditorLayoutNode | null>({
@@ -268,6 +294,9 @@ describe('desktop crash checkpoint written now', () => {
         unmounts.push(() => app.unmount());
         return {
             persistNow: () => checkpoint!.persistCheckpointNow(),
+            reader,
+            enabled,
+            unmount: () => app.unmount(),
             addBackgroundTab(path: string) {
                 const output = createWorkspaceDocumentController({tabId: 'tab-2'});
                 output.commitDocument({
@@ -335,6 +364,65 @@ describe('desktop crash checkpoint written now', () => {
             null,
             '/managed/output — cleaned.pdf',
         ]);
+    });
+
+    it('retains the protection warning until the replacement checkpoint is durable and clears it with its owner', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        const workingCopyRef = requireDocumentRef('/managed/image.pdf');
+        const originalPath = requireDocumentRef('/documents/image.pdf');
+        workspace.reader.commitDocument({
+            fileName: 'image.pdf',
+            originalPath,
+            isDjvu: false,
+            revisionInfo: {
+                version: 1,
+                token: requireDocumentRevisionToken('image-revision'),
+                documentRef: workingCopyRef,
+                authority: 'electron-working-copy',
+                contentRevision: 1,
+                mintedAt: requireEpochMs(1),
+            },
+        });
+        workspace.reader.setDirty(true);
+        let rejectsCapture = true;
+        workspace.reader.attachWorkspace('tab-1', createWorkspaceExposeFixture({
+            getAutomationStateSnapshot: () => cast({
+                originalPath,
+                workingCopyPath: workingCopyRef,
+            }),
+            captureCanonicalAnnotationRecovery: () => {
+                if (rejectsCapture) throw new Error('Recovery state exceeds the 4194304-byte annotation budget');
+                return null;
+            },
+        }));
+        await workspace.persistNow();
+        await workspace.persistNow();
+        expect(notices.value).toHaveLength(1);
+        expect(notices.value[0]?.description).toContain('4194304-byte');
+        expect(notices.value[0]?.description).toContain('image.pdf');
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.annotationRecoveryFailure?.reason).toBe('capture-rejected');
+
+        rejectsCapture = false;
+        desktop.save = async () => {throw new Error('disk full');};
+        await expect(workspace.persistNow()).rejects.toThrow('disk full');
+        expect(notices.value).toHaveLength(1);
+        expect(notices.value[0]?.description).toContain('4194304-byte');
+
+        desktop.save = async (checkpoint) => {desktop.saved.push(checkpoint);};
+        await workspace.persistNow();
+        expect(notices.value).toEqual([]);
+        rejectsCapture = true;
+        await workspace.persistNow();
+        expect(notices.value).toHaveLength(1);
+        workspace.enabled.value = false;
+        await nextTick();
+        expect(notices.value).toEqual([]);
+        workspace.enabled.value = true;
+        await workspace.persistNow();
+        expect(notices.value).toHaveLength(1);
+        workspace.unmount();
+        expect(notices.value).toEqual([]);
     });
 
     it('fails when the checkpoint holding the tab cannot be saved', async () => {

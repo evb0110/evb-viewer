@@ -28,12 +28,7 @@ export interface FailurePresentation extends IPresentedFailureCapture {
  * gone, input that was skipped, a step that was refused. It has no receipt,
  * so it offers nothing to copy.
  */
-export interface INoticePresentation {
-    tone: 'warning' | 'info' | 'success';
-    title: string;
-    description?: string;
-    actions?: IFailureToastAction[];
-}
+export interface INoticePresentation extends Pick<IToastOptions, 'id' | 'title' | 'description' | 'actions' | 'duration' | 'progress'> {tone: 'warning' | 'info' | 'success';}
 
 type TToastTone = 'error' | INoticePresentation['tone'];
 
@@ -169,12 +164,13 @@ export function createFailureToastPresenter(
 
 export function createNoticeToastPresenter(toast: IFailureToastTarget) {
     return function presentNoticeToast(notice: INoticePresentation) {
+        const {
+            tone, ...options
+        } = notice;
         toast.add({
-            color: notice.tone,
-            icon: TOAST_ICONS[notice.tone],
-            title: notice.title,
-            ...(notice.description ? {description: notice.description} : {}),
-            ...(notice.actions ? {actions: notice.actions} : {}),
+            ...options,
+            color: tone,
+            icon: TOAST_ICONS[tone],
         });
     };
 }
