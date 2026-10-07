@@ -1012,16 +1012,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             printOwner?: IPrintRunOwner;
         } = {},
     ) {
-        const printOwner = options.printOwner ?? beginPrintRun(
-            payload,
-            options.action ?? 'default',
-        );
+        const printOwner = options.printOwner ?? beginPrintRun(payload, options.action ?? 'default');
         if (!printOwner) {
             return;
         }
         const printRunId = printOwner.runId;
-        const abortController = printOwner.abortController;
-        const { signal } = abortController;
+        const { signal } = printOwner.abortController;
 
         try {
             if (payload.pageSelection) {
@@ -1139,7 +1135,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             const { layoutPdfForBrowserPrint } = await import('@app/platform/browser-api/public');
-            const printablePdf = await layoutPdfForBrowserPrint(sourceData, payload);
+            const printablePdf = await layoutPdfForBrowserPrint(sourceData, {
+                ...payload,
+                signal,
+            });
             assertPrintRunCurrent(printOwner);
 
             await printPdfDataWithNativeHandoff(

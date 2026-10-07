@@ -5,6 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    effectScope,
+    ref,
+} from 'vue';
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
@@ -577,6 +581,66 @@ describe('browserPageOpsWorkerClient', () => {
             ]));
         },
     );
+
+    it('stops the isolated layout worker when the workspace print dialog closes', async () => {
+        FakeWorker.autoRespond = false;
+        const notices: unknown[] = [];
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            remove: () => undefined,
+        }));
+        const {useWorkspacePrint} = await import('@app/modules/workspace-shell/composables/useWorkspacePrint');
+        const scope = effectScope();
+        const input = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        const print = scope.run(() => useWorkspacePrint({
+            totalPages: ref(2),
+            currentPage: ref(1),
+            selectedPages: ref([]),
+            sourcePdf: ref(null),
+            workingCopyPath: ref(null),
+            fileName: ref('cancel-print.pdf'),
+            hasPendingUnsavedChanges: ref(false),
+            getQuickPrintPageMetrics: async () => null,
+            getPrintableSourceData: async () => input,
+        }));
+        if (!print) throw new Error('Missing print owner');
+        print.handlePrintDialogOpenChange(true);
+        const preparation = print.handlePrintDialogSubmit({
+            viewMode: 'facing',
+            orientation: 'landscape',
+        });
+        try {
+            await vi.waitFor(() => expect(FakeWorker.lastInstance).not.toBeNull());
+            const worker = FakeWorker.lastInstance!;
+            print.handlePrintDialogOpenChange(false);
+            await vi.waitFor(() => expect(worker.terminated).toBe(true));
+            await preparation;
+            expect(print.isPreparingPrint.value).toBe(false);
+            expect(notices).toEqual([]);
+            expect(input).toEqual(new Uint8Array([
+                1,
+                2,
+                3,
+            ]));
+        } finally {
+            scope.stop();
+            // Release the pre-fix pending worker after the failing assertion.
+            FakeWorker.lastInstance?.dispatchMessage({
+                id: 1,
+                type: 'printLayout',
+                ok: true,
+                data: {
+                    data: new Uint8Array([4]),
+                    pageCount: 1,
+                },
+            });
+            await preparation;
+        }
+    });
 
     it('preserves typed decrypt failures and unavailable WASM results across the worker boundary', async () => {
         FakeWorker.autoRespond = false;
