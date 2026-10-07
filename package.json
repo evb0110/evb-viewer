@@ -191,6 +191,7 @@
       "@bomb.sh/tab>cac": "6.7.14",
       "@hono/node-server": "2.1.1",
       "serialize-javascript": "7.1.2",
+      "@nuxt/devtools>simple-git": "4.0.2",
       "launch-editor>shell-quote": "1.11.0",
       "@modelcontextprotocol/sdk": "1.31.0",
       "source-map-js": "1.2.2",
