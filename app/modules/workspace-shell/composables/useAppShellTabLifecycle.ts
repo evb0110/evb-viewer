@@ -16,7 +16,6 @@ import type { ITab } from '@app/types/tabs';
 import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import type { IWorkspaceRestoreTrackerLike } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import {
-    identityHasDocument,
     snapshotOccupiesTab,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -173,11 +172,6 @@ export const useAppShellTabLifecycle = (
         return session !== null && snapshotOccupiesTab(session.snapshot.value);
     }
 
-    function tabHoldsDocument(tabId: string) {
-        const snapshot = getDocumentSession(tabId)?.snapshot.value;
-        return snapshot !== undefined && (snapshot.phase === 'opening' || identityHasDocument(snapshot.identity));
-    }
-
     function hasTabBusyOperation(tabId: string) {
         const session = getDocumentSession(tabId);
         const view = session?.getView(tabId);
@@ -242,7 +236,7 @@ export const useAppShellTabLifecycle = (
             return false;
         }
 
-        return !tabHoldsDocument(tabId);
+        return !tabOccupied(tabId);
     }
 
     function resolveTabForAction(tabId: string | undefined) {
@@ -490,7 +484,7 @@ export const useAppShellTabLifecycle = (
             await handoffActiveTabBeforeClose(paneId, tabId);
         }
 
-        if (closesDocument && tabHoldsDocument(tabId)) {
+        if (closesDocument && tabOccupied(tabId)) {
             await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose);
         } else {
             closeResolvedTabInState(paneId, tabId);

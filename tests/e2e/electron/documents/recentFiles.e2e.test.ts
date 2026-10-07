@@ -481,6 +481,7 @@ async function waitForStartupOverlayRemoved(session: IElectronE2ESession) {
 async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
     session: IElectronE2ESession,
     sourcePath: string,
+    activation: 'pointer' | 'keyboard',
 ): Promise<IRecentOpenTransitionResult> {
     // A Recent click first validates that the persisted path still exists. The
     // IPC/stat preflight has variable duration, so opening-surface budgets
@@ -667,10 +668,28 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             y: number
         }}).__recentPressPoint!
     ));
-    await session.page.mouse.move(pressPoint.x, pressPoint.y);
-    await session.page.mouse.down();
-    await delay(RECENT_PRESS_MS);
-    await session.page.mouse.up();
+    if (activation === 'keyboard') {
+        // Focus is setup; the activation itself is a trusted keyboard input.
+        await evaluateInPage(session.page, (targetSourcePath: string) => {
+            const host = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            );
+            const row = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.recent-row--data[data-recent-open-actionable="true"]',
+            ) ?? []).find(candidate => candidate.dataset.recentSource === targetSourcePath);
+            const button = row?.querySelector<HTMLButtonElement>('button.recent-open');
+            if (!button || button.disabled || button.getClientRects().length === 0) {
+                throw new Error(`No visible actionable Recent button for ${targetSourcePath}`);
+            }
+            button.focus();
+        }, sourcePath);
+        await session.page.keyboard.press('Enter');
+    } else {
+        await session.page.mouse.move(pressPoint.x, pressPoint.y);
+        await session.page.mouse.down();
+        await delay(RECENT_PRESS_MS);
+        await session.page.mouse.up();
+    }
     // The press opens only if its click reached the row's open button. One
     // that missed, because the row moved or was replaced after its point was
     // read, would leave the sampler waiting for a click until the test timed out.
@@ -799,7 +818,10 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens a previously read Recent file to its page-shaped skeleton in the first frame, before the working copy is made', async () => {
+    it.each([
+        'pointer',
+        'keyboard',
+    ] as const)('opens a previously read Recent file to its page-shaped skeleton in the first frame, before the working copy is made (%s)', async (activation) => {
         const session = sessionFixture.getSession();
 
         const fixturePath = await createScannedTextFixturePdf(
@@ -816,10 +838,16 @@ describe('Electron E2E - Recent Files', () => {
             window.__deferDocumentOpenForAutomation?.(path) ?? false
         ), fixtureDocumentRef);
         expect(sourceDeferred).toBe(true);
+        const client = await session.page.createCDPSession();
+        await client.send('Emulation.setCPUThrottlingRate', {rate: 6});
         const immediateOpen = await emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             session,
             fixturePath,
-        );
+            activation,
+        ).finally(async () => {
+            await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
+            await client.detach();
+        });
         expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
         // The open is held before the working copy exists, as a slow disk holds
         // it. The page's shape does not wait for the working copy, so the
