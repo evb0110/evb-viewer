@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Zoeken…',
         'pagesProgress': '{processed} van {total} pagina\'s',
         'enterSearchTerm': 'Voer een zoekterm in',
-        'enterSearchHint': 'Typ een woord of zin om in het huidige document te zoeken.',
+        'enterSearchHint': 'Er wordt per pagina gezocht, dus woordgroepen kunnen geen pagina-einden overspannen. Gebruik dubbele aanhalingstekens ("...") om spaties aan het begin of einde te behouden.',
         'typeMinChars': plural({
             one: 'Typ minstens {count} teken',
             other: 'Typ minstens {count} tekens',
@@ -1283,7 +1283,7 @@ export default {
         'noResultsInCoverage': 'Geen overeenkomsten op de doorzochte pagina’s',
         'incompleteCoverage': 'Slechts {processed} van de {total} pagina’s zijn doorzocht omdat de tekstindex de maximale grootte heeft bereikt.',
         'incompleteCoverageHint': 'Extraheer pagina’s {nextPage}–{total} naar een nieuwe PDF en doorzoek die om verder te zoeken.',
-        'noResultsHint': 'Probeer een andere term of pas de zoekopties aan.',
+        'noResultsHint': 'Probeer een andere zoekterm of voer OCR uit als zichtbare tekst op gescande pagina’s niet wordt gevonden.',
         'unavailable': 'Zoeken niet beschikbaar',
         'resultCount': plural({
             one: '{count} resultaat',

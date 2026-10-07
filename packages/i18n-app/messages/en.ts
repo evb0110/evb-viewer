@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Searching...',
         'pagesProgress': '{processed} of {total} pages',
         'enterSearchTerm': 'Enter a search term',
-        'enterSearchHint': 'Search runs page by page, so phrases do not span page breaks. Use double quotes to preserve leading or trailing spaces.',
+        'enterSearchHint': 'Search runs page by page, so phrases do not span page breaks. Use double quotes ("...") to preserve leading or trailing spaces.',
         'typeMinChars': plural({
             one: 'Type at least {count} character',
             other: 'Type at least {count} characters',
