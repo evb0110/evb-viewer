@@ -34,14 +34,9 @@ function logMissingLanguageModels(languages: string[]) {
 
 export async function prepareLanguageModelsForJob(
     pages: TOcrPdfPageSelection,
-    jobSignal: AbortSignal,
-    timeoutMs: number,
+    signal: AbortSignal,
 ) {
     const languages = getOcrJobLanguages(pages);
-    const signal = AbortSignal.any([
-        jobSignal,
-        AbortSignal.timeout(timeoutMs),
-    ]);
     await ensureRuntimeTessdataSeeded({ signal });
     logMissingLanguageModels(languages);
     await ensureTessdataLanguages(languages, { signal });

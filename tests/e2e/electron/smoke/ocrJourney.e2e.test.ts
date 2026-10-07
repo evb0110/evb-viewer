@@ -1,6 +1,9 @@
+import {createHash} from 'node:crypto';
+import {createServer} from 'node:http';
+import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
-    copyFile, stat, writeFile,
+    copyFile, mkdtemp, readFile, rename, stat, writeFile,
 } from 'node:fs/promises';
 import {
     GlobalFonts, createCanvas,
@@ -21,6 +24,7 @@ import {
     vi,
 } from 'vitest';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
+import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     activateMenuItemAsUser,
@@ -727,4 +731,138 @@ describe('Electron E2E - OCR journey', () => {
         await activateByScript(rightPane!);
         expect(await dialogIsOpen(), 'the right view still has the dialog the user left open').toBe(true);
     }, 200_000);
+
+    // #1018: a healthy retry may finish after two minutes. Use real model
+    // bytes and real attempt deadlines; only the transport is controlled.
+    it('finishes model preparation after a stalled attempt and a slow healthy retry', async () => {
+        const scratch = await mkdtemp(join(tmpdir(), 'ocr-model-preparation-'));
+        console.info(`Model preparation evidence: ${scratch}`);
+        const modelPath = join(process.cwd(), 'resources/tesseract/tessdata/deu.traineddata');
+        const backupPath = join(scratch, 'deu-original.traineddata');
+        const modelBytes = await readFile(modelPath);
+        expect(createHash('sha256').update(modelBytes).digest('hex')).toBe(OCR_LANGUAGE_MODEL_SHA256.deu);
+        const transportEvents: Array<{
+            at: number;
+            event: string;
+            method: string | undefined
+        }> = [];
+        let firstAttempt = true;
+        const transport = createServer((request, response) => {
+            transportEvents.push({
+                at: Date.now(),
+                event: 'request',
+                method: request.method,
+            });
+            response.once('close', () => transportEvents.push({
+                at: Date.now(),
+                event: 'close',
+                method: request.method,
+            }));
+            response.writeHead(200, {'Content-Length': modelBytes.length});
+            if (request.method === 'HEAD') {
+                response.end();
+                return;
+            }
+            if (firstAttempt) {
+                firstAttempt = false;
+                response.write(modelBytes.subarray(0, 1024));
+                return;
+            }
+            // Model bytes arrive at 200 KiB/s, rather than adding a wait to
+            // the test or changing the owner's 90-second attempt deadline.
+            let offset = 0;
+            const stream = setInterval(() => {
+                response.write(modelBytes.subarray(offset, offset + 65_536));
+                offset += 65_536;
+                if (offset >= modelBytes.length) response.end();
+            }, 320);
+            response.once('close', () => clearInterval(stream));
+        });
+        await sessionFixture.stop({preserveArtifacts: true});
+        await rename(modelPath, backupPath);
+        try {
+            await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
+            const address = transport.address();
+            if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
+            const transportUrl = `http://127.0.0.1:${address.port}/deu.traineddata`;
+            const sourceUrl = 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/deu.traineddata';
+            const hookPath = join(scratch, 'model-transport.cjs');
+            await writeFile(hookPath, `
+if (process.versions.electron && process.type === 'browser') {
+    const fetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => {
+        if (!String(url).endsWith('/deu.traineddata')) return fetch(url, options);
+        if (String(url) !== ${JSON.stringify(sourceUrl)}) throw new Error('Unexpected model source');
+        return fetch(${JSON.stringify(transportUrl)}, options);
+    };
+}
+`);
+            const session = await sessionFixture.start({
+                sessionName: () => `e2e-ocr-model-preparation-${Date.now()}`,
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${hookPath}`},
+            });
+            const {page} = session;
+            const doc = await PDFDocument.create();
+            doc.setCreationDate(new Date('2026-10-07T00:00:00Z'));
+            doc.setModificationDate(new Date('2026-10-07T00:00:00Z'));
+            const font = await doc.embedFont(StandardFonts.Helvetica);
+            doc.addPage([
+                612,
+                792,
+            ]).drawText('Hafen Laterne Signal. Dieser Text bleibt unveraendert.', {
+                x: 60,
+                y: 400,
+                size: 24,
+                font,
+            });
+            const sourcePath = join(scratch, 'native-text.pdf');
+            await writeFile(sourcePath, await doc.save());
+            await openPdfInApp(page, sourcePath, 90_000);
+            await waitForViewerInteractive(page, 90_000);
+            await session.command('windowResize', [
+                1440,
+                900,
+            ]);
+            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+            const german = await page.waitForFunction(() => (
+                Array.from(document.querySelectorAll('[role="dialog"] .chip-code'))
+                    .find(code => code.textContent?.trim() === 'deu')?.closest('label')
+            ), {timeout: 30_000});
+            await clickAsUser(page, german.asElement() as ElementHandle<HTMLLabelElement>);
+            await page.screenshot({path: join(scratch, 'before.png')});
+            const startedAt = Date.now();
+            await clickVisibleButton(page, '[role="dialog"]', 'Download and start OCR');
+            await waitForFunctionInPage(page, () => (
+                document.body.innerText.includes('No pages needed OCR')
+                || document.body.innerText.includes('operation was aborted due to timeout')
+            ), {timeout: OCR_TIMEOUT_MS});
+            const text = await page.$eval('body', body => body.innerText);
+            await page.screenshot({path: join(scratch, 'terminal.png')});
+            await writeFile(join(scratch, 'result.json'), JSON.stringify({
+                session: session.name,
+                elapsedMs: Date.now() - startedAt,
+                text,
+            }, null, 2));
+            expect(text).toContain('No pages needed OCR');
+            expect(text).toContain('Page 1: existing text was preserved.');
+            expect(text).toContain('Hafen Laterne Signal.');
+            expect((await readFile(modelPath)).equals(modelBytes)).toBe(true);
+        } finally {
+            try {
+                await sessionFixture.stop({preserveArtifacts: true});
+            } finally {
+                try {
+                    transport.closeAllConnections();
+                    if (transport.listening) {
+                        await new Promise<void>((resolve, reject) => transport.close(error => error ? reject(error) : resolve()));
+                    }
+                    await writeFile(join(scratch, 'transport.json'), JSON.stringify(transportEvents, null, 2));
+                } finally {
+                    await rename(backupPath, modelPath);
+                }
+                await sessionFixture.start({sessionName: () => `e2e-ocr-journey-restored-${Date.now()}`});
+            }
+        }
+    }, 300_000);
 });

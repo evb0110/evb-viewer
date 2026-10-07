@@ -20,11 +20,14 @@ import {parseDocumentRef} from '@contracts/documentRef';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {OCR_COMPLETE_EVENT_CHANNEL} from '@contracts/electronApiOcr';
 import type {IOcrJob} from '@electron/features/ocr/pipeline/runOcrJob';
+import type * as ModelPreparation from '@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep';
 import type {TOcrJobResult} from '@electron/features/ocr/pipeline/types';
 
 const mocks = vi.hoisted(() => ({
     runOcrJob: vi.fn(),
     prepareLanguageModelsForJob: vi.fn(),
+    ensureRuntimeTessdataSeeded: vi.fn(),
+    ensureTessdataLanguages: vi.fn(),
     sendPlatformEvent: vi.fn(),
     getWorkingCopyRevision: vi.fn(),
 }));
@@ -33,7 +36,14 @@ vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{webContents: 
 vi.mock('@electron/utils/sendPlatformEvent', () => ({sendPlatformEvent: mocks.sendPlatformEvent}));
 vi.mock('@electron/features/ocr/pipeline/runOcrJob', () => ({runOcrJob: mocks.runOcrJob}));
 vi.mock('@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep', () => ({prepareLanguageModelsForJob: mocks.prepareLanguageModelsForJob}));
-vi.mock('@electron/features/ocr/main/paths', () => ({resolveOcrPipelinePaths: async () => ({})}));
+vi.mock('@electron/features/ocr/main/paths', () => ({
+    resolveOcrPipelinePaths: async () => ({}),
+    getOcrToolPaths: () => ({tessdata: root}),
+}));
+vi.mock('@electron/features/ocr/languageModels', () => ({
+    ensureRuntimeTessdataSeeded: mocks.ensureRuntimeTessdataSeeded,
+    ensureTessdataLanguages: mocks.ensureTessdataLanguages,
+}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRevision: mocks.getWorkingCopyRevision}));
 
 const jobManager = await import('@electron/features/ocr/main/jobManager');
@@ -102,6 +112,7 @@ describe('OCR job manager on the main job registry', () => {
         documentPath = join(root, 'document.pdf');
         await writeFile(documentPath, '%PDF-1.7');
         mocks.prepareLanguageModelsForJob.mockResolvedValue(undefined);
+        mocks.ensureRuntimeTessdataSeeded.mockResolvedValue(undefined);
         mocks.getWorkingCopyRevision.mockImplementation(async (path: string) => ({
             version: 1,
             documentRef: path,
@@ -223,6 +234,71 @@ describe('OCR job manager on the main job registry', () => {
             error: 'model download failed',
         });
         expect(mocks.runOcrJob).not.toHaveBeenCalled();
+        expect(completionEvents()).toEqual([]);
+    });
+
+    it('starts after a bounded model retry takes longer than two minutes', async () => {
+        const {prepareLanguageModelsForJob} = await vi.importActual<typeof ModelPreparation>(
+            '@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep',
+        );
+        vi.useFakeTimers();
+        // AbortSignal's native clock is outside Vitest's fake clock.
+        const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((timeoutMs) => {
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(new DOMException('Preparation timed out', 'TimeoutError')), timeoutMs);
+            return controller.signal;
+        });
+        try {
+            mocks.prepareLanguageModelsForJob.mockImplementation(prepareLanguageModelsForJob);
+            const preparing = Promise.withResolvers<undefined>();
+            const downloaded = Promise.withResolvers<undefined>();
+            mocks.ensureTessdataLanguages.mockImplementation((_languages: string[], options: {signal: AbortSignal}) => {
+                preparing.resolve(undefined);
+                options.signal.addEventListener('abort', () => downloaded.reject(options.signal.reason), {once: true});
+                return downloaded.promise;
+            });
+            mocks.runOcrJob.mockResolvedValueOnce({
+                success: false,
+                errors: [],
+                outcome: 'no-pages-to-process',
+            });
+            const started = startJob('ocr-model-retry');
+            await preparing.promise;
+            await vi.advanceTimersByTimeAsync(134_000);
+            downloaded.resolve(undefined);
+
+            await expect(started).resolves.toMatchObject({started: true});
+            expect(completionEvents()).toEqual([expect.objectContaining({
+                requestId: 'ocr-model-retry',
+                outcome: 'no-pages-to-process',
+            })]);
+        } finally {
+            timeout.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels preparation through the job owner before recognition starts', async () => {
+        const {prepareLanguageModelsForJob} = await vi.importActual<typeof ModelPreparation>(
+            '@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep',
+        );
+        mocks.prepareLanguageModelsForJob.mockImplementation(prepareLanguageModelsForJob);
+        const preparing = Promise.withResolvers<undefined>();
+        mocks.ensureTessdataLanguages.mockImplementation((_languages: string[], options: {signal: AbortSignal}) => {
+            preparing.resolve(undefined);
+            return new Promise<void>((_resolve, reject) => {
+                options.signal.addEventListener('abort', () => reject(options.signal.reason), {once: true});
+            });
+        });
+
+        const started = startJob('ocr-model-cancel');
+        await preparing.promise;
+        expect(jobManager.handleOcrCancel(createContext() as never, requireRequestId('ocr-model-cancel')))
+            .toEqual({canceled: true});
+        await expect(started).resolves.toMatchObject({
+            started: false,
+            error: 'OCR job was cancelled before it started',
+        });
         expect(completionEvents()).toEqual([]);
     });
 
