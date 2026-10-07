@@ -4,6 +4,7 @@ import {
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
 import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import type { IOcrDiagnostic } from '@contracts/electronApiOcr';
 import type { INativeScanCleanupOptionsV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -185,7 +186,7 @@ export async function tryPreprocessOcrImage(
             }
             log('warn', 'Native scan cleanup produced no usable image; using raw page render');
         } catch (error) {
-            if (signal.aborted) {
+            if (signal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) {
                 throw error;
             }
             log('warn', `Native scan cleanup failed; using raw page render: ${getErrorMessage(error)}`);

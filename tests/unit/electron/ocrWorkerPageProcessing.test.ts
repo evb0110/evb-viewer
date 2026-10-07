@@ -1,6 +1,8 @@
 import {randomUUID} from 'node:crypto';
 import {
     mkdtemp,
+    readFile,
+    writeFile,
     rm,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -14,6 +16,7 @@ import {
     vi,
 } from 'vitest';
 import type {TOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {createAbortError} from '@electron/utils/abort';
 import type {IJobBrokerRequest} from '@electron/resources/jobBroker';
 
@@ -125,6 +128,34 @@ async function runSinglePage(context: TPageContext) {
 }
 
 describe('OCR worker page processing guards (SRCH-006)', () => {
+    it('keeps page inputs when native termination is unproven', async () => {
+        const inputPath = join(checkpointDir, 'session-page-1.png');
+        await writeFile(inputPath, 'owned page input');
+        const failure = markUnprovenNativeTermination(new Error('preprocessing timeout'), 'child still owns page input');
+        mocks.runOcrCommand.mockResolvedValueOnce({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        }).mockRejectedValueOnce(failure);
+        const base = createContext();
+        const context = createContext({
+            options: {preprocessingMode: 'clean'},
+            paths: {
+                ...base.paths,
+                scanCleanupBinary: '/scan-cleanup',
+            },
+            pageSizeByNumber: new Map([[
+                1,
+                {
+                    width: 8.5,
+                    height: 11,
+                },
+            ]]),
+        });
+        await expect(runSinglePage(context)).rejects.toBe(failure);
+        expect(await readFile(inputPath, 'utf8')).toBe('owned page input');
+    });
+
     beforeEach(async () => {
         vi.clearAllMocks();
         events.length = 0;
