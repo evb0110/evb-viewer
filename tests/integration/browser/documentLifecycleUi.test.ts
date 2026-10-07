@@ -1520,6 +1520,12 @@ describe('browser document lifecycle UI', () => {
             ));
             const workingCopyBefore = await readWorkingCopyPath();
             expect(workingCopyBefore).not.toBeNull();
+            const pagesBeforeSaveAs = {
+                [leftPane!]: await page.locator(`${paneSelector(leftPane!)} .page_container--rendered[data-page="1"]`).elementHandle(),
+                [rightPane!]: await page.locator(`${paneSelector(rightPane!)} .page_container--rendered[data-page="1"]`).elementHandle(),
+            };
+            expect(pagesBeforeSaveAs[leftPane!]).not.toBeNull();
+            expect(pagesBeforeSaveAs[rightPane!]).not.toBeNull();
             const downloadPromise = page.waitForEvent('download');
             await page.locator('button[aria-label="Save options"]:not([disabled])').first().click();
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
@@ -1530,30 +1536,36 @@ describe('browser document lifecycle UI', () => {
                 workingCopyAfter = await readWorkingCopyPath();
                 return workingCopyAfter !== null && workingCopyAfter !== workingCopyBefore;
             }, {timeout: 30_000}).toBe(true);
-            // Each view replaces its source, so page 1 is measured only once that
-            // view shows the new working copy, reports its first visual ready and
-            // paints page 1 again. Canvases of the old source do not count.
+            // Wait for the replacement page, then read its readiness and width
+            // in one browser observation. An outgoing page can detach between
+            // separate readiness and geometry reads.
             const readCurrentPaintedPageWidth = async (paneId: string) => {
                 await clickCenter(page, `${paneSelector(paneId)} .tab.is-active[data-tab-id]`);
-                const renderedPage = page.locator(`${paneSelector(paneId)} .page_container--rendered[data-page="1"]`);
-                await expect.poll(async () => {
-                    const view = await page.evaluate(() => {
-                        const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                        return {
-                            workingCopyPath: api.readActiveWorkspaceStateValues?.<{workingCopyPath?: string | null}>(['workingCopyPath']).workingCopyPath ?? null,
-                            initialVisualReady: api.getActiveToolbarSnapshot?.()?.initialVisualReady === true,
-                        };
-                    });
-                    return {
-                        ...view,
-                        paintedPage: await renderedPage.locator('canvas').first().isVisible(),
-                    };
-                }, {timeout: 30_000}).toEqual({
+                const observation = await page.waitForFunction(({
+                    selector, previousPage, workingCopyPath,
+                }) => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    const currentPage = document.querySelector<HTMLElement>(selector);
+                    const canvas = currentPage?.querySelector('canvas');
+                    const canvasRect = canvas?.getBoundingClientRect();
+                    const canvasVisible = canvas && getComputedStyle(canvas).visibility === 'visible';
+                    if (!currentPage?.isConnected || currentPage === previousPage
+                        || !canvasVisible || !canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0
+                        || api.getActiveToolbarSnapshot?.()?.initialVisualReady !== true
+                        || api.readActiveWorkspaceStateValues?.<{workingCopyPath?: string | null}>(['workingCopyPath']).workingCopyPath !== workingCopyPath) {
+                        return null;
+                    }
+                    return {width: Math.round(currentPage.getBoundingClientRect().width)};
+                }, {
+                    selector: `${paneSelector(paneId)} .page_container--rendered[data-page="1"]`,
+                    previousPage: pagesBeforeSaveAs[paneId],
                     workingCopyPath: workingCopyAfter,
-                    initialVisualReady: true,
-                    paintedPage: true,
-                });
-                return renderedPage.first().evaluate(element => Math.round(element.getBoundingClientRect().width));
+                }, {timeout: 30_000});
+                const measured = await observation.jsonValue();
+                if (!measured) {
+                    throw new Error('Replacement page observation is unavailable');
+                }
+                return measured.width;
             };
 
             expect({
