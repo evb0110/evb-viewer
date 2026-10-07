@@ -1935,7 +1935,7 @@ describe('agent assistant opt-in gating', () => {
         expect(restartedMethods.indexOf('thread/resume')).toBeLessThan(restartedMethods.indexOf('turn/start'));
     });
 
-    it('evicts least-recently-used idle document chat sessions', async () => {
+    it('rehydrates idle document history after runtime eviction', async () => {
         const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
         const documentA = createDocumentScope('a.pdf');
         const documentB = createDocumentScope('b.pdf');
@@ -1974,7 +1974,7 @@ describe('agent assistant opt-in gating', () => {
 
             nowSpy.mockReturnValue(1_000_500);
             const restoredDocumentB = await getAgentAssistantState({ scope: documentB });
-            expect(restoredDocumentB.messages).toEqual([]);
+            expect(restoredDocumentB.messages.map(message => message.text)).toContain('Question for B');
         } finally {
             nowSpy.mockRestore();
         }

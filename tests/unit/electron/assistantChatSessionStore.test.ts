@@ -3,6 +3,7 @@ import {
     mkdtempSync,
     readFileSync,
     readdirSync,
+    renameSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -218,6 +219,171 @@ describe('assistant chat session store persistence', () => {
         session.lastAccessedAtMs = Date.now() - 2 * 60 * 60 * 1000;
 
         expect(store.getSession(scope, selection)?.messages.map(message => message.text)).toEqual(['history must remain visible']);
+    });
+
+    it.each([
+        33,
+        65,
+    ])('rehydrates history and provider resume IDs after %i document lookups and restart', async (count) => {
+        const rootDir = createTempRoot();
+        const persistence = new AssistantChatPersistence({rootDir});
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const original = store.getSession(scope, selection, {create: true});
+        original.providerThreadId = 'resume-original';
+        original.lastSenderWindowId = 7;
+        original.scopeBinding = {
+            sessionKey: store.keyForSession(original),
+            scopeKey: scope.key,
+            provider: 'codex',
+            turnGeneration: 0,
+            windowId: 7,
+            tabId: scope.tabId!,
+            documentRef: scope.documentRef!,
+            documentIdentity: null,
+        };
+        store.addMessage(original, {
+            role: 'user',
+            text: 'original document question',
+        });
+        store.addMessage(original, {
+            role: 'system',
+            text: 'original tool result',
+        });
+        const expected = structuredClone(original.messages);
+        for (let index = 1; index < count; index += 1) {
+            store.getSession({
+                ...scope,
+                key: `document-${index}`,
+            }, selection, {create: true});
+        }
+        await store.flushPersistenceForTests();
+        expect(store.listSessions()).toHaveLength(32);
+
+        const requestedScope = {
+            ...scope,
+            tabId: requireTabId('new-tab'),
+        };
+        const returned = await store.loadSession(requestedScope, selection, {create: true});
+        expect(returned.messages).toEqual(expected);
+        expect(returned.providerThreadId).toBe('resume-original');
+        expect(returned.scope.tabId).toBe(requestedScope.tabId);
+        expect(returned.scopeBinding).toBeNull();
+        expect(returned.lastSenderWindowId).toBeNull();
+        await store.flushPersistenceForTests();
+
+        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        const cold = await restarted.loadSession(requestedScope, selection, {create: true});
+        expect(cold.messages).toEqual(expected);
+        expect(cold.providerThreadId).toBe('resume-original');
+        expect(restarted.listSessions()).toHaveLength(32);
+        await restarted.flushPersistenceForTests();
+    });
+
+    it.each([
+        'codex',
+        'claude',
+    ] as const)('rehydrates %s image history from disk eviction without replacing a concurrent owner', async (provider) => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxSessions: 1});
+        const store = createAssistantChatSessionStore({
+            persistence,
+            maxEntries: 1,
+        });
+        await store.ready;
+        const requested = {
+            ...selection,
+            provider,
+        };
+        const session = store.getSession(scope, requested, {create: true});
+        session.providerThreadId = `${provider}-resume`;
+        const png = createLargeAssistantImage();
+        store.addMessage(session, {
+            role: 'user',
+            text: 'Keep this image question.',
+            attachments: [{
+                type: 'image',
+                id: 'image',
+                name: 'image.png',
+                mimeType: 'image/png',
+                sizeBytes: png.length,
+                dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+            }],
+        });
+        const expected = structuredClone(session.messages);
+        store.getSession({
+            ...scope,
+            key: 'other',
+        }, requested, {create: true});
+        await store.flushPersistenceForTests();
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            store.loadSession(scope, requested, {create: true}),
+            store.loadSession(scope, requested, {create: true}),
+        ]);
+        expect(first).toBe(second);
+        expect(first.messages).toEqual(expected);
+        expect(first.providerThreadId).toBe(`${provider}-resume`);
+        first.messages.length = 0;
+        first.providerThreadId = null;
+        store.resetSessionTranscript(first);
+        await store.flushPersistenceForTests();
+        store.getSession({
+            ...scope,
+            key: 'third',
+        }, requested, {create: true});
+        await store.flushPersistenceForTests();
+        const restarted = createAssistantChatSessionStore({
+            persistence: createPersistence(rootDir, {maxSessions: 1}),
+            maxEntries: 1,
+        });
+        const reset = await restarted.loadSession(scope, requested, {create: true});
+        expect(reset.messages).toEqual([]);
+        expect(reset.providerThreadId).toBeNull();
+        await restarted.flushPersistenceForTests();
+    });
+
+    it('recovers a legacy eviction archive and rejects an unreadable current transcript', async () => {
+        const persistence = createPersistence();
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'legacy history',
+        });
+        await store.flushPersistenceForTests();
+        const key = store.keyForSession(session);
+        const filePath = persistence.sessionPath(key);
+        const legacyArchive = join(persistence.archiveDir, `${Buffer.from(key).toString('base64url')}.evicted.1.abcd.jsonl`);
+        renameSync(filePath, legacyArchive);
+        expect((await persistence.recoverSession(key))?.session.messages.map(message => message.text)).toEqual(['legacy history']);
+        mkdirSync(filePath);
+        await expect(persistence.recoverSession(key)).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+        expect(statSync(filePath).isDirectory()).toBe(true);
+        expect(readFileSync(legacyArchive, 'utf8')).toContain('legacy history');
+    });
+
+    it('quarantines a corrupt eviction archive without resurrecting an older conversation', async () => {
+        const persistence = createPersistence();
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'older history',
+        });
+        await store.flushPersistenceForTests();
+        const key = store.keyForSession(session);
+        const filePath = persistence.sessionPath(key);
+        const prefix = basename(filePath, '.jsonl');
+        renameSync(filePath, join(persistence.archiveDir, `${prefix}.evicted.1.abcd.jsonl`));
+        writeFileSync(join(persistence.archiveDir, `${prefix}.evicted.2.abcd.jsonl`), 'corrupt\n');
+        expect(await persistence.recoverSession(key)).toBeNull();
+        expect(await persistence.recoverSession(key)).toBeNull();
+        expect(readdirSync(persistence.archiveDir).some(name => name.includes('.corrupt.'))).toBe(true);
     });
 
     it('writes JSONL transcripts and recovers messages', async () => {
