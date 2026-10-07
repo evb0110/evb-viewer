@@ -28,6 +28,7 @@ import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { cast } from '@tests/helpers/cast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 // The browser stores are the boundary: what recovery stores is what a later
@@ -200,6 +201,7 @@ function mountLinkedDocumentRecovery(snapshotBytes: () => Promise<Uint8Array | n
     }}));
     app.mount(host);
     unmounts.push(() => app.unmount());
+    return session;
 }
 
 const PDF_BYTES = new Uint8Array([
@@ -234,6 +236,38 @@ describe('browser workspace recovery', () => {
         const refreshed = latestCheckpointRefs();
         expect(refreshed[0]).not.toBe(refs[0]);
         expect(refreshed[1]).toBe(refreshed[0]);
+    });
+
+    it('does not report saved work as unprotected when Save finishes during recovery capture', async () => {
+        vi.useFakeTimers();
+        const heldSnapshot = Promise.withResolvers<Uint8Array | null>();
+        let snapshot = heldSnapshot.promise;
+        const session = mountLinkedDocumentRecovery(() => snapshot);
+        const diagnostics: string[] = [];
+        const warning = vi.spyOn(BrowserLogger, 'warn').mockImplementation((section, message) => {
+            diagnostics.push(`[${section}] ${message}`);
+        });
+        try {
+            await vi.advanceTimersByTimeAsync(1_000);
+            session.setDirty(false);
+            await nextTick();
+            heldSnapshot.resolve(null);
+            await vi.advanceTimersByTimeAsync(1_000);
+
+            expect(diagnostics).toEqual([]);
+            expect(latestCheckpointRefs()).toEqual([]);
+
+            // A subsequent accepted edit still protects the document's two views.
+            snapshot = Promise.resolve(PDF_BYTES);
+            session.setDirty(true);
+            await vi.advanceTimersByTimeAsync(1_000);
+            const refs = latestCheckpointRefs();
+            expect(refs).toHaveLength(2);
+            expect(refs[0]).not.toBeNull();
+            expect(refs[1]).toBe(refs[0]);
+        } finally {
+            warning.mockRestore();
+        }
     });
 
     it('leaves both views of a document out together until one recovery copy can be made', async () => {

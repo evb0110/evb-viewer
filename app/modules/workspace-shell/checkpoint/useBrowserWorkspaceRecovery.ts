@@ -350,6 +350,13 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     }
                 }
                 if (!bytes) {
+                    // Save or reopen can supersede this capture while it waits
+                    // for the document lease. The existing pending revision
+                    // captures the current owner; discard this old checkpoint.
+                    if (capturedCheckpointRevision !== checkpointRevision) {
+                        await cleanupSnapshots(createdRefs);
+                        return;
+                    }
                     if (!retained?.workingCopyRef) {
                         BrowserLogger.warn(
                             'workspace-recovery',

@@ -304,6 +304,8 @@ describe('browser document lifecycle UI', () => {
                 },
                 recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-${process.pid}`)},
             });
+            const cpu = await page.context().newCDPSession(page);
+            await cpu.send('Emulation.setCPUThrottlingRate', {rate: 6});
             const consoleProblems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
