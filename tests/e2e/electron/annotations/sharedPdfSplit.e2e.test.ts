@@ -590,9 +590,12 @@ describe('shared PDF split', () => {
         // Close Tab from the menu removes the menu's own tab; focus goes to the
         // tab that takes its place.
         await openPdfInApp(page, await createMultiPageTextFixturePdf(`shared-pdf-split-menu-focus-second-${stamp}.pdf`, 2));
+        const closingTabId = await page.$eval(tabSelector, tab => (tab as HTMLElement).dataset.tabId ?? '');
         await openTabMenu();
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
             .find(element => element.textContent?.trim() === 'Close Tab'), undefined, {description: 'tab menu Close Tab'});
+        await page.waitForFunction(closedTabId => !Array.from(document.querySelectorAll<HTMLElement>('.tab[data-tab-id]'))
+            .some(tab => tab.dataset.tabId === closedTabId), {timeout: SETTLE_TIMEOUT_MS}, closingTabId);
         const afterCloseTab = await settledFocus();
 
         // A close that finishes while focus is still inside the closing tab,
