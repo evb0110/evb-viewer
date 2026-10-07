@@ -1300,6 +1300,9 @@ export default {
             other: 'Введите не менее {count} символа',
         }),
         'noResults': 'Ничего не найдено',
+        'noResultsInCoverage': 'Совпадений на проверенных страницах нет',
+        'incompleteCoverage': 'Проверено только {processed} из {total} страниц: текстовый индекс достиг предельного размера.',
+        'incompleteCoverageHint': 'Чтобы продолжить, извлеките страницы {nextPage}–{total} в новый PDF и выполните поиск в нём.',
         'noResultsHint': 'Попробуйте другой запрос или запустите OCR, если видимый сканированный текст не находится.',
         'unavailable': 'Поиск недоступен',
         'resultCount': plural({

@@ -82,10 +82,11 @@ export function createSearchService() {
         },
         toError: toSearchRegistryError,
         terminalProgress: {
-            completed: latest => ({
+            completed: (latest, result) => ({
                 requestId: latest.requestId,
-                processed: latest.total,
-                total: latest.total,
+                processed: result.coverage?.pagesScanned ?? latest.processed,
+                total: result.coverage?.pageCount ?? latest.total,
+                ...(result.coverage ? {coverage: result.coverage} : {}),
                 status: 'success',
             }),
             canceled: latest => ({
@@ -139,13 +140,14 @@ export function createSearchService() {
                     status: 'running',
                 });
                 if (request.warmup) {
-                    await ensureSearchIndex(document, {
+                    const coverage = await ensureSearchIndex(document, {
                         signal,
                         onIndexProgress,
                     });
                     return {
                         results: [],
                         truncated: false,
+                        coverage,
                     };
                 }
                 const response = await searchIndexedDocument(document, request.query, request, {
@@ -154,13 +156,15 @@ export function createSearchService() {
                 });
                 publish({
                     requestId,
-                    processed: response.pageCount,
+                    processed: response.coverage.pagesScanned,
                     total: response.pageCount,
+                    coverage: response.coverage,
                     status: 'running',
                 });
                 return {
                     results: response.results,
                     truncated: response.truncated,
+                    coverage: response.coverage,
                 };
             },
         });

@@ -1282,6 +1282,9 @@ export default {
             other: 'Digite pelo menos {count} caracteres',
         }),
         'noResults': 'Nenhum resultado encontrado',
+        'noResultsInCoverage': 'Nenhuma correspondência nas páginas pesquisadas',
+        'incompleteCoverage': 'Apenas {processed} de {total} páginas foram pesquisadas porque o índice de texto atingiu o limite de tamanho.',
+        'incompleteCoverageHint': 'Para continuar, extraia as páginas {nextPage}–{total} para um novo PDF e pesquise nesse arquivo.',
         'noResultsHint': 'Tente outro termo ou ajuste as opções de pesquisa.',
         'unavailable': 'Pesquisa indisponível',
         'resultCount': plural({

@@ -1,11 +1,10 @@
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     pdfSearchResultSchema,
+    SEARCH_INDEX_COVERAGE_SCHEMA,
     SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES,
 } from '@contracts/search';
 import * as v from 'valibot';
-
-const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
 /**
  * The text budget of one document's index, in UTF-8 bytes of normalized page
@@ -37,26 +36,9 @@ export function encodeSearchIndexInputLine(line: TSearchIndexInputLine) {
     return `${JSON.stringify(line)}\n`;
 }
 
-/**
- * `evb-pdf-search index` and `stat` stdout: how much of the document the
- * index covers. `truncated` means the index ends before the document does.
- */
-export const SEARCH_INDEX_COVERAGE_SCHEMA = v.pipe(v.looseObject({
-    pageCount: count,
-    pagesScanned: count,
-    pagesWritten: count,
-    truncated: v.boolean(),
-    missingTextPageSample: v.array(v.pipe(count, v.minValue(1))),
-}), v.check(
-    ({
-        pageCount, pagesScanned, pagesWritten, missingTextPageSample,
-    }) => pagesWritten <= pagesScanned
-        && pagesScanned <= pageCount
-        && missingTextPageSample.every(page => page <= pagesScanned),
-    'Coverage counts must nest: pages written, scanned, then in the document',
-));
-
-export type ISearchIndexCoverage = v.InferOutput<typeof SEARCH_INDEX_COVERAGE_SCHEMA>;
+export {
+    SEARCH_INDEX_COVERAGE_SCHEMA, type ISearchIndexCoverage,
+} from '@contracts/search';
 
 /** `evb-pdf-search search` stdout; the page count also appears at the top level. */
 export const SEARCH_INDEX_RESPONSE_SCHEMA = v.pipe(v.object({

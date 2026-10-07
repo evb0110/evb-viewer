@@ -1280,6 +1280,9 @@ export default {
             other: 'Typ minstens {count} tekens',
         }),
         'noResults': 'Geen resultaten gevonden',
+        'noResultsInCoverage': 'Geen overeenkomsten op de doorzochte pagina’s',
+        'incompleteCoverage': 'Slechts {processed} van de {total} pagina’s zijn doorzocht omdat de tekstindex de maximale grootte heeft bereikt.',
+        'incompleteCoverageHint': 'Extraheer pagina’s {nextPage}–{total} naar een nieuwe PDF en doorzoek die om verder te zoeken.',
         'noResultsHint': 'Probeer een andere term of pas de zoekopties aan.',
         'unavailable': 'Zoeken niet beschikbaar',
         'resultCount': plural({
