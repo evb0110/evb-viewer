@@ -41,7 +41,9 @@ import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withC
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {
+    getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     getCompactDjvuFidelity,
@@ -307,9 +309,23 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 }, workerCount);
 
                 let pageSpecs: ICompactPageSpec[];
+                const pageTasks = pages.map(buildPageWithLimit);
                 try {
-                    pageSpecs = await Promise.all(pages.map(buildPageWithLimit));
+                    pageSpecs = await Promise.all(pageTasks);
                 } catch (error) {
+                    activeQuotaMonitor.cancel(error);
+                    const settled = await Promise.allSettled(pageTasks);
+                    const unproven = settled.find(result => result.status === 'rejected'
+                        && getUnprovenNativeTerminationDetail(result.reason) !== undefined);
+                    if (unproven?.status === 'rejected') {
+                        throw markUnprovenNativeTermination(
+                            new AggregateError([
+                                error,
+                                unproven.reason,
+                            ], getErrorMessage(error)),
+                            getUnprovenNativeTerminationDetail(unproven.reason)!,
+                        );
+                    }
                     if (activeQuotaMonitor.failure) {
                         throw new Error(activeQuotaMonitor.failure.message, {cause: error});
                     }
@@ -875,6 +891,7 @@ async function renderMaskLayer(
         {
             format: 'pbm',
             mode: 'mask',
+            ...(options.signal ? {signal: options.signal} : {}),
         },
     );
     throwIfCanceledRenderResult(result, options.signal);
@@ -900,6 +917,7 @@ async function renderBackgroundLayer(
         {
             format: 'ppm',
             mode: 'background',
+            ...(options.signal ? {signal: options.signal} : {}),
             subsample: nativeSubsample(structure.background),
         },
     );
@@ -926,6 +944,7 @@ async function renderForegroundLayer(
         {
             format: 'ppm',
             mode: 'foreground',
+            ...(options.signal ? {signal: options.signal} : {}),
             subsample: nativeSubsample(structure.foreground, DJVU_COMPACT_FOREGROUND_SUBSAMPLE),
         },
     );
@@ -952,7 +971,10 @@ async function buildPhotoPageSpec(
         photoPath,
         pageNumber,
         `${options.jobId}-compact-page-${pageNumber}-photo`,
-        renderOptions,
+        {
+            ...renderOptions,
+            ...(options.signal ? {signal: options.signal} : {}),
+        },
     );
     throwIfCanceledRenderResult(result, options.signal);
     if (!result.success) {
@@ -1485,9 +1507,11 @@ function throwIfCanceledRenderResult(
     result: {
         success: boolean;
         error?: string;
+        cause?: unknown;
     },
     signal: AbortSignal | undefined,
 ) {
+    if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
     throwIfAborted(signal);
     if (!result.success && result.error?.includes('DjVu conversion canceled')) {
         throw new Error('DjVu conversion canceled');

@@ -1,3 +1,4 @@
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 
@@ -171,6 +172,7 @@ const mocks = vi.hoisted(() => {
         existsSync: vi.fn(() => true),
         terminateDetachedChildProcess: vi.fn(async (proc: MockProcess) => {
             proc.close(143);
+            return true;
         }),
         loggerWarn: vi.fn(),
     };
@@ -382,6 +384,30 @@ describe('convertDjvuToPdfFile', () => {
         expect(mocks.unlink).toHaveBeenCalledWith('/output.pdf');
     });
 
+    it('refuses a second conversion and retains outputs after unproven range termination', async () => {
+        mocks.setSpawnMode('hang-ranges');
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        const converting = convertDjvuToPdfFile('/input.djvu', '/output.pdf', 'range-proof', {pageCount: 24});
+        const outcome = converting.catch((error: unknown) => error);
+        await vi.waitFor(() => expect(mocks.spawnCalls.length).toBeGreaterThan(0));
+        await cancelConversion('range-proof');
+        expect(getUnprovenNativeTerminationDetail(await outcome)).toContain('not proven dead');
+        expect(mocks.spawnCalls.some(call => call.command === '/tools/ddjvu'
+            && !call.args.some(arg => arg.startsWith('-page=')))).toBe(false);
+        expect(mocks.unlink).not.toHaveBeenCalledWith('/output.pdf');
+    });
+
+    it('preserves unproven termination through canceled image rendering', async () => {
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        mocks.setSpawnMode('hang-ranges');
+        const rendering = renderDjvuPageToImage('/input.djvu', '/page.ppm', 1, 'image-cancel');
+        await vi.waitFor(() => expect(mocks.spawnCalls.length).toBe(1));
+        await cancelConversion('image-cancel');
+        const result = await rendering;
+        expect(result.success).toBe(false);
+        expect(getUnprovenNativeTerminationDetail(result.cause)).toContain('not proven dead');
+    });
+
     it('renders requested DjVu page modes through registered ddjvu processes', async () => {
         const result = await renderDjvuPageToImage('/input.djvu', '/mask.pbm', 7, 'job-mask', {
             format: 'pbm',
@@ -550,9 +576,9 @@ describe('convertDjvuToPdfFile', () => {
 
         expect(canceled).toBe(true);
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(1);
-        expect(result).toEqual({
+        expect(result).toEqual(expect.objectContaining({
             success: false,
             error: 'DjVu conversion canceled',
-        });
+        }));
     });
 });
