@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+
 const mocks = vi.hoisted(() => ({
     runOcrCommand: vi.fn(),
     readFile: vi.fn(),
@@ -32,6 +34,14 @@ describe('tryPreprocessOcrImage', () => {
         mocks.stat.mockResolvedValue({ size: 1024 });
         mocks.readFile.mockResolvedValue('{}');
         mocks.decodeMetadata.mockReturnValue({inverseTransform: null});
+    });
+
+    it('refuses raw-input fallback when preprocessing termination is unproven', async () => {
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+        const failure = markUnprovenNativeTermination(new Error('timeout'), 'child remains alive');
+        mocks.runOcrCommand.mockRejectedValueOnce(failure);
+        await expect(tryPreprocessOcrImage('/raw.png', '/clean.png', mocks.log,
+            new AbortController().signal, undefined, '/scan-cleanup')).rejects.toBe(failure);
     });
 
     it('uses native scan cleanup with pinned pixel options', async () => {

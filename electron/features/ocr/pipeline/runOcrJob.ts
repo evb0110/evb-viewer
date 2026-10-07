@@ -55,6 +55,7 @@ import {
     renderOcrPageToPng,
     type IPreparedPopplerPdf,
 } from '@electron/features/ocr/pipeline/popplerStage';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {
@@ -320,6 +321,7 @@ async function processOcrPage(
     const pageSizeProbeImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-size-probe.png`));
     const preprocessedImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.png`));
     const preprocessMetadataPath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-clean.json`));
+    let pageFailure: unknown;
     let ocrOutputPath: string | null = null;
     let lease: IJobBrokerLease | null = null;
     const diagnostics: IOcrDiagnostic[] = [];
@@ -470,6 +472,8 @@ async function processOcrPage(
             diagnostics,
         };
     } catch (err) {
+        pageFailure = err;
+        if (getUnprovenNativeTerminationDetail(err) !== undefined) throw err;
         if (isOcrStorageFailure(err)) {
             throw context.storageBudget.fail(err);
         }
@@ -484,7 +488,7 @@ async function processOcrPage(
         return {error: `Failed to process page ${page.pageNumber}: ${errMsg}`};
     } finally {
         lease?.release();
-        await Promise.all([
+        if (getUnprovenNativeTerminationDetail(pageFailure) === undefined) await Promise.all([
             rm(pageImagePath, {force: true}),
             rm(preprocessedImagePath, {force: true}),
             rm(preprocessMetadataPath, {force: true}),
@@ -506,11 +510,22 @@ export async function processOcrPages(
     let processedCount = 0;
     let nextPageIndex = 0;
 
+    const cancellation = new AbortController();
+    const pageContext = {
+        ...context,
+        signal: AbortSignal.any([
+            context.signal,
+            cancellation.signal,
+        ]),
+    };
     const runLane = async () => {
         while (nextPageIndex < targetPages.length) {
             const page = targetPages[nextPageIndex]!;
             nextPageIndex += 1;
-            const result = await processOcrPage(page, context);
+            const result = await processOcrPage(page, pageContext).catch((error: unknown) => {
+                cancellation.abort(error);
+                throw error;
+            });
             if (result.error) {
                 errors.push(result.error);
             }
@@ -531,7 +546,9 @@ export async function processOcrPages(
         {length: Math.min(concurrency, targetPages.length)},
         () => runLane(),
     ));
-    const failedLane = lanes.find(lane => lane.status === 'rejected');
+    const failedLane = lanes.find(lane => lane.status === 'rejected'
+        && getUnprovenNativeTerminationDetail(lane.reason) !== undefined)
+        ?? lanes.find(lane => lane.status === 'rejected');
     if (failedLane?.status === 'rejected') throw failedLane.reason;
 
     return {
@@ -663,6 +680,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
     } = job;
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
+    let jobFailure: unknown;
     const jobWarnings: string[] = [];
     const jobErrors: string[] = [];
     const jobDiagnostics: IOcrDiagnostic[] = [];
@@ -930,7 +948,8 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 }),
             );
         } catch (mergeError) {
-            if (isAbortError(mergeError) || jobSignal.aborted || isOcrStorageFailure(mergeError)) {
+            if (isAbortError(mergeError) || jobSignal.aborted || isOcrStorageFailure(mergeError)
+                || getUnprovenNativeTerminationDetail(mergeError) !== undefined) {
                 throw mergeError;
             }
             await durableManifest.setTerminal('failed');
@@ -965,6 +984,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             diagnostics: jobDiagnostics,
         };
     } catch (caughtError) {
+        jobFailure = caughtError;
         const error = storageBudget?.violation
             ?? (storageBudget && isOcrStorageFailure(caughtError)
                 ? storageBudget.fail(caughtError)
@@ -988,7 +1008,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         if (ownedCheckpointFingerprint) {
             activeCheckpointFingerprints.delete(ownedCheckpointFingerprint);
         }
-        await cleanupOcrTempFiles(
+        if (getUnprovenNativeTerminationDetail(jobFailure) === undefined) await cleanupOcrTempFiles(
             tempFiles,
             keepFiles,
             tempFileTrackingOverflow,

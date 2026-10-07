@@ -22,6 +22,7 @@ import {
     runNativeCommand,
 } from '@electron/native-tools/runNativeCommand';
 import type { IRunCommandOptions } from '@electron/native-tools/runNativeCommand';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import {
     createDjvuDiskQuotaMonitor,
@@ -55,6 +56,7 @@ interface IDjvuConversionResult {
     outputPath: string;
     fileSize: number;
     error?: string;
+    cause?: unknown;
 }
 
 const MAX_RANGE_WORKERS = 12;
@@ -149,7 +151,7 @@ async function _convertDjvuToPdfWithRanges(
     }));
     const chunkPaths = chunks.map(chunk => chunk.outputPath);
     let completedPageCount = 0;
-    let firstError = null as string | null;
+    let firstError: unknown = null;
     const quotaMonitor = await createDjvuDiskQuotaMonitor({
         paths: [
             artifactJob.directory,
@@ -217,6 +219,11 @@ async function _convertDjvuToPdfWithRanges(
             ).finally(() => brokerLease.release());
 
             if (!pageResult.success) {
+                if (getUnprovenNativeTerminationDetail(pageResult.cause) !== undefined) {
+                    firstError = pageResult.cause;
+                    await cancelConversion(jobId);
+                    return firstError;
+                }
                 const pageError = getDjvuQuotaFailureMessage(quotaMonitor)
                     ?? pageResult.error
                     ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
@@ -272,13 +279,14 @@ async function _convertDjvuToPdfWithRanges(
             return null;
         }, workerCount);
 
-        const conversionErrors = await Promise.all(chunks.map(convertChunkWithLimit));
-        for (const conversionError of conversionErrors) {
-            if (conversionError !== null) {
-                firstError = firstError ?? conversionError;
-                break;
-            }
+        const conversionErrors = await Promise.allSettled(chunks.map(convertChunkWithLimit));
+        const rejected = conversionErrors.find(result => result.status === 'rejected');
+        for (const result of conversionErrors) {
+            const error: unknown = result.status === 'rejected' ? result.reason : result.value;
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            firstError ??= error;
         }
+        if (rejected?.status === 'rejected') throw rejected.reason;
 
         if (firstError) {
             await cleanupPartialOutput(outputPath);
@@ -286,7 +294,7 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: firstError,
+                error: getErrorMessage(firstError),
             };
         }
 
@@ -300,10 +308,12 @@ async function _convertDjvuToPdfWithRanges(
                 conversionSignal,
             );
         } catch (error) {
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
             await cleanupPartialOutput(outputPath);
             throw error;
         }
         if (!mergeResult.success) {
+            if (getUnprovenNativeTerminationDetail(mergeResult.cause) !== undefined) throw mergeResult.cause;
             await cleanupPartialOutput(outputPath);
             return {
                 success: false,
@@ -419,6 +429,7 @@ async function _convertDjvuToPdfSingleProcess(
         ).finally(() => brokerLease.release());
 
         if (!result.success) {
+            if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
             await cleanupPartialOutput(outputPath);
             return {
                 success: false,
@@ -436,6 +447,7 @@ async function _convertDjvuToPdfSingleProcess(
             fileSize: s.size,
         };
     } catch (err) {
+        if (getUnprovenNativeTerminationDetail(err) !== undefined) throw err;
         await cleanupPartialOutput(outputPath);
         return {
             success: false,
@@ -500,7 +512,7 @@ async function convertPageRangeToPdf(
         subsample,
         pages,
     );
-    const result = await runProcess(
+    return runProcess(
         pageJobId,
         getDjvuNativeToolPaths().ddjvu,
         args,
@@ -510,15 +522,6 @@ async function convertPageRangeToPdf(
             ...(signal ? { signal } : {}),
         },
     );
-
-    if (!result.success) {
-        return {
-            success: false,
-            error: result.error,
-        };
-    }
-
-    return { success: true };
 }
 
 async function mergePdfChunks(
@@ -550,6 +553,7 @@ async function mergePdfChunks(
         ],
         signal ? { signal } : {},
     );
+    if (!qpdfResult.success && getUnprovenNativeTerminationDetail(qpdfResult.cause) !== undefined) throw qpdfResult.cause;
     if (qpdfResult.success) {
         return { success: true as const };
     }
@@ -666,6 +670,7 @@ export async function renderDjvuPageToImage(
             outputPath,
             fileSize: 0,
             error: result.error,
+            cause: result.cause,
         };
     }
 
@@ -760,15 +765,9 @@ async function runProcess(
             : runDjvuSourceCommand(command, args, options.sourceIndex, commandOptions));
         return { success: true };
     } catch (error) {
-        if (canceledProcessIds.has(processId)) {
-            return {
-                success: false,
-                error: DJVU_CONVERSION_CANCELED_MESSAGE,
-            };
-        }
         return {
             success: false,
-            error: getErrorMessage(error),
+            error: canceledProcessIds.has(processId) ? DJVU_CONVERSION_CANCELED_MESSAGE : getErrorMessage(error),
             cause: error,
         };
     } finally {
