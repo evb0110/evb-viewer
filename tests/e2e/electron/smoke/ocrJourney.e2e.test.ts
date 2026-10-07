@@ -314,6 +314,7 @@ describe('Electron E2E - OCR journey', () => {
         const pages = await extractTextWithPdfjs(sourcePath);
         expect(pages).toHaveLength(6);
         for (const page of pages) expect(page.text.toLocaleLowerCase()).toContain(SEARCHED_WORD);
+        await sessionFixture.resetForE2E();
     }, 420_000);
 
     it('makes a scanned page searchable, saves it, and finds a recognized word after reopening', async () => {
