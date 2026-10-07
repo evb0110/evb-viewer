@@ -39,6 +39,7 @@ let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;
 let settingsSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let flushDebouncedSettingsSave: (() => void) | null = null;
 let settingsSaveFlushListener: (() => void) | null = null;
+let unsubscribeSettingsChanges: (() => void) | null = null;
 const pendingSettingsIntent = new Map<keyof ISettingsData, unknown>();
 let settingsIntentRevision = 0;
 
@@ -160,6 +161,19 @@ export const useSettings = () => {
         },
     });
 
+    if (import.meta.client && unsubscribeSettingsChanges === null) {
+        unsubscribeSettingsChanges = getSettingsCapability().onChanged((nextSettings) => {
+            pendingSettingsIntent.delete('clientDiagnosticsPreference');
+            const previous = lastSavedSettings.value;
+            for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
+                if (key === 'clientDiagnosticsPreference' || settings.value[key] === previous?.[key]) {
+                    Object.assign(settings.value, {[key]: nextSettings[key]});
+                }
+            }
+            rememberSavedSettings(nextSettings);
+        });
+    }
+
     async function load() {
         const loadedSettings = await loadSettingsState();
         if (loadedSettings !== null) {
@@ -188,7 +202,6 @@ export const useSettings = () => {
             onSaved(nextSettings) {
                 rememberSavedSettings(nextSettings);
                 refreshSettingsBootstrapCookieSnapshot();
-                setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
                 for (const key of pendingSettingsIntent.keys()) {
                     if (settings.value[key] === nextSettings[key]) {
                         pendingSettingsIntent.delete(key);
@@ -285,6 +298,8 @@ if (import.meta.hot) {
             settingsSaveFlushListener = null;
         }
         settingsPersistenceQueue = null;
+        unsubscribeSettingsChanges?.();
+        unsubscribeSettingsChanges = null;
         settingsIntentRevision = 0;
     });
 }

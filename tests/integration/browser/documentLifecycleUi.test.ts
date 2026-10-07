@@ -135,7 +135,10 @@ beforeAll(async () => {
         cwd: process.cwd(),
         // The shared launcher isolates build/output/cache, strips Vitest's
         // child environment and keeps Nitro's macOS socket path short.
-        env: buildNuxtDevServerEnv(process.env, port, sessionName),
+        env: buildNuxtDevServerEnv({
+            ...process.env,
+            SENTRY_BROWSER_DSN: `http://consenttest@127.0.0.1:${String(port)}/1`,
+        }, port, sessionName),
         stdio: [
             'ignore',
             'pipe',
@@ -182,6 +185,100 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    it('withdraws hosted diagnostics in another open window and allows an explicit regrant', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const context = await browser.newContext({recordVideo: {dir: resolve(process.cwd(), '.devkit/lane-b/evidence/op-02-video')}});
+            const envelopes: string[] = [];
+            await context.route('**/api/1/envelope/**', async (route) => {
+                envelopes.push(route.request().postData() ?? '');
+                await route.fulfill({
+                    status: 200,
+                    body: '{}',
+                });
+            });
+            await context.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            const first = await context.newPage();
+            await first.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(first);
+            await first.getByRole('button', {
+                name: 'Settings',
+                exact: true,
+            }).filter({visible: true}).first().click();
+            const consent = first.getByRole('switch', {
+                name: 'Send privacy-sanitized error diagnostics',
+                exact: true,
+            });
+            await consent.check();
+            await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'granted');
+
+            const second = await context.newPage();
+            await second.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(second);
+            await second.getByRole('button', {
+                name: 'Settings',
+                exact: true,
+            }).filter({visible: true}).first().click();
+            const remoteConsent = second.getByRole('switch', {
+                name: 'Send privacy-sanitized error diagnostics',
+                exact: true,
+            });
+            const author = second.getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            });
+            async function reportInputFailure(phase: string) {
+                const previousIds = await second.locator('.app-toast-error-id').allTextContents();
+                // Fault a real input handler, then reach it through trusted keyboard
+                // input. Unique causes prevent Sentry deduplication hiding a send.
+                await second.evaluate((message) => {
+                    document.querySelector('#settings-author')!.addEventListener('keydown', () => {
+                        throw new Error(message);
+                    }, {once: true});
+                }, phase);
+                await author.press('ArrowRight');
+                const receipt = await second.waitForFunction((previous) => {
+                    const id = Array.from(document.querySelectorAll('.app-toast-error-id'))
+                        .map(element => element.textContent ?? '')
+                        .find(text => !previous.includes(text));
+                    return id?.replace('Error ID: ', '');
+                }, previousIds);
+                const id = await receipt.jsonValue();
+                if (!id) throw new Error('The visible failure has no Error ID');
+                return id;
+            }
+            const grantedId = await reportInputFailure('granted-control');
+            await expect.poll(() => envelopes.some(body => body.includes(grantedId))).toBe(true);
+            const secondLifecycle = await context.newCDPSession(second);
+            await secondLifecycle.send('Page.setWebLifecycleState', {state: 'frozen'});
+            await consent.uncheck();
+            await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'denied');
+            await secondLifecycle.send('Page.setWebLifecycleState', {state: 'active'});
+            await author.fill('After withdrawal');
+            await second.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName === 'After withdrawal');
+            const withdrawnId = await reportInputFailure('withdrawn-control');
+            const checkedAfterWithdrawal = await remoteConsent.isChecked();
+            await consent.check();
+            await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'granted');
+            await expect.poll(() => remoteConsent.isChecked()).toBe(true);
+            const regrantedId = await reportInputFailure('regranted-control');
+            await expect.poll(() => envelopes.some(body => body.includes(regrantedId))).toBe(true);
+            console.info('Hosted consent evidence', JSON.stringify({
+                granted: envelopes.some(body => body.includes(grantedId)),
+                withdrawn: envelopes.some(body => body.includes(withdrawnId)),
+                regranted: envelopes.some(body => body.includes(regrantedId)),
+                checkedAfterWithdrawal,
+            }));
+            expect(envelopes.some(body => body.includes(withdrawnId))).toBe(false);
+            expect(checkedAfterWithdrawal).toBe(false);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
     // T2/T4: reading an information page keeps accepted work and both live views.
     it('preserves an unsaved note and linked view zoom through Privacy and About routes', async () => {
         const browser = await chromium.launch({headless: true});
