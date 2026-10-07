@@ -180,6 +180,7 @@ export interface ITabsMenuBindingApi {
 }
 
 export interface ITabsMenuBindingDeps {
+    isActive: Readonly<Ref<boolean>>;
     activeWorkspace: Ref<IWorkspaceExpose | null>;
     activeTabId: Ref<string | null>;
     createTab: () => { id: string };
@@ -278,6 +279,9 @@ export function registerTabsMenuBindings(
     let disposed = false;
 
     const runMenuAction = (actionName: string, action: () => unknown) => {
+        if (!deps.isActive.value) {
+            return;
+        }
         try {
             const result = action();
             if (result instanceof Promise) {
@@ -321,7 +325,7 @@ export function registerTabsMenuBindings(
         }),
         ...registerWorkspaceMenuActions(api, deps, runMenuAction),
         documentMenu?.onMenuOpenRecentFile?.((path) => {
-            enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path));
+            runMenuAction('open-recent-file', () => enqueueDocumentOpenAction('open-recent-file', () => deps.openPathInAppropriateTab(path)));
         }),
         documentMenu?.onMenuOpenExternalPaths?.((paths) => {
             enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
