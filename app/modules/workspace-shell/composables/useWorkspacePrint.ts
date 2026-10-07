@@ -3,7 +3,6 @@ import type { Ref } from 'vue';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
-    type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import { uniq } from 'es-toolkit/array';
 import {
@@ -44,6 +43,7 @@ import {
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
+import type { IPrintableSourcePath } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type {
     TWorkspaceDriverCommandResult,
     IWorkspaceDriverPrintRequest,
@@ -137,8 +137,7 @@ interface IWorkspacePrintDeps {
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
     isDriverOwnedQuickPrint?: () => boolean;
     ensurePrintReady?: () => Promise<boolean>;
-    ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
-    getLastFailurePresentation?: () => FailurePresentation | null;
+    createPrintableSourcePath?: (options?: {signal?: AbortSignal}) => Promise<IPrintableSourcePath | null>;
     getPrintableSourceData: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
@@ -187,8 +186,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
     let activePrintAbortController: AbortController | null = null;
-    const preparationFailureReceipt = ref<FailureReceipt | undefined>();
-    const readPreparationFailureReceipt = () => preparationFailureReceipt.value;
     let activePrintResourceOwner: number | null = null;
     let nextPrintRunId = 0;
     let printScopeDisposed = false;
@@ -325,7 +322,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         closeDialogForSystemPrint = false;
         isPreparingPrint.value = true;
         activePrintAction.value = action;
-        preparationFailureReceipt.value = undefined;
         if (!printDialogOpen.value) {
             schedulePreparingPrintToast();
         }
@@ -375,7 +371,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         const localizedError = error instanceof Error && getErrorMessage(error)
             ? t('print.failedWithReason', { reason: getErrorMessage(error) })
             : t('print.failed');
-        if (isNativePrintRequiredError(error) && readPreparationFailureReceipt() === undefined) {
+        if (isNativePrintRequiredError(error)) {
             BrowserLogger.warn('workspace-print', 'Print needs an unavailable native backend', {
                 kind: 'expected',
                 code: 'temporarily-unavailable',
@@ -391,7 +387,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             'workspace-print',
             'Document print failed',
             error,
-            getFailureReceipt(error) ?? readPreparationFailureReceipt() ?? {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            getFailureReceipt(error) ?? {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         const presentation: FailurePresentation = {
             failure,
@@ -413,7 +409,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPreparingPrint.value = false;
         activePrintAction.value = null;
         closeDialogForSystemPrint = false;
-        preparationFailureReceipt.value = undefined;
     }
 
     function invalidateActivePrintRun() {
@@ -428,7 +423,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPreparingPrint.value = false;
         activePrintAction.value = null;
         closeDialogForSystemPrint = false;
-        preparationFailureReceipt.value = undefined;
     }
 
     function closePrintDialogForSystemDialog() {
@@ -926,113 +920,87 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             );
         }
 
-        const wasDirty = hasPendingPathPrintChanges();
-        let printPath = managedPrintPath;
-        if (wasDirty) {
-            throwIfPrintAborted(signal);
-            if (!deps.ensureWorkingCopyFreshForRead) {
-                throw new NativePrintRequiredError(
-                    'Native PDF printing is required because the dirty working copy could not be refreshed as a path',
-                );
-            }
-
-            const freshPath = await deps.ensureWorkingCopyFreshForRead();
-            if (printRunOwner) {
-                assertPrintRunCurrent(printRunOwner);
-            } else {
-                throwIfPrintAborted(signal);
-            }
-            if (freshPath === false || freshPath === null) {
-                preparationFailureReceipt.value = deps.getLastFailurePresentation?.()?.failure;
-                throw new NativePrintRequiredError(
-                    'Native PDF printing is required because the dirty working copy could not be saved as a path',
-                );
-            }
-
-            if (typeof freshPath === 'string') {
-                if (!freshPath) {
-                    throw new NativePrintRequiredError(
-                        'Native PDF printing is required because the refreshed working-copy path is empty',
-                    );
-                }
-                printPath = freshPath;
-            } else if (deps.printPath?.value ?? deps.workingCopyPath.value) {
-                printPath = deps.printPath?.value ?? deps.workingCopyPath.value!;
-            } else {
-                const freshSource = deps.sourcePdf.value;
-                if (!isPathPdfSource(freshSource)) {
-                    throw new NativePrintRequiredError(
-                        'Native PDF printing is required because the refreshed working-copy path is unavailable',
-                    );
-                }
-                printPath = freshSource.path;
-            }
-        }
-
-        if (printRunOwner) {
-            assertPrintRunCurrent(printRunOwner);
-        } else {
-            throwIfPrintAborted(signal);
-        }
-        const documentRef = parseDocumentRef(printPath);
-        if (documentRef === null) {
-            throw new NativePrintRequiredError(
-                'Native PDF printing is required because the print path is invalid',
-            );
-        }
-        closePrintDialogForSystemDialog();
-        showPreparingPrintToast();
-        const requestId = createNativePrintRequestId();
-        const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
-            if (event.requestId === requestId && (!printRunOwner || isPrintRunCurrent(printRunOwner))) {
-                clearPreparingPrintToast();
-            }
-        });
-        const stopNativePrintCancellation = registerNativePrintCancellation(
-            documentPdfCapability.cancelPdfPrint,
-            requestId,
-            signal,
-        );
-        let result;
+        let snapshot: IPrintableSourcePath | null = null;
         try {
+            if (hasPendingPathPrintChanges()) {
+                throwIfPrintAborted(signal);
+                snapshot = await deps.createPrintableSourcePath?.({signal}) ?? null;
+                if (!snapshot) {
+                    throw new NativePrintRequiredError(
+                        'Native PDF printing is required because the dirty document could not be materialized as a path',
+                    );
+                }
+            }
+            const printPath = snapshot?.path ?? managedPrintPath;
             if (printRunOwner) {
                 assertPrintRunCurrent(printRunOwner);
-            }
-            try {
-                result = await printPdfPath(documentRef, printRunOwner?.fileName ?? deps.fileName.value ?? undefined, {
-                    viewMode: payload.viewMode,
-                    orientation: payload.orientation,
-                    requestId,
-                    ...(pageNumbers === undefined ? {} : {pageNumbers}),
-                });
-            } catch (error) {
+            } else {
                 throwIfPrintAborted(signal);
-                throw error;
             }
-        } finally {
-            stopNativePrintCancellation();
-            stopNativeDialogOpenedListener?.();
-        }
-        if (printRunOwner) {
-            assertPrintRunCurrent(printRunOwner);
-        } else {
-            throwIfPrintAborted(signal);
-        }
-        if (result.success || result.canceled) {
-            return true;
-        }
-
-        if (isNativePrintCapabilityUnavailable(result)) {
-            if (!isPathSource) {
-                clearPreparingPrintToast();
-                return false;
+            const documentRef = parseDocumentRef(printPath);
+            if (documentRef === null) {
+                throw new NativePrintRequiredError(
+                    'Native PDF printing is required because the print path is invalid',
+                );
             }
-            throw new NativePrintRequiredError(
-                result.error ?? 'Native PDF printing requires a native backend for this path-backed document',
+            closePrintDialogForSystemDialog();
+            showPreparingPrintToast();
+            const requestId = createNativePrintRequestId();
+            const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
+                if (event.requestId === requestId && (!printRunOwner || isPrintRunCurrent(printRunOwner))) {
+                    clearPreparingPrintToast();
+                }
+            });
+            const stopNativePrintCancellation = registerNativePrintCancellation(
+                documentPdfCapability.cancelPdfPrint,
+                requestId,
+                signal,
             );
-        }
+            let result;
+            try {
+                if (printRunOwner) {
+                    assertPrintRunCurrent(printRunOwner);
+                }
+                try {
+                    result = await printPdfPath(documentRef, printRunOwner?.fileName ?? deps.fileName.value ?? undefined, {
+                        viewMode: payload.viewMode,
+                        orientation: payload.orientation,
+                        requestId,
+                        ...(pageNumbers === undefined ? {} : {pageNumbers}),
+                    });
+                } catch (error) {
+                    throwIfPrintAborted(signal);
+                    throw error;
+                }
+            } finally {
+                stopNativePrintCancellation();
+                stopNativeDialogOpenedListener?.();
+            }
+            if (printRunOwner) {
+                assertPrintRunCurrent(printRunOwner);
+            } else {
+                throwIfPrintAborted(signal);
+            }
+            if (result.success || result.canceled) {
+                return true;
+            }
 
-        throw new Error(result.error ?? 'Failed to open the native print dialog');
+            if (isNativePrintCapabilityUnavailable(result)) {
+                if (!isPathSource) {
+                    clearPreparingPrintToast();
+                    return false;
+                }
+                throw new NativePrintRequiredError(
+                    result.error ?? 'Native PDF printing requires a native backend for this path-backed document',
+                );
+            }
+
+            throw new Error(result.error ?? 'Failed to open the native print dialog');
+        } finally {
+            await snapshot?.dispose().catch((error: unknown) => {
+                BrowserLogger.warn('workspace-print', 'Failed to release the detached print snapshot', {error: getErrorMessage(error)});
+            });
+        }
     }
 
     async function handlePrintDialogSubmit(

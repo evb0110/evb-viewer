@@ -80,7 +80,14 @@ const PRINT_DESCRIPTORS: IPdfViewerSaveTransactionDescriptors = {
         totalPages: 1,
     },
 };
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({cleanupFile: async (path: TDocumentRef) => {clonedBytesByRef.delete(path);}})}));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({
+    cleanupFile: async (path: TDocumentRef) => {clonedBytesByRef.delete(path);},
+    createWorkingCopyFromPath: async (path: TDocumentRef) => {
+        const clone = requireDocumentRef('browser://documents/print-unchanged-clone');
+        clonedBytesByRef.set(clone, clonedBytesByRef.get(path)!);
+        return clone;
+    },
+})}));
 
 interface IPrintTestViewer {runSaveTransaction(request: IPdfViewerNativeMaterializationRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
@@ -122,7 +129,9 @@ function createResolverHarness(options: {
     const pdfViewerRef = shallowRef<IPrintTestViewer | null>(options.viewer ?? null);
     const getSourcePdfData = vi.fn(async () => options.sourceBytes ?? Uint8Array.of(4, 4));
     const serializePdfForSave = vi.fn(async (data: Uint8Array) => data);
-    const getPrintableSourceData = createPrintableSourceDataResolver({
+    const {
+        getPrintableSourceData, createPrintableSourcePath,
+    } = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
         pdfViewerRef,
         workingCopyPath: shallowRef(WORKING_COPY_REF),
@@ -142,6 +151,7 @@ function createResolverHarness(options: {
 
     return {
         getPrintableSourceData,
+        createPrintableSourcePath,
         hasPendingUnsavedChanges,
         pdfViewerRef,
         getSourcePdfData,
@@ -214,6 +224,58 @@ describe('createPrintableSourceDataResolver', () => {
 
         await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(5, 5));
         expect(harness.getSourcePdfData).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains a detached path until print releases it, without holding the document lease or clearing dirty work', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-print-path'});
+        const originalBytes = Uint8Array.of(4, 4);
+        const printedBytes = Uint8Array.of(9, 8, 7);
+        clonedBytesByRef.set(WORKING_COPY_REF, originalBytes);
+        const harness = createResolverHarness({
+            viewer: {runSaveTransaction: async () => createTransactionResult(printedBytes)},
+            runWithDocumentOperationLease: controller.operationLease.runExclusive,
+        });
+
+        const snapshot = await harness.createPrintableSourcePath();
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.path).not.toBe(WORKING_COPY_REF);
+        expect(clonedBytesByRef.get(snapshot!.path)).toEqual(printedBytes);
+        expect(clonedBytesByRef.get(WORKING_COPY_REF)).toEqual(originalBytes);
+        expect(harness.hasPendingUnsavedChanges.value).toBe(true);
+        expect(controller.operationLease.isBusy.value).toBe(false);
+        await snapshot!.dispose();
+        expect(clonedBytesByRef.has(snapshot!.path)).toBe(false);
+        expect(clonedBytesByRef.get(WORKING_COPY_REF)).toEqual(originalBytes);
+    });
+
+    it('releases the detached path when cancellation arrives during materialization', async () => {
+        const abortController = new AbortController();
+        const harness = createResolverHarness({viewer: {runSaveTransaction: async () => {
+            abortController.abort();
+            return createTransactionResult(Uint8Array.of(9));
+        }}});
+
+        await expect(harness.createPrintableSourcePath({signal: abortController.signal})).resolves.toBeNull();
+        expect(clonedBytesByRef.size).toBe(0);
+        expect(harness.hasPendingUnsavedChanges.value).toBe(true);
+    });
+
+    it('clones a verified unchanged working copy even when there is no mutation projection', async () => {
+        const originalBytes = Uint8Array.of(6, 5);
+        clonedBytesByRef.set(WORKING_COPY_REF, originalBytes);
+        const harness = createResolverHarness({viewer: {runSaveTransaction: async () => ({
+            ...createTransactionResult(Uint8Array.of(0)),
+            nativeMutationProjection: null,
+            verifiedUnchangedWorkingCopy: true,
+        })}});
+
+        const snapshot = await harness.createPrintableSourcePath();
+        expect(snapshot?.path).not.toBe(WORKING_COPY_REF);
+        expect(clonedBytesByRef.get(snapshot!.path)).toEqual(originalBytes);
+        clonedBytesByRef.set(WORKING_COPY_REF, Uint8Array.of(1));
+        expect(clonedBytesByRef.get(snapshot!.path)).toEqual(originalBytes);
+        await snapshot!.dispose();
+        expect(clonedBytesByRef.has(snapshot!.path)).toBe(false);
     });
 
     it('materializes a dirty document under the document operation lease without acknowledging the frontier', async () => {
@@ -532,7 +594,7 @@ describe('createPrintableSourceDataResolver', () => {
         // Working bytes may still be dirty after their annotation frontier
         // was acknowledged by an in-place page mutation.
         const workingBytesDirty = ref(true);
-        const getPrintableSourceData = createPrintableSourceDataResolver({
+        const {getPrintableSourceData} = createPrintableSourceDataResolver({
             hasPendingUnsavedChanges: computed(() => (
                 application.store.hasChangesSinceSavedBaseline() || workingBytesDirty.value
             )),

@@ -15,6 +15,11 @@ import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell
 
 interface IPrintSaveViewer {runSaveTransaction(request: IPdfViewerNativeMaterializationRequest): Promise<IPdfViewerSaveTransactionResult>;}
 
+export interface IPrintableSourcePath {
+    path: TDocumentRef;
+    dispose: () => Promise<void>;
+}
+
 interface ICreatePrintableSourceDataResolverDeps {
     hasPendingUnsavedChanges: Readonly<Ref<boolean>>;
     pdfViewerRef: Readonly<Ref<IPrintSaveViewer | null>>;
@@ -46,7 +51,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         return deps.save.getSourcePdfData();
     }
 
-    async function materializeDirtyPrintableBytes() {
+    async function materializeDirtyPrintableSource() {
         const viewer = deps.pdfViewerRef.value;
         const workingCopyPath = deps.workingCopyPath.value;
         const expectedDocumentRevisionToken = deps.documentRevisionToken.value;
@@ -59,14 +64,8 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
             rewriteShapeState: true,
             source: {getSourcePdfData: deps.save.getSourcePdfData},
         });
-        if (printTransaction.verifiedUnchangedWorkingCopy) {
-            await printTransaction.assertAnnotationSaveCurrent?.();
-            const bytes = await readDocumentBytes(workingCopyPath);
-            await printTransaction.assertAnnotationSaveCurrent?.();
-            return bytes;
-        }
-        if (printTransaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(printTransaction.nativeRequiredFailure);
-        if (!printTransaction.nativeMutationProjection) {
+        if (!printTransaction.verifiedUnchangedWorkingCopy && printTransaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(printTransaction.nativeRequiredFailure);
+        if (!printTransaction.verifiedUnchangedWorkingCopy && !printTransaction.nativeMutationProjection) {
             throw new NativePdfSaveRequiredError({
                 code: 'native-save-required',
                 phase: 'pre-write',
@@ -77,30 +76,37 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         // the clone is a detached snapshot handed to the print pipeline. The
         // transaction returns a projection rather than bytes, so staging it is
         // the only way to print what the user currently sees.
-        const snapshotRef = await consumeNativePdfMutationProjection({
-            workingPath: workingCopyPath,
-            expectedDocumentRevisionToken,
-            projection: printTransaction.nativeMutationProjection,
-            operation: 'clone',
-            originalPath: deps.originalPath.value,
-            ...(printTransaction.verifyAnnotationSavePath
-                ? {verifyPathBeforeExpose: printTransaction.verifyAnnotationSavePath}
-                : {}),
-            ...(printTransaction.assertAnnotationSaveCurrent
-                ? {assertBeforeExpose: printTransaction.assertAnnotationSaveCurrent}
-                : {}),
-        });
+        await printTransaction.assertAnnotationSaveCurrent?.();
+        const snapshotRef = printTransaction.verifiedUnchangedWorkingCopy
+            ? await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(workingCopyPath, deps.originalPath.value ?? undefined)
+            : await consumeNativePdfMutationProjection({
+                workingPath: workingCopyPath,
+                expectedDocumentRevisionToken,
+                projection: printTransaction.nativeMutationProjection!,
+                operation: 'clone',
+                originalPath: deps.originalPath.value,
+                ...(printTransaction.verifyAnnotationSavePath
+                    ? {verifyPathBeforeExpose: printTransaction.verifyAnnotationSavePath}
+                    : {}),
+                ...(printTransaction.assertAnnotationSaveCurrent
+                    ? {assertBeforeExpose: printTransaction.assertAnnotationSaveCurrent}
+                    : {}),
+            });
         if (!snapshotRef) return null;
         try {
-            const bytes = await readDocumentBytes(snapshotRef);
             await printTransaction.assertAnnotationSaveCurrent?.();
-            return bytes;
-        } finally {
+            return {
+                path: snapshotRef,
+                dispose: () => getDocumentWorkingCopyCapability().cleanupFile(snapshotRef),
+                assertCurrent: () => printTransaction.assertAnnotationSaveCurrent?.(),
+            };
+        } catch (error) {
             await getDocumentWorkingCopyCapability().cleanupFile(snapshotRef);
+            throw error;
         }
     }
 
-    return async function getPrintableSourceData(options?: {signal?: AbortSignal}) {
+    async function getPrintableSourceData(options?: {signal?: AbortSignal}) {
         if (!deps.hasPendingUnsavedChanges.value) {
             return readPersistedPrintableBytes();
         }
@@ -118,7 +124,41 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
                 return readPersistedPrintableBytes();
             }
 
-            return materializeDirtyPrintableBytes();
+            const snapshot = await materializeDirtyPrintableSource();
+            if (!snapshot) return null;
+            try {
+                const bytes = await readDocumentBytes(snapshot.path);
+                await snapshot.assertCurrent();
+                return bytes;
+            } finally {
+                await snapshot.dispose();
+            }
         });
+    }
+
+    async function createPrintableSourcePath(options?: {signal?: AbortSignal}): Promise<IPrintableSourcePath | null> {
+        if (options?.signal?.aborted) return null;
+        return runWithDocumentOperationLease('print-materialize', async () => {
+            if (options?.signal?.aborted) return null;
+            const workingPath = deps.workingCopyPath.value;
+            if (!workingPath) return null;
+            const snapshot = deps.hasPendingUnsavedChanges.value
+                ? await materializeDirtyPrintableSource()
+                : await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(workingPath, deps.originalPath.value ?? undefined)
+                    .then(path => ({
+                        path,
+                        dispose: () => getDocumentWorkingCopyCapability().cleanupFile(path),
+                    }));
+            if (options?.signal?.aborted) {
+                await snapshot?.dispose();
+                return null;
+            }
+            return snapshot;
+        });
+    }
+
+    return {
+        getPrintableSourceData,
+        createPrintableSourcePath,
     };
 }
