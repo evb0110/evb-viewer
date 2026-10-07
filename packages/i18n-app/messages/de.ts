@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Suche läuft…',
         'pagesProgress': '{processed} von {total} Seiten',
         'enterSearchTerm': 'Suchbegriff eingeben',
-        'enterSearchHint': 'Geben Sie ein Wort oder eine Phrase ein, um im aktuellen Dokument zu suchen.',
+        'enterSearchHint': 'Die Suche erfolgt seitenweise; Phrasen können daher keine Seitenumbrüche übergreifen. Verwenden Sie doppelte Anführungszeichen, um Leerzeichen am Anfang oder Ende beizubehalten.',
         'typeMinChars': plural({
             one: 'Mindestens {count} Zeichen eingeben',
             other: 'Mindestens {count} Zeichen eingeben',
@@ -1283,7 +1283,7 @@ export default {
         'noResultsInCoverage': 'Keine Treffer auf den durchsuchten Seiten',
         'incompleteCoverage': 'Nur {processed} von {total} Seiten wurden durchsucht, da der Textindex seine Größenbegrenzung erreicht hat.',
         'incompleteCoverageHint': 'Um fortzufahren, extrahieren Sie die Seiten {nextPage}–{total} in eine neue PDF-Datei und durchsuchen Sie diese.',
-        'noResultsHint': 'Versuchen Sie einen anderen Begriff oder passen Sie die Suchoptionen an.',
+        'noResultsHint': 'Versuchen Sie einen anderen Begriff oder führen Sie OCR aus, wenn sichtbarer Text in gescannten Seiten nicht gefunden wird.',
         'unavailable': 'Suche nicht verfügbar',
         'resultCount': plural({
             one: '{count} Ergebnis',

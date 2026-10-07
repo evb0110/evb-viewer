@@ -1274,7 +1274,7 @@ export default {
         'searching': 'Ricerca…',
         'pagesProgress': '{processed} di {total} pagine',
         'enterSearchTerm': 'Inserisci un termine di ricerca',
-        'enterSearchHint': 'Digita una parola o una frase da cercare nel documento corrente.',
+        'enterSearchHint': 'La ricerca viene eseguita pagina per pagina, quindi le frasi non possono estendersi oltre un’interruzione di pagina. Usa le virgolette doppie per conservare gli spazi iniziali o finali.',
         'typeMinChars': plural({
             one: 'Digita almeno {count} carattere',
             other: 'Digita almeno {count} caratteri',
@@ -1283,7 +1283,7 @@ export default {
         'noResultsInCoverage': 'Nessuna corrispondenza nelle pagine esaminate',
         'incompleteCoverage': 'Sono state esaminate solo {processed} pagine su {total} perché l’indice di testo ha raggiunto il limite di dimensione.',
         'incompleteCoverageHint': 'Per continuare, estrai le pagine {nextPage}–{total} in un nuovo PDF ed esegui la ricerca al suo interno.',
-        'noResultsHint': 'Prova un termine diverso o modifica le opzioni di ricerca.',
+        'noResultsHint': 'Prova un altro termine o esegui l’OCR se il testo visibile nelle pagine scansionate non viene trovato.',
         'unavailable': 'Ricerca non disponibile',
         'resultCount': plural({
             one: '{count} risultato',
