@@ -1,0 +1,21 @@
+tests/unit/contracts/search.test.ts
+  s_4efcda51b41acf::t_03176b789e3f40 129-155
+packages/contracts/search.ts
+  s_4efcda51b41acf::t_c7cf6a2e62c02d 125,135,138,140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0fd4215386eb8ed6fe638d5826e25c890363e8d0",
+  "prompts": {},
+  "sessions": {
+    "s_4efcda51b41acf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1158d-25dc-7230-b9a5-c7b7f457a3cf",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
