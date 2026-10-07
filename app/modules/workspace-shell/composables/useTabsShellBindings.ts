@@ -79,6 +79,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const { setFatalRuntimeError } = useFatalRuntimeError();
     const { presentFailureToast } = useFailureToast();
     const {
+        isActive,
         tabs,
         workspaceRefs,
         isStartupOpenClaimPending,
@@ -424,7 +425,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     const stopTabKeyboardShortcutListener = useEventListener(
-        typeof window !== 'undefined' ? window : undefined,
+        computed(() => isActive.value && typeof window !== 'undefined' ? window : undefined),
         'keydown',
         handleTabKeyboardShortcut,
         {capture: true},
@@ -532,6 +533,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 djvu: getDjvuCapability(),
                 windowTabs: windowTabsCapability,
             }, {
+                isActive,
                 activeWorkspace,
                 activeTabId,
                 createTab,
