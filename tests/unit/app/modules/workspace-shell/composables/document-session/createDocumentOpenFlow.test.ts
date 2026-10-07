@@ -924,7 +924,7 @@ describe('the opening surface takes the page shape at its claim', () => {
         await read?.answer;
         const openSurface = createDocumentOpenSurfaceSession();
 
-        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, read);
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, await read?.answer ?? null);
 
         expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
             documentId: shapedPath,
@@ -933,31 +933,12 @@ describe('the opening surface takes the page shape at its claim', () => {
         });
     });
 
-    it('commits a page shape still on its way when it arrives', async () => {
-        const answer = Promise.withResolvers<typeof pageShape>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(answer.promise);
-        const read = readPdfPageShape(shapedPath);
+    it('keeps an unavailable shape on the pending background', () => {
         const openSurface = createDocumentOpenSurfaceSession();
 
-        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, read);
-        expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
-        answer.resolve(pageShape);
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, null);
 
-        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({width: 420}));
-    });
-
-    it('drops a page shape that arrives after another open took the surface', async () => {
-        const answer = Promise.withResolvers<typeof pageShape>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(answer.promise);
-        const read = readPdfPageShape(shapedPath);
-        const openSurface = createDocumentOpenSurfaceSession();
-
-        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 1, read);
-        beginOpenSurfaceWithPageShape(openSurface, claim('2'), 1, null);
-        answer.resolve(pageShape);
-        await read?.answer;
-        await Promise.resolve();
-
+        expect(openSurface.snapshot.value.phase).toBe('pending');
         expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
     });
 
@@ -967,7 +948,7 @@ describe('the opening surface takes the page shape at its claim', () => {
         await read?.answer;
         const openSurface = createDocumentOpenSurfaceSession();
 
-        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 5, read);
+        beginOpenSurfaceWithPageShape(openSurface, claim('1'), 5, await read?.answer ?? null);
 
         expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
     });

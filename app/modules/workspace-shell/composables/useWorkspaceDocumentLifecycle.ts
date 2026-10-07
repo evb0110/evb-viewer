@@ -142,31 +142,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         },
     );
 
-    function claimOpenSurface(transactionId: string, request: IWorkspaceOpenRequest, hadDocument: boolean) {
-        const surface = options.openSurface.snapshot.value;
-        if (surface.phase !== 'idle' && surface.phase !== 'ready' && surface.phase !== 'failed') {
-            return;
-        }
-        const initialPage = request.kind === 'restore'
-            ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1))
-            : 1;
-        const path = request.target?.originalPath ?? null;
-        // One page-shape read per open: the one its input started, or this one.
-        const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
-        beginOpenSurfaceWithPageShape(options.openSurface, {
-            documentId: String(path ?? transactionId),
-            documentRevision: `open-intent:${transactionId}`,
-            provisional: true,
-        }, initialPage, request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource), request.kind === 'open' && !request.carriesView ? {
-            seed: view => seedOpeningPreflight(session, view),
-            shown: !hadDocument,
-        } : null);
-        if (pendingPage !== null) {
-            options.openSurface.requestNavigation(pendingPage);
-            pendingPage = null;
-        }
-    }
-
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
         // A gone Recent file is told, and the place in the document this open
         // replaces is remembered, before the open claims the tab; a tab its
@@ -192,8 +167,28 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         try {
             presented = await session.runOpen(request, async () => {
                 transactionId = activeOpen.value?.id ?? null;
-                if (transactionId) {
-                    claimOpenSurface(transactionId, request, hadDocument);
+                const path = request.target?.originalPath ?? null;
+                const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
+                const shape = await (request.pageShape?.path === shapeSource
+                    ? request.pageShape : readPdfPageShape(shapeSource))?.answer;
+                if (!transactionId || activeOpen.value?.id !== transactionId) {
+                    return false;
+                }
+                const surface = options.openSurface.snapshot.value;
+                if (surface.phase === 'idle' || surface.phase === 'ready' || surface.phase === 'failed') {
+                    beginOpenSurfaceWithPageShape(options.openSurface, {
+                        documentId: String(path ?? transactionId),
+                        documentRevision: `open-intent:${transactionId}`,
+                        provisional: true,
+                    }, request.kind === 'restore' ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)) : 1,
+                    shape ?? null, request.kind === 'open' && !request.carriesView ? {
+                        seed: view => seedOpeningPreflight(session, view),
+                        shown: !hadDocument,
+                    } : null);
+                    if (pendingPage !== null) {
+                        options.openSurface.requestNavigation(pendingPage);
+                        pendingPage = null;
+                    }
                 }
                 const accepted = await run();
                 if (!accepted) {
