@@ -7,6 +7,9 @@ import type {ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
 import {resolve} from 'node:path';
 import {
+    createCanvas, loadImage,
+} from '@napi-rs/canvas';
+import {
     findFreePort, isProcessAlive, killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
 import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
@@ -189,7 +192,7 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
-    // C2/L2: foreign annotation icons load from the packaged PDF.js assets.
+    // C2/L2/A1: foreign icons paint beside the app's single canonical note marker.
     it('loads a foreign attachment icon from the packaged PDF.js image directory', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -217,7 +220,79 @@ describe('browser document lifecycle UI', () => {
             FS: fileSpec,
             Contents: PDFString.of('Foreign attachment icon'),
         }));
-        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([attachment]));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const foreignText = 'Foreign commented highlight text';
+        const ownText = 'Own saved highlight text';
+        pdfPage.drawText(foreignText, {
+            x: 100,
+            y: 700,
+            size: 14,
+            font,
+        });
+        pdfPage.drawText(ownText, {
+            x: 100,
+            y: 550,
+            size: 14,
+            font,
+        });
+        const highlightWidth = font.widthOfTextAtSize(foreignText, 14);
+        const highlight = pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Highlight',
+            Rect: [
+                100,
+                697,
+                100 + highlightWidth,
+                714,
+            ],
+            QuadPoints: [
+                100,
+                714,
+                100 + highlightWidth,
+                714,
+                100,
+                697,
+                100 + highlightWidth,
+                697,
+            ],
+            C: [
+                1,
+                1,
+                0,
+            ],
+            CA: 0.3,
+            Contents: PDFString.of('Foreign highlight popup'),
+        }));
+        const ink = pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Ink',
+            Rect: [
+                100,
+                640,
+                180,
+                670,
+            ],
+            InkList: [[
+                100,
+                650,
+                140,
+                660,
+                180,
+                650,
+            ]],
+            C: [
+                0,
+                0,
+                1,
+            ],
+            BS: {W: 3},
+            Contents: PDFString.of('Foreign ink popup'),
+        }));
+        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([
+            attachment,
+            highlight,
+            ink,
+        ]));
         const fixtureBytes = Buffer.from(await pdf.save());
         writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-attachment-${process.pid}.pdf`), fixtureBytes);
         const browser = await chromium.launch({headless: true});
@@ -232,6 +307,7 @@ describe('browser document lifecycle UI', () => {
             const consoleProblems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
@@ -253,6 +329,195 @@ describe('browser document lifecycle UI', () => {
             const icon = page.locator('.page_container--rendered .fileAttachmentAnnotation img').first();
             await icon.waitFor({state: 'attached'});
             await expect.poll(() => icon.evaluate(image => (image as HTMLImageElement).complete)).toBe(true);
+            const nativePopups = page.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible');
+            const popupObservations: Array<{
+                label: string;
+                hover: number;
+                click: number
+            }> = [];
+            const hoverAndClick = async (x: number, y: number, label: string) => {
+                const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+                if (!bounds) throw new Error(`${label} page is not visible`);
+                const px = bounds.x + x * bounds.width / 612;
+                const py = bounds.y + (792 - y) * bounds.height / 792;
+                await page.mouse.move(px, py);
+                await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+                const hover = await nativePopups.count();
+                await page.mouse.click(px, py);
+                await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+                const click = await nativePopups.count();
+                popupObservations.push({
+                    label,
+                    hover,
+                    click,
+                });
+                await page.mouse.click(px, py);
+                await page.mouse.move(0, 0);
+            };
+            await hoverAndClick(140, 705, 'foreign Highlight');
+            await hoverAndClick(140, 660, 'foreign Ink');
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            await page.locator('.tool-button[data-tool="select"]').click();
+            await hoverAndClick(140, 705, 'foreign Highlight in edit mode');
+            await hoverAndClick(140, 660, 'foreign Ink in edit mode');
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            const foreignMarkerCount = await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).count();
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            const pageBounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!pageBounds) throw new Error('The attachment page is not visible');
+            await page.mouse.click(pageBounds.x + 300, pageBounds.y + 300);
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).pressSequentially('Canonical note beside a foreign attachment');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).count()).toBe(foreignMarkerCount + 1);
+            expect(await page.locator('.textAnnotation img:visible').count()).toBe(0);
+            // Set up an EVB-authored highlight, then exercise its persisted
+            // surface through real clicks and text dragging after Save As.
+            const createdHighlight = await page.evaluate(async (text) => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                await api.callActiveWorkspaceCommand?.('handleDisableDragMode');
+                const span = Array.from(document.querySelectorAll('.text-layer span'))
+                    .find(element => element.textContent === text);
+                if (!span?.firstChild) throw new Error('Own highlight text is missing');
+                const range = document.createRange();
+                range.selectNodeContents(span);
+                const selection = document.getSelection();
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+                return api.callActiveWorkspaceCommand?.('highlightSelection');
+            }, ownText);
+            expect(createdHighlight?.value).toBe(true);
+            await page.locator('[data-markup-subtype="Highlight"]').last()
+                .locator('[data-annotation-hit-target]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {
+                name: 'Open Pop-up Note',
+                exact: true,
+            }).click();
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            })
+                .pressSequentially('Own saved highlight comment');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            const downloadPromise = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const savedPath = resolve(process.cwd(), `.devkit/browser-foreign-attachment-saved-${process.pid}.pdf`);
+            await (await downloadPromise).saveAs(savedPath);
+            const savedPdf = await PDFDocument.load(readFileSync(savedPath));
+            const savedAnnots = savedPdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            expect(Array.from({length: savedAnnots.size()}, (_, index) =>
+                savedAnnots.lookup(index, PDFDict).lookup(PDFName.of('Subtype'), PDFName).toString(),
+            ).filter(subtype => subtype === '/Highlight')).toHaveLength(2);
+            expect(Array.from({length: savedAnnots.size()}, (_, index) => {
+                const annotation = savedAnnots.lookup(index, PDFDict);
+                const contents = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
+                return contents?.decodeText();
+            })).toContain('Own saved highlight comment');
+            // Opening the actual downloaded bytes in a fresh browser page
+            // proves this is the saved surface, not the unsaved overlay.
+            const reopened = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-saved-${process.pid}`)},
+            });
+            try {
+                await reopened.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(reopened);
+                keepFileChooserInterceptionEnabled(reopened);
+                const reopenChooser = reopened.waitForEvent('filechooser');
+                await reopened.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
+                await (await reopenChooser).setFiles(savedPath);
+                await reopened.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+                await expect.poll(() => reopened.locator('[data-markup-subtype="Highlight"]').count()).toBe(2);
+                const savedHighlight = reopened.locator('[data-markup-subtype="Highlight"]').last();
+                const hit = savedHighlight.locator('[data-annotation-hit-target]').first();
+                const ownLineBounds = await reopened.locator('.text-layer span').filter({hasText: ownText}).first().boundingBox();
+                const savedHitBounds = await hit.boundingBox();
+                if (!ownLineBounds || !savedHitBounds) throw new Error('Saved highlight is not visible over its text');
+                expect(savedHitBounds.x).toBeLessThan(ownLineBounds.x + ownLineBounds.width / 2);
+                expect(savedHitBounds.x + savedHitBounds.width).toBeGreaterThan(ownLineBounds.x + ownLineBounds.width / 2);
+                expect(savedHitBounds.y).toBeLessThan(ownLineBounds.y + ownLineBounds.height / 2);
+                expect(savedHitBounds.y + savedHitBounds.height).toBeGreaterThan(ownLineBounds.y + ownLineBounds.height / 2);
+                await hit.click();
+                await expect.poll(() => savedHighlight.getAttribute('class')).toContain('is-selected');
+                expect(await reopened.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible').count()).toBe(0);
+                await reopened.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await reopened.getByRole('tab', {
+                    name: 'Annotations',
+                    exact: true,
+                }).click();
+                await reopened.locator('.tool-button[data-tool="select"]').click();
+                await reopened.mouse.click(100, 200);
+                await expect.poll(() => savedHighlight.getAttribute('class')).not.toContain('is-selected');
+                await hit.click();
+                await expect.poll(() => savedHighlight.getAttribute('class')).toContain('is-selected');
+                await reopened.getByRole('button', {
+                    name: 'Text Select',
+                    exact: true,
+                }).click();
+                const line = reopened.locator('.text-layer span').filter({hasText: foreignText}).first();
+                const lineBounds = await line.boundingBox();
+                if (!lineBounds) throw new Error('Commented highlight text is not visible');
+                await reopened.mouse.move(lineBounds.x + 1, lineBounds.y + lineBounds.height / 2);
+                await reopened.mouse.down();
+                await reopened.mouse.move(lineBounds.x + lineBounds.width - 1, lineBounds.y + lineBounds.height / 2, {steps: 12});
+                await reopened.mouse.up();
+                await expect.poll(() => reopened.evaluate(() => document.getSelection()?.toString())).toBe(foreignText);
+                expect(await reopened.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible').count()).toBe(0);
+                await reopened.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-saved-selection-${process.pid}.png`)});
+            } finally {
+                await reopened.close();
+            }
+            console.info('Popup observations', JSON.stringify(popupObservations));
+            writeFileSync(resolve(process.cwd(), `.devkit/browser-annotation-popups-${process.pid}.json`), JSON.stringify(popupObservations, null, 2));
+            for (const observation of popupObservations) {
+                expect(observation.hover, `${observation.label} hover`).toBe(0);
+                expect(observation.click, `${observation.label} click`).toBe(0);
+            }
             const dimensions = await icon.evaluate((image) => {
                 const rect = image.getBoundingClientRect();
                 return {
@@ -279,8 +544,23 @@ describe('browser document lifecycle UI', () => {
             expect(response.status()).toBe(200);
             expect(bytes).toEqual(readFileSync(resolve(process.cwd(), 'node_modules/pdfjs-dist/web/images/annotation-paperclip.svg')));
             expect(dimensions.naturalWidth).toBeGreaterThan(0);
+            expect(dimensions.width).toBeGreaterThan(0);
+            expect(dimensions.height).toBeGreaterThan(0);
+            expect(await icon.isVisible()).toBe(true);
+            const paintedIcon = await loadImage(Buffer.from(await icon.screenshot()));
+            const iconContext = createCanvas(paintedIcon.width, paintedIcon.height).getContext('2d');
+            iconContext.drawImage(paintedIcon, 0, 0);
+            const pixels = iconContext.getImageData(0, 0, paintedIcon.width, paintedIcon.height).data;
+            let inkPixels = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) {
+                    inkPixels += 1;
+                }
+            }
+            expect(inkPixels).toBeGreaterThan(0);
             expect(consoleProblems).toEqual([]);
         } finally {
+            await Promise.all(browser.contexts().map(context => context.close()));
             await browser.close();
         }
     }, 90_000);

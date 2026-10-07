@@ -706,7 +706,8 @@
     /* stylelint-disable selector-id-pattern -- pdf.js internal element ID */
     .editToolbar,
     .annotationCommentButton,
-    .popupTriggerArea,
+    .popupTriggerArea:not(.fileAttachmentAnnotation *),
+    .popupAnnotation,
     .commentPopup,
     #commentManagerDialog {
         /* stylelint-disable declaration-no-important -- css-important-allow: Hide native PDF.js controls in favor of app-managed annotation UI. */
