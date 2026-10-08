@@ -474,11 +474,21 @@ describe('scan cleanup renderer preview cache', () => {
             '3': 'two-page-spread',
             '4': 'two-page-spread',
         }, true)).toBe(provisional);
+        // Three of four outputs are spread leaves, so the settled canvas is
+        // still the leaf and the lone landscape page is fitted onto it.
         expect(keyFor({
             '1': 'two-page-spread',
             '2': 'two-page-spread',
             '3': 'single-uncut-page',
             '4': 'two-page-spread',
+        }, true)).toBe(provisional);
+        // Half leaves and half whole sheets is a genuinely mixed document,
+        // whose settled canvas grows to the largest sheet.
+        expect(keyFor({
+            '1': 'two-page-spread',
+            '2': 'two-page-spread',
+            '3': 'single-uncut-page',
+            '4': 'single-uncut-page',
         }, true)).not.toBe(provisional);
     });
 
