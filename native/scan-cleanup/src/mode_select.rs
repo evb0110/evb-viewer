@@ -639,11 +639,11 @@ pub(crate) fn recommend_output_mode_with_tone(
     result
 }
 
-/// Rejects an automatic Mixed recommendation when its own protected text
-/// evidence says that a meaningful text block is mostly picture-owned, but no
-/// independent picture owner corroborates that assignment. The comparison is
-/// made against the existing analysis-resolution content blocks. It does not
-/// render a second candidate, and it never changes an explicit user mode.
+/// Preserves protected text's continuous representation when a candidate
+/// picture enclosure mostly covers that text without independent picture tone.
+/// The existing analysis-resolution blocks retain this contradiction after
+/// picture qualification revokes the enclosure, so it also protects ink when
+/// Auto subsequently recommends B&W. Explicit user modes remain unchanged.
 pub(crate) fn veto_contradictory_mixed_ownership(
     mut recommendation: OutputModeRecommendation,
     auto_mode: bool,
@@ -686,10 +686,7 @@ pub(crate) fn veto_contradictory_mixed_ownership(
         .diagnostics
         .mixed_ownership_independent_picture_evidence = independent_picture_evidence;
 
-    let veto = auto_mode
-        && recommendation.mode == OutputMode::Mixed
-        && contradiction
-        && !independent_picture_evidence;
+    let veto = auto_mode && contradiction && !independent_picture_evidence;
     recommendation.diagnostics.mixed_ownership_veto = veto;
     if veto {
         let preserves_color = recommendation.diagnostics.significant_color;
@@ -2983,6 +2980,33 @@ mod tests {
         assert_eq!(
             vetoed.reason,
             OutputModeRecommendationReason::UncertainTonal
+        );
+
+        // Revoking the false picture enclosure must not discard the same
+        // protected ink's continuous representation when Auto now sees B&W.
+        let empty_picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let text_only = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &empty_picture_mask,
+            picture_tone_evidence: false,
+            text_line_count: 8,
+        });
+        assert_eq!(text_only.mode, OutputMode::Bw, "{text_only:?}");
+        let blocks = [protected_text_block(328, 140, 328 * 140)];
+        let protected = veto_contradictory_mixed_ownership(text_only, true, &blocks, false);
+        assert_eq!(protected.mode, OutputMode::Grayscale, "{protected:?}");
+        assert!(protected.diagnostics.mixed_ownership_veto);
+        assert_eq!(
+            veto_contradictory_mixed_ownership(text_only, false, &blocks, false).mode,
+            OutputMode::Bw,
+            "an explicit mode remains user-owned"
+        );
+        assert_eq!(
+            veto_contradictory_mixed_ownership(text_only, true, &blocks, true).mode,
+            OutputMode::Bw,
+            "independent picture evidence still corroborates ownership"
         );
     }
 

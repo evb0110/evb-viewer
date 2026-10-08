@@ -114,7 +114,7 @@ pub(crate) fn detect_picture_mask_with_continuous_tone(
     // only the candidate would split a photograph at the detector boundary.
     let corroborated =
         corroborate_picture_components(candidate, continuous_tone, source, raster_dpi, calibration);
-    qualify_picture_owner(source, &corroborated)
+    qualify_picture_owner(source, &corroborated, None)
 }
 
 /// Finds source regions with a genuinely distributed local tone histogram.
@@ -970,14 +970,12 @@ fn corroborate_picture_components(
     retained.or(&tone_growth)
 }
 
-/// Applies the last semantic ownership veto to a detector candidate.
-///
-/// Continuous-tone fields are corroborating evidence only; they are never an
-/// owner by themselves. The candidate also has to be a sufficiently large
-/// component that is not a scanner rail, fold shadow, gutter shadow, or edge
-/// ghost. Keeping this gate here gives the render pipeline one automatic
-/// picture owner to pass to content analysis, mode selection, and composition.
-pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage) -> BinaryImage {
+/// Rejects artifacts and text-dominated automatic owners without tone interiors.
+pub(crate) fn qualify_picture_owner(
+    source: &GrayImage,
+    candidate: &BinaryImage,
+    text_evidence: Option<(&BinaryImage, &BinaryImage, &BinaryImage)>,
+) -> BinaryImage {
     debug_assert_eq!(
         (source.width(), source.height()),
         (candidate.width(), candidate.height())
@@ -989,19 +987,24 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
     let border_artifacts = crate::edge_artifacts::border_artifact_mask(source);
     let measured_gutter = gutter_shadow(source);
     let picture_map = ComponentMap::from_binary(candidate);
-    let mut owner = candidate.clone();
-    for component in picture_map.components() {
+    let text_evidence = text_evidence.map(|(text, vicinity, tone)| {
+        let text_counts = picture_map.mask_counts_by_component(&text.or(vicinity));
+        let text_page =
+            text_counts.iter().skip(1).sum::<usize>().saturating_mul(2) >= candidate.count_black();
+        (
+            text_page,
+            text_counts,
+            picture_map.mask_counts_by_component(&tone.subtract(text)),
+        )
+    });
+    picture_map.retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         let page_width = source.width();
         let page_height = source.height();
         let component_bounds_area = width.saturating_mul(height).max(1);
         let density = component.area as f64 / component_bounds_area as f64;
-        // Edge overlap and shadow-shaped geometry are useful artifact signals
-        // only for small/sparse fields. A dense plate can legitimately touch
-        // both margins: this covers a 85% x 70% illustration, each half of a
-        // two-up plate pair, and a full-width banner whose height is shorter
-        // than the page. The non-edge content dominates those components.
+        // Dense plates may legitimately reach page edges; sparse shadows cannot.
         let dense_large_component = density >= 0.70
             && (component.area.saturating_mul(2) >= page_width.saturating_mul(page_height)
                 || (width.saturating_mul(5) >= page_width.saturating_mul(4)
@@ -1034,19 +1037,11 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
         }
         let touches_vertical_edge = component.top < vertical_edge_zone
             || component.bottom.saturating_add(vertical_edge_zone) >= page_height;
-        // Anchor on the column the fold evidence measured; fall back to the
-        // geometric centre only when nothing measured one.
         let center = measured_gutter.map_or(page_width / 2, GutterShadow::center);
         let crosses_gutter = component.left <= center.saturating_add(horizontal_edge_zone)
             && component.right.saturating_add(horizontal_edge_zone) >= center;
         let page_filling = width.saturating_mul(5) >= page_width.saturating_mul(4)
             && height.saturating_mul(5) >= page_height.saturating_mul(4);
-        // Border evidence can overlap the authored edge of a full-bleed scan.
-        // It may veto a sparse edge ghost or frame, but not a dense component
-        // that already owns most of both page axes. The Bar Zobi manuscript
-        // candidate is 99.9% dense in its 91% x 95% enclosure; the old 1%
-        // overlap rule revoked all 576k corroborated pixels because 2.6% also
-        // touched the rough leaf/black-stage boundary.
         let edge_artifact = border_overlap >= 16
             && border_overlap.saturating_mul(100) >= component.area
             && !dense_large_component;
@@ -1057,58 +1052,34 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
             && !page_filling
             && sparse_midtones
             && !dense_large_component;
-        // A fold can disappear at the crop boundary before ownership is
-        // qualified, so requiring contact with the top/bottom edge is not
-        // sufficient. A narrow, long component sitting on the gutter is
-        // scanner geometry rather than a photographic plate; real plates need
-        // a materially wider enclosure before they can own tone.
-        //
-        // "On the gutter" is the measured column, not a band of page-width
-        // fractions around the centre. A spread whose leaves differ in width
-        // puts its fold outside the 40%-62% band while remaining a fold, and
-        // that is precisely the page whose shadow is worst.
+        // Use the measured fold even when its shadow ends before the page edge.
         let overlaps_measured_gutter = measured_gutter.is_some_and(|gutter| {
             component.left <= gutter.right.saturating_add(horizontal_edge_zone)
                 && component.right.saturating_add(horizontal_edge_zone) >= gutter.left
         });
-        // A fold shadow only clears the binarization threshold where it is
-        // darkest, so the component that reaches qualification is frequently a
-        // fragment of the column rather than the column. The height rule below
-        // was written for the column and abstains on the fragment. Positional
-        // evidence replaces it: a narrow, taller-than-wide component whose own
-        // centre sits on the measured fold is scanner geometry at any height,
-        // because nothing a book prints is centred on its own binding.
+        // Thresholding may leave only a short fragment centered on the fold.
         let component_center_x = component.left + width / 2;
         let fragment_on_measured_gutter = measured_gutter
             .is_some_and(|gutter| gutter.contains_within(component_center_x, horizontal_edge_zone))
             && height >= width;
-        // A central narrow shape on a single portrait leaf is not enough to
-        // identify a fold, and `overlaps_measured_gutter` already carries the
-        // source-level gutter context: pages without a measured fold remain
-        // eligible for narrow inset illustrations and portraits. A real gutter
-        // shadow may itself be a solid dark column, so this rule deliberately
-        // does not require sparse midtones.
         let central_narrow_shadow = overlaps_measured_gutter
             && width.saturating_mul(12) <= page_width
             && (height.saturating_mul(5) >= page_height || fragment_on_measured_gutter)
             && !dense_large_component;
-        if component.area < PICTURE_OWNER_MIN_COMPONENT_PIXELS
-            || vertical_shadow
-            || horizontal_shadow
-            || edge_artifact
-            || gutter_artifact
-            || central_narrow_shadow
-        {
-            for y in component.top..=component.bottom {
-                for x in component.left..=component.right {
-                    if picture_map.label_at(x, y) == component.label {
-                        owner.set(x, y, false);
-                    }
-                }
-            }
-        }
-    }
-    owner
+        let text_only = text_evidence
+            .as_ref()
+            .is_some_and(|(text_page, text, tone)| {
+                (*text_page || text[component.label as usize].saturating_mul(2) >= component.area)
+                    && tone[component.label as usize] < PICTURE_OWNER_MIN_COMPONENT_PIXELS
+            });
+        component.area >= PICTURE_OWNER_MIN_COMPONENT_PIXELS
+            && !vertical_shadow
+            && !horizontal_shadow
+            && !edge_artifact
+            && !gutter_artifact
+            && !central_narrow_shadow
+            && !text_only
+    })
 }
 
 /// Where the binding-fold evidence actually found the shadow, in analysis
@@ -1464,32 +1435,8 @@ fn rectangle_addition_contains_text_line(
 
 pub(crate) fn extend_picture_mask_for_content(
     source: &GrayImage,
-    picture_mask: &BinaryImage,
-    calibration: PageCalibration,
-) -> BinaryImage {
-    extend_mask_for_content(source, picture_mask, calibration, true)
-}
-
-/// Extends tonal seed pixels to the enclosing illustration/map structure
-/// without adopting unrelated document structures elsewhere on the page.
-///
-/// When tonal evidence exists, both crop/layout and semantic-tone extension
-/// stay local to the seed that caused the request. An empty automatic mask
-/// keeps the established line-art recovery path; once there is a seed, it may
-/// not adopt an unrelated gutter, frame, or text structure elsewhere.
-pub(crate) fn extend_tone_mask_for_content(
-    source: &GrayImage,
-    tone_mask: &BinaryImage,
-    calibration: PageCalibration,
-) -> BinaryImage {
-    extend_mask_for_content(source, tone_mask, calibration, true)
-}
-
-fn extend_mask_for_content(
-    source: &GrayImage,
     seed_mask: &BinaryImage,
     calibration: PageCalibration,
-    require_seed_overlap: bool,
 ) -> BinaryImage {
     let threshold = otsu_threshold(source);
     let binary = threshold_global(source, threshold);
@@ -1544,7 +1491,7 @@ fn extend_mask_for_content(
         if supporting_components < 8 {
             continue;
         }
-        if require_seed_overlap && has_seed {
+        if has_seed {
             let mut overlap = 0usize;
             for y in cluster.top..=cluster.bottom {
                 for x in cluster.left..=cluster.right {
@@ -1711,9 +1658,6 @@ pub(crate) fn veto_text_like_regions(
         return candidate;
     }
     let candidate_components = ComponentMap::from_binary(&candidate);
-    if candidate_components.components().is_empty() {
-        return candidate;
-    }
     let text = threshold_global(source, otsu_threshold(source));
     let text_components = ComponentMap::from_binary(&text);
     let distance_to_white = squared_euclidean_distance(&text.invert());
@@ -1743,25 +1687,19 @@ pub(crate) fn veto_text_like_regions(
         }
     }
 
-    let mut vetoed = vec![false; candidate_components.components().len() + 1];
-    for component in candidate_components.components() {
+    for strokes in &mut matched_strokes {
+        strokes.sort_unstable_by(f64::total_cmp);
+    }
+    candidate_components.retain(|component| {
         let label = component.label as usize;
-        let strokes = &mut matched_strokes[label];
+        let strokes = &matched_strokes[label];
         if strokes.len() < MIN_TEXT_COMPONENTS_FOR_VETO
             || strokes.len() * 2 < contained_counts[label]
         {
-            continue;
+            return true;
         }
-        strokes.sort_unstable_by(f64::total_cmp);
-        let median = strokes[strokes.len() / 2];
-        if (body_stroke * 0.7..=body_stroke * 1.4).contains(&median) {
-            vetoed[label] = true;
-        }
-    }
-    if !vetoed.iter().any(|&value| value) {
-        return candidate;
-    }
-    candidate_components.retain(|component| !vetoed[component.label as usize])
+        !(body_stroke * 0.7..=body_stroke * 1.4).contains(&strokes[strokes.len() / 2])
+    })
 }
 
 #[cfg(test)]
@@ -1877,6 +1815,35 @@ mod tests {
             photo_pixels > 2_000,
             "detected only {photo_pixels} photo pixels"
         );
+        // Final text evidence revokes note enclosures and keeps plate tone.
+        let candidate = BinaryImage::from_fn_parallel(mixed.width(), mixed.height(), |x, y| {
+            ((15..105).contains(&x) && (18..116).contains(&y))
+                || ((185..250).contains(&x) && (35..155).contains(&y))
+        });
+        let ink = threshold_global(&mixed, 50);
+        let tone = detect_continuous_tone_mask(&mixed, 300.0);
+        let text_ink = threshold_global(&text, 50);
+        let text_tone = detect_continuous_tone_mask(&text, 300.0);
+        for edge in [185, 225, 245] {
+            let vicinity =
+                BinaryImage::from_fn_parallel(mixed.width(), mixed.height(), |x, _| x < edge);
+            let owner = qualify_picture_owner(&mixed, &candidate, Some((&ink, &vicinity, &tone)));
+            assert!(
+                !owner.get(40, 40),
+                "text enclosure retained a picture owner"
+            );
+            assert!(
+                owner.get(240, 80),
+                "plate lost its continuous-tone interior"
+            );
+            assert_eq!(
+                qualify_picture_owner(&text, &candidate, Some((&text_ink, &vicinity, &text_tone)))
+                    .count_black(),
+                0,
+                "unrecognized remnant survived a text-only picture field"
+            );
+        }
+        assert_eq!(qualify_picture_owner(&mixed, &candidate, None), candidate);
         let text_pixels = (0..160)
             .flat_map(|x| (0..150).map(move |y| (x, y)))
             .filter(|&(x, y)| mask.get(x, y))
@@ -1920,7 +1887,7 @@ mod tests {
             }
         }
         assert!(candidate.count_black() > 1_000);
-        let owner = qualify_picture_owner(&page, &candidate);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             0,
@@ -1939,7 +1906,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             0,
@@ -1988,7 +1955,7 @@ mod tests {
                 "fixture must be large enough to reach the shadow vetoes"
             );
 
-            let owner = qualify_picture_owner(&page, &candidate);
+            let owner = qualify_picture_owner(&page, &candidate, None);
             assert_eq!(
                 owner.count_black(),
                 0,
@@ -2022,7 +1989,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         let surviving = ComponentMap::from_binary(&owner);
         let plate = surviving
             .components()
@@ -2062,7 +2029,7 @@ mod tests {
             "fixture must exercise the old one-percent edge veto"
         );
 
-        let owner = qualify_picture_owner(&page, &candidate);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             candidate.count_black(),
@@ -2109,7 +2076,7 @@ mod tests {
             grown.get(220, 110),
             "tone growth stopped at the dark-lobe detector boundary"
         );
-        let owner = qualify_picture_owner(&source, &grown);
+        let owner = qualify_picture_owner(&source, &grown, None);
         assert!(
             owner.get(220, 110),
             "the vetted union still lost the smooth photo lobe"
@@ -2131,7 +2098,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             candidate.count_black(),
@@ -2169,7 +2136,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             candidate.count_black(),
@@ -2412,7 +2379,7 @@ mod tests {
         }
         let calibration = PageCalibration::estimate(&image, 150.0, CalibrationConfig::default());
 
-        let extended = extend_tone_mask_for_content(&image, &tone_seed, calibration);
+        let extended = extend_picture_mask_for_content(&image, &tone_seed, calibration);
 
         assert!(extended.get(80, 80));
         assert!(
