@@ -1162,6 +1162,10 @@ describe('scan-cleanup-core conversion coverage', () => {
                 outputPages: documentPageCount,
             });
             expect(hashNativeBinary).toHaveBeenCalledTimes(3);
+            // The canvas pass and the batches each walk the document in page
+            // order; each probe covers a window of pages, not one page.
+            expect(vi.mocked(dependencies.detectSourceDpi).mock.calls.length)
+                .toBeLessThanOrEqual(2 * Math.ceil(documentPageCount / 256) + 2);
 
             const rasterByPage = new Map([[
                 1,

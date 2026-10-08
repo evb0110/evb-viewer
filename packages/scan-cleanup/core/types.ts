@@ -155,6 +155,15 @@ export interface IScanCleanupPageRasterSource {
 export interface IScanCleanupResultStore<TRecord> {
     readonly pageCount: number;
     readonly resultCount: number;
+    /**
+     * The files a store it created keeps its records in, in the format
+     * `openFileBackedScanCleanupResultStore` reads. Absent when the store
+     * does not own such files.
+     */
+    readonly persistedFiles?: {
+        readonly recordsPath: string;
+        readonly indexPath: string;
+    } | undefined;
     append: (result: TRecord) => Promise<void>;
     replace: (pageNumber: number, result: TRecord) => Promise<void>;
     getPage: (pageNumber: number) => Promise<TRecord | undefined>;

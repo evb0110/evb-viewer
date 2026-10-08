@@ -16,6 +16,8 @@ import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electron
 const RESULT_STORE_MAX_LINE_BYTES = 4 * 1024 * 1024;
 export const RESULT_STORE_INDEX_BYTES = 8;
 const RESULT_STORE_READ_CHUNK_BYTES = 64 * 1024;
+/** One read serves every record a range finds inside it. */
+const RESULT_STORE_BULK_READ_BYTES = 256 * 1024;
 const RESULT_STORE_PREFIX = 'scan-cleanup-results-';
 
 export interface IFileBackedScanCleanupResultStoreOptions<TRecord> {
@@ -188,8 +190,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         fileSystem: TFileBackedScanCleanupFileSystem,
         writable = true,
         removeDirectoryOnClose = true,
+        persistedFiles?: IScanCleanupResultStore<TRecord>['persistedFiles'],
     ) {
         this.directory = directory;
+        this.persistedFiles = persistedFiles;
         this.recordsFile = recordsFile;
         this.indexFile = indexFile;
         this.fileSystem = fileSystem;
@@ -205,6 +209,8 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
     }
 
     public readonly pageCount: number;
+
+    public readonly persistedFiles: IScanCleanupResultStore<TRecord>['persistedFiles'];
 
     public get resultCount() {
         return this._resultCount;
@@ -351,6 +357,31 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         });
     }
 
+    private async readOffsets(firstPageNumber: number, lastPageNumberExclusive: number) {
+        const count = lastPageNumberExclusive - firstPageNumber;
+        const bytes = Buffer.alloc(count * RESULT_STORE_INDEX_BYTES);
+        const {bytesRead} = await this.indexFile.read(
+            bytes,
+            0,
+            bytes.byteLength,
+            checkedIndexPosition(firstPageNumber),
+        );
+        return Array.from({length: count}, (_, index) => {
+            const start = index * RESULT_STORE_INDEX_BYTES;
+            if (start + RESULT_STORE_INDEX_BYTES > bytesRead) {
+                return undefined;
+            }
+            const encoded = bytes.readBigUInt64LE(start);
+            return encoded === 0n ? undefined : checkedOffset(encoded - 1n);
+        });
+    }
+
+    /**
+     * Records of neighbouring pages usually sit next to each other in the
+     * append-only file. Reading them in offset order through one block lets a
+     * single read serve all of them; a record the block cannot finish, a long
+     * or a far one, is read on its own.
+     */
     private async readRangeInternal(firstPageNumber: number, lastPageNumberExclusive: number) {
         assertReadWindow(
             firstPageNumber,
@@ -358,16 +389,37 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
             this.pageCount,
             this.maxReadPages,
         );
-        const results: TRecord[] = [];
-        for (
-            let pageNumber = firstPageNumber;
-            pageNumber < lastPageNumberExclusive;
-            pageNumber += 1
-        ) {
-            const result = await this.readPageInternal(pageNumber);
-            if (result !== undefined) results.push(result);
+        const offsets = await this.readOffsets(firstPageNumber, lastPageNumberExclusive);
+        const records: Array<TRecord | undefined> = Array.from({length: offsets.length});
+        const block = Buffer.allocUnsafe(RESULT_STORE_BULK_READ_BYTES);
+        let blockStart = 0;
+        let blockLength = 0;
+        const byOffset = offsets
+            .flatMap((offset, index) => offset === undefined ? [] : [{
+                index,
+                offset,
+            }])
+            .sort((left, right) => left.offset - right.offset);
+        for (const {
+            index,
+            offset,
+        } of byOffset) {
+            let start = offset - blockStart;
+            let newline = start >= 0 && start < blockLength
+                ? block.subarray(0, blockLength).indexOf(0x0a, start)
+                : -1;
+            if (newline < 0) {
+                const {bytesRead} = await this.recordsFile.read(block, 0, block.byteLength, offset);
+                blockStart = offset;
+                blockLength = bytesRead;
+                start = 0;
+                newline = block.subarray(0, blockLength).indexOf(0x0a);
+            }
+            records[index] = newline < 0
+                ? await this.readRecordAt(offset)
+                : parseRecordLine<TRecord>(block.subarray(start, newline));
         }
-        return results;
+        return records.filter((record): record is TRecord => record !== undefined);
     }
 
     public readRange(firstPageNumber: number, lastPageNumberExclusive: number) {
@@ -439,14 +491,22 @@ export async function createFileBackedScanCleanupResultStore<TRecord>(
     let recordsFile: Awaited<ReturnType<typeof open>> | null = null;
     let indexFile: Awaited<ReturnType<typeof open>> | null = null;
     try {
-        recordsFile = await fileSystem.open(join(directory, 'records.jsonl'), 'w+');
-        indexFile = await fileSystem.open(join(directory, 'index.bin'), 'w+');
+        const recordsPath = join(directory, 'records.jsonl');
+        const indexPath = join(directory, 'index.bin');
+        recordsFile = await fileSystem.open(recordsPath, 'w+');
+        indexFile = await fileSystem.open(indexPath, 'w+');
         return new FileBackedScanCleanupResultStore(
             directory,
             recordsFile,
             indexFile,
             options,
             fileSystem,
+            true,
+            true,
+            {
+                recordsPath,
+                indexPath,
+            },
         );
     } catch (error) {
         await Promise.allSettled([
@@ -531,6 +591,7 @@ export function createFileBackedScanCleanupDetectionResultStore(
             get resultCount() {
                 return store.resultCount;
             },
+            persistedFiles: store.persistedFiles,
             getPage: pageNumber => store.getPage(pageNumber),
             readRange: (firstPageNumber, lastPageNumberExclusive) => (
                 store.readRange(firstPageNumber, lastPageNumberExclusive)

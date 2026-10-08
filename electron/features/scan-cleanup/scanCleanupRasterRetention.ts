@@ -323,6 +323,8 @@ export function scanCleanupRasterRetention(
             sourceDpiByPage: new Map(),
             rasterPageSource: null,
             rasterPageSourceStore: null,
+            previewDocumentFacts: null,
+            previewCanvasBySignature: new Map(),
             pageGeometryDpi: null,
             pageSizeStores: new Set(),
             rendererOwners: new Set(),
@@ -460,7 +462,7 @@ export function scanCleanupRasterRetention(
                         rasterReadFlushScheduled = true;
                         void Promise.resolve().then(flushRasterReads);
                     }
-                }).catch(() => undefined);
+                });
             };
             const readRasterPage = (pageNumber: number) => new Promise<IDetectedPageRaster | undefined>((resolve, reject) => {
                 pendingRasterReads.set(pageNumber, {

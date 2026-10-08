@@ -63,8 +63,8 @@ import {
     DEFAULT_SOURCE_DPI,
     hasBoundedMatchedRasterResample,
     isScanCleanupSignalAborted,
-    readBoundedPreviewGeometry,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {readBoundedPreviewGeometry} from '@electron/features/scan-cleanup/scanCleanupRasterMeasurement';
 import {
     persistBaseAnalysisArtifacts,
     pruneBaseAnalysisCache,
@@ -142,9 +142,11 @@ export async function scanCleanupPreviewRenderer(
         try {
             pageSizeStore = await retention.pageSizeStore(document, signal);
             boundedGeometry = await readBoundedPreviewGeometry(
+                document,
                 pageSizeStore,
                 totalPages,
                 request,
+                signal,
             );
             pageSize = boundedGeometry.pageSize;
             const pageDpiByNumber = new Map<number, number>();

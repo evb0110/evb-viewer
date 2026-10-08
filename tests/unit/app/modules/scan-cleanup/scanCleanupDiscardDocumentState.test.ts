@@ -27,7 +27,6 @@ const AUTHORITATIVE_LIFECYCLE_KEY = `${SOURCE_SHA256}\u0000revision-1`;
 function cacheEntry() {
     return {
         ownerId: 'owner-1',
-        results: [],
         signatures: new Map<number, string>(),
         state: {
             jobId: requireJobId('detect-1'),
