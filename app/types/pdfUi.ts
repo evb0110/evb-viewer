@@ -133,6 +133,7 @@ export interface IPdfPersistFailure {
     phase: string;
     reason: TDocumentSaveFailureReason;
     message?: string;
+    cause?: unknown;
     validation?: IPdfValidationResult | null;
 }
 

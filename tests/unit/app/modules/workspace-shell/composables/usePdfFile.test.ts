@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {requirePdfDateString} from '@contracts/pdfDateString';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
@@ -25,10 +26,14 @@ const mocks = vi.hoisted(() => ({
     repair: vi.fn(),
     optimize: vi.fn(),
     optimizeAsCopy: vi.fn(),
+    nativeApply: vi.fn(),
+    nativeCommit: vi.fn(),
 }));
 
 const electronApi = createElectronPlatformApiFixture({
     documentFiles: {
+        applyPdfNativeMutationsToWorkingCopy: mocks.nativeApply,
+        commitStagedPdfNativeMutations: mocks.nativeCommit,
         analyzePdfConformance: mocks.analyzeConformance,
         getDocumentRevision: mocks.getRevision,
         optimizePdfAsCopy: mocks.optimizeAsCopy,
@@ -172,6 +177,49 @@ describe('usePdfFile façade', () => {
             optimizeWorkingCopy: expect.any(Function),
             optimizeWorkingCopyAsCopy: expect.any(Function),
         });
+    });
+
+    it.each([
+        'returned',
+        'thrown',
+    ] as const)('retains a %s native refusal without clearing the open document', async (kind) => {
+        const file = createFacade();
+        await file.openFile(pdfResult('native-refusal'));
+        const message = 'ENOSPC: no space left on device';
+        const cause = {
+            code: 'io' as const,
+            message,
+        };
+        mocks.nativeApply.mockImplementationOnce(async () => {
+            if (kind === 'thrown') throw new Error(message);
+            return {
+                applied: false,
+                validation: null,
+                error: cause,
+            };
+        });
+        const originalPath = file.originalPath.value;
+        const workingPath = file.workingCopyPath.value;
+        await expect(file.trySavePdfNativeMutations({bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [],
+        }}, {
+            saveMode: 'incremental',
+            modifiedAt: requirePdfDateString('D:20261008000000Z'),
+            expectedWorkingPath: workingPath,
+        })).resolves.toMatchObject({
+            success: false,
+            failure: {
+                channel: 'native',
+                reason: 'write-failed',
+                message,
+                cause: kind === 'thrown' ? expect.any(Error) : cause,
+            },
+        });
+        expect(file.originalPath.value).toBe(originalPath);
+        expect(file.workingCopyPath.value).toBe(workingPath);
+        expect(file.error.value).toBeNull();
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {

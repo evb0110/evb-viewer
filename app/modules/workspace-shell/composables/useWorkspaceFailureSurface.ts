@@ -3,6 +3,9 @@ import type {
     TAnnotationCreationFailureReason,
 } from '@app/modules/pdf-viewer/public';
 import type { TTranslateFn } from '@i18n-app';
+import type {IPdfPersistFailure} from '@app/types/pdfUi';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {
     getFailureReceipt,
     type FailureReceipt,
@@ -13,6 +16,7 @@ import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMisma
 import { classifyDocumentOpenError } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {
     copyTextToClipboard,
+    getNonEmptyDetails,
     useFailureToast,
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
@@ -94,7 +98,21 @@ export const useWorkspaceFailureSurface = () => {
         saveFailurePresentation.value = null;
     }
 
-    function describeSaveFailure(reason: TWorkspaceSaveFailureReason) {
+    function describeSaveFailure(reason: TWorkspaceSaveFailureReason, persistence?: IPdfPersistFailure) {
+        const message = persistence?.message ?? '';
+        if (/EACCES|EPERM|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
+            return t('errors.save.permissionDenied');
+        }
+        if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
+            return t('errors.save.diskFull');
+        }
+        const nativeError = findSerializableErrorEnvelope(persistence?.cause, NATIVE_ERROR_ENVELOPE_SCHEMA);
+        if (nativeError?.code === 'corrupt-xref' || nativeError?.code === 'invalid-request') {
+            return t('errors.save.validation');
+        }
+        if (persistence?.channel === 'native' && reason !== 'validation-rejected') {
+            return t(nativeError?.code === 'io' ? 'errors.save.writeFailed' : 'errors.save.nativeFailure');
+        }
         switch (reason) {
             case 'validation-rejected':
                 return t('errors.save.validation');
@@ -119,7 +137,7 @@ export const useWorkspaceFailureSurface = () => {
         reason: TWorkspaceSaveFailureReason,
         detail?: string | null,
         existingReceipt?: FailureReceipt,
-        diagnostics?: unknown,
+        diagnostics?: IPdfPersistFailure,
     ) {
         if (isDuplicateFailure({
             domain: 'save',
@@ -127,8 +145,8 @@ export const useWorkspaceFailureSurface = () => {
         })) {
             return false;
         }
-        const description = detail ?? describeSaveFailure(reason);
-        const receipt = existingReceipt ?? BrowserLogger.error(
+        const description = detail ?? describeSaveFailure(reason, diagnostics);
+        const receipt = existingReceipt ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
             'workspace',
             'Workspace save failed',
             {
@@ -143,6 +161,11 @@ export const useWorkspaceFailureSurface = () => {
             failure: receipt,
             title: t('errors.file.save'),
             description,
+            ...(diagnostics ? {technicalDetails: getNonEmptyDetails([
+                diagnostics.message,
+                diagnostics.validation?.errors.join('\n'),
+                diagnostics.cause === undefined ? undefined : getErrorMessage(diagnostics.cause),
+            ])} : {}),
         };
         lastReportedOperationIds.set('save', operationId);
         saveFailurePresentation.value = presentation;
