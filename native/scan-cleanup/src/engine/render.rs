@@ -4241,6 +4241,8 @@ fn map_analysis_rect_to_source_support(
     let candidate_top = ((rect.y - 0.5) / scale_y).max(0.0);
     let candidate_right = ((rect.right() + 0.5) / scale_x).min(source_width);
     let candidate_bottom = ((rect.bottom() + 0.5) / scale_y).min(source_height);
+    // One full-source histogram serves every edge of the box.
+    let ink_threshold = std::cell::OnceCell::new();
     let has_support = |bounds: Rect| {
         let SourceContentSupport::Rectilinear { image, to_source } = source_support else {
             return true;
@@ -4248,7 +4250,7 @@ fn map_analysis_rect_to_source_support(
         source_rect_has_ink_support(
             image,
             transform_rect_bounds(bounds, to_source),
-            paper_reference(image).saturating_sub(16),
+            *ink_threshold.get_or_init(|| paper_reference(image).saturating_sub(16)),
         )
     };
     let unconditional_dewarp_x = matches!(

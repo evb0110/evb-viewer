@@ -212,7 +212,6 @@ fn final_picture_ownership_applies_manual_zones_before_crop_extension() {
         text_mask: None,
         text_vicinity_mask: None,
         picture_mask: None,
-        content_picture_mask: None,
         options: &options,
         effective_dpi: 300.0,
         calibration: PageCalibration::estimate(&rotated, 300.0, CalibrationConfig::default()),

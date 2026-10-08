@@ -624,7 +624,6 @@ struct LayoutPictureEvidenceOutput {
     picture_mask: Option<Arc<BinaryImage>>,
     trusted_mrc_tone_mask: Option<Arc<BinaryImage>>,
     content_evidence_complete: bool,
-    content_picture_mask: Option<Arc<BinaryImage>>,
 }
 
 fn prepare_layout_picture_evidence(
@@ -669,8 +668,11 @@ fn prepare_layout_picture_evidence(
             derive_halftone_zones(rotated, effective_dpi)
         })
     });
+    // The detector returns an owner that has already passed the
+    // artifact/size vetoes, so every downstream consumer sees exactly the
+    // same vetted owner. Tone evidence only corroborates its candidates.
     let detected_picture_mask = render_policy.analyze_layout.then(|| {
-        let candidate = if blank_scan_candidate {
+        Arc::new(if blank_scan_candidate {
             BinaryImage::new(rotated.width(), rotated.height())
         } else {
             detect_picture_mask_with_continuous_tone(
@@ -681,11 +683,7 @@ fn prepare_layout_picture_evidence(
                     .as_deref()
                     .expect("layout analysis must prepare continuous-tone evidence"),
             )
-        };
-        // Tone evidence corroborates a candidate; it is not itself a
-        // semantic owner. Apply artifact/size vetoes once here so every
-        // downstream consumer sees exactly the same vetted owner.
-        Arc::new(qualify_picture_owner(rotated, &candidate))
+        })
     });
     let automatic_picture_mask = detected_picture_mask.clone();
     let picture_mask = automatic_picture_mask.as_deref().map(|automatic| {
@@ -751,13 +749,6 @@ fn prepare_layout_picture_evidence(
                 })
         }
     };
-    let content_picture_mask = if options.crop_content && !content_evidence_complete {
-        picture_mask
-            .as_deref()
-            .map(|mask| Arc::new(extend_picture_mask_for_content(rotated, mask, calibration)))
-    } else {
-        None
-    };
     timings.picture_mask_ms += picture_mask_started.elapsed().as_secs_f64() * 1_000.0;
 
     LayoutPictureEvidenceOutput {
@@ -770,7 +761,6 @@ fn prepare_layout_picture_evidence(
         picture_mask: picture_mask.clone(),
         trusted_mrc_tone_mask,
         content_evidence_complete,
-        content_picture_mask,
     }
 }
 
@@ -856,18 +846,15 @@ fn prepare_content_text_evidence(
             None
         }
     });
-    let text_line_count = content_evidence
-        .as_ref()
-        .map_or(0, |evidence| evidence.diagnostics.text_mask.line_count);
-    let protected_text_blocks = content_evidence.as_ref().map_or_else(Vec::new, |evidence| {
-        evidence.diagnostics.protected_blocks.clone()
-    });
-    let (text_mask, text_vicinity_mask) = content_evidence.map_or((None, None), |evidence| {
-        (
-            Some(Arc::new(evidence.text_mask)),
-            Some(Arc::new(evidence.text_vicinity_mask)),
-        )
-    });
+    let (text_line_count, protected_text_blocks, text_mask, text_vicinity_mask) = content_evidence
+        .map_or((0, Vec::new(), None, None), |evidence| {
+            (
+                evidence.text_line_count,
+                evidence.protected_blocks,
+                Some(Arc::new(evidence.text_mask)),
+                Some(Arc::new(evidence.text_vicinity_mask)),
+            )
+        });
     let mut trusted_mrc_owned_tone_mask = None;
     if let Some(trusted_tone) = trusted_mrc_tone_mask {
         let carved = carve_trusted_mrc_tone_owner(
@@ -893,12 +880,12 @@ fn prepare_content_text_evidence(
 
 struct FinalPictureOwnershipInput<'a> {
     rotated: &'a GrayImage,
+    /// The detector's owner, already through the artifact qualifier.
     automatic_picture_mask: Option<&'a BinaryImage>,
     trusted_mrc_owned_tone_mask: Option<&'a BinaryImage>,
     text_mask: Option<&'a BinaryImage>,
     text_vicinity_mask: Option<&'a BinaryImage>,
     picture_mask: Option<Arc<BinaryImage>>,
-    content_picture_mask: Option<Arc<BinaryImage>>,
     options: &'a CleanupOptions,
     effective_dpi: f64,
     calibration: PageCalibration,
@@ -920,7 +907,6 @@ fn finalize_picture_ownership(
         text_mask,
         text_vicinity_mask,
         mut picture_mask,
-        mut content_picture_mask,
         options,
         effective_dpi,
         calibration,
@@ -931,16 +917,15 @@ fn finalize_picture_ownership(
     // the inference and are applied once, last, so an operator override
     // cannot be enlarged and a final eraser cannot be silently undone.
     let automatic_picture_owner = {
-        // Flattened-page candidates still pass the ordinary artifact
-        // qualifier. Trusted MRC tone has already passed the independent
+        // Flattened-page candidates passed the ordinary artifact qualifier
+        // in the detector, and the qualifier only drops whole components on
+        // their own evidence, so qualifying them again changes nothing.
+        // Trusted MRC tone has already passed the independent
         // text-component veto and component/span gate above; qualifying
-        // that owner a second time as a flattened edge artifact would
-        // erase producer-authored ownership before it can reach Mixed
+        // that owner as a flattened edge artifact would erase
+        // producer-authored ownership before it can reach Mixed
         // composition. Crop geometry remains independent below.
-        let qualified_flattened = automatic_picture_mask
-            .as_ref()
-            .map(|candidate| qualify_picture_owner(rotated, candidate));
-        let mut owner = qualified_flattened.as_ref().map_or_else(
+        let mut owner = automatic_picture_mask.map_or_else(
             || BinaryImage::new(rotated.width(), rotated.height()),
             Clone::clone,
         );
@@ -966,11 +951,15 @@ fn finalize_picture_ownership(
         // cannot revoke source preservation inside the vetted pixels.
         picture_mask = Some(Arc::new(final_owner));
     }
-    if options.crop_content && !content_evidence_complete {
-        content_picture_mask = picture_mask
+    // Crop evidence grows from the final owner only; the owner is not final
+    // until the manual zones above have been applied.
+    let content_picture_mask = if options.crop_content && !content_evidence_complete {
+        picture_mask
             .as_deref()
-            .map(|mask| Arc::new(extend_picture_mask_for_content(rotated, mask, calibration)));
-    }
+            .map(|mask| Arc::new(extend_picture_mask_for_content(rotated, mask, calibration)))
+    } else {
+        None
+    };
 
     FinalPictureOwnershipOutput {
         picture_mask,
@@ -1785,7 +1774,6 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         picture_mask,
         trusted_mrc_tone_mask,
         content_evidence_complete,
-        content_picture_mask,
     } = prepare_layout_picture_evidence(LayoutPictureEvidenceInput {
         rotated: &rotated,
         effective_dpi,
@@ -1841,7 +1829,6 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         text_mask: text_mask.as_deref(),
         text_vicinity_mask: text_vicinity_mask.as_deref(),
         picture_mask,
-        content_picture_mask,
         options,
         effective_dpi,
         calibration,

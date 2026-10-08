@@ -24,10 +24,37 @@ pub struct ContentResult {
     pub diagnostics: Option<ContentDiagnostics>,
 }
 
+/// Text evidence from a semantic content scan. It carries no crop bounds or
+/// side confidence: those come from the crop scan alone.
 pub(crate) struct ContentAnalysisEvidence {
-    pub diagnostics: ContentDiagnostics,
+    pub text_line_count: usize,
+    pub protected_blocks: Vec<ContentBlockEvidence>,
     pub text_mask: BinaryImage,
     pub text_vicinity_mask: BinaryImage,
+}
+
+enum ContentScan {
+    Crop(Option<Rect>, ContentDiagnostics),
+    Semantic(ContentAnalysisEvidence),
+}
+
+fn crop_content_scan(
+    working: &GrayImage,
+    picture_mask: Option<&BinaryImage>,
+    manual_picture_authority: Option<&BinaryImage>,
+    calibration: PageCalibration,
+) -> (Option<Rect>, ContentDiagnostics) {
+    match detect_content_at_analysis_scale(
+        working,
+        picture_mask,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority,
+        },
+        calibration,
+    ) {
+        ContentScan::Crop(bounds, diagnostics) => (bounds, diagnostics),
+        ContentScan::Semantic(_) => unreachable!("a crop scan reports crop bounds"),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -64,14 +91,7 @@ pub fn detect_content_and_margins_with_calibration_config(
     let level = build_analysis_level(source, dpi, 150.0);
     let calibration =
         PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
-    let (detected, diagnostics, _, _) = detect_content_at_analysis_scale(
-        &level.image,
-        None,
-        ContentAnalysisPurpose::Crop {
-            manual_picture_authority: None,
-        },
-        calibration,
-    );
+    let (detected, diagnostics) = crop_content_scan(&level.image, None, None, calibration);
     let content = detected.map(|content| {
         Rect::new(
             content.x / level.scale_x,
@@ -114,12 +134,10 @@ pub(crate) fn detect_content_and_margins_calibrated_with_crop_authority(
     margins_pixels: Option<[f64; 4]>,
     calibration: PageCalibration,
 ) -> ContentResult {
-    let (content, diagnostics, _, _) = detect_content_at_analysis_scale(
+    let (content, diagnostics) = crop_content_scan(
         source,
         picture_mask,
-        ContentAnalysisPurpose::Crop {
-            manual_picture_authority: crop_authoritative_picture_mask,
-        },
+        crop_authoritative_picture_mask,
         calibration,
     );
     let mut result = content_with_margins(source, dpi, content, margins_mm, margins_pixels);
@@ -132,16 +150,14 @@ pub(crate) fn analyze_content_evidence_calibrated(
     picture_mask: Option<&BinaryImage>,
     calibration: PageCalibration,
 ) -> ContentAnalysisEvidence {
-    let (_, diagnostics, text_mask, text_vicinity_mask) = detect_content_at_analysis_scale(
+    match detect_content_at_analysis_scale(
         source,
         picture_mask,
         ContentAnalysisPurpose::Semantic,
         calibration,
-    );
-    ContentAnalysisEvidence {
-        diagnostics,
-        text_mask,
-        text_vicinity_mask,
+    ) {
+        ContentScan::Semantic(evidence) => evidence,
+        ContentScan::Crop(..) => unreachable!("a semantic scan reports text evidence"),
     }
 }
 
@@ -150,7 +166,7 @@ fn detect_content_at_analysis_scale(
     picture_mask: Option<&BinaryImage>,
     purpose: ContentAnalysisPurpose<'_>,
     calibration: PageCalibration,
-) -> (Option<Rect>, ContentDiagnostics, BinaryImage, BinaryImage) {
+) -> ContentScan {
     if let Some(mask) = picture_mask {
         assert_eq!(
             (working.width(), working.height()),
@@ -344,6 +360,21 @@ fn detect_content_at_analysis_scale(
         &text.mask,
         calibration,
     );
+    let protected_blocks = blocks
+        .iter()
+        .filter(|block| block.initialized && block.protected(calibration))
+        .map(block_evidence)
+        .collect();
+    if matches!(purpose, ContentAnalysisPurpose::Semantic) {
+        // The text evidence is complete here. Everything below trims and
+        // qualifies crop bounds, which only the crop scan reports.
+        return ContentScan::Semantic(ContentAnalysisEvidence {
+            text_line_count: text.summary.line_count,
+            protected_blocks,
+            text_mask: text.mask,
+            text_vicinity_mask: text.vicinity_mask,
+        });
+    }
     let protected_mask = build_protected_mask(
         working.width(),
         working.height(),
@@ -366,41 +397,37 @@ fn detect_content_at_analysis_scale(
     // may still expand untrimmed sides, but it cannot silently reverse an
     // accepted decision on the same side.
     let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims);
-    if matches!(purpose, ContentAnalysisPurpose::Crop { .. }) {
-        if let Some(qualification) = early_picture_qualification.as_ref() {
-            expand_bounds_for_structured_edge_text(
-                &mut bounds,
-                qualification.structured_text_edge_sides,
-                working.width(),
-                working.height(),
-                trim_authority,
-            );
-        }
+    if let Some(qualification) = early_picture_qualification.as_ref() {
+        expand_bounds_for_structured_edge_text(
+            &mut bounds,
+            qualification.structured_text_edge_sides,
+            working.width(),
+            working.height(),
+            trim_authority,
+        );
     }
-    if matches!(purpose, ContentAnalysisPurpose::Crop { .. }) {
-        let retained_ink_pixels = blocks
-            .iter()
-            .filter(|block| block.initialized)
-            .map(|block| block.ink_area)
-            .sum();
-        let ordinary_evidence = crop_evidence_supports_bounds(
-            text.summary.ink_pixels,
-            retained_ink_pixels,
-            analysis_picture_mask,
-            working.width(),
-            working.height(),
-        );
-        let sparse_text_evidence = sparse_text_evidence_supports_bounds(
-            text.summary.ink_pixels,
-            &map,
-            &blocks,
-            working.width(),
-            working.height(),
-            calibration,
-        );
-        if !ordinary_evidence && !sparse_text_evidence {
-            bounds = None;
-        }
+    let retained_ink_pixels = blocks
+        .iter()
+        .filter(|block| block.initialized)
+        .map(|block| block.ink_area)
+        .sum();
+    let ordinary_evidence = crop_evidence_supports_bounds(
+        text.summary.ink_pixels,
+        retained_ink_pixels,
+        analysis_picture_mask,
+        working.width(),
+        working.height(),
+    );
+    let sparse_text_evidence = sparse_text_evidence_supports_bounds(
+        text.summary.ink_pixels,
+        &map,
+        &blocks,
+        working.width(),
+        working.height(),
+        calibration,
+    );
+    if !ordinary_evidence && !sparse_text_evidence {
+        bounds = None;
     }
     if let Some(picture_bounds) = picture_mask.and_then(|mask| {
         crop_qualified_picture_bounds_with_authority(
@@ -412,16 +439,9 @@ fn detect_content_at_analysis_scale(
     }) {
         bounds = union_picture_bounds(bounds, picture_bounds, trim_authority);
     }
-    if matches!(purpose, ContentAnalysisPurpose::Crop { .. })
-        && bounds.is_some_and(|bounds| is_edge_sliver(bounds, working.width(), working.height()))
-    {
+    if bounds.is_some_and(|bounds| is_edge_sliver(bounds, working.width(), working.height())) {
         bounds = None;
     }
-    let protected_blocks = blocks
-        .iter()
-        .filter(|block| block.initialized && block.protected(calibration))
-        .map(block_evidence)
-        .collect();
     let diagnostics = ContentDiagnostics {
         side_confidence: ContentSideConfidence {
             left: side_confidence[0],
@@ -434,7 +454,7 @@ fn detect_content_at_analysis_scale(
         accepted_trims,
         protected_blocks,
     };
-    (
+    ContentScan::Crop(
         bounds.map(|bounds| {
             Rect::new(
                 bounds.left as f64,
@@ -444,8 +464,6 @@ fn detect_content_at_analysis_scale(
             )
         }),
         diagnostics,
-        text.mask,
-        text.vicinity_mask,
     )
 }
 
