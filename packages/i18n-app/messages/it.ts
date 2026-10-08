@@ -1078,6 +1078,7 @@ export default {
         'newTab': 'Nuova scheda',
         'closeTab': 'Chiudi scheda',
         'editorPanes': 'Pannelli editor',
+        'resizeEditorPanes': 'Ridimensiona i pannelli dell’editor',
         'splitEditorRight': 'Dividi a destra',
         'splitEditorLeft': 'Dividi a sinistra',
         'splitEditorUp': 'Dividi verso l’alto',

@@ -57,6 +57,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     clickToolbarButtonWhenEnabled,
     clickVisibleToolbarButton,
@@ -3266,6 +3267,212 @@ describe('Electron E2E - Viewer Smoke', () => {
         expectSplitResizeAnchorPreserved(afterWideDrag, userAnchor);
         expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
     }, 90_000);
+
+    it('resizes split panes with keyboard input and exposes search toggle state', async () => {
+        const evidence = resolve('.devkit/lane-a-rux5', `input-${Date.now()}`);
+        await mkdir(evidence, {recursive: true});
+        const observations: unknown[] = [];
+        const problems: string[] = [];
+        let session = sessionFixture.getSession();
+        onTestFinished(async () => {
+            await session.page.screenshot({path: join(evidence, 'final.png')});
+            await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+        });
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let number = 1; number <= 8; number += 1) {
+            const page = pdf.addPage([
+                612,
+                792,
+            ]);
+            page.drawText(`Page ${number}`, {
+                x: 50,
+                y: 730,
+                font,
+                size: 18,
+            });
+            if (number === 4) page.drawText('Valve valve valves v.lve', {
+                x: 50,
+                y: 680,
+                font,
+                size: 16,
+            });
+            for (let line = 0; line < 24; line += 1) {
+                page.drawText(`Reading line ${line + 1}`, {
+                    x: 50,
+                    y: 640 - line * 22,
+                    font,
+                    size: 14,
+                });
+            }
+        }
+        const fixturePath = join(evidence, 'keyboard-splits.pdf');
+        await writeFile(fixturePath, await pdf.save());
+        const toggleStates: Array<string | null> = [];
+        for (const uiScale of [
+            'default',
+            'compact',
+            'large',
+        ] as const) {
+            for (const direction of [
+                'right',
+                'down',
+            ] as const) {
+                session = await sessionFixture.restart({clean: true});
+                session.page.on('pageerror', error => problems.push(String(error)));
+                session.page.on('console', message => {
+                    if ([
+                        'warning',
+                        'error',
+                    ].includes(message.type())) problems.push(message.text());
+                });
+                await session.page.evaluate(async (scale: 'default' | 'compact' | 'large') => {
+                    const target = window as IE2EWindow;
+                    await target.electronAPI!.settings.save({uiScale: scale});
+                }, uiScale);
+                await session.page.reload({waitUntil: 'domcontentloaded'});
+                await session.command('windowResize', [
+                    900,
+                    700,
+                ]);
+                await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                if (uiScale === 'default' && direction === 'right') {
+                    await ensureSidebarOpen(session.page);
+                    await openDocumentSidebarTab(session.page, 'Search');
+                    const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+                    const search = async (query: string, count: number) => {
+                        const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
+                        await clickAsUser(session.page, input!);
+                        await session.page.keyboard.down('Control');
+                        await session.page.keyboard.press('KeyA');
+                        await session.page.keyboard.up('Control');
+                        await session.page.keyboard.type(query);
+                        await session.page.keyboard.press('Enter');
+                        await waitForFunctionInPage(session.page, (root: string, expected: number) => (
+                            document.querySelectorAll(`${root} .document-search-result`).length === expected
+                            && !document.querySelector(`${root} .document-search-results-spinner`)
+                        ), {timeout: 15_000}, sidebar, count);
+                    };
+                    await search('valve', 3);
+                    for (const [
+                        label,
+                        count,
+                    ] of [
+                            [
+                                'Match case',
+                                2,
+                            ],
+                            [
+                                'Whole word',
+                                1,
+                            ],
+                        ] as const) {
+                        const selector = `${sidebar} button[aria-label="${label}"]`;
+                        toggleStates.push(await session.page.$eval(selector, button => button.getAttribute('aria-pressed')));
+                        await clickAsUser(session.page, selector);
+                        await search('valve', count);
+                        toggleStates.push(await session.page.$eval(selector, button => button.getAttribute('aria-pressed')));
+                    }
+                    await search('v.lve', 1);
+                    const regex = `${sidebar} button[aria-label="Use regular expression"]`;
+                    toggleStates.push(await session.page.$eval(regex, button => button.getAttribute('aria-pressed')));
+                    await clickAsUser(session.page, regex);
+                    await search('v.lve', 2);
+                    toggleStates.push(await session.page.$eval(regex, button => button.getAttribute('aria-pressed')));
+                    observations.push({toggleStates});
+                    await clickToolbarButtonWhenEnabled(session.page, 'Toggle Sidebar');
+                }
+                await requireWorkspaceCommand(session.page, 'handleFitWidth');
+                await goToPageViaToolbar(session.page, 4);
+                await nudgeActiveDocumentViewportWithWheel(session, 'pdf', 220);
+                const paneId = await session.page.$eval('.editor-pane.is-active', pane => (pane as HTMLElement).dataset.editorPaneId!);
+                const userAnchor = await readSplitResizeViewportAnchor(session, paneId, 'pdf');
+                await openNewPane(session.page, direction);
+                expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', userAnchor), userAnchor);
+                if (direction === 'down') await session.command('windowResize', [
+                    900,
+                    1000,
+                ]);
+                const anchor = await readSplitResizeViewportAnchor(session, paneId, 'pdf');
+                const sash = '.editor-sash';
+                const readGeometry = () => session.page.$eval(sash, element => {
+                    const parent = element.parentElement!;
+                    const first = parent.querySelector<HTMLElement>('.editor-split-pane-first')!;
+                    const rect = first.getBoundingClientRect();
+                    return {
+                        width: rect.width,
+                        height: rect.height,
+                        value: element.getAttribute('aria-valuenow'),
+                        min: element.getAttribute('aria-valuemin'),
+                        max: element.getAttribute('aria-valuemax'),
+                        label: element.getAttribute('aria-label'),
+                        controls: element.getAttribute('aria-controls'),
+                        controlsExists: Boolean(document.getElementById(element.getAttribute('aria-controls') ?? '')),
+                        focused: document.activeElement === element,
+                    };
+                });
+                await clickAsUser(session.page, sash);
+                const before = await readGeometry();
+                await session.page.keyboard.press(direction === 'right' ? 'ArrowRight' : 'ArrowDown');
+                await waitForAnimationFrames(session.page, 2);
+                const after = await readGeometry();
+                observations.push({
+                    uiScale,
+                    direction,
+                    before,
+                    after,
+                    anchor,
+                });
+                expect(direction === 'right' ? after.width : after.height).toBeGreaterThan(direction === 'right' ? before.width : before.height);
+                expect(after.focused).toBe(true);
+                expect(after.label).toBeTruthy();
+                expect(after.controlsExists).toBe(true);
+                expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
+                await session.page.keyboard.press('Home');
+                await waitForAnimationFrames(session.page, 2);
+                const minimum = await readGeometry();
+                expect(Number(minimum.value)).toBe(Number(minimum.min));
+                await session.page.keyboard.press('End');
+                await waitForAnimationFrames(session.page, 2);
+                const maximum = await readGeometry();
+                expect(Number(maximum.value)).toBe(Number(maximum.max));
+                expect(direction === 'right' ? maximum.width : maximum.height).toBeGreaterThan(direction === 'right' ? minimum.width : minimum.height);
+                expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
+                await session.page.keyboard.press('Tab');
+                await session.page.keyboard.down('Shift');
+                await session.page.keyboard.press('Tab');
+                await session.page.keyboard.up('Shift');
+                expect((await readGeometry()).focused).toBe(true);
+                const cdp = await session.page.createCDPSession();
+                const tree = await cdp.send('Accessibility.getFullAXTree');
+                expect(tree.nodes.some(node => node.role?.value === 'separator' && node.name?.value === after.label && node.value?.value !== undefined)).toBe(true);
+                await writeFile(join(evidence, `${uiScale}-${direction}-accessibility.json`), JSON.stringify(tree, null, 2));
+                await cdp.detach();
+                await session.page.screenshot({path: join(evidence, `${uiScale}-${direction}.png`)});
+                observations.push({
+                    uiScale,
+                    direction,
+                    minimum,
+                    maximum,
+                });
+            }
+        }
+        expect(toggleStates).toEqual([
+            'false',
+            'true',
+            'false',
+            'true',
+            'false',
+            'true',
+        ]);
+        expect(problems).toEqual([]);
+    }, 240_000);
 
     it('reaches later search matches through bounded next and previous windows', async () => {
         const session = await sessionFixture.restart({clean: true});

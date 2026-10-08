@@ -1079,6 +1079,7 @@ export default {
         'newTab': 'Nouvel onglet',
         'closeTab': 'Fermer l’onglet',
         'editorPanes': 'Panneaux d’éditeur',
+        'resizeEditorPanes': 'Redimensionner les volets de l’éditeur',
         'splitEditorRight': 'Diviser à droite',
         'splitEditorLeft': 'Diviser à gauche',
         'splitEditorUp': 'Diviser vers le haut',

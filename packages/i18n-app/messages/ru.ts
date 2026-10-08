@@ -1090,6 +1090,7 @@ export default {
         'newTab': 'Новая вкладка',
         'closeTab': 'Закрыть вкладку',
         'editorPanes': 'Панели редактора',
+        'resizeEditorPanes': 'Изменить размер панелей редактора',
         'splitEditorRight': 'Разделить вправо',
         'splitEditorLeft': 'Разделить влево',
         'splitEditorUp': 'Разделить вверх',
