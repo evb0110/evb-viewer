@@ -387,14 +387,14 @@ export const MCP_RESOURCE_TEMPLATES = [
         name: 'evb_document_toc',
         title: 'EVB PDF table of contents',
         uriTemplate: 'evb://document/{tabId}/toc',
-        description: 'Read the document TOC/bookmarks when present, including titles and one-based page numbers.',
+        description: 'Legacy bookmark resource URI. Schema version 2 returns the nested tree in toc (treeField: toc), with flat paths, summary, and issues. Use /bookmarks for the canonical bookmarks field; the response no longer duplicates both tree fields.',
         mimeType: 'application/json',
     },
     {
         name: 'evb_document_bookmarks',
         title: 'EVB PDF bookmarks',
         uriTemplate: 'evb://document/{tabId}/bookmarks',
-        description: 'Read editable PDF bookmarks as a nested tree with zero-based paths and one-based page numbers.',
+        description: 'Read editable PDF bookmarks as a nested tree with zero-based paths and one-based page numbers. Schema version 2 returns bookmarks (treeField: bookmarks), flat paths, summary, and issues; /toc remains available with its toc tree field.',
         mimeType: 'application/json',
     },
     {

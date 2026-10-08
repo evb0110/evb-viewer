@@ -270,13 +270,25 @@ Resources:
 - `evb://document/{tabId}/notes`
   JSON note-bearing annotations plus open note-window state.
 - `evb://document/{tabId}/toc`
-  JSON document TOC/bookmarks.
+  Legacy JSON bookmark resource URI. Version 2 returns the nested tree in `toc`.
 - `evb://document/{tabId}/bookmarks`
-  JSON editable nested bookmark tree with path arrays.
+  Canonical JSON editable nested bookmark tree with path arrays. Version 2 returns the tree in `bookmarks`.
 - `evb://document/{tabId}/page-labels`
   JSON page-label ranges and materialized page labels.
 
 Resource templates are exposed for page text, text status, annotations, notes, bookmarks, and page labels. `resources/list` also adds concrete JSON resources for currently open PDF tabs.
+
+### Bookmark resource alias migration
+
+Bookmark resource responses declare `schemaVersion: 2` and `treeField`, the name
+of the nested tree property. Read `response[response.treeField]`, or read
+`bookmarks` from `/bookmarks` and `toc` from the legacy `/toc` URI. Earlier,
+unversioned responses serialized both properties. Version 2 returns one tree per
+URI; a client that read `bookmarks` from `/toc` should use `/bookmarks`, and a
+client that read `toc` from `/bookmarks` should use `/toc` or the declared
+`treeField`. The tree content, `flat` entries, `summary`, `issues`, `count`, and
+`dirty` remain the same. Both resource URIs and the `toc.*` action aliases
+remain supported; new clients should use `/bookmarks` and `bookmarks.*`.
 
 Prompts:
 
