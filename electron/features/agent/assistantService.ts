@@ -129,23 +129,34 @@ async function loadClaudeRuntimeModule() {
     return claudeRuntimeModulePromise;
 }
 
-let modelDiscovery: Promise<void> | null = null;
+const modelDiscovery: Partial<Record<TAgentAssistantProviderId, Promise<boolean> | undefined>> = {};
 async function discoverAssistantModels() {
-    modelDiscovery ??= Promise.all([
-        runtimeLifecycle.refreshCodexModelList().catch(error => logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`)),
-        (async () => {
+    await Promise.all(([
+        'codex',
+        'claude',
+    ] as const).map(async providerId => {
+        const discovery = modelDiscovery[providerId] ??= (async () => {
+            if (providerId === 'codex') {
+                return runtimeLifecycle.refreshCodexModelList();
+            }
             const info = await refreshClaudeInfo();
             if (!info.installed) {
-                return;
+                return false;
             }
             const provider = await loadClaudeRuntimeModule();
             const models = await provider.discoverClaudeAssistantModels(await ensureAssistantCwd(), info.executablePath);
             if (models.length > 0) {
                 claudeAssistantModels = models;
             }
-        })().catch(error => logger.warn(`Failed to read Claude model list: ${getErrorMessage(error)}`)),
-    ]).then(() => undefined);
-    await modelDiscovery;
+            return models.length > 0;
+        })().catch(error => {
+            logger.warn(`Failed to read ${providerId} model list: ${getErrorMessage(error)}`);
+            return false;
+        });
+        if (!(await discovery) && modelDiscovery[providerId] === discovery) {
+            modelDiscovery[providerId] = undefined;
+        }
+    }));
 }
 
 const sessionStore = createAssistantChatSessionStore({
@@ -315,19 +326,6 @@ function createAssistantSuccessResult(session: IAssistantChatSession) {
         ok: true as const,
         state: currentState(session.scope, session),
     };
-}
-
-function addUserMessageAndPublish(
-    session: IAssistantChatSession,
-    text: string,
-    attachments: NonNullable<IAgentAssistantSendMessageRequest['attachments']>,
-) {
-    const message = sessionStore.addMessage(session, {
-        role: 'user',
-        text,
-        ...(attachments.length > 0 ? {attachments} : {}),
-    });
-    return message;
 }
 
 function setProviderError(provider: TAgentAssistantProviderId, error: string) {
@@ -910,6 +908,11 @@ export async function sendAgentAssistantMessage(
         if (!text && attachments.length === 0 && !presetInstructions) {
             return createAssistantErrorResult('Message is empty.', session.scope, session);
         }
+        const userMessage = {
+            role: 'user' as const,
+            text,
+            ...(attachments.length > 0 ? {attachments} : {}),
+        };
 
         // Reserve the session before any provider setup can yield. This makes
         // the session turn and its MCP scope the transaction owner while a
@@ -953,7 +956,7 @@ export async function sendAgentAssistantMessage(
                 }
                 claudeProviderRuntime.runtimeState = 'busy';
                 delete session.lastError;
-                claudeUserMessageId = addUserMessageAndPublish(session, text, attachments).id;
+                claudeUserMessageId = sessionStore.addMessage(session, userMessage).id;
                 await claudeSession.sendMessage(modelText, attachments, selection.model);
                 claudeMessageSubmitted = true;
                 await assertClaimCurrent();
@@ -966,12 +969,7 @@ export async function sendAgentAssistantMessage(
                     });
                     session.claudeSession = undefined;
                 }
-                if (!isClaimCurrent()) {
-                    discardCanceledClaudeMessage();
-                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
-                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
-                }
-                if (error instanceof AssistantTurnSupersededError) {
+                if (!isClaimCurrent() || error instanceof AssistantTurnSupersededError) {
                     discardCanceledClaudeMessage();
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);
                     return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
@@ -1014,7 +1012,7 @@ export async function sendAgentAssistantMessage(
             sessionStore.setActiveSession(session);
             codexProviderRuntime.runtimeState = 'busy';
             delete session.lastError;
-            addUserMessageAndPublish(session, text, attachments);
+            sessionStore.addMessage(session, userMessage);
             const response = await currentRuntime.client.requestDecoded('turn/start', {
                 threadId: currentThreadId,
                 input: [

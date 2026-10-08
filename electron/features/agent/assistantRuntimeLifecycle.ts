@@ -530,7 +530,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         const info = runtime ? null : await refreshCodexInfo();
         const path = runtime?.codexPath ?? (info?.isVersionSupported ? info.path : null);
         if (!path) {
-            return;
+            return false;
         }
         await fsPromises.mkdir(getAssistantCodexHome(), { recursive: true });
         const client = runtime?.client ?? new CodexAppServerClient(
@@ -557,8 +557,10 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
                     options.sessionStore.updateRememberedSelection({ model: normalizeAssistantModel(response, selection.provider, selection.model) });
                 }
             }
+            return response.length > 0;
         } catch (error) {
             options.logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`);
+            return false;
         } finally {
             if (ownsClient) {
                 await client.shutdown();
