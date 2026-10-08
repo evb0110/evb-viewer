@@ -14,6 +14,7 @@
                 :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
+                :is-opening-document="isOpeningDocumentForDisplay"
                 :document-busy="toolbarDocumentBusyForDisplay"
                 :controls-disabled="toolbarControlsDisabled"
                 :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"

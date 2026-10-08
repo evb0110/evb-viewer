@@ -28,6 +28,7 @@ import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     clickVisibleToolbarButton,
     openPdfInApp,
+    triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
@@ -3410,12 +3411,14 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             // Page 2's buffer raster runs into the unchanged 15 s canvas-render watchdog.
             await waitForHeldPageRenderAbandoned(session);
 
-            // Page 2 keeps failing: the navigation's own raster stalls too.
+            // Page 2 keeps failing: the navigation's own raster stalls too,
+            // until the viewer gives up on it.
+            const buffered = await readPdfPageRenderGate(session);
             await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
-            await session.page.waitForFunction(() => (
-                (window as IE2EWindow & {__getPdfRenderTrace?: () => IPdfRenderTraceEntry[]}).__getPdfRenderTrace?.()
-                    .some(entry => entry.event === 'navigation-await-visual-exit' && entry.payload.outcome === 'render-settled-not-ready')
-            ), {timeout: 40_000});
+            await session.page.waitForFunction((started: number) => (
+                ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.started ?? 0) > started
+            ), {timeout: 20_000}, buffered?.started ?? 0);
+            await waitForHeldPageRenderAbandoned(session);
 
             // L2: by the settled deadline page 2 is painted, or the page itself
             // shows visible loading or error feedback.
@@ -3432,4 +3435,60 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             await openPdfPageRenderGate(session);
         }
     }, 150_000);
+
+    it('ends an open whose first page keeps failing, and redraws that page on Retry', async () => {
+        const session = sessionFixture.getSession();
+        const pdfPath = await createLargeScannedFixturePdf(`failed-first-page-${Date.now()}.pdf`, 4, 0);
+        await enableBufferedPdfTrace(session);
+        await closePdfPageRenderGate(session, 1);
+        try {
+            await triggerOpenPathInApp(session.page, pdfPath, 45_000);
+            // Every attempt at page 1 runs into the 15 s canvas-render watchdog.
+            await waitForHeldPageRenderAbandoned(session);
+
+            // L2, C4: the page says why it is blank, the failure is told once
+            // with a Retry, and the open is over: the document's controls work.
+            const shown = await waitForVisiblePageOutcome(session, 1, 10_000, true);
+            const toasts = await session.page.evaluate(() => Array.from(
+                document.querySelectorAll<HTMLElement>('.app-toast-failure'),
+                toast => ({
+                    text: toast.innerText,
+                    buttons: Array.from(toast.querySelectorAll('button'), button => button.textContent?.trim() ?? ''),
+                }),
+            ));
+            const trace = await collectTrace(session);
+            const outcome = {
+                shown,
+                toasts,
+                gate: await readPdfPageRenderGate(session),
+                timeouts: trace.filter(entry => (
+                    entry.event === 'pdf-render-supervisor-watchdog'
+                    && entry.payload.cause === 'page-stage-timeout'
+                )).map(entry => (entry.payload.metadata as Record<string, unknown> | undefined)?.lane),
+                navigationExits: trace
+                    .filter(entry => entry.event === 'navigation-await-visual-exit')
+                    .map(entry => entry.payload.outcome),
+                ...await readViewerPageOutcome(session, 1),
+            };
+            await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+            expect((await getWorkspaceToolbarSnapshot(session.page))?.showSidebar, JSON.stringify(outcome)).toBe(true);
+            await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+            expect(shown, JSON.stringify(outcome)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            expect(toasts.filter(toast => toast.buttons.includes('Retry')), JSON.stringify(outcome)).toHaveLength(1);
+        } finally {
+            await openPdfPageRenderGate(session);
+        }
+
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
+        ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'page 1 Retry'});
+        const painted = await waitForVisiblePageCanvas(session, 1, 15_000);
+        const after = await readViewerPageOutcome(session, 1);
+        expect(painted, JSON.stringify(after)).toBe(true);
+        await waitForScannedFixturePageIdentity(session.page, 1, 5_000);
+        expect(after.visualPresentation, JSON.stringify(after)).not.toBe('error');
+    }, 180_000);
 });

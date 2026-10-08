@@ -1,5 +1,6 @@
 import {useFailureToast} from '@app/composables/useFailureToast';
 import {getErrorMessage} from '@app/utils/error';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type {Ref} from 'vue';
@@ -297,6 +298,38 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
         return BrowserLogger.error('pdf-renderer', `Failed to render ${stage} for page ${String(pageNumber)}`, error, {code: 'RENDERER_PDF_PAGE_RENDER_FAILED'});
     }
+    /**
+     * Tells the user once that a page could not finish rendering, with a
+     * Retry that redraws what failed: its layers when the canvas is on
+     * screen, its raster when it is not. A Retry after the document changed
+     * does nothing.
+     */
+    function presentPageFailure(pageNumber: TPageNumber, report: {
+        receipt: FailureReceipt;
+        error: unknown;
+        description: string;
+        retry: () => Promise<unknown>;
+    }) {
+        const documentFence = options.document.captureFence();
+        presentFailureToast({
+            failure: report.receipt,
+            title: t('common.pdfPage', {page: pageNumber}),
+            description: report.description,
+            technicalDetails: getErrorMessage(report.error),
+            persistent: true,
+            actions: [{
+                label: t('common.retry'),
+                onClick: () => {
+                    if (!options.document.isCurrent(documentFence)) return;
+                    runGuardedTask(report.retry, {
+                        category: 'user-visible-operation',
+                        scope: 'pdf-renderer',
+                        message: `Failed to retry page ${String(pageNumber)}`,
+                    });
+                },
+            }],
+        });
+    }
     function cleanupPageIfCurrentRender(pageNumber: TPageNumber, version: number, requestId?: number) {
         const slot = pageRenderState.getSlot(pageNumber);
         if (
@@ -428,30 +461,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     container.dataset.pageLayerReadiness = 'failed';
                     options.onRenderedPageStateChanged?.();
                     if (annotation.failure) {
-                        presentFailureToast({
-                            failure: annotation.failure,
-                            title: t('common.pdfPage', {page: pageNumber}),
+                        presentPageFailure(pageNumber, {
+                            receipt: annotation.failure,
+                            error: annotation.error,
                             description: t('common.pageInteractionFailed', {page: pageNumber}),
-                            technicalDetails: getErrorMessage(annotation.error),
-                            persistent: true,
-                            actions: [{
-                                label: t('common.retry'),
-                                onClick: () => {
-                                    if (!options.document.isCurrent(documentFence)) return;
-                                    runGuardedTask(() => renderLayerPromotions({
-                                        start: pageNumber,
-                                        end: pageNumber,
-                                    }, {
-                                        contentIntent: 'layers-only-promotion',
-                                        rasterDemandPages: [pageNumber],
-                                        prioritizeTextLayer: true,
-                                    }), {
-                                        category: 'user-visible-operation',
-                                        scope: 'pdf-renderer',
-                                        message: 'Failed to retry page interaction',
-                                    });
-                                },
-                            }],
+                            retry: () => renderLayerPromotions({
+                                start: pageNumber,
+                                end: pageNumber,
+                            }, {
+                                contentIntent: 'layers-only-promotion',
+                                rasterDemandPages: [pageNumber],
+                                prioritizeTextLayer: true,
+                            }),
                         });
                     }
                 }
@@ -686,6 +707,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         renderCommittedPageLayers,
         renderLayerPromotions,
+        presentPageRenderFailure(pageNumber: TPageNumber, error: unknown, retry: () => Promise<unknown>) {
+            const receipt = logNonCriticalStageError(pageNumber, 'canvas', error);
+            if (receipt) {
+                presentPageFailure(pageNumber, {
+                    receipt,
+                    error,
+                    description: t('common.pageRenderFailed'),
+                    retry,
+                });
+            }
+        },
         resolveLayerPromotionDemand,
         queuePrioritizedTextLayerPromotions,
         cleanupAllLayers,

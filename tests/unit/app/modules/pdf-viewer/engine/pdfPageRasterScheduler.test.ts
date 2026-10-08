@@ -749,6 +749,63 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(400);
     });
 
+    it('tells the target once when a current page keeps failing to render', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness();
+        const failure = new Error('page render failed');
+        const onRenderFailed = vi.fn();
+        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+            ...harness.target,
+            start: (prepared) => {
+                harness.started.push(prepared.pageNumber);
+                return createTask(Promise.reject(failure));
+            },
+            onRenderFailed,
+        };
+        const demand = createDemand(1, 'viewport-visible');
+        const publish = (input: IPdfRasterDemand[]) => harness.scheduler.setDemand({
+            sourceId: 'viewport',
+            input,
+            policy: {
+                expand: demands => demands,
+                compareWithinLane: () => 0,
+            },
+            target,
+        });
+        publish([demand]);
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(harness.started).toEqual([
+            1,
+            1,
+            1,
+            1,
+        ]);
+        expect(onRenderFailed).toHaveBeenCalledExactlyOnceWith(demand, failure);
+        expect(harness.committed).toEqual([]);
+
+        // A page the viewport no longer asks for is not a failure to report.
+        onRenderFailed.mockClear();
+        const withdrawn = createDemand(2, 'viewport-visible');
+        publish([withdrawn]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(harness.started.at(-1)).toBe(2);
+        publish([]);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(onRenderFailed).not.toHaveBeenCalled();
+
+        // A report that throws stays the target's problem: rasters go on.
+        onRenderFailed.mockImplementation(() => {
+            throw new Error('report failed');
+        });
+        publish([createDemand(3, 'viewport-visible')]);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(onRenderFailed).toHaveBeenCalledOnce();
+        publish([createDemand(4, 'viewport-visible')]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(harness.started.at(-1)).toBe(4);
+    });
+
     it('gives up on a permanently rejected commit without leaking a lease or reservation', async () => {
         vi.useFakeTimers();
         const budget = createWorkspaceSurfaceBudgetController(1_000);
