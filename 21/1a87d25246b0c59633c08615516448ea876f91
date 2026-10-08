@@ -1,0 +1,37 @@
+app/platform/browser/browserDocumentIdb.ts
+  s_1be6682b7b776b::t_cacb4aaff6ac43 260,262,266,268
+tests/unit/app/platform/browserDocumentStore.test.ts
+  s_1be6682b7b776b::t_cacb4aaff6ac43 1067,1095,1123
+app/platform/browser/browserDocumentRecords.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 54
+app/platform/browser/browserDocumentRecordStore.ts
+  s_1be6682b7b776b::t_1daccd22885ce5 136-140,560,568-569,575
+app/platform/browser/browserDocumentRepository.ts
+  s_1be6682b7b776b::t_1daccd22885ce5 204,313,720-723,849,890,902,948,971,980,1063,1079,1104,1149,1190,1205,1238,1251
+app/platform/browser/browserDocumentConstants.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 4
+app/platform/browser/browserDocumentChunks.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 9-12,44
+app/platform/browser/browserDocumentTypes.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 3,185-315
+tests/integration/browser/realIndexedDbMigration.test.ts
+  s_1be6682b7b776b::t_23dee8d4dacb9b 830-938,940
+  s_1be6682b7b776b::t_cacb4aaff6ac43 3,16-18,33-35,261-263,284-310,1138,1352
+  s_1be6682b7b776b::t_2dcbee0eb84dc2 678-828,939
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "211a87d25246b0c59633c08615516448ea876f91",
+  "prompts": {},
+  "sessions": {
+    "s_1be6682b7b776b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11b0c-6bfd-7ad1-978e-1cf64000ef9c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
