@@ -26,6 +26,7 @@ function createFixture(
 ) {
     const app = {commandLine: {appendSwitch: vi.fn()}};
     const logger = {
+        debug: vi.fn(),
         error: vi.fn(),
         warn: vi.fn(),
     };
@@ -108,7 +109,7 @@ describe('processDeathRecovery', () => {
         ]);
     });
 
-    it('keeps expected utility teardown at warning level with no occurrence', () => {
+    it('keeps expected utility teardown at debug level with no occurrence', () => {
         const fixture = createReportingFixture();
 
         fixture.recovery.handleChildProcessGone({
@@ -120,7 +121,8 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.captureFailure).not.toHaveBeenCalled();
         expect(fixture.logger.error).not.toHaveBeenCalled();
-        expect(fixture.logger.warn).toHaveBeenCalledOnce();
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+        expect(fixture.logger.debug).toHaveBeenCalledOnce();
     });
 
     it('leaves renderer child death to the webContents owner', () => {
@@ -205,7 +207,8 @@ describe('processDeathRecovery', () => {
         }).action).toBe('logged');
 
         expect(fixture.logger.error).not.toHaveBeenCalled();
-        expect(fixture.logger.warn).toHaveBeenCalledWith(
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+        expect(fixture.logger.debug).toHaveBeenCalledWith(
             '[process-death] Utility process gone (EVB document fingerprint, reason=killed, exitCode=15)',
         );
     });
@@ -225,7 +228,8 @@ describe('processDeathRecovery', () => {
         }).action).toBe('logged');
 
         expect(fixture.logger.error).not.toHaveBeenCalled();
-        expect(fixture.logger.warn).toHaveBeenCalledWith(
+        expect(fixture.logger.warn).not.toHaveBeenCalled();
+        expect(fixture.logger.debug).toHaveBeenCalledWith(
             '[process-death] Utility process gone (EVB document save, reason=killed, exitCode=15)',
         );
     });

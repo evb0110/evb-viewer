@@ -40,7 +40,15 @@ vi.mock('@electron/resources/jobBroker', async importOriginal => ({
 }));
 vi.mock('@electron/features/ocr/main/ocrRuntimePolicy', () => ({getOcrRuntimePolicy: () => ({globalPageSlots: mocks.pageSlots})}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runOcrCommand(...args)}));
-vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: (path: string) => mocks.readPngDimensions(path)}));
+// Poppler writes PPM and the shared renderer encodes PNG; these tests cover
+// OCR page admission and processing, not the encoder.
+vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
+    readPngDimensions: (path: string) => mocks.readPngDimensions(path),
+    writePngFromPpm: async () => ({
+        width: 1,
+        height: 1,
+    }),
+}));
 vi.mock('@electron/features/ocr/pipeline/tesseractRunner', () => ({
     getPngDimensionsFromFile: async () => ({
         width: 2550,

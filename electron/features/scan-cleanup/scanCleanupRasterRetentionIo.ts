@@ -266,9 +266,11 @@ export async function readPreviewMetadata(
     if (!dependencies.stat || !dependencies.open) {
         throw new Error('Scan cleanup raster metadata requires injected stat and open capabilities');
     }
+    // A path-only raster is native input, never IPC bytes, so the preview
+    // byte budget does not apply; its pixel cap is the one it was rendered to.
     const file = await dependencies.stat(path);
-    if (file.size < 1 || file.size > PREVIEW_MAX_IMAGE_BYTES) {
-        throw new Error(`Scan cleanup preview image exceeds ${PREVIEW_MAX_IMAGE_BYTES} bytes`);
+    if (file.size < 1) {
+        throw new Error('Scan cleanup raster is empty');
     }
     const handle = await dependencies.open(path, 'r');
     try {

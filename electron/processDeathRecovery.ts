@@ -18,7 +18,7 @@ interface IChildProcessGoneDetails {
 
 interface IProcessDeathRecoveryOptions {
     argv: string[];
-    logger: Pick<ILogger, 'error' | 'warn'>;
+    logger: Pick<ILogger, 'debug' | 'error' | 'warn'>;
     now?: () => number;
     requestSafeModeRelaunch: (args: string[]) => void;
     captureFailure?: (input: IMainFailureInput) => FailureReceipt | undefined;
@@ -97,16 +97,20 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
     function handleChildProcessGone(details: IChildProcessGoneDetails) {
         const identity = details.name ?? details.serviceName ?? details.type;
         const message = `[process-death] ${details.type} process gone (${identity}, reason=${details.reason}, exitCode=${details.exitCode})`;
-        // Error level is what the renderer turns into a user-visible diagnostic
-        // report, so leaving the app's own utility teardown there raised a
-        // report for every successful fingerprint and every successful save.
-        // The event still belongs in the log; only the channel changes. Every
-        // other non-renderer death, killed or not, keeps error level, including
-        // the GPU, whose deaths drive the safe-mode relaunch below.
+        // The app terminates its own fingerprint and save utilities after every
+        // run, so their teardown is lifecycle detail, not a warning. The owner
+        // of each utility still reports an exit before its result and a
+        // termination it cannot prove. Every other non-renderer death, killed
+        // or not, keeps error level, including the GPU, whose deaths drive the
+        // safe-mode relaunch below.
+        if (isAppTerminatedUtilityProcess(details)) {
+            options.logger.debug(message);
+            return {action: 'logged' as const};
+        }
         // Electron also emits this app-level event for renderer deaths. The
         // webContents listener owns that occurrence so the same death cannot
         // create both a child-process and renderer-process receipt.
-        if (details.type === 'Renderer' || isAppTerminatedUtilityProcess(details)) {
+        if (details.type === 'Renderer') {
             options.logger.warn(message);
             return {action: 'logged' as const};
         }

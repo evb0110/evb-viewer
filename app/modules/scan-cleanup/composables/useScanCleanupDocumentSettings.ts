@@ -39,6 +39,7 @@ import {
     type TScanCleanupMarginTarget,
 } from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 import {isDesktopPlatformActive} from '@app/utils/platform';
+import {scanCleanupSourceIdentityKey} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -138,6 +139,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         ?? options.preferenceDocumentKey
         ?? computed(() => null);
     const documentRevision = options.documentRevision ?? options.documentLifecycleKey;
+    const sourceIdentity = inject(scanCleanupSourceIdentityKey, null);
     const preferences = getScanCleanupPreferencesStore({
         sourceSha256: sourceSha256.value,
         legacyDocumentKey: legacyDocumentKey.value,
@@ -442,6 +444,39 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         documentSettingsReady.value = false;
         documentSettingsLoadFailure.value = null;
         void flushPersistence().catch(() => undefined);
+        const identityState = sourceIdentity?.state.value;
+        if (
+            isDesktopPlatformActive()
+            && !isScanCleanupSourceSha256(currentSourceSha256)
+            && (identityState === 'pending' || identityState === 'failed')
+        ) {
+            // Desktop document settings are keyed by the source hash, so until
+            // it is known there is nothing to load and defaults must not pass
+            // for loaded settings. Edits made meanwhile are kept as intents and
+            // merged when the hash arrives and this load runs again, so the
+            // reset above must stop counting as an applied load once it lands.
+            void nextTick(() => {
+                if (generation === documentLoadGeneration) applyingDocumentSettings = false;
+            });
+            loadingDocument.value = identityState === 'pending';
+            if (identityState === 'failed') {
+                documentSettingsLoadFailure.value = {
+                    ...captureFailureForPresentation({
+                        code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+                        local: {
+                            source: 'scan-cleanup',
+                            message: 'Failed to identify the document for its settings',
+                        },
+                    }),
+                    title: t('errors.settings.load'),
+                    actions: [{
+                        label: t('common.retry'),
+                        onClick: () => sourceIdentity?.retry(),
+                    }],
+                };
+            }
+            return;
+        }
         loadingDocument.value = true;
         const persistenceToken = captureScanCleanupDocumentPersistenceToken(currentSourceSha256, currentLegacyDocumentKey);
         const snapshot = retry
@@ -493,6 +528,13 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     watch(options.documentLifecycleKey, () => {
         loadDocumentSettingsForCurrentSource();
     }, {immediate: true});
+    // A hash that arrives changes the lifecycle key above. Waiting and failing
+    // do not, so they re-enter the load as a retry that keeps pending edits.
+    watch(() => sourceIdentity?.state.value, state => {
+        if (state === 'pending' || state === 'failed') {
+            loadDocumentSettingsForCurrentSource(true);
+        }
+    });
     watch(() => cloneScanCleanupPreferenceValue(values.pageOverrides), (overrides, previous) => {
         if (applyingDocumentSettings) {
             return;

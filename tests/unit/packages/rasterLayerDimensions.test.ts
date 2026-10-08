@@ -1,5 +1,7 @@
 import {
+    access,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -11,9 +13,11 @@ import {
     expect,
     it,
 } from 'vitest';
+import {decode} from 'fast-png';
 import {
     readPpmDimensions,
     readPpmRaster,
+    writePngFromPpm,
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 
 const temporaryDirectories: string[] = [];
@@ -118,5 +122,57 @@ describe('rasterLayerDimensions PPM reads', () => {
             maxPixels: 100,
             signal: controller.signal,
         })).rejects.toThrow('cancelled');
+    });
+
+    // Poppler's PNG writer is fixed at maximum compression; scan cleanup and
+    // OCR encode Poppler's PPM instead. A page larger than one encoder block
+    // becomes several IDAT chunks, and every pixel must survive.
+    it('encodes a PPM larger than one block as a PNG with the same pixels', async () => {
+        const width = 700;
+        const height = 600;
+        const pixels = Buffer.alloc(width * height * 3);
+        for (let index = 0; index < pixels.length; index += 1) {
+            pixels[index] = (index * 7 + (index >> 9)) & 0xff;
+        }
+        const path = await createPpm(Buffer.concat([
+            Buffer.from(`P6\n${String(width)} ${String(height)}\n255\n`, 'ascii'),
+            pixels,
+        ]));
+        const pngPath = path.replace(/\.ppm$/u, '.png');
+
+        await expect(writePngFromPpm(path, pngPath, {
+            maxDimensionPx: 1_000,
+            maxPixels: 1_000_000,
+        })).resolves.toEqual({
+            width,
+            height,
+        });
+        const image = decode(await readFile(pngPath));
+        expect([
+            image.width,
+            image.height,
+            image.channels,
+            image.depth,
+        ]).toEqual([
+            width,
+            height,
+            3,
+            8,
+        ]);
+        expect(Buffer.from(image.data).equals(pixels)).toBe(true);
+    });
+
+    it('refuses a PPM over the caller\'s limits before writing a PNG', async () => {
+        const path = await createPpm(Buffer.concat([
+            Buffer.from('P6\n4 4\n255\n', 'ascii'),
+            Buffer.alloc(4 * 4 * 3),
+        ]));
+        const pngPath = path.replace(/\.ppm$/u, '.png');
+
+        await expect(writePngFromPpm(path, pngPath, {
+            maxDimensionPx: 100,
+            maxPixels: 8,
+        })).rejects.toThrow('PPM raster 4x4 exceeds limits');
+        await expect(access(pngPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 });

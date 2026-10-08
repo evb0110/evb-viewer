@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {decode} from 'fast-png';
 import {
     afterEach,
     describe,
@@ -21,10 +22,37 @@ import {
     type IScanCleanupRasterBatchFileSystem,
 } from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 
-const PNG = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64',
-);
+// One RGB pixel as Poppler writes it when no output format is requested.
+const PPM = Buffer.concat([
+    Buffer.from('P6\n1 1\n255\n', 'ascii'),
+    Buffer.from([
+        12,
+        34,
+        56,
+    ]),
+]);
+
+/** What a reader of the published raster sees: a PNG holding Poppler's pixels. */
+async function readPublishedPixels(path: string) {
+    const image = decode(await readFile(path));
+    return {
+        width: image.width,
+        height: image.height,
+        channels: image.channels,
+        pixels: [...image.data],
+    };
+}
+
+const PUBLISHED_PIXEL = {
+    width: 1,
+    height: 1,
+    channels: 3,
+    pixels: [
+        12,
+        34,
+        56,
+    ],
+};
 const roots: string[] = [];
 
 function createFileSystem() {
@@ -52,8 +80,8 @@ describe('scan cleanup raster batch renderer', () => {
         const runCommand = vi.fn(async (_binary: string, args: string[]) => {
             const prefix = args.at(-1)!;
             await Promise.all([
-                writeFile(`${prefix}-0017.png`, PNG),
-                writeFile(`${prefix}-0018.png`, PNG),
+                writeFile(`${prefix}-0017.ppm`, PPM),
+                writeFile(`${prefix}-0018.ppm`, PPM),
             ]);
             return {
                 exitCode: 0,
@@ -89,8 +117,9 @@ describe('scan cleanup raster batch renderer', () => {
         });
 
         expect(runCommand).toHaveBeenCalledOnce();
+        // Poppler's own PNG writer is fixed at maximum compression; it is
+        // asked for PPM and the batch publishes a fast lossless PNG.
         expect(runCommand.mock.calls[0]?.[1]).toEqual([
-            '-png',
             '-cropbox',
             '-r',
             '150',
@@ -117,15 +146,14 @@ describe('scan cleanup raster batch renderer', () => {
             17,
             18,
         ]);
-        expect(await readFile(targets[0]!.outputPath)).toEqual(PNG);
-        expect(await readFile(targets[1]!.outputPath)).toEqual(PNG);
+        expect(await readPublishedPixels(targets[0]!.outputPath)).toEqual(PUBLISHED_PIXEL);
+        expect(await readPublishedPixels(targets[1]!.outputPath)).toEqual(PUBLISHED_PIXEL);
         expect((await readdir(root)).sort()).toEqual([
             'page-17.png',
             'page-18.png',
         ]);
         expect(fileSystem.mkdtemp).toHaveBeenCalledOnce();
         expect(fileSystem.readdir).toHaveBeenCalledTimes(2);
-        expect(fileSystem.open).toHaveBeenCalledTimes(2);
         expect(fileSystem.rename).toHaveBeenCalledTimes(2);
         expect(fileSystem.rm).toHaveBeenCalledOnce();
     });
@@ -134,7 +162,7 @@ describe('scan cleanup raster batch renderer', () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
         roots.push(root);
         const runCommand = vi.fn(async (_binary: string, args: string[]) => {
-            await writeFile(`${args.at(-1)!}-0003.png`, PNG);
+            await writeFile(`${args.at(-1)!}-0003.ppm`, PPM);
             return {
                 exitCode: 0,
                 stderr: '',
@@ -171,7 +199,7 @@ describe('scan cleanup raster batch renderer', () => {
             pageNumber: 3,
             width: 1,
         }]);
-        expect(await readFile(outputPath)).toEqual(PNG);
+        expect(await readPublishedPixels(outputPath)).toEqual(PUBLISHED_PIXEL);
         expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('progress channel closed'));
     });
 
@@ -180,7 +208,7 @@ describe('scan cleanup raster batch renderer', () => {
         roots.push(root);
         const runCommand = vi.fn(async (_binary: string, args: string[]) => {
             const prefix = args.at(-1)!;
-            await writeFile(`${prefix}-0001.png`, PNG);
+            await writeFile(`${prefix}-0001.ppm`, PPM);
             return {
                 exitCode: 0,
                 stderr: '',
@@ -215,7 +243,7 @@ describe('scan cleanup raster batch renderer', () => {
             pageNumber: 1,
             width: 1,
         }]);
-        expect(await readFile(outputPath)).toEqual(PNG);
+        expect(await readPublishedPixels(outputPath)).toEqual(PUBLISHED_PIXEL);
         expect(log).toHaveBeenCalledWith(
             'warn',
             'Scan cleanup could not remove raster batch scratch directory: scratch cleanup failed',
@@ -328,7 +356,7 @@ describe('scan cleanup raster batch renderer', () => {
             expect(firstPage).toBe(1);
             expect(lastPage).toBe(1_024);
             await Promise.all(Array.from({length: lastPage - firstPage + 1}, (_, index) =>
-                writeFile(`${prefix}-${String(index + 1).padStart(4, '0')}.png`, PNG)));
+                writeFile(`${prefix}-${String(index + 1).padStart(4, '0')}.ppm`, PPM)));
             return {
                 exitCode: 0,
                 stderr: '',
@@ -357,7 +385,7 @@ describe('scan cleanup raster batch renderer', () => {
         })).resolves.toHaveLength(1_024);
         expect(runCommand).toHaveBeenCalledOnce();
         for (const target of targets) {
-            expect(await readFile(target.outputPath)).toEqual(PNG);
+            expect(await readPublishedPixels(target.outputPath)).toEqual(PUBLISHED_PIXEL);
         }
     });
 });

@@ -22,10 +22,19 @@ const mocks = vi.hoisted(() => ({
     rm: vi.fn(),
     runOcrCommand: vi.fn(),
     stat: vi.fn(),
+    // Poppler writes PPM and the shared renderer encodes the PNG; these tests
+    // cover OCR's use of that renderer, not the encoder.
+    writePngFromPpm: vi.fn(async () => ({
+        width: 1,
+        height: 1,
+    })),
 }));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runOcrCommand}));
-vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
+vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({
+    readPngDimensions: mocks.readPngDimensions,
+    writePngFromPpm: mocks.writePngFromPpm,
+}));
 
 vi.mock('node:fs/promises', () => ({
     rm: mocks.rm,
@@ -132,7 +141,6 @@ describe('renderPdfPageToPng', () => {
         ], fallback);
         expect(fallback).toHaveBeenCalledOnce();
         expect(mocks.runOcrCommand).toHaveBeenLastCalledWith('/bin/pdftoppm', [
-            '-png',
             '-cropbox',
             '-r',
             '300',
@@ -199,7 +207,6 @@ describe('renderPdfPageToPng', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
             [
-                '-png',
                 '-cropbox',
                 '-r',
                 '300',
@@ -319,7 +326,6 @@ describe('renderPdfPageToPng', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
             [
-                '-png',
                 '-cropbox',
                 '-r',
                 '300',

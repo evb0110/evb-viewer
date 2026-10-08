@@ -6,8 +6,9 @@ Status: normative for the automatic scan-cleanup feature as of 2026-08-16.
 
 Scan cleanup is designed for page-oriented scans of predominantly dense text,
 especially bound books and comparable archival documents. The exercised range
-is 300–600 DPI (with deterministic analysis on a fixed 150-DPI canonical
-plane), single pages and two-page spreads, and Latin, Hebrew, Syriac, and Greek
+is 300–600 DPI (with deterministic analysis on a 150-DPI canonical plane,
+which a coarser scan or an oversized page lowers to the scan's own resolution
+or the shared raster cap), single pages and two-page spreads, and Latin, Hebrew, Syriac, and Greek
 text represented in the reference corpus. Moderate skew, uneven paper tone,
 book-gutter shadow, marginal notes, stamps, sparse front matter, and occasional
 illustrations embedded in otherwise textual pages are supported conditions.
