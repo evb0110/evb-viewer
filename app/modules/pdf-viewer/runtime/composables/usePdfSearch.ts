@@ -31,6 +31,11 @@ import {
 import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
+import {
+    getDocumentSearchQueryError,
+    resolveDocumentSearchQuery,
+    type IDocumentSearchProgress,
+} from '@app/modules/document-viewer/public';
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
 
@@ -41,18 +46,6 @@ interface IScheduledPdfSearch {
     documentRevisionToken: TDocumentRevisionToken | null;
     pageCount?: number;
     options: IResolvedSearchMatchOptions;
-}
-
-/**
- * Unquoted UI queries retain the established trim behavior. Double quotes are an
- * explicit affordance for matching intentional leading or trailing whitespace.
- */
-function resolvePdfSearchQuery(query: string) {
-    const trimmed = query.trim();
-    if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-        return trimmed.slice(1, -1);
-    }
-    return trimmed;
 }
 
 function normalizeDocumentRevisionToken(token: TDocumentRevisionToken | null | undefined) {
@@ -92,10 +85,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const currentResultNavigationId = ref(0);
     const isSearching = ref(false);
     const searchError = ref<string | null>(null);
-    const searchProgress = ref<{
-        processed: number;
-        total: number;
-    } | undefined>(undefined);
+    const searchProgress = ref<IDocumentSearchProgress>();
     const isTruncated = ref(false);
     const wasSearchCanceled = ref(false);
     let searchRunId = 0;
@@ -189,7 +179,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             progressCleanup();
             progressCleanup = null;
         }
-        searchProgress.value = undefined;
+        if (!searchProgress.value?.coverage) searchProgress.value = undefined;
     }
 
     function normalizeSearchError(error: unknown) {
@@ -288,6 +278,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         results.value = normalizedResponse.results;
         pageMatches.value = normalizedResponse.pageMatches;
         isTruncated.value = response.truncated;
+        if (response.coverage) searchProgress.value = {
+            processed: response.coverage.pagesScanned,
+            total: response.coverage.pageCount,
+            coverage: response.coverage,
+        };
 
         if (normalizedResponse.results.length === 0) {
             currentResultIndex.value = -1;
@@ -363,6 +358,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 pageMatches.value = new Map();
                 currentResultIndex.value = -1;
                 isTruncated.value = false;
+                searchProgress.value = undefined;
             }
             BrowserLogger.warn('pdf-search', 'Search failed', {
                 query: payload.query,
@@ -463,6 +459,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             pageMatches.value = new Map();
             currentResultIndex.value = -1;
             cleanupProgressListener();
+            searchProgress.value = undefined;
 
             // Call backend search API
             const api = getSearchCapability();
@@ -480,6 +477,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 searchProgress.value = {
                     processed: progress.processed,
                     total: progress.total,
+                    ...(progress.coverage ? {coverage: progress.coverage} : {}),
                 };
                 if (progress.canceled) {
                     wasSearchCanceled.value = true;
@@ -495,6 +493,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                     applySearchResponse({
                         results: streamedResults,
                         truncated: Boolean(progress.truncated),
+                        ...(progress.coverage ? {coverage: progress.coverage} : {}),
                     }, query, options, searchId);
                 }
             });
@@ -526,6 +525,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 pageMatches.value = new Map();
                 currentResultIndex.value = -1;
                 isTruncated.value = false;
+                searchProgress.value = undefined;
                 return;
             }
             applySearchResponse(response, query, options, searchId);
@@ -555,7 +555,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             wholeWord: Boolean(options.wholeWord),
             useRegex: Boolean(options.useRegex),
         };
-        const resolvedQuery = resolvePdfSearchQuery(query);
+        const resolvedQuery = resolveDocumentSearchQuery(query);
 
         if (!resolvedQuery) {
             clearSearch();
@@ -572,11 +572,13 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             return false;
         }
         cleanupProgressListener();
+        searchProgress.value = undefined;
 
-        if (resolvedQuery.length < PDF_SEARCH_MIN_QUERY_LENGTH) {
+        const queryError = getDocumentSearchQueryError(resolvedQuery, searchOptions.value);
+        if (queryError || resolvedQuery.length < PDF_SEARCH_MIN_QUERY_LENGTH) {
             isSearching.value = false;
             isTruncated.value = false;
-            searchError.value = null;
+            searchError.value = queryError ? t(queryError.key, {count: queryError.count}) : null;
             submittedSearchQuery.value = resolvedQuery;
             results.value = [];
             pageMatches.value = new Map();
@@ -650,6 +652,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         cancelScheduledSearch();
         void cancelActiveSearch();
         cleanupProgressListener();
+        searchProgress.value = undefined;
         isSearching.value = false;
         searchQuery.value = '';
         submittedSearchQuery.value = '';

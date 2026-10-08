@@ -3,7 +3,11 @@ import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
 import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
-import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/modules/document-viewer/public';
+import {
+    DEFAULT_DOCUMENT_SEARCH_OPTIONS,
+    getDocumentSearchQueryError,
+    resolveDocumentSearchQuery,
+} from '@app/modules/document-viewer/public';
 import type {
     IDocumentSearchBackend,
     IDocumentSearchMatch,
@@ -34,6 +38,7 @@ function defaultSearchError(error: unknown) {
 export const useDocumentSearchSession = (
     options: IUseDocumentSearchSessionOptions,
 ): IDocumentSearchSession => {
+    const { t } = useTypedI18n();
     const query = ref('');
     const submittedQuery = ref('');
     const searchOptions = ref<IResolvedSearchMatchOptions>({...DEFAULT_DOCUMENT_SEARCH_OPTIONS});
@@ -100,10 +105,16 @@ export const useDocumentSearchSession = (
     async function run() {
         cancel();
         const backend = toValue(options.backend);
-        const normalizedQuery = query.value.trim();
+        const normalizedQuery = resolveDocumentSearchQuery(query.value);
         submittedQuery.value = normalizedQuery;
         resetResults();
         if (!backend || normalizedQuery.length < minQueryLength.value) {
+            return false;
+        }
+
+        const queryError = getDocumentSearchQueryError(normalizedQuery, searchOptions.value);
+        if (queryError) {
+            error.value = t(queryError.key, {count: queryError.count});
             return false;
         }
 
@@ -141,6 +152,11 @@ export const useDocumentSearchSession = (
             }
             results.value = [...response.results];
             isTruncated.value = response.truncated;
+            if (response.coverage) progress.value = {
+                processed: response.coverage.pagesScanned,
+                total: response.coverage.pageCount,
+                coverage: response.coverage,
+            };
             if (results.value.length > 0) select(0);
             return true;
         } catch (caught) {

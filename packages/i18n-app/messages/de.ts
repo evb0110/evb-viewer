@@ -1289,7 +1289,10 @@ export default {
         'incompleteCoverage': 'Nur {processed} von {total} Seiten wurden durchsucht, da der Textindex seine Größenbegrenzung erreicht hat.',
         'incompleteCoverageHint': 'Um fortzufahren, extrahieren Sie die Seiten {nextPage}–{total} in eine neue PDF-Datei und durchsuchen Sie diese.',
         'noResultsHint': 'Versuchen Sie einen anderen Begriff oder führen Sie OCR aus, wenn sichtbarer Text in gescannten Seiten nicht gefunden wird.',
-        'unavailable': 'Suche nicht verfügbar',
+        'error': 'Suchfehler',
+        'invalidRegex': 'Prüfen Sie den regulären Ausdruck und versuchen Sie es erneut.',
+        'regexTooComplex': 'Dieser reguläre Ausdruck ist zu komplex. Vereinfachen Sie ihn und versuchen Sie es erneut.',
+        'queryTooLong': 'Kürzen Sie Ihre Suchanfrage auf höchstens {count} Zeichen.',
         'resultCount': plural({
             one: '{count} Ergebnis',
             other: '{count} Ergebnisse',

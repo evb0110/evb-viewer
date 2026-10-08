@@ -1289,7 +1289,10 @@ export default {
         'incompleteCoverage': 'Slechts {processed} van de {total} pagina’s zijn doorzocht omdat de tekstindex de maximale grootte heeft bereikt.',
         'incompleteCoverageHint': 'Extraheer pagina’s {nextPage}–{total} naar een nieuwe PDF en doorzoek die om verder te zoeken.',
         'noResultsHint': 'Probeer een andere zoekterm of voer OCR uit als zichtbare tekst op gescande pagina’s niet wordt gevonden.',
-        'unavailable': 'Zoeken niet beschikbaar',
+        'error': 'Zoekfout',
+        'invalidRegex': 'Controleer de reguliere expressie en probeer opnieuw.',
+        'regexTooComplex': 'Deze reguliere expressie is te complex. Vereenvoudig deze en probeer opnieuw.',
+        'queryTooLong': 'Verkort de zoekopdracht tot maximaal {count} tekens.',
         'resultCount': plural({
             one: '{count} resultaat',
             other: '{count} resultaten',

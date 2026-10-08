@@ -1289,7 +1289,10 @@ export default {
         'incompleteCoverage': 'Only {processed} of {total} pages were searched because the text index reached its size limit.',
         'incompleteCoverageHint': 'To continue, extract pages {nextPage}–{total} into a new PDF and search it.',
         'noResultsHint': 'Try a different term or run OCR if visible scanned text is not found.',
-        'unavailable': 'Search unavailable',
+        'error': 'Search error',
+        'invalidRegex': 'Check your regular expression and try again.',
+        'regexTooComplex': 'This regular expression is too complex. Simplify it and try again.',
+        'queryTooLong': 'Shorten your query to {count} characters or fewer.',
         'resultCount': plural({
             one: '{count} result',
             other: '{count} results',

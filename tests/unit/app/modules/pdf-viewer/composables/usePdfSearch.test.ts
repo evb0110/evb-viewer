@@ -65,6 +65,13 @@ interface IPdfSearchRunResult {
     results: unknown[];
     truncated: boolean;
     canceled?: boolean;
+    coverage?: {
+        pageCount: number;
+        pagesScanned: number;
+        pagesWritten: number;
+        truncated: boolean;
+        missingTextPageSample: number[];
+    };
 }
 
 const mockSearch = {
@@ -115,6 +122,52 @@ describe('usePdfSearch', () => {
         vi.useRealTimers();
         vi.doUnmock('@app/constants/timeouts');
         vi.resetModules();
+    });
+
+    it('retains response coverage without progress events and clears it for a new query', async () => {
+        const coverage = {
+            pageCount: 4,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+        mockSearch.run.mockResolvedValue({
+            results: [],
+            truncated: false,
+            coverage,
+        });
+        const search = await createPdfSearch();
+        const first = search.search('sample', '/tmp/work.pdf', 4);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await first;
+        expect(search.searchProgress.value?.coverage).toEqual(coverage);
+        const cached = search.search('sample', '/tmp/work.pdf', 4);
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await cached;
+        expect(search.searchProgress.value?.coverage).toEqual(coverage);
+        let resolveNext!: (response: IPdfSearchRunResult) => void;
+        mockSearch.run.mockImplementationOnce(() => new Promise(resolve => {resolveNext = resolve;}));
+        const next = search.search('another', '/tmp/work.pdf', 4);
+        await flushToScheduledSearch();
+        expect(search.searchProgress.value).toBeUndefined();
+        search.clearSearch();
+        resolveNext({
+            results: [],
+            truncated: false,
+            coverage,
+        });
+        await next;
+        expect(search.searchProgress.value).toBeUndefined();
+    });
+
+    it('presents invalid regex as a correctable query error', async () => {
+        const search = await createPdfSearch();
+        const operation = search.search('[', '/tmp/work.pdf', 1, {useRegex: true});
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        expect(await operation).toBe(false);
+        expect(search.searchError.value).toBe('searchResults.invalidRegex:{"count":512}');
+        expect(search.results.value).toEqual([]);
     });
 
     it('allows single-character queries', async () => {

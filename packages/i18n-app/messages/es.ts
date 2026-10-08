@@ -1289,7 +1289,10 @@ export default {
         'incompleteCoverage': 'Solo se buscaron {processed} de {total} páginas porque el índice de texto alcanzó su límite de tamaño.',
         'incompleteCoverageHint': 'Para continuar, extraiga las páginas {nextPage}–{total} a un nuevo PDF y busque en él.',
         'noResultsHint': 'Pruebe con otro término o ejecute OCR si no se encuentra el texto visible en páginas escaneadas.',
-        'unavailable': 'Búsqueda no disponible',
+        'error': 'Error de búsqueda',
+        'invalidRegex': 'Comprueba la expresión regular y vuelve a intentarlo.',
+        'regexTooComplex': 'Esta expresión regular es demasiado compleja. Simplifícala y vuelve a intentarlo.',
+        'queryTooLong': 'Acorta la consulta a {count} caracteres o menos.',
         'resultCount': plural({
             one: '{count} resultado',
             other: '{count} resultados',
