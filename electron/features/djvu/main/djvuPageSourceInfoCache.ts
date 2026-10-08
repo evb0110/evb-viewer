@@ -150,11 +150,30 @@ export function storeDjvuPageSourceInfos(
     storeInfo(normalizeDjvuPath(djvuPath), revision, infos);
 }
 
+export interface IDjvuDocumentInfo {
+    dpi: number;
+    pageCount: number;
+}
+
+// Every page record of one source revision carries the same document page
+// count and first-page DPI, so any cached record answers them for a page miss.
+function getCachedDjvuDocumentInfo(
+    djvuPath: string,
+    revision: TDjvuSourceRevisionKey,
+): IDjvuDocumentInfo | undefined {
+    const entry = cacheByDjvuPath.get(djvuPath);
+    const info = entry?.revision === revision ? entry.infoByPage.values().next().value : undefined;
+    return info && {
+        dpi: info.pageSize.dpi,
+        pageCount: info.pageCount,
+    };
+}
+
 export function getOrProbeDjvuPageSourceInfo(
     djvuPath: string,
     revision: TDjvuSourceRevisionKey,
     pageNumber: number,
-    probe: () => Promise<IDjvuPageSourceInfo>,
+    probe: (documentInfo: IDjvuDocumentInfo | undefined) => Promise<IDjvuPageSourceInfo>,
 ) {
     const normalizedPath = normalizeDjvuPath(djvuPath);
     const cached = getCachedDjvuPageSourceInfo(normalizedPath, revision, pageNumber);
@@ -166,7 +185,7 @@ export function getOrProbeDjvuPageSourceInfo(
     if (pending) {
         return pending;
     }
-    const nextProbe = probe().then((info) => {
+    const nextProbe = probe(getCachedDjvuDocumentInfo(normalizedPath, revision)).then((info) => {
         storeInfo(normalizedPath, revision, [info]);
         return info;
     }).finally(() => {

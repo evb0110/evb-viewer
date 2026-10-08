@@ -272,10 +272,9 @@ function* iterateRequestedPageRanges(pageNumbers: readonly number[]) {
 async function probeDjvuPageSize(
     djvuPath: string,
     pageNumber: number,
+    dpi: number,
     options: IDjvuPagePreviewLifecycleOptions,
 ) {
-    throwIfAborted(options.signal);
-    const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
     const result = await runDjvuSourceCommand(djvused, [
@@ -311,22 +310,26 @@ export async function getDjvuPageSourceInfoForViewing(
         djvuPath,
         sourceRevision.revision,
         pageNumber,
-        async () => {
+        async (documentInfo) => {
+            const metadataOptions = options.signal ? {signal: options.signal} : {};
             const [
                 pageCount,
-                requestedPageSize,
-            ] = await Promise.all([
-                getDjvuPageCount(djvuPath, options.signal ? {signal: options.signal} : {}),
-                probeDjvuPageSize(djvuPath, pageNumber, options).catch(() => null),
-            ]);
+                dpi,
+            ] = documentInfo
+                ? [
+                    documentInfo.pageCount,
+                    documentInfo.dpi,
+                ]
+                : await Promise.all([
+                    getDjvuPageCount(djvuPath, metadataOptions),
+                    getDjvuResolution(djvuPath, metadataOptions),
+                ]);
             throwIfAborted(options.signal);
             if (pageCount < 1) {
                 throw new Error('DjVu document has no pages');
             }
             const effectivePageNumber = Math.min(pageNumber, pageCount);
-            const pageSize = effectivePageNumber === pageNumber && requestedPageSize
-                ? requestedPageSize
-                : await probeDjvuPageSize(djvuPath, effectivePageNumber, options);
+            const pageSize = await probeDjvuPageSize(djvuPath, effectivePageNumber, dpi, options);
             throwIfAborted(options.signal);
             if (!pageSize) {
                 throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
