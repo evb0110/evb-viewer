@@ -103,7 +103,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     const finishReconciliation = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
-        onProgress({
+        await onProgress({
             stage: 'page-analyzed',
             completedPages: 1,
             totalPages: 3,
@@ -118,7 +118,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
             2,
             3,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-analyzed',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -128,12 +128,17 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
                 reconciled: false,
             });
         }
+        const {pages} = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+        const metadataPath = pages[0]!.pageMetadataPath;
+        const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as {outputs: Array<{contentBox: {xPx: number}}>};
+        metadata.outputs[0]!.contentBox.xPx = 8;
+        await writeFile(metadataPath, JSON.stringify(metadata));
         for (const pageNumber of [
             1,
             2,
             3,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -180,9 +185,24 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         reconciled: false,
     })]);
     expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, analyzing, {abortEarly: true})).toEqual(analyzing);
+    const previewRequest = await service.resolvePreviewPagePlan(owner, {
+        ...request,
+        pageNumber: requirePageNumber(1),
+    });
+    expect(previewRequest.pagePlanEvidence).toEqual(analyzing?.results[0]?.pagePlanEvidence);
+    expect(previewRequest.pagePlanEvidence?.outputs.full?.contentBox).toEqual({
+        xNormalized: 0.05,
+        yNormalized: 0.03,
+        widthNormalized: 0.95 - 0.05,
+        heightNormalized: 0.94,
+        rotationDegrees: 0,
+    });
 
     remainingAnalysis.resolve(undefined);
     await reconciliationEntered.promise;
+    const reconciledPreview = await service.resolvePreviewPagePlan(owner, previewRequest);
+    expect(reconciledPreview.pagePlanEvidence?.outputs.full?.contentBox?.xNormalized).toBe(0.08);
+
     await vi.waitFor(() => expect(owner.send.mock.calls
         .filter(([channel]) => channel
                 === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
@@ -279,7 +299,7 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
             deliveredPageNumbers.push(page.sourcePageIndex + 1);
         };
         await waitForDelivery(manifest.pages[0]!);
-        onProgress({
+        await onProgress({
             stage: 'page-analyzed',
             completedPages: 1,
             totalPages: 3,
@@ -294,7 +314,7 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
             3,
         ]) {
             await waitForDelivery(manifest.pages[pageNumber - 1]!);
-            onProgress({
+            await onProgress({
                 stage: 'page-analyzed',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -309,7 +329,7 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
             2,
             3,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -426,7 +446,7 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
             sourcePageIndex: number;
             pageMetadataPath: string;
         }>};
-        await writeDetectionMetadata(manifestPath);
+        await writeDetectionMetadata(manifestPath, () => ({cutterXPx: 8}));
         const reconciledPages = manifest.pages.map(page => page.sourcePageIndex + 1);
         const clusterAgreement = reconciledPages.length / totalPages;
         const cutterXPx = Math.max(...reconciledPages);
@@ -434,7 +454,7 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
             index,
             pageNumber,
         ] of reconciledPages.entries()) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
                 totalPages: reconciledPages.length,
@@ -487,7 +507,7 @@ export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBuf
             2,
             3,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -576,7 +596,7 @@ export async function scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingU
             2,
             3,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -637,7 +657,7 @@ export async function scenarioPreviewsAPageDetectionRasterizedWithoutARendererAn
             2,
             3,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages: 3,
@@ -741,7 +761,10 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
             return;
         }
-        await writeDetectionMetadata(manifestPath);
+        await writeDetectionMetadata(manifestPath, pageNumber => ({
+            layoutClassification: pageNumber <= 2 ? 'two-page-spread' : 'single-uncut-page',
+            cutterXPx: pageNumber <= 2 ? 0.5 : null,
+        }));
         analysisManifest = {
             analysisPurpose: manifest.analysisPurpose,
             pageDpis: manifest.pages.map(page => page.options.dpi),
@@ -769,7 +792,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
                     confidence: 0.98,
                 }} : {}),
             } as const;
-            onProgress(nativeProgress);
+            await onProgress(nativeProgress);
         }
     });
     const service = scanCleanupPreviewLifecycle(deps);
@@ -977,14 +1000,14 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
     ];
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
-        const analyzePage = (pageNumber: number) => {
-            onProgress({
+        const analyzePage = async (pageNumber: number) => {
+            await onProgress({
                 stage: 'page-analyzed',
                 completedPages: pageNumber,
                 totalPages,
                 pageNumber,
             });
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages,
@@ -995,7 +1018,7 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
         };
         let nextPage = 1;
         for (const batch of batches) {
-            for (; nextPage <= batch.lastPage; nextPage += 1) analyzePage(nextPage);
+            for (; nextPage <= batch.lastPage; nextPage += 1) await analyzePage(nextPage);
             batch.entered.resolve(undefined);
             await batch.released.promise;
         }
@@ -1095,7 +1118,7 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
         await writeDetectionMetadata(manifestPath);
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
         for (const [index] of manifest.pages.entries()) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
                 totalPages: manifest.pages.length,
@@ -1116,6 +1139,18 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
 
     await firstBatchPublished.promise;
     try {
+        const resolved = await service.resolvePreviewPagePlan(owner, {
+            ...request,
+            pageNumber: requirePageNumber(1),
+        });
+        expect(resolved.pagePlanEvidence?.outputs.full?.contentBox).toEqual({
+            xNormalized: 0.05,
+            yNormalized: 0.03,
+            widthNormalized: 0.95 - 0.05,
+            heightNormalized: 0.94,
+            rotationDegrees: 0,
+        });
+
         for (const state of [
             service.getDetectionJobState(owner, started.jobId, detectionRequest),
             service.subscribeDetectionJob(owner, started.jobId, detectionRequest),
@@ -1124,7 +1159,6 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
             expect(state?.progress.completedPageNumbers).toEqual([]);
             expect(state?.progress.completedPageNumbersTruncated).toBe(true);
             expect(state?.results).toEqual(expect.not.arrayContaining([
-                expect.objectContaining({pagePlanEvidence: expect.anything()}),
                 expect.objectContaining({sourcePageMetadata: expect.anything()}),
                 expect.objectContaining({splitDiagnostics: expect.anything()}),
             ]));
@@ -1150,9 +1184,15 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
     expect(Math.max(...xlargeStates.map(state => state.results.length))).toBeLessThanOrEqual(256);
     expect(xlargeStates.every(state => state.progress.completedPageNumbers?.length === 0)).toBe(true);
     expect(xlargeStates.every(state => state.progress.completedPageNumbersTruncated === true)).toBe(true);
+    const resolved = await service.resolvePreviewPagePlan(owner, {
+        ...request,
+        pageNumber: requirePageNumber(1),
+    });
+    expect(resolved.pagePlanEvidence?.outputs.full?.contentBox?.xNormalized).toBe(0.05);
+    expect(xlargeStates.every(state => Buffer.byteLength(JSON.stringify(state)) < 256 * 1024)).toBe(true);
+
     expect(xlargeStates.flatMap(state => state.results)).toEqual(
         expect.not.arrayContaining([
-            expect.objectContaining({pagePlanEvidence: expect.anything()}),
             expect.objectContaining({sourcePageMetadata: expect.anything()}),
             expect.objectContaining({splitDiagnostics: expect.anything()}),
         ]),
@@ -1195,7 +1235,7 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
             index,
             page,
         ] of pages.entries()) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
                 totalPages: pages.length,
@@ -1264,7 +1304,7 @@ export async function scenarioRasterizesOnlyThePagesRetentionNoLongerHoldsAndSti
             index,
             page,
         ] of manifest.pages.entries()) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
                 totalPages: manifest.pages.length,
@@ -1479,8 +1519,9 @@ export async function scenarioDoesNotDeliverTerminalDetectionStateAfterARenderer
 
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
-    deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal, _log, onProgress) => {
-        onProgress({
+    deps.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
+        await writeDetectionMetadata(manifestPath);
+        await onProgress({
             stage: 'page-complete',
             completedPages: 1,
             totalPages: 3,
@@ -1598,7 +1639,7 @@ export async function scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeate
             index,
             page,
         ] of manifest.pages.entries()) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
                 totalPages: manifest.pages.length,

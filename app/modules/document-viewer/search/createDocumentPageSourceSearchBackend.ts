@@ -19,6 +19,7 @@ function createProviderBackend(provider: IDocumentSearchProvider): IDocumentSear
                 onProgress: progress => request.onProgress?.({
                     processed: progress.processed,
                     total: progress.total,
+                    ...(progress.coverage ? {coverage: progress.coverage} : {}),
                 }),
             });
             return {
@@ -35,6 +36,7 @@ function createProviderBackend(provider: IDocumentSearchProvider): IDocumentSear
                     ...(result.rotation === undefined ? {} : {rotation: result.rotation}),
                 })),
                 truncated: response.truncated,
+                ...(response.coverage ? {coverage: response.coverage} : {}),
             };
         },
     };
@@ -53,6 +55,7 @@ function createDocumentTextProviderSearchBackend(options: {
             matchOptions: request.matchOptions,
             signal: request.signal,
             onProgress: request.onProgress,
+            ...(request.resultOffset === undefined ? {} : {resultOffset: request.resultOffset}),
         }),
     };
 }

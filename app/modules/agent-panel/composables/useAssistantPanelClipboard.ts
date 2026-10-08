@@ -16,11 +16,11 @@ export const useAssistantPanelClipboard = (options: {
     t: TTranslateFn;
 }) => {
     const EMPTY_MESSAGE_BLOCKS: ReturnType<typeof formatAssistantMessage> = [];
-    const markdownCache = shallowRef(new Map<string, {
+    let markdownCache = new Map<string, {
         text: string;
         blocks: ReturnType<typeof formatAssistantMessage>;
         formatter: ReturnType<typeof createStreamingAssistantMessageFormatter>;
-    }>());
+    }>();
     const copiedMessageId = ref<string | null>(null);
     const panelRef = ref<HTMLElement | null>(null);
     const messagesRef = ref<HTMLElement | null>(null);
@@ -29,39 +29,30 @@ export const useAssistantPanelClipboard = (options: {
         copiedMessageId.value = null;
     }, 1800, { immediate: false });
 
-    watch(options.messages, (messages) => {
-        const previousCache = markdownCache.value;
-        const nextCache = new Map<string, {
-            text: string;
-            blocks: ReturnType<typeof formatAssistantMessage>;
-            formatter: ReturnType<typeof createStreamingAssistantMessageFormatter>;
-        }>();
-        messages.forEach((message) => {
-            const cached = previousCache.get(message.id);
-            if (cached?.text === message.text) {
-                nextCache.set(message.id, cached);
-                return;
-            }
-            const formatter = cached?.formatter ?? createStreamingAssistantMessageFormatter();
-            nextCache.set(message.id, {
-                text: message.text,
-                blocks: message.text.length > 0
-                    ? formatter.format(message.text)
-                    : EMPTY_MESSAGE_BLOCKS,
-                formatter,
+    const renderedMessages = computed(() => {
+        const nextCache: typeof markdownCache = new Map();
+        const rows = options.messages.value.map(message => {
+            const cached = markdownCache.get(message.id) ?? {
+                text: '',
+                blocks: EMPTY_MESSAGE_BLOCKS,
+                formatter: createStreamingAssistantMessageFormatter(),
+            };
+            nextCache.set(message.id, cached);
+            const blocks = computed(() => {
+                if (cached.text !== message.text) {
+                    cached.text = message.text;
+                    cached.blocks = message.text.length ? cached.formatter.format(message.text) : EMPTY_MESSAGE_BLOCKS;
+                }
+                return cached.blocks;
+            });
+            return reactive({
+                message,
+                blocks,
             });
         });
-        markdownCache.value = nextCache;
-    }, {
-        flush: 'sync',
-        immediate: true,
+        markdownCache = nextCache;
+        return rows;
     });
-    const renderedMessages = computed(() => options.messages.value.map(message => {
-        return {
-            message,
-            blocks: markdownCache.value.get(message.id)?.blocks ?? EMPTY_MESSAGE_BLOCKS,
-        };
-    }));
 
     const isCopyShortcut = (event: KeyboardEvent) => (
         [

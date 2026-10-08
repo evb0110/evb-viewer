@@ -95,8 +95,6 @@ interface IWorkingCopyPersistOptions {
 
 const MAX_IN_MEMORY_PDF_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 
-class NativeMutationPreExposeError extends Error {}
-
 export function createDocumentPersistence(
     state: IDocumentSessionState,
     deps: ICreateDocumentPersistenceDeps,
@@ -248,7 +246,7 @@ export function createDocumentPersistence(
         channel: string,
         phase: string,
         reason: IPdfPersistFailure['reason'],
-        detail: Pick<IPdfPersistFailure, 'message' | 'validation'>,
+        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause'>,
     ): IPdfPersistFailure {
         return {
             channel,
@@ -931,7 +929,7 @@ export function createDocumentPersistence(
                     ) {
                         const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
                         if (!revisionOptions) {
-                            throw new NativeMutationPreExposeError(
+                            throw new Error(
                                 'Native staged PDF mutation requires the document revision',
                             );
                         }
@@ -950,7 +948,7 @@ export function createDocumentPersistence(
                         }
                         const stagedOutput = applied.stagedOutput;
                         if (!stagedOutput) {
-                            throw new NativeMutationPreExposeError('Native mutation did not return an immutable staged output');
+                            throw new Error('Native mutation did not return an immutable staged output');
                         }
                         const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
                         const assertBeforeExpose = opts.assertBeforeExpose;
@@ -994,7 +992,7 @@ export function createDocumentPersistence(
                             await assertBeforeExpose?.();
                         } catch (error) {
                             await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
-                            throw new NativeMutationPreExposeError(getErrorMessage(error));
+                            throw error;
                         }
                         if (opts.saveMode === 'save_as_rewrite') {
                             try {
@@ -1046,26 +1044,21 @@ export function createDocumentPersistence(
                                 };
                             return workingCopyResult;
                         }
-                        let committed: IPdfNativeSaveResult;
-                        try {
-                            committed = await measurePdfPersistPhase(
-                                phaseTimings,
-                                'native-commit',
-                                () => commitStagedPdfNativeMutations(
-                                    workingPath,
-                                    stagedOutput,
-                                    createNativeStagedCommitOptions(
-                                        expectedDocumentRevisionToken,
-                                        mutations,
-                                        appliedIdentityBindings,
-                                    ),
+                        const committed = await measurePdfPersistPhase(
+                            phaseTimings,
+                            'native-commit',
+                            () => commitStagedPdfNativeMutations(
+                                workingPath,
+                                stagedOutput,
+                                createNativeStagedCommitOptions(
+                                    expectedDocumentRevisionToken,
+                                    mutations,
+                                    appliedIdentityBindings,
                                 ),
-                            );
-                        } catch (error) {
-                            throw new NativeMutationPreExposeError(getErrorMessage(error));
-                        }
+                            ),
+                        );
                         if (!committed.applied || !committed.validation?.isValid) {
-                            throw new NativeMutationPreExposeError('Targeted native mutation validation failed before commit');
+                            return committed;
                         }
                         const committedIdentityBindings = validateNativeIdentityBindings(
                             committed.identityBindings,
@@ -1073,7 +1066,7 @@ export function createDocumentPersistence(
                             'Native committed identity bindings',
                         );
                         if (!haveSameNativeIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
-                            throw new NativeMutationPreExposeError('Native identity bindings changed between staging and commit');
+                            throw new Error('Native identity bindings changed between staging and commit');
                         }
                         return committed;
                     }
@@ -1107,17 +1100,21 @@ export function createDocumentPersistence(
                     validation: result.validation,
                 });
                 logRendererTimings('not-applied', {validation: result.validation});
-                // Every save route appends through the same loader, so its size
-                // refusal is the one outcome the user has to be told about.
-                return result.error?.code === 'too-large'
-                    ? {
-                        success: false,
-                        outPath: null,
-                        saveMode: opts.saveMode,
-                        didSaveAs: false,
-                        nativeRefusalCode: 'too-large',
-                    }
-                    : null;
+                return {
+                    ...createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
+                        'native',
+                        'mutation',
+                        result.validation?.isValid === false ? 'validation-failed' : 'write-failed',
+                        {
+                            ...(result.error ? {
+                                message: result.error.message,
+                                cause: result.error,
+                            } : {}),
+                            validation: result.validation,
+                        },
+                    )),
+                    ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),
+                };
             }
             const materializedIdentityBindings = validateNativeIdentityBindings(
                 result.identityBindings,
@@ -1175,9 +1172,6 @@ export function createDocumentPersistence(
                 }
                 : createPersistResult(true, opts.saveMode, false);
         } catch (saveError) {
-            if (saveError instanceof NativeMutationPreExposeError) {
-                throw saveError;
-            }
             if (isStaleRevisionError(saveError)) {
                 throw saveError;
             }
@@ -1196,7 +1190,15 @@ export function createDocumentPersistence(
                 totalMs: roundDurationMs(performance.now() - operationStart),
                 phases: phaseTimings,
             });
-            return null;
+            return createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
+                'native',
+                'mutation',
+                'write-failed',
+                {
+                    message: getErrorMessage(saveError),
+                    cause: saveError,
+                },
+            ));
         }
     }
 

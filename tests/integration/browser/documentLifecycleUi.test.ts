@@ -1,11 +1,14 @@
 import {createHash} from 'node:crypto';
 import {
-    readFileSync, writeFileSync,
+    mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
 import {resolve} from 'node:path';
+import {
+    createCanvas, loadImage,
+} from '@napi-rs/canvas';
 import {
     findFreePort, isProcessAlive, killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
@@ -15,7 +18,9 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 import {chromium} from 'playwright';
-import type {Page} from 'playwright';
+import type {
+    BrowserContext, Page,
+} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -53,6 +58,22 @@ interface IBrowserLifecycleTestApi {
         success: boolean;
         error?: string
     }>;
+}
+
+async function readPersistedDocumentBytes(page: Page, ref: string): Promise<number[]> {
+    // Read persisted bytes without creating another document/maintenance lifecycle.
+    // Keep browser imports outside Vitest's server-side module transform.
+    return page.evaluate(`(async () => {
+        const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+        const {createEntryFromPersistedRecord} = await import('/_nuxt/platform/browser/browserDocumentRecords.ts');
+        const {readBrowserDocumentChunkedEntryBytes} = await import('/_nuxt/platform/browser/browserDocumentChunkStorage.ts');
+        const record = await loadRecord(${JSON.stringify(ref)});
+        if (!record) return [];
+        const entry = createEntryFromPersistedRecord(record);
+        return Array.from(entry.storageMode === 'chunked'
+            ? await readBrowserDocumentChunkedEntryBytes(entry)
+            : entry.data);
+    })()`);
 }
 
 async function waitForServer(url: string) {
@@ -189,7 +210,1004 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
-    // C2/L2: foreign annotation icons load from the packaged PDF.js assets.
+    it('reuses dirty recovery bytes for reading changes and protects the next note edit', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let number = 1; number <= 3; number += 1) {
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText(`Recovery reading page ${String(number)}`, {
+                x: 40,
+                y: 740,
+                font,
+                size: 16,
+            });
+        }
+        const source = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-b/core/w02/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), source);
+        const observations: unknown[] = [];
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext({
+            viewport: {
+                width: 1280,
+                height: 800,
+            },
+            recordVideo: {
+                dir: evidenceDir,
+                size: {
+                    width: 1280,
+                    height: 800,
+                },
+            },
+        });
+        let problems: string[] = [];
+        try {
+            const page = await context.newPage();
+            problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'recovery-reading.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 200,
+                y: 200,
+            }});
+            const input = page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            });
+            const acceptedText = 'Accepted note before reading';
+            await input.fill(acceptedText);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+
+            async function readRecovery() {
+                const tab = await page.evaluate(async () => {
+                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                        const request = indexedDB.open('evb-viewer-browser-documents');
+                        request.onsuccess = () => resolveDb(request.result);
+                        request.onerror = () => rejectDb(request.error);
+                    });
+                    try {
+                        const records = await new Promise<Array<{checkpoint: {tabs: Array<{
+                            isDirty: boolean;
+                            currentPage: number | null;
+                            zoom: number | null;
+                            workingCopyRef: string | null;
+                            annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
+                        }>}}>>((resolveRows, rejectRows) => {
+                            const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
+                            request.onsuccess = () => resolveRows(request.result);
+                            request.onerror = () => rejectRows(request.error);
+                        });
+                        const tab = records.flatMap(record => record.checkpoint.tabs).find(candidate => candidate.isDirty);
+                        return tab;
+                    } finally {db.close();}
+                });
+                return {
+                    tab,
+                    bytes: tab?.workingCopyRef ? await readPersistedDocumentBytes(page, tab.workingCopyRef) : [],
+                };
+            }
+            async function savedNoteTexts(recovery: Awaited<ReturnType<typeof readRecovery>>) {
+                if (!recovery.bytes.length) return [];
+                const saved = await PDFDocument.load(Uint8Array.from(recovery.bytes));
+                const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                return Array.from({length: annots?.size() ?? 0}, (_, index) =>
+                    annots!.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText());
+            }
+            let initial: Awaited<ReturnType<typeof readRecovery>> | undefined;
+            await expect.poll(async () => {
+                const recovery = await readRecovery();
+                const texts = await savedNoteTexts(recovery);
+                if (!texts.includes(acceptedText)) return false;
+                initial = recovery;
+                return true;
+            }, {timeout: 15_000}).toBe(true);
+            const initialHash = createHash('sha256').update(Uint8Array.from(initial!.bytes)).digest('hex');
+            observations.push({
+                event: 'accepted note',
+                ref: initial!.tab?.workingCopyRef,
+                hash: initialHash,
+            });
+
+            for (const number of [
+                2,
+                3,
+            ]) {
+                // Trusted reading input; the persisted page is the completion
+                // boundary, so there is no negative observation delay.
+                await page.locator('.page-controls-display').click();
+                const pageInput = page.locator('.page-controls-inline-input');
+                await pageInput.fill(String(number));
+                await pageInput.press('Enter');
+                await page.locator(`.page_container[data-page="${String(number)}"] .textLayer`).filter({hasText: `Recovery reading page ${String(number)}`}).waitFor({state: 'visible'});
+                await expect.poll(async () => (await readRecovery()).tab?.currentPage, {timeout: 15_000}).toBe(number);
+                const recovery = await readRecovery();
+                const hash = createHash('sha256').update(Uint8Array.from(recovery.bytes)).digest('hex');
+                observations.push({
+                    event: `page ${String(number)}`,
+                    ref: recovery.tab?.workingCopyRef,
+                    hash,
+                });
+                expect(recovery.tab?.workingCopyRef).toBe(initial!.tab?.workingCopyRef);
+                expect(hash).toBe(initialHash);
+            }
+
+            await page.locator('.page-controls-display').click();
+            const pageInput = page.locator('.page-controls-inline-input');
+            await pageInput.fill('1');
+            await pageInput.press('Enter');
+            await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).click();
+            const draft = 'Protected newer draft after reading';
+            await input.fill(draft);
+            await expect.poll(async () => savedNoteTexts(await readRecovery()), {timeout: 15_000}).toContain(draft);
+            const edited = await readRecovery();
+            expect(edited.tab?.workingCopyRef).not.toBe(initial!.tab?.workingCopyRef);
+            observations.push({
+                event: 'new draft',
+                ref: edited.tab?.workingCopyRef,
+                drafts: edited.tab?.annotationRecovery?.payload?.drafts,
+            });
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).click();
+            await expect.poll(() => input.inputValue()).toBe(draft);
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const savedPath = resolve(evidenceDir, 'restored.pdf');
+            await (await download).saveAs(savedPath);
+            const saved = await PDFDocument.load(readFileSync(savedPath));
+            expect(saved.getPageCount()).toBe(3);
+            const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            const texts = Array.from({length: annots.size()}, (_, index) =>
+                annots.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText());
+            expect(texts).toContain(draft);
+            expect(problems).toEqual([]);
+            observations.push({
+                event: 'recovered Save As',
+                texts,
+            });
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+            await context.close();
+            await browser.close();
+        }
+    }, 90_000);
+
+    it('recovers the current note draft while document note updates keep rejecting', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Sustained note failure recovery', {
+            x: 40,
+            y: 740,
+            font,
+            size: 16,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1108/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const observations: unknown[] = [];
+        try {
+            for (const retained of [
+                false,
+                true,
+            ]) {
+                const context = await browser.newContext({
+                    viewport: {
+                        width: 1280,
+                        height: 800,
+                    },
+                    recordVideo: {
+                        dir: evidenceDir,
+                        size: {
+                            width: 1280,
+                            height: 800,
+                        },
+                    },
+                });
+                let problems: string[] = [];
+                try {
+                    const page = await context.newPage();
+                    problems = collectConsoleProblems(page);
+                    // Fault setup only; note input and restored Save As remain trusted.
+                    await page.route('**/composables/useWorkspaceAnnotationSession.ts*', async route => {
+                        const response = await route.fetch();
+                        const body = await response.text();
+                        const marker = 'const comment = resolveNoteComment(annotationId);';
+                        if (!body.includes(marker)) throw new Error('Document note update fault seam was not found');
+                        await route.fulfill({
+                            response,
+                            body: body.replace(marker,
+                                'if (Reflect.get(window, "__noteRecoveryFailure")) throw new Error("1108 sustained note update rejection"); ' + marker),
+                        });
+                    });
+                    await page.addInitScript(() => {
+                        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                        Reflect.set(window, '__noteRecoveryFailure', true);
+                        Reflect.set(window, 'showSaveFilePicker', undefined);
+                        sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                    });
+                    await page.goto(origin, {waitUntil: 'domcontentloaded'});
+                    await waitForOpenFileReady(page);
+                    await page.evaluate(() => Reflect.set(window, '__noteRecoveryFailure', false));
+                    keepFileChooserInterceptionEnabled(page);
+                    const chooser = page.waitForEvent('filechooser');
+                    await page.getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    }).first().click();
+                    await (await chooser).setFiles({
+                        name: 'sustained-note.pdf',
+                        mimeType: 'application/pdf',
+                        buffer: bytes,
+                    });
+                    await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+                    await page.getByRole('button', {
+                        name: 'Place a sticky note on the page.',
+                        exact: true,
+                    }).click();
+                    const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+                    if (!bounds) throw new Error('The first PDF page is not visible');
+                    await page.mouse.click(bounds.x + 200, bounds.y + 200);
+                    const input = page.getByRole('textbox', {
+                        name: 'Write annotation note',
+                        exact: true,
+                    });
+                    async function readCheckpoint() {
+                        return page.evaluate(async () => {
+                            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                                const request = indexedDB.open('evb-viewer-browser-documents');
+                                request.onsuccess = () => resolveDb(request.result);
+                                request.onerror = () => rejectDb(request.error);
+                            });
+                            try {
+                                return await new Promise<Array<{checkpoint: {tabs: Array<{
+                                    isDirty: boolean;
+                                    workingCopyRef: string | null;
+                                    annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
+                                }>}}>>((resolveRows, rejectRows) => {
+                                    const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
+                                    request.onsuccess = () => resolveRows(request.result);
+                                    request.onerror = () => rejectRows(request.error);
+                                });
+                            } finally {db.close();}
+                        });
+                    }
+                    if (retained) {
+                        await input.fill('Previously accepted text');
+                        await page.getByRole('button', {
+                            name: 'Minimize note',
+                            exact: true,
+                        }).click();
+                        await expect.poll(async () => {
+                            const refs = (await readCheckpoint()).flatMap(record => record.checkpoint.tabs
+                                .filter(tab => tab.isDirty && tab.workingCopyRef)
+                                .map(tab => tab.workingCopyRef!));
+                            const copies = await Promise.all(refs.map(ref => readPersistedDocumentBytes(page, ref)));
+                            for (const copy of copies) {
+                                if (!copy.length) continue;
+                                const saved = await PDFDocument.load(Uint8Array.from(copy));
+                                const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                                for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
+                                    const annotation = annots!.lookup(index, PDFDict);
+                                    if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                                    const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText();
+                                    if (text === 'Previously accepted text') {
+                                        observations.push({
+                                            retained,
+                                            retainedSavedText: text,
+                                        });
+                                        writeFileSync(resolve(evidenceDir, 'retained-before-failure.pdf'), Uint8Array.from(copy));
+                                        return true;
+                                    }
+                                }
+                            }
+                            return false;
+                        }, {timeout: 15_000}).toBe(true);
+                        await page.getByRole('button', {
+                            name: 'Open Note',
+                            exact: true,
+                        }).click();
+                    }
+                    const draft = retained ? 'Protected newer draft over an older snapshot' : 'Protected draft without a previous snapshot';
+                    await page.evaluate(() => Reflect.set(window, '__noteRecoveryFailure', true));
+                    await input.fill(draft);
+                    await page.waitForFunction(() => document.querySelector('.app-toast-failure')?.textContent?.includes('1108 sustained note update rejection'));
+                    await page.screenshot({path: resolve(evidenceDir, `failure-${String(retained)}.png`)});
+                    await expect.poll(async () => {
+                        const records = await readCheckpoint();
+                        observations.push({
+                            retained,
+                            records,
+                        });
+                        return records.some(record => record.checkpoint.tabs.some(tab => tab.isDirty && tab.workingCopyRef
+                            && tab.annotationRecovery?.payload?.drafts.some(value => value.text === draft)));
+                    }, {timeout: 15_000}).toBe(true);
+                    await page.screenshot({path: resolve(evidenceDir, `protected-${String(retained)}.png`)});
+                    // Renderer restart retains the durable browser owner and database.
+                    // The fault remains active in the restarted renderer.
+                    await page.reload({waitUntil: 'domcontentloaded'});
+                    await waitForOpenFileReady(page);
+                    await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+                    await expect.poll(() => input.inputValue()).toBe(draft);
+                    await page.screenshot({path: resolve(evidenceDir, `restored-${String(retained)}.png`)});
+                    await page.evaluate(() => Reflect.set(window, '__noteRecoveryFailure', false));
+                    await page.getByRole('button', {
+                        name: 'Minimize note',
+                        exact: true,
+                    }).click();
+                    const download = page.waitForEvent('download');
+                    await page.getByRole('button', {
+                        name: 'Save options',
+                        exact: true,
+                    }).click();
+                    await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                    const savedPath = resolve(evidenceDir, `restored-${String(retained)}.pdf`);
+                    await (await download).saveAs(savedPath);
+                    const saved = await PDFDocument.load(readFileSync(savedPath));
+                    const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                    const texts: string[] = [];
+                    for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
+                        const annotation = annots!.lookup(index, PDFDict);
+                        if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                        const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
+                        if (text) texts.push(text.decodeText());
+                    }
+                    expect(texts).toEqual([draft]);
+                    expect(problems.filter(problem => !problem.includes('1108 sustained note update rejection'))).toEqual([]);
+                    observations.push({
+                        retained,
+                        restoredDraft: draft,
+                        savedTexts: texts,
+                        problems,
+                    });
+                } finally {
+                    observations.push({
+                        retained,
+                        problems,
+                    });
+                    await context.close();
+                }
+            }
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
+            await browser.close();
+        }
+    }, 120_000);
+
+    it('retains the note draft and actionable cause when a note update rejects', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Note update failure fixture', {
+            x: 40,
+            y: 740,
+            font,
+            size: 16,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1205/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        let context: BrowserContext | undefined;
+        let problems: string[] = [];
+        const observations: unknown[] = [];
+        const reason = 'RUX06 note write rejected by document policy';
+        try {
+            context = await browser.newContext({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                permissions: [
+                    'clipboard-read',
+                    'clipboard-write',
+                ],
+                recordVideo: {
+                    dir: evidenceDir,
+                    size: {
+                        width: 1280,
+                        height: 800,
+                    },
+                },
+            });
+            const page = await context.newPage();
+            problems = collectConsoleProblems(page);
+            // Setup rejects the document update boundary before it mutates. All
+            // editing, Retry, minimize/reopen and Save As use trusted user input.
+            await page.route('**/composables/useWorkspaceAnnotationSession.ts*', async route => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'const comment = resolveNoteComment(annotationId);';
+                if (!body.includes(marker)) throw new Error('Document note update fault seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, 'if (Reflect.get(window, "__noteUpdateFailure")) throw new Error("RUX06 note write rejected by document policy"); ' + marker),
+                });
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, '__noteUpdateFailure', false);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'note-update.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state:'visible'});
+            // Establish pane layout before note placement and geometry comparison.
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name:'Place a sticky note on the page.',
+                exact:true,
+            }).click();
+            const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!bounds) throw new Error('The first PDF page is not visible');
+            await page.mouse.click(bounds.x + 200, bounds.y + 200);
+            const note = page.locator('.note-window').first();
+            const input = page.getByRole('textbox', {
+                name:'Write annotation note',
+                exact:true,
+            });
+            await input.pressSequentially('Initial accepted note');
+            await page.getByRole('button',{
+                name:'Minimize note',
+                exact:true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Open Note',
+                exact:true,
+            }).click();
+            await expect.poll(() => input.inputValue()).toBe('Initial accepted note');
+            // The textarea echoes a draft before persistence. Arm rejection only
+            // after the document's rendered list confirms the initial update,
+            // so this fault targets one draft rather than two separate edits.
+            await expect.poll(() => page.locator('.note-item-text').allTextContents()).toEqual(['Initial accepted note']);
+            observations.push({
+                step: 'initial-committed',
+                text: await page.locator('.note-item-text').allTextContents(),
+            });
+            const initialRect = await note.boundingBox();
+            const initialInputRect = await input.boundingBox();
+            await page.evaluate(() => Reflect.set(window,'__noteUpdateFailure',true));
+            const cdp = await context.newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            const typingBounds = await input.boundingBox();
+            if (!typingBounds) throw new Error('The note input is not visible');
+            await page.mouse.move(typingBounds.x + 20, typingBounds.y + 20, {steps: 10});
+            await input.fill('Retained RUX06 draft');
+            // Either baseline's inline row or the operation toast acknowledges
+            // completion, so a missing fault cannot masquerade as a red proof.
+            await page.waitForFunction(() => Boolean(document.querySelector('.note-window__error') || Array.from(document.querySelectorAll('[role="alert"]')).some(element => element.textContent?.includes('Unable to update this note.'))));
+            observations.push({
+                step:'failure',
+                text:await input.inputValue(),
+                rect:await note.boundingBox(),
+                inline:await note.locator('[role="alert"]').count(),
+                alerts:await page.locator('[role="alert"]').allTextContents(),
+            });
+            await page.screenshot({path:resolve(evidenceDir,'failure.png')});
+            expect(await input.inputValue()).toBe('Retained RUX06 draft');
+            expect(await note.boundingBox()).toEqual(initialRect);
+            expect(await input.boundingBox()).toEqual(initialInputRect);
+            expect(await note.locator('[role="alert"]').count()).toBe(0);
+            const toast = page.locator('.app-toast-failure:not([data-state="closed"])');
+            await expect.poll(() => toast.count()).toBe(1);
+            await expect.poll(() => toast.innerText()).toContain(reason);
+            await expect.poll(() => toast.innerText()).toContain('Error ID');
+            const originalErrorId = /Error ID: ([a-f0-9]{8})/u.exec(await toast.innerText())?.[1];
+            expect(originalErrorId).toBeTruthy();
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).first().click();
+            await expect.poll(() => toast.count()).toBe(1);
+            await expect.poll(() => toast.innerText()).toContain(`Error ID: ${originalErrorId}`);
+            observations.push({
+                step: 'save-blocked',
+                toast: await toast.innerText(),
+                text: await input.inputValue(),
+            });
+            await toast.getByRole('button', {
+                name: 'Copy details',
+                exact: true,
+            }).click();
+            const copied = await page.evaluate(() => navigator.clipboard.readText());
+            expect(copied).toContain(reason);
+            expect(copied).toContain(`Error ID: ${originalErrorId}`);
+            writeFileSync(resolve(evidenceDir, 'copied.txt'), copied);
+
+            await input.fill('Retained RUX06 draft plus newer typing');
+            await page.waitForFunction(previousId => {
+                const failure = document.querySelector('.app-toast-failure:not([data-state="closed"])');
+                return failure?.textContent?.includes('RUX06 note write rejected by document policy')
+                    && !failure.textContent.includes(`Error ID: ${previousId}`);
+            }, originalErrorId);
+            await expect.poll(() => toast.count()).toBe(1);
+            await page.evaluate(() => Reflect.set(window, '__noteUpdateFailure', false));
+            await toast.getByRole('button', {
+                name: 'Retry',
+                exact: true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Minimize note',
+                exact:true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Open Note',
+                exact:true,
+            }).click();
+            await expect.poll(() => input.inputValue()).toBe('Retained RUX06 draft plus newer typing');
+            expect(await note.locator('[role="alert"]').count()).toBe(0);
+            const download = page.waitForEvent('download');
+            await page.getByRole('button',{
+                name:'Save options',
+                exact:true,
+            }).click();
+            await page.getByRole('menuitem',{name:/^Save As/u}).click();
+            const savedPath=resolve(evidenceDir,'saved.pdf');
+            await (await download).saveAs(savedPath);
+            const saved=await PDFDocument.load(readFileSync(savedPath));
+            const annots=saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'),PDFArray);
+            const contents: string[]=[];
+            for(let i=0;i<(annots?.size()??0);i++) {
+                const annotation=annots!.lookup(i,PDFDict);
+                if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                const text=annotation.lookupMaybe(PDFName.of('Contents'),PDFString,PDFHexString);
+                if(text) contents.push(text.decodeText());
+            }
+            expect(contents.filter(text=>text==='Retained RUX06 draft plus newer typing')).toHaveLength(1);
+            observations.push({
+                step:'retry-saved',
+                contents,
+            });
+            const reopenedContext = await browser.newContext({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                recordVideo: {
+                    dir: evidenceDir,
+                    size: {
+                        width: 1280,
+                        height: 800,
+                    },
+                },
+            });
+            try {
+                const reopened = await reopenedContext.newPage();
+                const reopenedProblems = collectConsoleProblems(reopened);
+                await reopened.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(reopened);
+                keepFileChooserInterceptionEnabled(reopened);
+                const reopenedChooser = reopened.waitForEvent('filechooser');
+                await reopened.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
+                await (await reopenedChooser).setFiles(savedPath);
+                await reopened.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+                await expect.poll(() => reopened.getByRole('button', {
+                    name: 'Open Note',
+                    exact: true,
+                }).count()).toBe(1);
+                await reopened.getByRole('button', {
+                    name: 'Open Note',
+                    exact: true,
+                }).click();
+                const reopenedInput = reopened.getByRole('textbox', {
+                    name: 'Write annotation note',
+                    exact: true,
+                });
+                await expect.poll(() => reopenedInput.inputValue()).toBe('Retained RUX06 draft plus newer typing');
+                observations.push({
+                    step: 'saved-reopened',
+                    text: await reopenedInput.inputValue(),
+                });
+                expect(reopenedProblems).toEqual([]);
+                await reopened.screenshot({path: resolve(evidenceDir, 'recovered.png')});
+            } finally {
+                await reopenedContext.close();
+            }
+            // The injected writer fault is the expected operation failure. Its
+            // existing recovery preparation gate is tracked separately in #1108;
+            // preserve those exact diagnostics in evidence rather than hiding them.
+            const injectedDiagnostics = [
+                reason,
+                'Open annotation notes could not be prepared for crash recovery.',
+                'did not produce a recovery snapshot; retrying without it',
+                'Workspace save did not commit {planKind: null, status: not-saved, reason: note-persistence-failed, phase: pre-write}',
+            ];
+            expect(problems.filter(problem => !injectedDiagnostics.some(diagnostic => problem.includes(diagnostic)))).toEqual([]);
+
+        } finally {
+            writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
+            writeFileSync(resolve(evidenceDir,'console.json'),JSON.stringify(problems,null,2));
+            try {await context?.close();} finally {await browser.close();}
+        }
+    }, 90_000);
+
+    it('retains a fully visible short indicator page while the center enters a tall page', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (const [
+            index,
+            height,
+        ] of [
+                120,
+                1_000,
+                600,
+            ].entries()) {
+            pdf.addPage([
+                400,
+                height,
+            ]).drawText(`Mixed-size reading page ${String(index + 1)}`, {
+                x: 24,
+                y: height - 40,
+                size: 16,
+                font,
+            });
+        }
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), '.devkit/lane-a-rux2', `app-${String(process.pid)}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const page = await browser.newPage({
+            viewport: {
+                width: 900,
+                height: 700,
+            },
+            recordVideo: {dir: evidenceDir},
+        });
+        const problems = collectConsoleProblems(page);
+        const observations: unknown[] = [];
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'mixed-size-reading.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state: 'visible'});
+            const readPosition = () => page.evaluate(() => {
+                const first = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                const second = document.querySelector<HTMLElement>('.page_container[data-page="2"]')!;
+                const viewport = first.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const view = viewport.getBoundingClientRect();
+                const rects = [
+                    first,
+                    second,
+                ].map(element => {
+                    const rect = element.getBoundingClientRect();
+                    const width = Math.max(0, Math.min(rect.right, view.left + viewport.clientWidth) - Math.max(rect.left, view.left));
+                    const height = Math.max(0, Math.min(rect.bottom, view.top + viewport.clientHeight) - Math.max(rect.top, view.top));
+                    return {
+                        top: rect.top,
+                        bottom: rect.bottom,
+                        height: rect.height,
+                        fraction: width * height / (rect.width * rect.height),
+                        fullyVisible: width >= rect.width && height >= rect.height,
+                    };
+                });
+                return {
+                    indicator: document.querySelector('.page-controls-current-primary')!.textContent!.trim(),
+                    top: viewport.scrollTop,
+                    centerY: view.top + viewport.clientHeight / 2,
+                    rects,
+                };
+            });
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            const before = await readPosition();
+            observations.push({
+                step: 'open',
+                ...before,
+            });
+            const viewer = page.locator('[data-document-viewer-chassis-viewport]').first();
+            await viewer.hover();
+            await page.mouse.wheel(0, 10);
+            await expect.poll(async () => (await readPosition()).top).toBeGreaterThan(before.top);
+            await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            const after = await readPosition();
+            observations.push({
+                step: 'trusted-wheel',
+                ...after,
+            });
+            await page.screenshot({path: resolve(evidenceDir, 'retained.png')});
+            expect(after.rects[0]!.fullyVisible).toBe(true);
+            expect(after.centerY).toBeGreaterThan(after.rects[1]!.top);
+            expect(after.rects[0]!.fraction).toBeGreaterThan(after.rects[1]!.fraction);
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.mouse.wheel(0, 80);
+            await expect.poll(async () => (await readPosition()).top).toBeGreaterThan(after.top);
+            await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            const partial = await readPosition();
+            observations.push({
+                step: 'greatest-fraction',
+                ...partial,
+            });
+            expect(partial.rects[0]!.fullyVisible).toBe(false);
+            expect(partial.rects[0]!.fraction).toBeGreaterThan(partial.rects[1]!.fraction);
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.mouse.wheel(0, 300);
+            await expect.poll(async () => (await readPosition()).rects[0]!.fraction).toBe(0);
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('2');
+            observations.push({
+                step: 'short-page-left-viewport',
+                ...await readPosition(),
+            });
+            await page.screenshot({path: resolve(evidenceDir, 'advanced.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
+            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+            try {await page.context().close();} finally {await browser.close();}
+        }
+    }, 90_000);
+
+    it('retains the readable page and retries failed annotation interaction', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const firstPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        firstPage.drawText('First page for annotation recovery proof', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        pdfPage.drawText('Readable page with an interactive link', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [
+                72,
+                690,
+                390,
+                720,
+            ],
+            Dest: [
+                firstPage.ref,
+                PDFName.of('XYZ'),
+                null,
+                null,
+                null,
+            ],
+        }))]));
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-rux3/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const page = await browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 800,
+            },
+            recordVideo: {dir: evidenceDir},
+        });
+        const problems = collectConsoleProblems(page);
+        try {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            // Setup injects a persistent PDF.js render rejection. The document and
+            // all Open/Retry/link interactions still use the normal user path.
+            await page.route('**/services/pdfjs/pdfViewerFacade.ts*', async route => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'return layer.render({';
+                if (!body.includes(marker)) throw new Error('PDF.js annotation render fault seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker,
+                        'if (Reflect.get(window, "__annotationLayerFailure") && options.page.pageNumber === 2) throw new Error("RUX03 injected annotation stage failure"); ' + marker),
+                });
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, '__annotationLayerFailure', false);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'annotation-interaction.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state: 'visible'});
+            await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', true));
+            await page.getByRole('button', {
+                name: 'Next Page',
+                exact: true,
+            }).first().click();
+            const container = page.locator('.page_container[data-page="2"]').first();
+            const canvas = container.locator('.page_canvas canvas').first();
+            await canvas.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await expect.poll(() => problems.some(problem => problem.includes('Failed to render annotation layer for page 2'))).toBe(true);
+            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+            await page.screenshot({path: resolve(evidenceDir, 'failed.png')});
+            const failed = await container.evaluate(element => ({
+                readiness: (element as HTMLElement).dataset.pageLayerReadiness,
+                canvases: Array.from(element.querySelectorAll('canvas')).map(item => ({
+                    width: item.width,
+                    height: item.height,
+                })),
+                links: element.querySelectorAll('.annotation-layer a').length,
+            }));
+            writeFileSync(resolve(evidenceDir, 'failed.json'), JSON.stringify({
+                failed,
+                problems,
+            }, null, 2));
+            expect(failed.canvases.some(item => item.width > 0 && item.height > 0)).toBe(true);
+            expect(failed.links).toBe(0);
+            expect(failed.readiness).not.toBe('ready');
+            const toast = page.locator('.app-toast-failure:not([data-state="closed"])').first();
+            await expect.poll(() => toast.textContent()).toContain('Page 2 links and annotation interactions could not be loaded.');
+            const oldWidth = await canvas.evaluate(element => (element as HTMLCanvasElement).width);
+            await page.getByRole('button', {
+                name: 'Zoom Out',
+                exact: true,
+            }).first().click();
+            await expect.poll(() => canvas.evaluate(element => (element as HTMLCanvasElement).width)).not.toBe(oldWidth);
+            await expect.poll(() => problems.filter(problem => problem.includes('Failed to render annotation layer for page 2')).length).toBe(2);
+            await expect.poll(() => container.getAttribute('data-page-layer-readiness')).toBe('failed');
+            await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', false));
+            await toast.getByRole('button', {
+                name: 'Retry',
+                exact: true,
+            }).click();
+            const link = container.locator('.pdf-link-overlay[role="link"]').first();
+            await link.waitFor({
+                state: 'visible',
+                timeout: 15_000,
+            });
+            await expect.poll(() => container.getAttribute('data-page-layer-readiness')).toBe('ready');
+            writeFileSync(resolve(evidenceDir, 'recovered-dom.json'), JSON.stringify(await container.evaluate(element => ({
+                readiness: (element as HTMLElement).dataset.pageLayerReadiness,
+                links: Array.from(element.querySelectorAll('a')).map(item => item.outerHTML),
+            })), null, 2));
+            await page.screenshot({path: resolve(evidenceDir, 'layer-recovered.png')});
+            await link.click();
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.getByRole('button', {
+                name: 'Next Page',
+                exact: true,
+            }).first().click();
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('2');
+            await link.waitFor({state: 'visible'});
+            await link.focus();
+            await page.keyboard.press('Enter');
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.screenshot({path: resolve(evidenceDir, 'recovered.png')});
+            expect(problems.filter(problem => !problem.includes('Failed to render annotation layer for page 2'))).toEqual([]);
+            expect(problems.filter(problem => problem.includes('Failed to render annotation layer for page 2'))).toHaveLength(2);
+        } finally {
+            try {
+                writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+                // Finalize the renderer recording before the browser process exits.
+                await page.context().close();
+            } finally {
+                await browser.close();
+            }
+        }
+    }, 90_000);
+
+    // C2/L2/A1: foreign icons paint beside the app's single canonical note marker.
     it('loads a foreign attachment icon from the packaged PDF.js image directory', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -217,7 +1235,79 @@ describe('browser document lifecycle UI', () => {
             FS: fileSpec,
             Contents: PDFString.of('Foreign attachment icon'),
         }));
-        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([attachment]));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const foreignText = 'Foreign commented highlight text';
+        const ownText = 'Own saved highlight text';
+        pdfPage.drawText(foreignText, {
+            x: 100,
+            y: 700,
+            size: 14,
+            font,
+        });
+        pdfPage.drawText(ownText, {
+            x: 100,
+            y: 550,
+            size: 14,
+            font,
+        });
+        const highlightWidth = font.widthOfTextAtSize(foreignText, 14);
+        const highlight = pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Highlight',
+            Rect: [
+                100,
+                697,
+                100 + highlightWidth,
+                714,
+            ],
+            QuadPoints: [
+                100,
+                714,
+                100 + highlightWidth,
+                714,
+                100,
+                697,
+                100 + highlightWidth,
+                697,
+            ],
+            C: [
+                1,
+                1,
+                0,
+            ],
+            CA: 0.3,
+            Contents: PDFString.of('Foreign highlight popup'),
+        }));
+        const ink = pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Ink',
+            Rect: [
+                100,
+                640,
+                180,
+                670,
+            ],
+            InkList: [[
+                100,
+                650,
+                140,
+                660,
+                180,
+                650,
+            ]],
+            C: [
+                0,
+                0,
+                1,
+            ],
+            BS: {W: 3},
+            Contents: PDFString.of('Foreign ink popup'),
+        }));
+        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([
+            attachment,
+            highlight,
+            ink,
+        ]));
         const fixtureBytes = Buffer.from(await pdf.save());
         writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-attachment-${process.pid}.pdf`), fixtureBytes);
         const browser = await chromium.launch({headless: true});
@@ -229,9 +1319,12 @@ describe('browser document lifecycle UI', () => {
                 },
                 recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-${process.pid}`)},
             });
+            const cpu = await page.context().newCDPSession(page);
+            await cpu.send('Emulation.setCPUThrottlingRate', {rate: 6});
             const consoleProblems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
@@ -253,6 +1346,202 @@ describe('browser document lifecycle UI', () => {
             const icon = page.locator('.page_container--rendered .fileAttachmentAnnotation img').first();
             await icon.waitFor({state: 'attached'});
             await expect.poll(() => icon.evaluate(image => (image as HTMLImageElement).complete)).toBe(true);
+            const nativePopups = page.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible');
+            const popupObservations: Array<{
+                label: string;
+                hover: number;
+                click: number
+            }> = [];
+            const hoverAndClick = async (x: number, y: number, label: string) => {
+                const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+                if (!bounds) throw new Error(`${label} page is not visible`);
+                const px = bounds.x + x * bounds.width / 612;
+                const py = bounds.y + (792 - y) * bounds.height / 792;
+                await page.mouse.move(px, py);
+                await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+                const hover = await nativePopups.count();
+                await page.mouse.click(px, py);
+                await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+                const click = await nativePopups.count();
+                popupObservations.push({
+                    label,
+                    hover,
+                    click,
+                });
+                await page.mouse.click(px, py);
+                await page.mouse.move(0, 0);
+            };
+            await hoverAndClick(140, 705, 'foreign Highlight');
+            await hoverAndClick(140, 660, 'foreign Ink');
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            await page.locator('.tool-button[data-tool="select"]').click();
+            await hoverAndClick(140, 705, 'foreign Highlight in edit mode');
+            await hoverAndClick(140, 660, 'foreign Ink in edit mode');
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.sidebar-wrapper').evaluate(
+                element => element.getBoundingClientRect().width,
+            )).toBe(0);
+            const foreignMarkerCount = await page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).count();
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.locator('.toolbar-group-item--quick-note button')
+                .getAttribute('aria-pressed')).toBe('true');
+            // Resolve the click from the settled page, rather than a copied bounding box.
+            await page.locator('.page_container[data-page="1"]').first().click({position: {
+                x: 300,
+                y: 300,
+            }});
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).pressSequentially('Canonical note beside a foreign attachment');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.getByRole('button', {
+                name: 'Open Note',
+                exact: true,
+            }).count()).toBe(foreignMarkerCount + 1);
+            expect(await page.locator('.textAnnotation img:visible').count()).toBe(0);
+            // Set up an EVB-authored highlight, then exercise its persisted
+            // surface through real clicks and text dragging after Save As.
+            const createdHighlight = await page.evaluate(async (text) => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                await api.callActiveWorkspaceCommand?.('handleDisableDragMode');
+                const span = Array.from(document.querySelectorAll('.text-layer span'))
+                    .find(element => element.textContent === text);
+                if (!span?.firstChild) throw new Error('Own highlight text is missing');
+                const range = document.createRange();
+                range.selectNodeContents(span);
+                const selection = document.getSelection();
+                selection?.removeAllRanges();
+                selection?.addRange(range);
+                return api.callActiveWorkspaceCommand?.('highlightSelection');
+            }, ownText);
+            expect(createdHighlight?.value).toBe(true);
+            await page.locator('[data-markup-subtype="Highlight"]').last()
+                .locator('[data-annotation-hit-target]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {
+                name: 'Open Pop-up Note',
+                exact: true,
+            }).click();
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            })
+                .pressSequentially('Own saved highlight comment');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            const downloadPromise = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const savedPath = resolve(process.cwd(), `.devkit/browser-foreign-attachment-saved-${process.pid}.pdf`);
+            await (await downloadPromise).saveAs(savedPath);
+            const savedPdf = await PDFDocument.load(readFileSync(savedPath));
+            const savedAnnots = savedPdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            expect(Array.from({length: savedAnnots.size()}, (_, index) =>
+                savedAnnots.lookup(index, PDFDict).lookup(PDFName.of('Subtype'), PDFName).toString(),
+            ).filter(subtype => subtype === '/Highlight')).toHaveLength(2);
+            expect(Array.from({length: savedAnnots.size()}, (_, index) => {
+                const annotation = savedAnnots.lookup(index, PDFDict);
+                const contents = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
+                return contents?.decodeText();
+            })).toContain('Own saved highlight comment');
+            // Opening the actual downloaded bytes in a fresh browser page
+            // proves this is the saved surface, not the unsaved overlay.
+            const reopened = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-saved-${process.pid}`)},
+            });
+            try {
+                await reopened.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(reopened);
+                keepFileChooserInterceptionEnabled(reopened);
+                const reopenChooser = reopened.waitForEvent('filechooser');
+                await reopened.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
+                await (await reopenChooser).setFiles(savedPath);
+                await reopened.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+                await expect.poll(() => reopened.locator('[data-markup-subtype="Highlight"]').count()).toBe(2);
+                const savedHighlight = reopened.locator('[data-markup-subtype="Highlight"]').last();
+                const hit = savedHighlight.locator('[data-annotation-hit-target]').first();
+                const ownLineBounds = await reopened.locator('.text-layer span').filter({hasText: ownText}).first().boundingBox();
+                const savedHitBounds = await hit.boundingBox();
+                if (!ownLineBounds || !savedHitBounds) throw new Error('Saved highlight is not visible over its text');
+                expect(savedHitBounds.x).toBeLessThan(ownLineBounds.x + ownLineBounds.width / 2);
+                expect(savedHitBounds.x + savedHitBounds.width).toBeGreaterThan(ownLineBounds.x + ownLineBounds.width / 2);
+                expect(savedHitBounds.y).toBeLessThan(ownLineBounds.y + ownLineBounds.height / 2);
+                expect(savedHitBounds.y + savedHitBounds.height).toBeGreaterThan(ownLineBounds.y + ownLineBounds.height / 2);
+                await hit.click();
+                await expect.poll(() => savedHighlight.getAttribute('class')).toContain('is-selected');
+                expect(await reopened.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible').count()).toBe(0);
+                await reopened.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await reopened.getByRole('tab', {
+                    name: 'Annotations',
+                    exact: true,
+                }).click();
+                await reopened.locator('.tool-button[data-tool="select"]').click();
+                await reopened.mouse.click(100, 200);
+                await expect.poll(() => savedHighlight.getAttribute('class')).not.toContain('is-selected');
+                await hit.click();
+                await expect.poll(() => savedHighlight.getAttribute('class')).toContain('is-selected');
+                await reopened.getByRole('button', {
+                    name: 'Text Select',
+                    exact: true,
+                }).click();
+                const line = reopened.locator('.text-layer span').filter({hasText: foreignText}).first();
+                const lineBounds = await line.boundingBox();
+                if (!lineBounds) throw new Error('Commented highlight text is not visible');
+                await reopened.mouse.move(lineBounds.x + 1, lineBounds.y + lineBounds.height / 2);
+                await reopened.mouse.down();
+                await reopened.mouse.move(lineBounds.x + lineBounds.width - 1, lineBounds.y + lineBounds.height / 2, {steps: 12});
+                await reopened.mouse.up();
+                await expect.poll(() => reopened.evaluate(() => document.getSelection()?.toString())).toBe(foreignText);
+                expect(await reopened.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible').count()).toBe(0);
+                await reopened.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-saved-selection-${process.pid}.png`)});
+            } finally {
+                await reopened.close();
+            }
+            console.info('Popup observations', JSON.stringify(popupObservations));
+            writeFileSync(resolve(process.cwd(), `.devkit/browser-annotation-popups-${process.pid}.json`), JSON.stringify(popupObservations, null, 2));
+            for (const observation of popupObservations) {
+                expect(observation.hover, `${observation.label} hover`).toBe(0);
+                expect(observation.click, `${observation.label} click`).toBe(0);
+            }
             const dimensions = await icon.evaluate((image) => {
                 const rect = image.getBoundingClientRect();
                 return {
@@ -279,8 +1568,23 @@ describe('browser document lifecycle UI', () => {
             expect(response.status()).toBe(200);
             expect(bytes).toEqual(readFileSync(resolve(process.cwd(), 'node_modules/pdfjs-dist/web/images/annotation-paperclip.svg')));
             expect(dimensions.naturalWidth).toBeGreaterThan(0);
+            expect(dimensions.width).toBeGreaterThan(0);
+            expect(dimensions.height).toBeGreaterThan(0);
+            expect(await icon.isVisible()).toBe(true);
+            const paintedIcon = await loadImage(Buffer.from(await icon.screenshot()));
+            const iconContext = createCanvas(paintedIcon.width, paintedIcon.height).getContext('2d');
+            iconContext.drawImage(paintedIcon, 0, 0);
+            const pixels = iconContext.getImageData(0, 0, paintedIcon.width, paintedIcon.height).data;
+            let inkPixels = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) {
+                    inkPixels += 1;
+                }
+            }
+            expect(inkPixels).toBeGreaterThan(0);
             expect(consoleProblems).toEqual([]);
         } finally {
+            await Promise.all(browser.contexts().map(context => context.close()));
             await browser.close();
         }
     }, 90_000);
@@ -741,6 +2045,146 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    // T3/C2, issue #1037: foreign FreeText is printable when its viewer supplies
+    // the appearance. Explicit /AP remains authoritative (ADR 0003).
+    it('prints existing FreeText without AP and preserves explicit appearances', async () => {
+        const evidence = resolve(process.cwd(), `.devkit/1037/browser-${process.pid}`);
+        mkdirSync(evidence, {recursive: true});
+        const browser = await chromium.launch({headless: true});
+        const page = await browser.newPage({
+            viewport: {
+                width: 1_280,
+                height: 800,
+            },
+            recordVideo: {dir: evidence},
+        });
+        const problems = collectConsoleProblems(page);
+        let printStartedAt: number | undefined;
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                window.print = () => {
+                    const canvas = document.querySelector<HTMLCanvasElement>('.browser-print-page canvas');
+                    if (!canvas) throw new Error('No printed page');
+                    const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+                    const red: number[][] = [];
+                    const cyan: number[][] = [];
+                    for (let index = 0; index < pixels.length; index += 4) {
+                        const point = [
+                            (index / 4) % canvas.width / canvas.width,
+                            Math.floor(index / 4 / canvas.width) / canvas.height,
+                        ];
+                        if (pixels[index]! > 150 && pixels[index + 1]! < 100 && pixels[index + 2]! < 100) red.push(point);
+                        if (pixels[index]! < 100 && pixels[index + 1]! > 150 && pixels[index + 2]! > 150) cyan.push(point);
+                    }
+                    Reflect.set(window.top!, '__freeTextPrint', {
+                        red,
+                        cyan,
+                        image: canvas.toDataURL(),
+                    });
+                };
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const pdf = await PDFDocument.load(readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')));
+            const first = pdf.getPage(0);
+            const annotations = first.node.lookup(PDFName.of('Annots'), PDFArray);
+            annotations.push(pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                F: 4,
+                Rect: [
+                    72,
+                    550,
+                    350,
+                    630,
+                ],
+                Contents: PDFHexString.fromText('Foreign FreeText\nПривет мир'),
+                DA: PDFString.of('/Helvetica 18 Tf 1 0 0 rg'),
+            })));
+            const appearance = pdf.context.register(pdf.context.flateStream('0 1 1 rg 0 0 80 80 re f', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    80,
+                    80,
+                ],
+                Resources: {},
+            }));
+            annotations.push(pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                F: 4,
+                Rect: [
+                    400,
+                    550,
+                    480,
+                    630,
+                ],
+                Contents: PDFString.of('Explicit AP overrides this red text'),
+                DA: PDFString.of('/Helvetica 18 Tf 1 0 0 rg'),
+                AP: {N: appearance},
+            })));
+            const input = Buffer.from(await pdf.save());
+            writeFileSync(resolve(evidence, 'input.pdf'), input);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'foreign-freetext-print.pdf',
+                mimeType: 'application/pdf',
+                buffer: input,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.screenshot({path: resolve(evidence, 'opened.png')});
+            printStartedAt = Date.now();
+            await page.getByRole('button', {
+                name: 'Print',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Print...',
+                exact: true,
+            }).click();
+            await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__freeTextPrint'))), {timeout: 15_000}).toBe(true);
+            const output = await page.evaluate(() => Reflect.get(window, '__freeTextPrint') as {
+                red: number[][];
+                cyan: number[][];
+                image: string;
+            });
+            writeFileSync(resolve(evidence, 'printed.png'), Buffer.from(output.image.split(',')[1]!, 'base64'));
+            writeFileSync(resolve(evidence, 'result.json'), JSON.stringify({
+                elapsedMs: Date.now() - printStartedAt,
+                red: output.red.length,
+                cyan: output.cyan.length,
+                problems,
+            }));
+            expect(output.red.length).toBeGreaterThan(200);
+            expect(output.cyan.length).toBeGreaterThan(1_000);
+            // A4 fit centers the letter page vertically. Both appearances keep
+            // their source rectangles, and the explicit AP never becomes text.
+            expect(output.red.every(([
+                x,
+                y,
+            ]) => x! >= 72 / 612 && x! < 350 / 612 && y! > 0.2 && y! < 0.34)).toBe(true);
+            expect(output.cyan.every(([
+                x,
+                y,
+            ]) => x! > 0.65 && x! < 0.79 && y! > 0.2 && y! < 0.34)).toBe(true);
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidence, 'console.json'), JSON.stringify(problems));
+            await page.screenshot({path: resolve(evidence, 'final.png')});
+            await browser.close();
+        }
+    }, 90_000);
+
     // T2/T3, issue #1027: accepted note text reaches recovery bytes, and its
     // icon reaches the printed canvas while the original remains unsaved.
     it('materializes an unsaved note for browser recovery and print without saving the original', async () => {
@@ -839,31 +2283,35 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await expect.poll(() => page.evaluate(() => Reflect.get(window, '__printedNote')?.yellowPixels ?? 0), {timeout: 15_000}).toBeGreaterThan(50);
             expect(await page.evaluate(() => Reflect.get(window, '__printedNote').pages)).toBeGreaterThan(0);
-            await expect.poll(() => page.evaluate(async (noteText) => {
-                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                    const request = indexedDB.open('evb-viewer-browser-documents');
-                    request.onsuccess = () => resolveDb(request.result);
-                    request.onerror = () => rejectDb(request.error);
-                });
-                try {
-                    const rows = await new Promise<Array<{
-                        data: Uint8Array;
-                        fileName: string;
-                        kind: string
-                    }>>((resolveRows, rejectRows) => {
-                        const request = db.transaction('documents', 'readonly').objectStore('documents').getAll();
-                        request.onsuccess = () => resolveRows(request.result);
-                        request.onerror = () => rejectRows(request.error);
+            await expect.poll(async () => {
+                const rows = await page.evaluate(async () => {
+                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                        const request = indexedDB.open('evb-viewer-browser-documents');
+                        request.onsuccess = () => resolveDb(request.result);
+                        request.onerror = () => rejectDb(request.error);
                     });
-                    const encoded = [...noteText].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
-                    return {
-                        recovered: rows.some(row => row.fileName.endsWith('.recovery.pdf') && new TextDecoder().decode(row.data).toLowerCase().includes(encoded)),
-                        originalChanged: rows.some(row => row.kind === 'source' && new TextDecoder().decode(row.data).toLowerCase().includes(encoded)),
-                    };
-                } finally {
-                    db.close();
-                }
-            }, text), {timeout: 15_000}).toEqual({
+                    try {
+                        const rows = await new Promise<Array<{
+                            ref: string;
+                            fileName: string;
+                            kind: string
+                        }>>((resolveRows, rejectRows) => {
+                            const request = db.transaction('documents', 'readonly').objectStore('documents').getAll();
+                            request.onsuccess = () => resolveRows(request.result);
+                            request.onerror = () => rejectRows(request.error);
+                        });
+                        return rows;
+                    } finally {
+                        db.close();
+                    }
+                });
+                const bytes = await Promise.all(rows.map(row => readPersistedDocumentBytes(page, row.ref)));
+                const encoded = [...text].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+                return {
+                    recovered: rows.some((row, index) => row.fileName.endsWith('.recovery.pdf') && new TextDecoder().decode(Uint8Array.from(bytes[index]!)).toLowerCase().includes(encoded)),
+                    originalChanged: rows.some((row, index) => row.kind === 'source' && new TextDecoder().decode(Uint8Array.from(bytes[index]!)).toLowerCase().includes(encoded)),
+                };
+            }, {timeout: 15_000}).toEqual({
                 recovered: true,
                 originalChanged: false,
             });
@@ -875,6 +2323,113 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 90_000);
+
+    it('opens URI destinations by pointer and Enter with no opener or console failure', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-external-url-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const destination = `${origin}/privacy-policy`;
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const sourcePage = pdf.addPage([
+            612,
+            792,
+        ]);
+        sourcePage.drawText('Open privacy policy', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        sourcePage.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [
+                72,
+                694,
+                260,
+                722,
+            ],
+            Border: [
+                0,
+                0,
+                0,
+            ],
+            A: {
+                S: 'URI',
+                URI: PDFString.of(destination),
+            },
+        }))]));
+        const bytes = Buffer.from(await pdf.save());
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const observations: Array<{
+            input: string;
+            url: string;
+            opener: boolean
+        }> = [];
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles({
+                name: 'external-uri.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const link = page.locator('.pdf-link-overlay').first();
+            await link.waitFor({state: 'visible'});
+            for (const input of [
+                'pointer',
+                'Enter',
+            ]) {
+                const openedPage = context.waitForEvent('page');
+                if (input === 'pointer') {
+                    await link.click();
+                } else {
+                    await link.focus();
+                    await link.press('Enter');
+                }
+                const destinationPage = await openedPage;
+                await destinationPage.waitForURL(destination);
+                await destinationPage.waitForLoadState('domcontentloaded');
+                const opener = await destinationPage.evaluate(() => window.opener !== null);
+                observations.push({
+                    input,
+                    url: destinationPage.url(),
+                    opener,
+                });
+                expect(destinationPage.url()).toBe(destination);
+                expect(opener).toBe(false);
+                await destinationPage.close();
+            }
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'result.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+            await browser.close();
+        }
+    }, 120_000);
 
     it('starts and opens a PDF without desktop diagnostics or recovery warnings under an Electron-shaped user agent', async () => {
         const browser = await chromium.launch({headless: true});
@@ -1713,4 +3268,352 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 120_000);
+});
+
+describe('optional search-cache mutation completion proof', () => {
+    it.each([
+        'denied',
+        'blocked',
+    ] as const)('commits and displays rotation while optional cache is %s', async (fault) => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdfPage.drawText('Optional cache rotation proof', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const browser = await chromium.launch({headless: true});
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-search-cache-mutation-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, `${fault}-source.pdf`), bytes);
+        let page: Page | undefined;
+        try {
+            page = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 900,
+                },
+                recordVideo: {dir: evidenceDir},
+            });
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'optional-cache-rotation.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30000});
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Initial real PDF did not settle');
+            });
+            const workingPath = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{workingCopyPath?: string}>(['workingCopyPath']).workingCopyPath;
+            });
+            if (!workingPath) throw new Error('Real working document identity is missing');
+            if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+            }
+            await page.locator('[data-thumbnail-page="1"]').first().waitFor({state: 'visible'});
+            await page.evaluate(async (mode) => {
+                const cacheName = 'evb-browser-search-cache';
+                const original = IDBFactory.prototype.open;
+                Reflect.set(window, '__br02CacheRequests', 0);
+                if (mode === 'denied') {
+                    IDBFactory.prototype.open = function(name: string, version?: number) {
+                        if (name === cacheName) {
+                            Reflect.set(window, '__br02CacheRequests', Reflect.get(window, '__br02CacheRequests') + 1);
+                            throw new DOMException('BR02 injected optional cache denial', 'SecurityError');
+                        }
+                        return version === undefined ? original.call(this, name) : original.call(this, name, version);
+                    };
+                    Reflect.set(window, '__br02ReleaseCache', () => {IDBFactory.prototype.open = original;});
+                    return;
+                }
+                await new Promise<void>((resolveDelete, rejectDelete) => {
+                    const request = indexedDB.deleteDatabase(cacheName);
+                    request.onsuccess = () => resolveDelete();
+                    request.onerror = () => rejectDelete(request.error);
+                    request.onblocked = () => rejectDelete(new Error('Healthy initial cache retained an unexpected connection'));
+                });
+                const legacy = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                    const request = original.call(indexedDB, cacheName, 1);
+                    request.onsuccess = () => resolveDb(request.result);
+                    request.onerror = () => rejectDb(request.error);
+                });
+                legacy.onversionchange = () => {};
+                IDBFactory.prototype.open = function(name: string, version?: number) {
+                    const request = version === undefined ? original.call(this, name) : original.call(this, name, version);
+                    if (name === cacheName) request.onblocked = () => {
+                        Reflect.set(window, '__br02CacheRequests', Reflect.get(window, '__br02CacheRequests') + 1);
+                    };
+                    return request;
+                };
+                Reflect.set(window, '__br02ReleaseCache', () => {IDBFactory.prototype.open = original; legacy.close();});
+            }, fault);
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            let storedBytes: number[] = [];
+            await expect.poll(async () => {
+                storedBytes = await readPersistedDocumentBytes(page!, workingPath);
+                if (!storedBytes.length) return null;
+                return (await PDFDocument.load(Uint8Array.from(storedBytes))).getPage(0).getRotation().angle;
+            }, {timeout: 15000}).toBe(90);
+            writeFileSync(resolve(evidenceDir, `${fault}-committed.pdf`), Buffer.from(storedBytes));
+            await expect.poll(() => page!.evaluate(() => Reflect.get(window, '__br02CacheRequests'))).toBeGreaterThan(0);
+            writeFileSync(resolve(evidenceDir, `${fault}-committed.json`), JSON.stringify({
+                workingPath,
+                rotation: 90,
+                problems,
+            }, null, 2));
+            await expect.poll(() => page!.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                const r = element.getBoundingClientRect();
+                return r.width > r.height;
+            }), {timeout: 15000}).toBe(true);
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+            expect(await page.locator('.page_container--rendered[data-page="1"] .textLayer').first().textContent()).toContain('Optional cache rotation proof');
+            const download = page.waitForEvent('download');
+            await page.locator('button[aria-label="Save options"]').first().click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const savedPath = resolve(evidenceDir, `${fault}-saved.pdf`);
+            await (await download).saveAs(savedPath);
+            const saved = await PDFDocument.load(readFileSync(savedPath));
+            expect(saved.getPage(0).getRotation().angle).toBe(90);
+            expect(saved.getPageCount()).toBe(1);
+            if (fault === 'denied') expect(problems.length).toBeGreaterThan(0);
+            expect(
+                problems.every(problem => problem.includes('[search] Optional search-cache invalidation failed')),
+                JSON.stringify(problems),
+            ).toBe(true);
+            writeFileSync(resolve(evidenceDir, `${fault}-result.json`), JSON.stringify({
+                workingPath,
+                rotation: 90,
+                savedRotation: saved.getPage(0).getRotation().angle,
+                cacheRequests: await page.evaluate(() => Reflect.get(window, '__br02CacheRequests')),
+                problems,
+            }, null, 2));
+        } finally {
+            if (page) {
+                await page.screenshot({path: resolve(evidenceDir, `${fault}-final.png`)}).catch(() => {});
+                await page.evaluate(() => Reflect.get(window, '__br02ReleaseCache')?.()).catch(() => {});
+                const video = page.video();
+                await page.close();
+                await video?.saveAs(resolve(evidenceDir, `${fault}-proof.webm`));
+            }
+            await browser.close();
+        }
+    }, 90000);
+    it('keeps rotated search boxes on their words without coordinate warnings', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdfPage.drawText('Optional cache rotation proof', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1094/browser-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        let page: Page | undefined;
+        try {
+            page = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 900,
+                },
+                recordVideo: {dir: evidenceDir},
+            });
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'rotated-search.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30_000});
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+            });
+            if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+            }
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            await expect.poll(() => page!.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > rect.height;
+            }), {timeout: 15_000}).toBe(true);
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Rotated PDF did not settle');
+            });
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress?: boolean}>(['isPageOperationInProgress'])?.isPageOperationInProgress === false;
+            }, undefined, {timeout: 30_000});
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.getActiveToolbarSnapshot?.()?.initialVisualReady === true;
+            }, undefined, {timeout: 30_000});
+            await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            const input = page.locator('.document-search-bar input:visible').first();
+            await input.pressSequentially('proof');
+            expect(await input.inputValue()).toBe('proof');
+            writeFileSync(resolve(evidenceDir, 'before-enter.json'), JSON.stringify(await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return {
+                    toolbar: api.getActiveToolbarSnapshot?.(),
+                    state: api.readActiveWorkspaceStateValues?.([
+                        'searchQuery',
+                        'isPageOperationInProgress',
+                    ]),
+                    input: document.querySelector<HTMLInputElement>('.document-search-bar input')?.value,
+                };
+            }), null, 2));
+            await input.press('Enter');
+            await expect.poll(() => page!.locator('.document-search-results-header-summary').textContent(), {timeout: 30_000}).toMatch(/^1 result\b/u);
+            await page.locator('.document-search-result:visible').first().click();
+            const box = page.locator('.page_container[data-page="1"] .pdf-word-box[data-word="proof"]').first();
+            await box.waitFor({state: 'visible'});
+            const alignment = await box.evaluate(element => {
+                const container = element.closest('.page_container')!;
+                const canvas = container.querySelector('canvas')!;
+                const textLayer = container.querySelector('.textLayer')!;
+                const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+                let node: Node | null;
+                let wordRange: Range | null = null;
+                while ((node = walker.nextNode())) {
+                    const at = node.textContent?.indexOf('proof') ?? -1;
+                    if (at < 0) continue;
+                    wordRange = document.createRange();
+                    wordRange.setStart(node, at);
+                    wordRange.setEnd(node, at + 5);
+                    break;
+                }
+                if (!wordRange) throw new Error('Rendered proof word is absent');
+                const word = wordRange.getBoundingClientRect();
+                const highlight = element.getBoundingClientRect();
+                const renderedCanvas = canvas.getBoundingClientRect();
+                const sx = canvas.width / renderedCanvas.width;
+                const sy = canvas.height / renderedCanvas.height;
+                const x = Math.floor((word.left - renderedCanvas.left) * sx);
+                const y = Math.floor((word.top - renderedCanvas.top) * sy);
+                const width = Math.ceil(word.width * sx);
+                const height = Math.ceil(word.height * sy);
+                const pixels = canvas.getContext('2d')!.getImageData(x, y, width, height).data;
+                let darkPixels = 0;
+                let paintedPixelsInBox = 0;
+                for (let py = 0; py < height; py += 1) {
+                    for (let px = 0; px < width; px += 1) {
+                        const offset = (py * width + px) * 4;
+                        if (pixels[offset]! >= 128 || pixels[offset + 1]! >= 128 || pixels[offset + 2]! >= 128) continue;
+                        darkPixels += 1;
+                        const clientX = renderedCanvas.left + (x + px + 0.5) / sx;
+                        const clientY = renderedCanvas.top + (y + py + 0.5) / sy;
+                        if (clientX >= highlight.left && clientX <= highlight.right && clientY >= highlight.top && clientY <= highlight.bottom) paintedPixelsInBox += 1;
+                    }
+                }
+                return {
+                    word: word.toJSON(),
+                    highlight: highlight.toJSON(),
+                    darkPixels,
+                    paintedPixelsInBox,
+                    wordCenterInsideBox: (word.left + word.right) / 2 >= highlight.left
+                        && (word.left + word.right) / 2 <= highlight.right
+                        && (word.top + word.bottom) / 2 >= highlight.top
+                        && (word.top + word.bottom) / 2 <= highlight.bottom,
+                    boxCenterInsideWord: (highlight.left + highlight.right) / 2 >= word.left
+                        && (highlight.left + highlight.right) / 2 <= word.right
+                        && (highlight.top + highlight.bottom) / 2 >= word.top
+                        && (highlight.top + highlight.bottom) / 2 <= word.bottom,
+                    canvas: {
+                        width: canvas.width,
+                        height: canvas.height,
+                    },
+                };
+            });
+            writeFileSync(resolve(evidenceDir, 'alignment.json'), JSON.stringify(alignment, null, 2));
+            writeFileSync(resolve(evidenceDir, 'console-problems.json'), JSON.stringify(problems, null, 2));
+            expect(alignment.darkPixels).toBeGreaterThan(0);
+            expect(alignment.paintedPixelsInBox).toBeGreaterThan(0);
+            expect(alignment.wordCenterInsideBox).toBe(true);
+            expect(alignment.boxCenterInsideWord).toBe(true);
+            expect(problems).toEqual([]);
+        } finally {
+            try {
+                if (page) {
+                    await page.screenshot({path: resolve(evidenceDir, 'final.png')}).catch(() => {});
+                    const video = page.video();
+                    await page.close();
+                    await video?.saveAs(resolve(evidenceDir, 'proof.webm'));
+                }
+            } finally {
+                await browser.close();
+            }
+        }
+    }, 120_000);
+
 });

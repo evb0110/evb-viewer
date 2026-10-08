@@ -73,7 +73,6 @@ const pipelineLog: TWorkerLog = (level, message, data) => {
     }
 };
 const OCR_TERMINAL_EVENT_RETENTION_MS = 30_000;
-const OCR_MODEL_PREP_TIMEOUT_MS = 2 * 60 * 1000;
 /** A finished result waits this long to be applied; then its files go. */
 const OCR_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
 
@@ -303,7 +302,7 @@ export async function handleOcrCreateSearchablePdfAsync(
             },
             run: async (registry) => {
                 try {
-                    await prepareLanguageModelsForJob(pages, registry.signal, OCR_MODEL_PREP_TIMEOUT_MS);
+                    await prepareLanguageModelsForJob(pages, registry.signal);
                 } catch (error) {
                     started.resolve(createOcrQueueFailure(
                         requestId,

@@ -1,4 +1,6 @@
-import {EventEmitter} from 'node:events';
+import {
+    EventEmitter, on,
+} from 'node:events';
 import {PassThrough} from 'node:stream';
 import {
     afterEach,
@@ -30,7 +32,11 @@ class MockSidecarProcess extends EventEmitter {
 }
 
 class MockLineReader extends EventEmitter {
-    readonly close = vi.fn();
+    readonly close = vi.fn(() => this.emit('close'));
+
+    async *[Symbol.asyncIterator]() {
+        for await (const [line] of on(this, 'line', {close: ['close']})) yield String(line);
+    }
 }
 
 function progressLine() {

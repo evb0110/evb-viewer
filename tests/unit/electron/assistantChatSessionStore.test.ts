@@ -3,6 +3,7 @@ import {
     mkdtempSync,
     readFileSync,
     readdirSync,
+    renameSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -21,6 +22,10 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
+import {
+    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
+    ASSISTANT_MAX_IMAGE_BYTES,
+} from '@contracts/agent';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireTabId} from '@contracts/windowTabs';
 import {
@@ -30,6 +35,8 @@ import {
 import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
+import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
+import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
 
 const tempRoots: string[] = [];
 
@@ -137,6 +144,312 @@ describe('assistant chat session store persistence', () => {
         expect(session.messages.at(-1)?.text).toContain('message-19');
     });
 
+    it.each([
+        1,
+        3,
+    ])('retains a prompt with %i accepted large images through the answer and restart', async (imageCount) => {
+        const rootDir = createTempRoot();
+        const persistence = new AssistantChatPersistence({rootDir});
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        const png = createLargeAssistantImage();
+        expect(png.length).toBeGreaterThan(2 * 1024 * 1024);
+        const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+        const outgoing = normalizeOutgoingMessageRequest({
+            scope,
+            text: 'Explain these images.',
+            attachments: Array.from({length: imageCount}, (_, index) => ({
+                type: 'image',
+                id: `image-${index}`,
+                name: `image-${index}.png`,
+                mimeType: 'image/png',
+                sizeBytes: 0,
+                dataUrl,
+            })),
+        });
+        store.addMessage(session, {
+            id: 'image-question',
+            role: 'user',
+            ...outgoing,
+        });
+        store.appendAssistantDelta(session, 'reply', 'An answer begins.');
+        expect(store.getMessages(scope, selection).map(message => message.text)).toEqual([
+            outgoing.text,
+            'An answer begins.',
+        ]);
+        store.upsertAssistantMessage(session, 'reply', {pending: false});
+        await store.flushPersistenceForTests();
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        expect(readFileSync(transcriptPath, 'utf8')).toContain('session-snapshot-ref');
+        expect(statSync(transcriptPath).size).toBeLessThanOrEqual(persistence.getMaxSessionBytes());
+        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        await restarted.ready;
+        expect(restarted.getMessages(scope, selection)).toEqual(store.getMessages(scope, selection));
+    });
+
+    it('keeps the latest question and answer together when older text is pruned', () => {
+        const store = createAssistantChatSessionStore({persistence: createPersistence(createTempRoot(), {maxSessionBytes: 1024})});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'old question',
+        });
+        store.addMessage(session, {
+            role: 'assistant',
+            text: 'old answer',
+        });
+        store.addMessage(session, {
+            role: 'user',
+            text: 'current question',
+        });
+        store.appendAssistantDelta(session, 'current-reply', 'answer '.repeat(200));
+        expect(session.messages.map(message => message.text)).toEqual([
+            'current question',
+            'answer '.repeat(200),
+        ]);
+    });
+
+    it('keeps exact UTF-8 cap boundaries across split surrogates, empty deltas and recovery', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxSessionBytes: 1024});
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            id: 'old',
+            role: 'system',
+            text: '',
+        });
+        const question = 'q'.repeat(250);
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: question,
+        });
+        store.appendAssistantDelta(session, 'reply', 'ab');
+        store.appendAssistantDelta(session, 'reply', '\uD83E');
+        const beforeRestart = store.getMessages(scope, selection);
+        expect(beforeRestart.map(message => message.text)).toEqual([
+            '',
+            question,
+            'ab\uD83E',
+        ]);
+        expect(beforeRestart.reduce((total, message) => total + Buffer.byteLength(message.text) + 256, 0)).toBe(1023);
+        await store.flushPersistenceForTests();
+
+        const restarted = createAssistantChatSessionStore({persistence: createPersistence(rootDir, {maxSessionBytes: 1024})});
+        const recovered = await restarted.loadSession(scope, selection, {create: true});
+        expect(restarted.getMessages(scope, selection)).toEqual(beforeRestart);
+        restarted.appendAssistantDelta(recovered, 'reply', '');
+        restarted.appendAssistantDelta(recovered, 'reply', '\uDD80');
+        expect(restarted.getMessages(scope, selection).map(message => message.text)).toEqual([
+            '',
+            question,
+            'ab🦀',
+        ]);
+        expect(recovered.messages.reduce((total, message) => total + Buffer.byteLength(message.text) + 256, 0)).toBe(1024);
+        restarted.appendAssistantDelta(recovered, 'reply', 'x');
+        restarted.upsertAssistantMessage(recovered, 'reply', {pending: false});
+        expect(recovered.messages.map(message => [
+            message.id,
+            message.text,
+            message.pending,
+        ])).toEqual([
+            [
+                'question',
+                question,
+                undefined,
+            ],
+            [
+                'reply',
+                'ab🦀x',
+                false,
+            ],
+        ]);
+        await restarted.flushPersistenceForTests();
+        const completed = createAssistantChatSessionStore({persistence: createPersistence(rootDir, {maxSessionBytes: 1024})});
+        await completed.ready;
+        expect(completed.getMessages(scope, selection)).toEqual(restarted.getMessages(scope, selection));
+    });
+
+    it('uses replacement text and metadata-only completion at exact retention boundaries', () => {
+        const store = createAssistantChatSessionStore({persistence: createPersistence(createTempRoot(), {maxSessionBytes: 1024})});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            id: 'old',
+            role: 'system',
+            text: '',
+        });
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'q',
+        });
+        store.appendAssistantDelta(session, 'reply', 'x'.repeat(255));
+        store.upsertAssistantMessage(session, 'reply', {
+            text: '한',
+            pending: false,
+        });
+        store.appendAssistantDelta(session, 'reply', 'x'.repeat(252));
+        expect(session.messages.map(message => message.text)).toEqual([
+            '',
+            'q',
+            `한${'x'.repeat(252)}`,
+        ]);
+        store.upsertAssistantMessage(session, 'reply', {
+            pending: false,
+            error: 'interrupted',
+        });
+        expect(session.messages.at(-1)).toMatchObject({
+            pending: false,
+            error: 'interrupted',
+        });
+        store.appendAssistantDelta(session, 'reply', 'x');
+        expect(session.messages.map(message => message.text)).toEqual([
+            'q',
+            `한${'x'.repeat(253)}`,
+        ]);
+    });
+
+    it('updates attachment metadata budgets independently of text when a message changes', () => {
+        const store = createAssistantChatSessionStore({persistence: false});
+        const session = store.getSession(scope, selection, {create: true});
+        const image = {
+            type: 'image',
+            id: 'image',
+            name: 'image.png',
+            mimeType: 'image/png',
+            sizeBytes: ASSISTANT_MAX_IMAGE_BYTES,
+            dataUrl: 'data:image/png;base64,AA==',
+        } as const;
+        store.addMessage(session, {
+            id: 'old',
+            role: 'system',
+            text: 'older image',
+            attachments: [image],
+        });
+        const attachments = Array.from({length: ASSISTANT_MAX_IMAGE_ATTACHMENTS - 1}, (_, index) => ({
+            ...image,
+            id: `image-${index}`,
+        }));
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'current image question',
+            attachments,
+        });
+        store.appendAssistantDelta(session, 'reply', '한글🦀');
+        expect(session.messages.map(message => message.id)).toEqual([
+            'old',
+            'question',
+            'reply',
+        ]);
+        store.upsertAssistantMessage(session, 'reply', {
+            attachments: [image],
+            pending: false,
+        });
+        expect(store.getMessages(scope, selection).map(message => [
+            message.id,
+            message.text,
+            message.attachments,
+            message.pending,
+        ])).toEqual([
+            [
+                'question',
+                'current image question',
+                attachments,
+                undefined,
+            ],
+            [
+                'reply',
+                '한글🦀',
+                [image],
+                false,
+            ],
+        ]);
+    });
+
+    it('keeps canonical transcript output through reentrant callbacks, pending trimming and reset', () => {
+        const store = createAssistantChatSessionStore({
+            persistence: false,
+            onSessionMessageEvent: (event, session) => {
+                if (event.type === 'message-delta' && event.delta === 'first') {
+                    store.upsertAssistantMessage(session, 'reply', {
+                        text: '한\uD83E',
+                        pending: false,
+                    });
+                    store.removeMessage(session, 'canceled');
+                }
+            },
+        });
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'q',
+        });
+        store.addMessage(session, {
+            id: 'canceled',
+            role: 'user',
+            text: 'not submitted',
+        });
+        store.appendAssistantDelta(session, 'reply', 'first');
+        store.appendAssistantDelta(session, 'reply', '\uDD80');
+        expect(store.getMessages(scope, selection).map(message => [
+            message.id,
+            message.text,
+        ])).toEqual([
+            [
+                'question',
+                'q',
+            ],
+            [
+                'reply',
+                '한🦀',
+            ],
+        ]);
+        // The service filters failed pending bubbles directly on this owner.
+        session.messages = session.messages.filter(message => !message.pending);
+        store.addMessage(session, {
+            id: 'failure',
+            role: 'system',
+            text: 'failed',
+            error: 'failed',
+        });
+        store.appendAssistantDelta(session, 'reply', 'new reply');
+        expect(store.getMessages(scope, selection).map(message => message.text)).toEqual([
+            'q',
+            'failed',
+            'new reply',
+        ]);
+        session.messages.length = 0;
+        store.resetSessionTranscript(session);
+        store.addMessage(session, {
+            id: 'question',
+            role: 'user',
+            text: 'reset question',
+        });
+        store.appendAssistantDelta(session, 'reply', '\uDD80');
+        store.upsertAssistantMessage(session, 'reply', {pending: false});
+        expect(store.getMessages(scope, selection).map(message => [
+            message.id,
+            message.text,
+            message.pending,
+        ])).toEqual([
+            [
+                'question',
+                'reset question',
+                undefined,
+            ],
+            [
+                'reply',
+                '\uDD80',
+                false,
+            ],
+        ]);
+    });
+
     it('keeps visible history after the old inactivity window passes', () => {
         const store = createAssistantChatSessionStore({
             persistence: false,
@@ -150,6 +463,171 @@ describe('assistant chat session store persistence', () => {
         session.lastAccessedAtMs = Date.now() - 2 * 60 * 60 * 1000;
 
         expect(store.getSession(scope, selection)?.messages.map(message => message.text)).toEqual(['history must remain visible']);
+    });
+
+    it.each([
+        33,
+        65,
+    ])('rehydrates history and provider resume IDs after %i document lookups and restart', async (count) => {
+        const rootDir = createTempRoot();
+        const persistence = new AssistantChatPersistence({rootDir});
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const original = store.getSession(scope, selection, {create: true});
+        original.providerThreadId = 'resume-original';
+        original.lastSenderWindowId = 7;
+        original.scopeBinding = {
+            sessionKey: store.keyForSession(original),
+            scopeKey: scope.key,
+            provider: 'codex',
+            turnGeneration: 0,
+            windowId: 7,
+            tabId: scope.tabId!,
+            documentRef: scope.documentRef!,
+            documentIdentity: null,
+        };
+        store.addMessage(original, {
+            role: 'user',
+            text: 'original document question',
+        });
+        store.addMessage(original, {
+            role: 'system',
+            text: 'original tool result',
+        });
+        const expected = structuredClone(original.messages);
+        for (let index = 1; index < count; index += 1) {
+            store.getSession({
+                ...scope,
+                key: `document-${index}`,
+            }, selection, {create: true});
+        }
+        await store.flushPersistenceForTests();
+        expect(store.listSessions()).toHaveLength(32);
+
+        const requestedScope = {
+            ...scope,
+            tabId: requireTabId('new-tab'),
+        };
+        const returned = await store.loadSession(requestedScope, selection, {create: true});
+        expect(returned.messages).toEqual(expected);
+        expect(returned.providerThreadId).toBe('resume-original');
+        expect(returned.scope.tabId).toBe(requestedScope.tabId);
+        expect(returned.scopeBinding).toBeNull();
+        expect(returned.lastSenderWindowId).toBeNull();
+        await store.flushPersistenceForTests();
+
+        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        const cold = await restarted.loadSession(requestedScope, selection, {create: true});
+        expect(cold.messages).toEqual(expected);
+        expect(cold.providerThreadId).toBe('resume-original');
+        expect(restarted.listSessions()).toHaveLength(32);
+        await restarted.flushPersistenceForTests();
+    });
+
+    it.each([
+        'codex',
+        'claude',
+    ] as const)('rehydrates %s image history from disk eviction without replacing a concurrent owner', async (provider) => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxSessions: 1});
+        const store = createAssistantChatSessionStore({
+            persistence,
+            maxEntries: 1,
+        });
+        await store.ready;
+        const requested = {
+            ...selection,
+            provider,
+        };
+        const session = store.getSession(scope, requested, {create: true});
+        session.providerThreadId = `${provider}-resume`;
+        const png = createLargeAssistantImage();
+        store.addMessage(session, {
+            role: 'user',
+            text: 'Keep this image question.',
+            attachments: [{
+                type: 'image',
+                id: 'image',
+                name: 'image.png',
+                mimeType: 'image/png',
+                sizeBytes: png.length,
+                dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+            }],
+        });
+        const expected = structuredClone(session.messages);
+        store.getSession({
+            ...scope,
+            key: 'other',
+        }, requested, {create: true});
+        await store.flushPersistenceForTests();
+        const [
+            first,
+            second,
+        ] = await Promise.all([
+            store.loadSession(scope, requested, {create: true}),
+            store.loadSession(scope, requested, {create: true}),
+        ]);
+        expect(first).toBe(second);
+        expect(first.messages).toEqual(expected);
+        expect(first.providerThreadId).toBe(`${provider}-resume`);
+        first.messages.length = 0;
+        first.providerThreadId = null;
+        store.resetSessionTranscript(first);
+        await store.flushPersistenceForTests();
+        store.getSession({
+            ...scope,
+            key: 'third',
+        }, requested, {create: true});
+        await store.flushPersistenceForTests();
+        const restarted = createAssistantChatSessionStore({
+            persistence: createPersistence(rootDir, {maxSessions: 1}),
+            maxEntries: 1,
+        });
+        const reset = await restarted.loadSession(scope, requested, {create: true});
+        expect(reset.messages).toEqual([]);
+        expect(reset.providerThreadId).toBeNull();
+        await restarted.flushPersistenceForTests();
+    });
+
+    it('recovers a legacy eviction archive and rejects an unreadable current transcript', async () => {
+        const persistence = createPersistence();
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'legacy history',
+        });
+        await store.flushPersistenceForTests();
+        const key = store.keyForSession(session);
+        const filePath = persistence.sessionPath(key);
+        const legacyArchive = join(persistence.archiveDir, `${Buffer.from(key).toString('base64url')}.evicted.1.abcd.jsonl`);
+        renameSync(filePath, legacyArchive);
+        expect((await persistence.recoverSession(key))?.session.messages.map(message => message.text)).toEqual(['legacy history']);
+        mkdirSync(filePath);
+        await expect(persistence.recoverSession(key)).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+        expect(statSync(filePath).isDirectory()).toBe(true);
+        expect(readFileSync(legacyArchive, 'utf8')).toContain('legacy history');
+    });
+
+    it('quarantines a corrupt eviction archive without resurrecting an older conversation', async () => {
+        const persistence = createPersistence();
+        const store = createAssistantChatSessionStore({persistence});
+        await store.ready;
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'older history',
+        });
+        await store.flushPersistenceForTests();
+        const key = store.keyForSession(session);
+        const filePath = persistence.sessionPath(key);
+        const prefix = basename(filePath, '.jsonl');
+        renameSync(filePath, join(persistence.archiveDir, `${prefix}.evicted.1.abcd.jsonl`));
+        writeFileSync(join(persistence.archiveDir, `${prefix}.evicted.2.abcd.jsonl`), 'corrupt\n');
+        expect(await persistence.recoverSession(key)).toBeNull();
+        expect(await persistence.recoverSession(key)).toBeNull();
+        expect(readdirSync(persistence.archiveDir).some(name => name.includes('.corrupt.'))).toBe(true);
     });
 
     it('writes JSONL transcripts and recovers messages', async () => {
@@ -227,40 +705,7 @@ describe('assistant chat session store persistence', () => {
         expect(recoveredStore.getMessages(scope, selection)[0]?.text).toBe('01234567890123456789');
     });
 
-    it('does not clone the transcript for each streamed delta', async () => {
-        const persistence = createPersistence(createTempRoot(), {snapshotDebounceMs: 60_000});
-        const store = createAssistantChatSessionStore({persistence});
-        const session = store.getSession(scope, selection, {create: true});
-        const message = store.addMessage(session, {
-            role: 'user',
-            text: 'long conversation history',
-        });
-        store.upsertAssistantMessage(session, 'assistant-1', {
-            role: 'assistant',
-            text: '',
-            pending: true,
-        });
-        const createdAt = message.createdAt;
-        let createdAtReads = 0;
-        Object.defineProperty(message, 'createdAt', {
-            configurable: true,
-            enumerable: true,
-            get() {
-                createdAtReads += 1;
-                return createdAt;
-            },
-        });
-
-        for (let index = 0; index < 20; index += 1) {
-            store.appendAssistantDelta(session, 'assistant-1', String(index));
-        }
-
-        expect(createdAtReads).toBe(0);
-        await store.flushPersistenceForTests();
-        expect(createdAtReads).toBe(1);
-    });
-
-    it('writes a turn boundary without waiting for the snapshot debounce', async () => {
+    it('writes turn boundaries immediately and keeps identical running notifications durable no-ops', async () => {
         const persistence = createPersistence(createTempRoot(), {snapshotDebounceMs: 60_000});
         const store = createAssistantChatSessionStore({persistence});
         const coordinator = createAssistantSessionTurnCoordinator({sessionStore: store});
@@ -272,6 +717,19 @@ describe('assistant chat session store persistence', () => {
         await vi.waitFor(() => {
             expect(persistedRecordCount(transcriptPath)).toBe(1);
         });
+        const generation = session.turnOwner.generation;
+        coordinator.markSessionTurnRunning(session, generation, 'turn-1');
+        await persistence.flush();
+        const contents = readFileSync(transcriptPath, 'utf8');
+        for (let index = 0; index < 100; index += 1) {
+            coordinator.markSessionTurnRunning(session, generation, 'turn-1');
+        }
+        await persistence.flush();
+        expect(readFileSync(transcriptPath, 'utf8')).toBe(contents);
+        store.getMessages(scope, selection);
+        await persistence.flush();
+        const recovered = await persistence.recoverSession(store.keyForSession(session));
+        expect(recovered?.session.lastAccessedAtMs).toBe(session.lastAccessedAtMs);
     });
 
     it('quarantines a transcript containing corrupt lines instead of partially recovering it', async () => {

@@ -6,6 +6,12 @@ import {
     vi,
 } from 'vitest';
 import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
+import {
+    createFileSystemFileHandle,
+    FakeIndexedDbFactory,
+    MemoryStorage,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const pdfjsModule = vi.hoisted(() => {
     class MockPdfDataRangeTransport {
@@ -29,8 +35,7 @@ const pdfjsModule = vi.hoisted(() => {
 });
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
-    stat: vi.fn(),
-    getContentSignature: vi.fn(),
+    getContentSnapshot: vi.fn(),
     readRange: vi.fn(),
 }));
 
@@ -45,11 +50,12 @@ describe('browserPdfjsDocumentInit', () => {
         vi.resetModules();
         pdfjsModule.getDocument.mockReset();
         pdfjsModule.GlobalWorkerOptions.workerSrc = undefined;
-        browserDocumentStoreMock.stat.mockReset();
-        browserDocumentStoreMock.getContentSignature.mockReset();
+        browserDocumentStoreMock.getContentSnapshot.mockReset();
         browserDocumentStoreMock.readRange.mockReset();
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 * 1024 * 1024 });
-        browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-1');
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size: 3 * 1024 * 1024,
+            contentSignature: 'content-token-1',
+        });
         browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, _offset: number, length: number) => new Uint8Array(length));
     });
 
@@ -147,7 +153,10 @@ describe('browserPdfjsDocumentInit', () => {
             throw new Error('Expected a PDF.js range transport for the large browser document');
         }
 
-        browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-2');
+        browserDocumentStoreMock.getContentSnapshot.mockResolvedValue({
+            size: 3 * 1024 * 1024,
+            contentSignature: 'content-token-2',
+        });
         range.requestDataRange?.(1024 * 1024, (1024 * 1024) + 12);
 
         await vi.waitFor(() => {
@@ -181,5 +190,60 @@ describe('browserPdfjsDocumentInit', () => {
         });
         expect(browserDocumentStoreMock.readRange).toHaveBeenCalledTimes(1);
         expect(range.onDataRange).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'initial-after',
+        'range-before',
+        'range-after',
+    ] as const)('rejects a same-size, same-time physical replacement at %s', async boundary => {
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        vi.stubGlobal('window', {localStorage: new MemoryStorage()});
+        vi.stubGlobal('document', {cookie: ''});
+        try {
+            const bytes = new Uint8Array(3 * 1024 * 1024);
+            let currentFile = new File([bytes], 'physical.pdf', {lastModified: 11});
+            const handle = createFileSystemFileHandle({
+                name: currentFile.name,
+                getFile: async () => currentFile,
+            });
+            const store = new BrowserDocumentStore();
+            const ref = await store.registerFile(currentFile, {saveHandle: handle});
+            const replace = () => {
+                bytes[bytes.length - 1] = 9;
+                currentFile = new File([bytes], currentFile.name, {lastModified: 11});
+            };
+            browserDocumentStoreMock.getContentSnapshot.mockImplementation((path: string) => store.getContentSnapshot(path));
+            let replaceAfterRead = boundary === 'initial-after';
+            browserDocumentStoreMock.readRange.mockImplementation(async (path: string, offset: number, length: number) => {
+                const result = await store.readRange(path, offset, length);
+                if (replaceAfterRead) {
+                    replaceAfterRead = false;
+                    replace();
+                }
+                return result;
+            });
+            const {
+                createPdfjsDocumentInitFromBrowserDocument, getPdfjsLib,
+            } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+            const lib = await getPdfjsLib();
+            if (boundary === 'initial-after') {
+                await expect(createPdfjsDocumentInitFromBrowserDocument(lib, ref)).rejects.toThrow('Browser PDF source changed');
+                return;
+            }
+            const onRangeReadFailure = vi.fn();
+            const init = await createPdfjsDocumentInitFromBrowserDocument(lib, ref, {onRangeReadFailure});
+            const range = 'range' in init ? init.range : undefined;
+            if (!range) throw new Error('Expected a PDF.js range transport');
+            if (boundary === 'range-before') replace();
+            else replaceAfterRead = true;
+            range.requestDataRange?.(1024 * 1024, 2 * 1024 * 1024);
+            await vi.waitFor(() => {
+                expect(onRangeReadFailure).toHaveBeenCalledWith(expect.objectContaining({message: expect.stringContaining('Browser PDF source changed')}));
+            });
+            expect(range.onDataRange).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

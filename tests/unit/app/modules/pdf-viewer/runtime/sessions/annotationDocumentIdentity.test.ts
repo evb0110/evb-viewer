@@ -570,18 +570,31 @@ describe('live canonical text box sidebar drafts', () => {
         }, {text: 'Original'});
         surface.beginTextEditing(entity.identity.id);
         const epoch = session.annotationApplication.value.store.mutationEpoch;
+        const recoverySignature = computed(session.getCanonicalAnnotationRecoveryChangeSignature);
         for (const text of [
             'Draft',
             'Текст العربية',
             '',
         ]) {
             surface.setTextBoxDraftPending(entity.identity.id, text);
+            expect(recoverySignature.value).toEqual([
+                epoch,
+                [[
+                    entity.identity.id,
+                    expect.any(Number),
+                    text,
+                ]],
+            ]);
             expect(session.annotationCommentsCache.value[0]?.text).toBe(text);
             expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe(text);
         }
         expect(session.annotationApplication.value.listCommentSummaries()[0]?.text).toBe('Original');
         expect(session.annotationApplication.value.store.mutationEpoch).toBe(epoch);
         surface.endTextEditing(entity.identity.id, {cancelled: true});
+        expect(recoverySignature.value).toEqual([
+            epoch,
+            [],
+        ]);
         expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
         expect(emitAnnotationComments.mock.lastCall?.[0][0]?.text).toBe('Original');
     });

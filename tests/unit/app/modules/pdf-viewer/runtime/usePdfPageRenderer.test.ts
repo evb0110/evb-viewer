@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 
+import type * as AnnotationLayerControllerModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
+import {createEpochMs} from '@contracts/timestamps';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
+    afterAll,
     beforeEach,
     describe,
     expect,
@@ -11,6 +14,7 @@ import {
 import {
     computed,
     ref,
+    render,
 } from 'vue';
 import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { IUsePdfPageRendererOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -35,20 +39,28 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer
     hideHiddenManagedEditors: vi.fn(),
     renderAnnotationEditorLayer: vi.fn(async () => undefined),
 })}));
-vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController', () => ({usePdfRendererAnnotationLayerController: () => Object.assign(
-    annotationControllerFixture.render,
-    {
-        cancel: vi.fn(),
-        cancelAll: vi.fn(),
-        dispose: vi.fn(),
-        register: vi.fn(() => vi.fn()),
-    },
-)}));
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController', async importOriginal => ({
+    ...await importOriginal<typeof AnnotationLayerControllerModule>(),
+    usePdfRendererAnnotationLayerController: () => Object.assign(
+        annotationControllerFixture.render,
+        {
+            cancel: vi.fn(),
+            cancelAll: vi.fn(),
+            dispose: vi.fn(),
+            register: vi.fn(() => vi.fn()),
+        },
+    ),
+}));
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController', () => ({usePdfRendererSearchController: () => ({
     applySearchHighlights: vi.fn(),
     invalidatePendingRequests: vi.fn(),
     requestScrollToCurrentResult: vi.fn(),
 })}));
+
+const toastAdd = vi.fn();
+vi.stubGlobal('useToast', () => ({add: toastAdd}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+afterAll(() => vi.unstubAllGlobals());
 
 const { usePdfPageRenderer } = await import(
     '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer'
@@ -160,7 +172,7 @@ function createHarness() {
         outputScale: ref(1),
         getRenderVersion: () => 1,
         getRenderDocumentToken: () => 'document-a',
-        getCommittedCanvas: () => canvas,
+        getCommittedCanvas: () => pageContainer.querySelector('canvas'),
         onRenderedPageStateChanged,
         requestSearchPageRaster: vi.fn(async () => undefined),
     };
@@ -201,6 +213,82 @@ beforeEach(() => {
 });
 
 describe('usePdfPageRenderer layer hydration ownership', () => {
+    it.each([
+        false,
+        true,
+    ])('keeps failed annotation interaction readable and out of automatic promotion (text-first=%s)', async (textFirst) => {
+        annotationControllerFixture.render.mockResolvedValueOnce({
+            shouldContinue: false,
+            annotationLayerInstance: null,
+            error: new Error('annotation failure'),
+            failure: {
+                eventId: 'a'.repeat(32),
+                code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+                occurredAt: createEpochMs(0),
+                severity: 'error',
+            },
+        });
+        rendererFixture.renderTextLayer.mockResolvedValue(undefined);
+        const harness = createHarness();
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+            await harness.renderer.renderCommittedPageLayers({
+                pageNumber: requirePageNumber(1),
+                version: 1,
+                requestId: 11,
+                scale: 1,
+                container: harness.pageContainer,
+                renderResult: harness.renderResult,
+                renderOptions: {prioritizeTextLayer: textFirst},
+            });
+            expect(harness.canvas.isConnected).toBe(true);
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('failed');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
+            // A quality refinement can replace the raster while this failure
+            // remains current. Retry belongs to the document, not that old canvas.
+            const currentCanvas = document.createElement('canvas');
+            harness.canvas.replaceWith(currentCanvas);
+            const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
+            expect(retry).toBeDefined();
+            retry.onClick();
+            await vi.waitFor(() => expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready'));
+            expect(currentCanvas.isConnected).toBe(true);
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
+        } finally {harness.root.remove();}
+    });
+
+    it('tells a page whose raster failed for good, with a Retry that redraws it', async () => {
+        const harness = createHarness();
+        const isCurrent = vi.fn(() => true);
+        harness.document.isCurrent = isCurrent;
+        const retry = vi.fn(async () => undefined);
+        try {
+            harness.renderer.presentPageRenderFailure(requirePageNumber(1), new Error('canvas render failed'), retry);
+            const cancelled = Object.assign(new Error('cancelled'), {name: 'RenderingCancelledException'});
+            harness.renderer.presentPageRenderFailure(requirePageNumber(1), cancelled, retry);
+
+            expect(toastAdd).toHaveBeenCalledOnce();
+            const toast = toastAdd.mock.calls[0]?.[0];
+            expect(toast.title).toBe('common.pdfPage:{"page":1}');
+            const description = document.createElement('div');
+            render(toast.description(), description);
+            expect(description.textContent).toContain('common.pageRenderFailed');
+            const retryAction = toast.actions.find((action: {label: string}) => action.label === 'common.retry');
+            retryAction.onClick();
+            await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
+
+            // Another document is open now: its pages are not this failure's to redraw.
+            isCurrent.mockReturnValue(false);
+            retryAction.onClick();
+            await Promise.resolve();
+            expect(retry).toHaveBeenCalledOnce();
+        } finally {harness.root.remove();}
+    });
+
     it('does not promote or cancel an annotations-first text layer already in flight', async () => {
         const deferred = createDeferred();
         let activeSignal: AbortSignal | undefined;

@@ -17,11 +17,14 @@ import type {
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
 import {
     getBrowserPageOpsWorkerRequestId,
     parseBrowserPageOpsWorkerRequest,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
+import {
+    tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import { getErrorMessage } from '@app/utils/error';
 function toTransferableUint8Array(data: Uint8Array) {
     if (
@@ -137,6 +140,10 @@ async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
     switch (request.type) {
+        case 'saveMutations':
+        case 'decrypt':
+        case 'printLayout':
+            return tryRunBrowserPageOpsWithWasm(request.type, request.payload);
         case 'deletePages':
             return handleDeleteRequest(request);
         case 'extractPages':
@@ -180,6 +187,28 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
 
     try {
         const data = await handleRequest(request);
+        if (request.type === 'saveMutations' || request.type === 'decrypt' || request.type === 'printLayout') {
+            const response = {
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data,
+            } as TBrowserPageOpsWorkerResponse;
+            if (data === null || isBrowserPageOpsWasmFailure(data)) {
+                self.postMessage(response);
+            } else {
+                const result = data as Exclude<IBrowserPageOpsWorkerResultMap['saveMutations' | 'decrypt' | 'printLayout'], null | {status: 'failed'}>;
+                const transferableData = toTransferableUint8Array(result.data);
+                self.postMessage({
+                    ...response,
+                    data: {
+                        ...result,
+                        data: transferableData,
+                    },
+                }, [transferableData.buffer]);
+            }
+            return;
+        }
         if (request.type === 'getPageGeometry') {
             const response = {
                 id: request.id,
@@ -245,5 +274,9 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             error: getErrorMessage(error),
         } satisfies TBrowserPageOpsWorkerResponse;
         self.postMessage(response);
+    } finally {
+        if (request.type === 'decrypt') {
+            request.payload.password = '';
+        }
     }
 });

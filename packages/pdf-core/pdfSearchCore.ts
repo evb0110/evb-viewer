@@ -39,3 +39,5 @@ export {
     SEARCH_PDF_PATH_MAX_LENGTH,
     SEARCH_REQUEST_ID_MAX_LENGTH,
 } from '@contracts/search';
+
+export { matchPdfSearchPageWindow } from '@pdf-core/matchPdfSearchPageWindow';

@@ -624,7 +624,7 @@ where
     Ok(())
 }
 
-fn parse_text_box_entry(
+pub(crate) fn parse_text_box_entry(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     object_id: ObjectId,

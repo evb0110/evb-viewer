@@ -84,6 +84,7 @@ function handlePdfSearch(context: ISearchSenderContext, request: INormalizedPdfS
         ...(request.requestId === undefined ? {} : {requestId: request.requestId}),
         requestIdPrefix: 'search',
         query: request.query,
+        ...(request.resultOffset === undefined ? {} : {resultOffset: request.resultOffset}),
         matchCase: request.matchCase === true,
         wholeWord: request.wholeWord === true,
         useRegex: request.useRegex === true,

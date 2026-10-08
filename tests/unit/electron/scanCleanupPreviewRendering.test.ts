@@ -1379,7 +1379,7 @@ export async function scenarioMatchesProvisionalPreviewsFromKnownPagesWithoutGue
                 2,
                 3,
             ]) {
-                onProgress({
+                await onProgress({
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 3,

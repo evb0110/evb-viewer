@@ -142,31 +142,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         },
     );
 
-    function claimOpenSurface(transactionId: string, request: IWorkspaceOpenRequest, hadDocument: boolean) {
-        const surface = options.openSurface.snapshot.value;
-        if (surface.phase !== 'idle' && surface.phase !== 'ready' && surface.phase !== 'failed') {
-            return;
-        }
-        const initialPage = request.kind === 'restore'
-            ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1))
-            : 1;
-        const path = request.target?.originalPath ?? null;
-        // One page-shape read per open: the one its input started, or this one.
-        const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
-        beginOpenSurfaceWithPageShape(options.openSurface, {
-            documentId: String(path ?? transactionId),
-            documentRevision: `open-intent:${transactionId}`,
-            provisional: true,
-        }, initialPage, request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource), request.kind === 'open' && !request.carriesView ? {
-            seed: view => seedOpeningPreflight(session, view),
-            shown: !hadDocument,
-        } : null);
-        if (pendingPage !== null) {
-            options.openSurface.requestNavigation(pendingPage);
-            pendingPage = null;
-        }
-    }
-
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<boolean>) {
         // A gone Recent file is told, and the place in the document this open
         // replaces is remembered, before the open claims the tab; a tab its
@@ -187,13 +162,32 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             }
         }
         const hadDocument = identityHasDocument(snapshot.value.identity);
+        const path = request.target?.originalPath ?? null;
+        const shapeSource = request.pageShapeSource === undefined ? path : request.pageShapeSource;
+        const pageShape = request.pageShape?.path === shapeSource ? request.pageShape : readPdfPageShape(shapeSource);
         let transactionId = null as string | null;
         let presented = false;
         try {
-            presented = await session.runOpen(request, async () => {
-                transactionId = activeOpen.value?.id ?? null;
-                if (transactionId) {
-                    claimOpenSurface(transactionId, request, hadDocument);
+            presented = await session.runOpen({
+                ...request,
+                pageShape,
+            }, async (shape, id) => {
+                transactionId = id;
+                const surface = options.openSurface.snapshot.value;
+                if (surface.phase === 'idle' || surface.phase === 'ready' || surface.phase === 'failed') {
+                    beginOpenSurfaceWithPageShape(options.openSurface, {
+                        documentId: String(path ?? id),
+                        documentRevision: `open-intent:${id}`,
+                        provisional: true,
+                    }, request.kind === 'restore' ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)) : 1,
+                    shape ?? null, request.kind === 'open' && !request.carriesView ? {
+                        seed: view => seedOpeningPreflight(session, view),
+                        shown: !hadDocument,
+                    } : null);
+                    if (pendingPage !== null) {
+                        options.openSurface.requestNavigation(pendingPage);
+                        pendingPage = null;
+                    }
                 }
                 const accepted = await run();
                 if (!accepted) {
@@ -241,7 +235,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     function presentWhenShown() {
         const current = snapshot.value;
         const path = current.identity.originalPath;
-        if (!options.isShown() || current.phase !== 'presented') {
+        if (!options.isShown() || current.phase !== 'presented' || current.activeTransaction !== null) {
             return;
         }
         if (hasDocument.value) {
@@ -252,19 +246,16 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                     provisional: true,
                 }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
             }
-            return;
+        } else if (path && !(current.dirty && current.recoveryWorkingCopyPath)) {
+            void runOpen({
+                kind: 'restore',
+                target: {
+                    fileName: current.identity.fileName,
+                    originalPath: path,
+                    isDjvu: current.identity.isDjvu,
+                },
+            }, async () => didOpenDocument(await options.openPath(path)));
         }
-        if (!path || (current.dirty && current.recoveryWorkingCopyPath)) {
-            return;
-        }
-        void runOpen({
-            kind: 'restore',
-            target: {
-                fileName: current.identity.fileName,
-                originalPath: path,
-                isDjvu: current.identity.isDjvu,
-            },
-        }, async () => didOpenDocument(await options.openPath(path)));
     }
     watch(
         [

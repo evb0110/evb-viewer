@@ -36,7 +36,7 @@ export interface IPreparedPopplerPdf {
 const renderers = createScanCleanupRenderers(runNativeToolCommand, {
     maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
     maxPixels: OCR_MAX_RASTER_PIXELS,
-});
+}, error => getUnprovenNativeTerminationDetail(error) !== undefined);
 export const renderPdfPageToPng = renderers.renderPage;
 export const renderPdfPageToPpm = renderers.renderPagePpm;
 
@@ -51,7 +51,7 @@ export async function renderOcrPageToPng(
     } catch (error) {
         const signal = args[7];
         if (signal?.aborted || isAbortError(error) || error instanceof RangeError
-            || error instanceof TypeError || isOcrStorageFailure(error) || getUnprovenNativeTerminationDetail(error)) {
+            || error instanceof TypeError || isOcrStorageFailure(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {
             throw error;
         }
         const prepared = await prepareFallback();
@@ -91,6 +91,7 @@ export async function probeOcrPageSizeInches(
     probeImagePath: string,
 ): Promise<IOcrPageSizeInches | undefined> {
     const {signal} = source;
+    let failure: unknown;
     try {
         await renderPdfPageToPng(
             paths,
@@ -108,13 +109,16 @@ export async function probeOcrPageSizeInches(
             height: dimensions.height / OCR_PAGE_SIZE_PROBE_DPI,
         };
     } catch (err) {
-        if (signal?.aborted || isAbortError(err)) {
+        failure = err;
+        if (signal?.aborted || isAbortError(err) || getUnprovenNativeTerminationDetail(err) !== undefined) {
             throw err;
         }
         log('warn', `Page ${pageNumber} size probe failed; relying on the post-render raster guard: ${getErrorMessage(err)}`);
         return undefined;
     } finally {
-        await rm(probeImagePath, {force: true}).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {
+            await rm(probeImagePath, {force: true}).catch(() => undefined);
+        }
     }
 }
 

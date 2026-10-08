@@ -187,6 +187,16 @@ describe('assistant app-server pipeline', () => {
                 },
             },
         });
+        expect(events.at(-1)).toMatchObject({
+            type: 'turn-progress',
+            phase: 'finalizing',
+            toolActivity: {
+                toolId: 'tool-1',
+                name: 'document.search',
+                phase: 'completed',
+            },
+        });
+        expect(session.messages).toEqual([]);
         process.emitJson({
             jsonrpc: '2.0',
             method: 'item/agentMessage/delta',

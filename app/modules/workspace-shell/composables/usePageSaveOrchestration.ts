@@ -17,6 +17,7 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import type {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
@@ -48,12 +49,10 @@ interface IPageSaveOrchestrationDeps {
     bookmarkItems: Ref<IPdfBookmarkEntry[]>;
     isSaving: Ref<boolean>;
     isSavingAs: Ref<boolean>;
-    annotationDirty: Ref<boolean>;
-    annotationNoteWindowsCount: Ref<number>;
-    pendingEmbeddedAnnotationDeleteCount: Ref<number>;
-    hasAnnotationChanges: () => boolean;
-    markAnnotationSaved: () => void;
-    getAnnotationSaveStateToken?: () => unknown;
+    annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>,
+        'annotationDirty' | 'annotationNoteWindows' | 'pendingEmbeddedAnnotationDeleteCount'
+        | 'hasAnnotationChanges' | 'markAnnotationSaved' | 'getAnnotationSaveStateToken'
+        | 'persistAllAnnotationNotes' | 'getAnnotationNoteFailurePresentation'>;
     markPageLabelsSaved: () => void;
     getPageLabelsSaveStateToken?: () => unknown;
     markBookmarksSaved: () => void;
@@ -70,7 +69,6 @@ interface IPageSaveOrchestrationDeps {
     trySaveEmbeddedNoteTextUpdates?: IWorkspaceSaveDependencies['persistence']['trySaveEmbeddedNoteTextUpdates'];
     saveWorkingCopyAs: IWorkspaceSaveDependencies['persistence']['saveAs'];
     optimizePdfOnSaveAs?: Ref<boolean>;
-    persistAllAnnotationNotes: () => Promise<boolean>;
     loadRecentFiles: () => void;
     currentPage: Ref<number>;
     resetSearchCache: () => void;
@@ -106,22 +104,21 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             : {}),
         hasUnsavedChanges: () => (
             deps.isDirty.value
-            || deps.annotationDirty.value
-            || deps.hasAnnotationChanges()
+            || deps.annotations.annotationDirty.value
+            || deps.annotations.hasAnnotationChanges()
             || deps.pageLabelsDirty.value
             || deps.bookmarksDirty.value
         ),
         ...(deps.optimizePdfOnSaveAs ? {optimizePdfOnSaveAs: deps.optimizePdfOnSaveAs} : {}),
         annotations: {
-            dirty: deps.annotationDirty,
-            markSaved: deps.markAnnotationSaved,
-            ...(deps.getAnnotationSaveStateToken
-                ? {getSaveStateToken: deps.getAnnotationSaveStateToken}
-                : {}),
-            hasChanges: deps.hasAnnotationChanges,
-            hasPendingDeletes: () => deps.pendingEmbeddedAnnotationDeleteCount.value > 0,
-            openNoteCount: deps.annotationNoteWindowsCount,
-            persistOpenNotes: deps.persistAllAnnotationNotes,
+            dirty: deps.annotations.annotationDirty,
+            markSaved: deps.annotations.markAnnotationSaved,
+            getSaveStateToken: deps.annotations.getAnnotationSaveStateToken,
+            hasChanges: deps.annotations.hasAnnotationChanges,
+            hasPendingDeletes: () => deps.annotations.pendingEmbeddedAnnotationDeleteCount.value > 0,
+            openNoteCount: computed(() => deps.annotations.annotationNoteWindows.value.length),
+            persistOpenNotes: deps.annotations.persistAllAnnotationNotes,
+            getNoteFailurePresentation: deps.annotations.getAnnotationNoteFailurePresentation,
         },
         metadata: {
             totalPages: deps.totalPages,

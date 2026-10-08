@@ -637,11 +637,11 @@ export const usePdfAnnotationEditorSurface = (
         }
         subscribedApplication = application;
         stopSubscription?.();
-        stopSubscription = application.store.subscribe((entities) => {
-            prunePendingTextBoxDrafts(entities);
+        stopSubscription = application.store.subscribe((snapshotIncludingDeleted) => {
+            prunePendingTextBoxDrafts(snapshotIncludingDeleted);
             // The store emission is the only retained projection. Group it in
             // one pass so each page component reads the same stable snapshot.
-            entitiesByPage.value = groupAnnotationEntitiesByPage(entities);
+            entitiesByPage.value = groupAnnotationEntitiesByPage(snapshotIncludingDeleted);
             setSelection([...selectedIds.value]);
         });
     }

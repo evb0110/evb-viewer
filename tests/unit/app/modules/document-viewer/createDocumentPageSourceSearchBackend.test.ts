@@ -17,11 +17,19 @@ function asSource(source: Partial<IDocumentPageSource>) {
 
 describe('createDocumentPageSourceSearchBackend', () => {
     it('prefers the source search provider and maps wire results to document matches', async () => {
+        const coverage = {
+            pageCount: 3,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
         const search = vi.fn(async (request: Parameters<NonNullable<IDocumentPageSource['searchProvider']>['search']>[0]) => {
             request.onProgress?.({
                 requestId: requireRequestId(request.requestId),
                 processed: 1,
                 total: 3,
+                coverage,
             });
             return {
                 results: [{
@@ -49,6 +57,7 @@ describe('createDocumentPageSourceSearchBackend', () => {
                     rotation: 0 as const,
                 }],
                 truncated: false,
+                coverage,
             };
         });
         const getPageText = vi.fn();
@@ -74,7 +83,9 @@ describe('createDocumentPageSourceSearchBackend', () => {
         expect(onProgress).toHaveBeenCalledWith({
             processed: 1,
             total: 3,
+            coverage,
         });
+        expect(response.coverage).toEqual(coverage);
         expect(response.results[0]).toEqual(expect.objectContaining({
             pageIndex: 1,
             startOffset: 4,

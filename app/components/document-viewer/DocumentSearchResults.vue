@@ -1,7 +1,7 @@
 <template>
     <div class="document-search-results">
         <DocumentPanelEmptyState
-            v-if="!trimmedQuery"
+            v-if="!submittedQuery"
             icon="i-ph-magnifying-glass"
             :title="t('searchResults.enterSearchTerm')"
             :description="t('searchResults.enterSearchHint')"
@@ -15,7 +15,7 @@
         <DocumentPanelEmptyState
             v-else-if="!isSearching && searchError"
             icon="i-ph-warning"
-            :title="t('searchResults.unavailable')"
+            :title="t('searchResults.error')"
             :description="searchError"
         />
         <DocumentPanelEmptyState
@@ -45,12 +45,12 @@
                 >
                     {{ progressText }}
                 </span>
-                <div
-                    v-if="!isSearching && isTruncated"
-                    class="document-search-results-truncated"
-                >
-                    {{ t('searchResults.showingFirst', { count: results.length }) }}
-                </div>
+            </div>
+            <div
+                v-if="!isSearching && (isTruncated || (results[0]?.matchIndex ?? 0) > 0)"
+                class="document-search-results-truncated"
+            >
+                {{ t('searchResults.showingRange', { start: (results[0]?.matchIndex ?? 0) + 1, end: (results.at(-1)?.matchIndex ?? 0) + 1 }) }}
             </div>
             <div v-if="!isSearching && isIncompleteCoverage" class="document-search-results-coverage" role="status">
                 {{ incompleteCoverageText }}
@@ -165,7 +165,7 @@ const {
 
 const emit = defineEmits<{goToResult: [index: number];}>();
 
-const trimmedQuery = computed(() => searchQuery.trim());
+const submittedQuery = computed(() => searchQuery);
 const minQueryLength = computed(() => minQueryLengthProp ?? 0);
 const isTruncated = computed(() => isTruncatedProp);
 const isIncompleteCoverage = computed(() => searchProgress?.coverage?.truncated === true);
@@ -188,7 +188,7 @@ const previousSearchQuery = ref('');
 
 const searchSummaryText = computed(() => formatDocumentSearchResultsSummary({
     isSearching: Boolean(isSearching),
-    query: trimmedQuery.value,
+    query: submittedQuery.value,
     resultCount: results.length,
     t,
 }));
@@ -271,10 +271,10 @@ function goToResult(resultIndex: number) {
 
 const isQueryTooShort = computed(() => {
     const min = minQueryLength.value;
-    if (!min || !trimmedQuery.value) {
+    if (!min || !submittedQuery.value) {
         return false;
     }
-    return trimmedQuery.value.length < min;
+    return submittedQuery.value.length < min;
 });
 
 const progressText = computed(() => {
@@ -373,7 +373,7 @@ async function togglePage(pageIndex: number) {
 
 watch(
     () => [
-        trimmedQuery.value,
+        submittedQuery.value,
         groupedResults.value,
     ] as const,
     ([
@@ -508,7 +508,7 @@ watch(
 }
 
 .document-search-results-truncated {
-    margin-left: auto;
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
     font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-dimmed);
 }

@@ -252,7 +252,7 @@ export async function runScanCleanupSidecar(
     manifestPath: string,
     signal: AbortSignal,
     log: TWorkerLog,
-    onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void,
+    onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     options: IRunScanCleanupSidecarOptions = {},
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
@@ -271,7 +271,7 @@ async function streamScanCleanupSidecar(
     manifestPath: string,
     signal: AbortSignal,
     log: TWorkerLog,
-    onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void,
+    onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     options: IRunScanCleanupSidecarOptions,
 ) {
     const args = [
@@ -360,32 +360,34 @@ async function streamScanCleanupSidecar(
         },
         log,
     });
-    protocol.lines.on('line', line => {
-        if (protocolError || terminalResult) {
-            return;
-        }
-        try {
-            const envelope = decodeNativeScanCleanupEnvelope(line);
-            if (envelope.type === 'progress') {
-                const nativeProgress = envelope.progress;
-                if (nativeProgress.stage === 'page-complete' && nativeProgress.stageTimings !== undefined) {
-                    if (nativeProgress.pageNumber === undefined) {
-                        terminalUnkeyedTimings = nativeProgress.stageTimings;
-                    } else {
-                        terminalPageTimings.set(nativeProgress.pageNumber, nativeProgress.stageTimings);
+    const consumeProgress = (async () => {
+        for await (const line of protocol.lines) {
+            if (protocolError || terminalResult) {
+                continue;
+            }
+            try {
+                const envelope = decodeNativeScanCleanupEnvelope(line);
+                if (envelope.type === 'progress') {
+                    const nativeProgress = envelope.progress;
+                    if (nativeProgress.stage === 'page-complete' && nativeProgress.stageTimings !== undefined) {
+                        if (nativeProgress.pageNumber === undefined) {
+                            terminalUnkeyedTimings = nativeProgress.stageTimings;
+                        } else {
+                            terminalPageTimings.set(nativeProgress.pageNumber, nativeProgress.stageTimings);
+                        }
                     }
+                    await onProgress(nativeProgress);
+                    continue;
                 }
-                onProgress(nativeProgress);
-                return;
+                terminalResult = envelope.result.status;
+                if (envelope.result.status === 'failure') {
+                    nativeFailure = new NativeScanCleanupError(envelope.result.code, envelope.result.message);
+                }
+            } catch (error) {
+                protocol.failProtocol(error, line);
             }
-            terminalResult = envelope.result.status;
-            if (envelope.result.status === 'failure') {
-                nativeFailure = new NativeScanCleanupError(envelope.result.code, envelope.result.message);
-            }
-        } catch (error) {
-            protocol.failProtocol(error, line);
         }
-    });
+    })().catch(error => protocol.failProtocol(error, '[progress stream]'));
     const handleAbort = () => {
         aborting = true;
         void ensureDeferredRecovery();
@@ -438,6 +440,7 @@ async function streamScanCleanupSidecar(
             },
             log,
         });
+        await consumeProgress;
     } catch (cause) {
         const terminated = terminationConfirmed || (!terminationAttempted && childClosed);
         if (protocolError !== null) {
@@ -486,6 +489,7 @@ async function streamScanCleanupSidecar(
         stdout.end();
         stderr.end();
         protocol.lines.close();
+        await consumeProgress;
         if (childClosed || terminationConfirmed) {
             await replayPublicationJournal(true);
         } else if (deferredRecoveryPromise !== null) {

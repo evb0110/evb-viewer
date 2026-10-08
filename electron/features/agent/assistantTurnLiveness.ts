@@ -51,7 +51,7 @@ export function createAssistantHeartbeatController(options: {
             if (!options.isActive(session)) continue;
             const lastEventAtMs = session.turnPresentation.lastEventAtMs ?? session.lastAccessedAtMs;
             const phase = resolveAssistantTurnLiveness(session.turnPresentation.phase, lastEventAtMs, now);
-            if (phase === 'stalled') {
+            if (phase === 'stalled' && session.turnPresentation.phase !== phase) {
                 session.turnPresentation.phase = phase;
                 options.recordBoundary(session);
             }

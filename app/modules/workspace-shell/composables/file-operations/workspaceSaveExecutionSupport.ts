@@ -4,6 +4,7 @@ import type {
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TRequestId} from '@contracts/shared';
+import type {IWorkspaceCheckpointAnnotationRecovery} from '@contracts/workspaceCheckpoint';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -245,6 +246,7 @@ export interface IWorkspaceSaveDependencies {
         hasPendingDeletes?: () => boolean;
         openNoteCount: Ref<number>;
         persistOpenNotes: () => Promise<boolean>;
+        getNoteFailurePresentation?: () => Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
     };
     metadata: {
         totalPages: Ref<number>;
@@ -626,7 +628,7 @@ export function createRecoverySnapshotBytes(
     deps: IWorkspaceSaveDependencies,
     runWithDocumentOperationLease: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>,
 ) {
-    async function createRecoverySnapshotBytesUnlocked() {
+    async function createRecoverySnapshotBytesUnlocked(recovery?: IWorkspaceCheckpointAnnotationRecovery) {
         const viewer = deps.pdf.viewer.value;
         const capturedWorkingCopyPath = deps.document.workingCopyPath.value;
         const capturedDocumentRevisionToken = deps.document.revisionToken.value;
@@ -640,8 +642,13 @@ export function createRecoverySnapshotBytes(
         if (isNativeDocumentRef(capturedWorkingCopyPath)) {
             return null;
         }
-        if (!await deps.annotations.persistOpenNotes()) {
-            throw new Error('Open annotation notes could not be prepared for crash recovery.');
+        // Drafts replay against the unchanged byte base they were captured from.
+        // Materializing that base would mint identities the draft does not own.
+        if (recovery) {
+            if (recovery.workingCopyRef !== capturedWorkingCopyPath
+                || recovery.workingByteRevision !== capturedDocumentRevisionToken) return null;
+            const bytes = await readDocumentBytes(capturedWorkingCopyPath);
+            return ownsCapturedDocument() ? bytes : null;
         }
         const shapeStateDirty = deps.shapes.hasChanges();
         const result = await deps.pdf.runSaveTransaction({
@@ -683,5 +690,7 @@ export function createRecoverySnapshotBytes(
             await getDocumentWorkingCopyCapability().cleanupFile(snapshotRef);
         }
     }
-    return () => runWithDocumentOperationLease('recovery-snapshot', createRecoverySnapshotBytesUnlocked);
+    return (recovery?: IWorkspaceCheckpointAnnotationRecovery) => runWithDocumentOperationLease(
+        'recovery-snapshot', () => createRecoverySnapshotBytesUnlocked(recovery),
+    );
 }

@@ -1,7 +1,7 @@
+import {searchResultOffsetSchema} from '@contracts/search';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import {EXPECTED_OUTCOME_CODES} from '@contracts/diagnostics/failureReceipt';
-import type {TPageNumber} from '@contracts/pageNumbers';
 import {parsePageNumber} from '@contracts/pageNumbers';
 import type {
     pdfSearchProgressSchema,
@@ -26,7 +26,6 @@ const pageNumberSchema = v.pipe(v.number(error), v.check(value => parsePageNumbe
 const documentRefSchema = v.pipe(v.string(error), v.check(value => parseDocumentRef(value) !== null, error), v.transform(value => parseDocumentRef(value)!));
 const jobIdSchema = v.pipe(v.string(error), v.check(value => parseJobId(value) !== null, error), v.transform(value => parseJobId(value)!));
 const requestIdSchema = (fieldName = 'requestId') => v.pipe(v.string(`${fieldName} must be a string`), v.transform(value => value.trim()), v.maxLength(128, `${fieldName} exceeds maximum length (128)`), v.check(value => parseRequestId(value) !== null, `${fieldName} must be a valid request ID`), v.transform(value => parseRequestId(value)!));
-const positiveSafeIntegerWithMessage = (message: string) => v.pipe(v.number(message), v.check(value => Number.isSafeInteger(value), message), v.minValue(1, message));
 const epochMsSchema = v.pipe(v.number(error), v.check(value => parseEpochMs(value) !== null, error), v.transform(value => parseEpochMs(value)!));
 const failureReceiptSchema = v.strictObject({
     eventId: v.pipe(v.string(error), v.regex(/^[0-9a-f]{32}$/u, error)),
@@ -80,8 +79,9 @@ export const djvuPagePreviewOptionsSchema = v.object({
 export type IDjvuPagePreviewOptions = v.InferOutput<typeof djvuPagePreviewOptionsSchema>;
 
 export const djvuTextSearchOptionsSchema = v.object({
+    resultOffset: v.optional(searchResultOffsetSchema),
     requestId: requestIdSchema('searchText.options.requestId'),
-    pageCount: positiveSafeIntegerWithMessage('searchText.options.pageCount must be a positive safe integer'),
+    pageCount: v.message(v.pipe(v.number(), v.safeInteger(), v.minValue(1)), 'searchText.options.pageCount must be a positive safe integer'),
     matchCase: v.optional(v.boolean('matchCase must be a boolean')),
     wholeWord: v.optional(v.boolean('wholeWord must be a boolean')),
     useRegex: v.optional(v.boolean('useRegex must be a boolean')),
@@ -168,18 +168,17 @@ export type IDjvuSizeEstimate = v.InferOutput<typeof djvuSizeEstimateSchema>;
 
 // The outline's aggregate node, depth, and title limits require a traversal after structural validation.
 export const djvuOutlineSchema = v.pipe(v.array(v.unknown(), error), v.transform(value => mapDjvuOutlineWithLimits(value)));
-interface IDjvuOutlineItemOutput {
+export interface IDjvuOutlineItem {
     title: string;
-    pageNumber: TPageNumber | null;
-    children: IDjvuOutlineItemOutput[];
+    pageNumber: ReturnType<typeof parsePageNumber>;
+    children: IDjvuOutlineItem[];
 }
-export type IDjvuOutlineItem = v.InferOutput<typeof djvuOutlineSchema>[number];
-function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItemOutput[] {
-    const result: IDjvuOutlineItemOutput[] = [];
+function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItem[] {
+    const result: IDjvuOutlineItem[] = [];
     const stack: Array<{
         depth: number;
         item: unknown;
-        target: IDjvuOutlineItemOutput[]
+        target: IDjvuOutlineItem[]
     }> = value.toReversed().map(item => ({
         depth: 1,
         item,
@@ -197,7 +196,7 @@ function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItemOutput[] {
         nodeCount++;
         titleChars += item.title.length;
         if (entry.depth > DJVU_OUTLINE_MAX_DEPTH || nodeCount > DJVU_OUTLINE_MAX_NODES || titleChars > DJVU_OUTLINE_MAX_TITLE_CHARS) throw new Error('DjVu outline exceeds the supported limit');
-        const mapped: IDjvuOutlineItemOutput = {
+        const mapped: IDjvuOutlineItem = {
             title: item.title,
             pageNumber: pageNumber === null ? null : parsePageNumber(pageNumber)!,
             children: [],
@@ -291,24 +290,23 @@ export const djvuConvertResultSchema = v.pipe(v.object({
     documentRef: v.optional(documentRefSchema),
     // The source page sizes the conversion read, so its PDF opens without reading them again.
     // Unusable sizes leave the open without this profile; the export itself stands.
-    pageSizes: v.optional(v.unknown()),
+    pageSizes: v.fallback(v.optional(convertedPageSizesSchema), undefined),
+    notice: v.optional(v.literal('source-text-not-preserved', error)),
     error: v.optional(v.string(error)),
     failure: v.optional(failureReceiptSchema),
     expected: v.optional(expectedOutcomeSchema),
-}, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined), error), v.transform((value) => {
-    const pageSizes = value.pageSizes === undefined ? undefined : v.safeParse(convertedPageSizesSchema, value.pageSizes);
-    return {
-        success: value.success,
-        ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
-        ...(pageSizes?.success ? {pageSizes: pageSizes.output} : {}),
-        ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
-        ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
-        ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(value.failure === undefined ? {} : {failure: value.failure}),
-        ...(value.expected === undefined ? {} : {expected: value.expected}),
-    };
-}));
+}, error), v.check(value => !(value.success && (value.failure !== undefined || value.expected !== undefined)) && !(value.failure !== undefined && value.expected !== undefined) && !(!value.success && value.notice !== undefined), error), v.transform(value => ({
+    success: value.success,
+    ...(value.pdfPath === undefined ? {} : {pdfPath: value.pdfPath}),
+    ...(value.pageSizes === undefined ? {} : {pageSizes: value.pageSizes}),
+    ...(value.notice === undefined ? {} : {notice: value.notice}),
+    ...(value.jobId === undefined ? {} : {jobId: value.jobId}),
+    ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
+    ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
+    ...(value.error === undefined ? {} : {error: value.error}),
+    ...(value.failure === undefined ? {} : {failure: value.failure}),
+    ...(value.expected === undefined ? {} : {expected: value.expected}),
+})));
 export type IDjvuConvertResult = v.InferOutput<typeof djvuConvertResultSchema>;
 export const djvuPrintResultSchema = v.pipe(v.object({
     success: v.boolean(error),

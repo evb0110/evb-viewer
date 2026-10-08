@@ -42,11 +42,10 @@ use crate::{
     mrc::derive_halftone_zones,
     picture::{
         apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
-        extend_picture_mask_for_content, extend_tone_mask_for_content,
-        flat_graphic_tone_preservation_alpha, photo_tone_preservation_alpha, qualify_picture_owner,
-        rectangularize_corroborated_photos, refine_line_art_preservation_alpha,
-        refine_tone_preservation_alpha, resample_binary_mask_nearest,
-        semantic_tone_preservation_alpha, veto_text_like_regions,
+        extend_picture_mask_for_content, flat_graphic_tone_preservation_alpha,
+        photo_tone_preservation_alpha, qualify_picture_owner, rectangularize_corroborated_photos,
+        refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
+        resample_binary_mask_nearest, semantic_tone_preservation_alpha, veto_text_like_regions,
     },
     png::RgbImage,
     protocol::{

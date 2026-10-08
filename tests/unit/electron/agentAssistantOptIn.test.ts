@@ -84,6 +84,7 @@ const mocks = vi.hoisted(() => ({
         resolve: () => void;
     },
     claudeSessionConstructor: vi.fn(),
+    discoverClaudeModels: vi.fn(),
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
     loginCancelMode: 'success',
@@ -404,7 +405,10 @@ vi.mock('@electron/features/agent/claudeProviderMetadata', async (importOriginal
 
 vi.mock('@electron/features/agent/claudeAgentSdkAssistant', async () => {
     await mocks.claudeRuntimeLoadGate?.promise;
-    return {ClaudeAgentAssistantSession: mocks.claudeSessionConstructor};
+    return {
+        ClaudeAgentAssistantSession: mocks.claudeSessionConstructor,
+        discoverClaudeAssistantModels: mocks.discoverClaudeModels,
+    };
 });
 
 vi.mock('@electron/features/agent/mcpServer', () => ({
@@ -488,6 +492,8 @@ describe('agent assistant opt-in gating', () => {
         mocks.processKillGate = null;
         mocks.claudeRuntimeLoadGate = createInitializeGate();
         mocks.claudeSessionConstructor.mockReset();
+        mocks.discoverClaudeModels.mockReset();
+        mocks.discoverClaudeModels.mockResolvedValue([]);
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
         mocks.loginCancelMode = 'success';
@@ -1935,7 +1941,7 @@ describe('agent assistant opt-in gating', () => {
         expect(restartedMethods.indexOf('thread/resume')).toBeLessThan(restartedMethods.indexOf('turn/start'));
     });
 
-    it('evicts least-recently-used idle document chat sessions', async () => {
+    it('rehydrates idle document history after runtime eviction', async () => {
         const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
         const documentA = createDocumentScope('a.pdf');
         const documentB = createDocumentScope('b.pdf');
@@ -1974,7 +1980,7 @@ describe('agent assistant opt-in gating', () => {
 
             nowSpy.mockReturnValue(1_000_500);
             const restoredDocumentB = await getAgentAssistantState({ scope: documentB });
-            expect(restoredDocumentB.messages).toEqual([]);
+            expect(restoredDocumentB.messages.map(message => message.text)).toContain('Question for B');
         } finally {
             nowSpy.mockRestore();
         }
@@ -1992,18 +1998,26 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps streaming assistant deltas lean while boundary events carry state', async () => {
-        enableAssistantRuntime();
+        const process = enableAssistantRuntime();
+        mocks.turnStartGate = createInitializeGate();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
         vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('stream.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        const result = await sendAgentAssistantMessage({
+        const sending = sendAgentAssistantMessage({
             text: 'please stream',
             scope: documentScope,
         });
+        await waitForCodexRequest(process, 'turn/start');
+        const accepted = send.mock.calls.map(call => call[1]).filter(event =>
+            event.state?.messages.some(message => message.role === 'user' && message.text === 'please stream'));
+        mocks.turnStartGate.resolve();
+        const result = await sending;
 
         expect(result.ok).toBe(true);
+        expect(accepted).toHaveLength(1);
+        expect(accepted[0]?.type).toBe('message');
         let deltaEvents: IAgentAssistantEvent[] = [];
         await vi.waitFor(() => {
             const events = send.mock.calls.map((call) => call[1]);
@@ -2049,4 +2063,81 @@ describe('agent assistant opt-in gating', () => {
         }, {timeout: 5_000});
         expect(progressEvent?.state).toBeUndefined();
     });
+    it.each([
+        'failure',
+        'empty',
+        'missing',
+    ] as const)('recovers %s model discovery and retains the successful catalog', async (firstResult) => {
+        configureEnabledAssistantRuntime();
+        mocks.claudeRuntimeLoadGate!.resolve();
+        if (firstResult === 'failure') {
+            mocks.discoverClaudeModels.mockRejectedValueOnce(new Error('metadata unavailable'));
+        } else if (firstResult === 'empty') {
+            mocks.discoverClaudeModels.mockResolvedValueOnce([]);
+        } else {
+            const {getClaudeAgentSdkInfo} = await import('@electron/features/agent/claudeProviderMetadata');
+            vi.mocked(getClaudeAgentSdkInfo).mockResolvedValueOnce({
+                installed: false,
+                version: null,
+                executablePath: null,
+            });
+        }
+        mocks.discoverClaudeModels.mockResolvedValueOnce([{
+            id: 'recovered-claude',
+            label: 'Recovered Claude',
+        }]);
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const models = (state: Awaited<ReturnType<typeof getAgentAssistantState>>) =>
+            state.status.providers.find(provider => provider.id === 'claude')?.models.map(model => model.id);
+
+        expect(models(await getAgentAssistantState({
+            provider: 'claude',
+            discoverModels: true,
+        }))).not.toContain('recovered-claude');
+        expect(models(await getAgentAssistantState({
+            provider: 'claude',
+            discoverModels: true,
+        }))).toContain('recovered-claude');
+        mocks.discoverClaudeModels.mockResolvedValue([{
+            id: 'other-claude',
+            label: 'Other Claude',
+        }]);
+        expect(models(await getAgentAssistantState({
+            provider: 'claude',
+            discoverModels: true,
+        }))).toEqual(['recovered-claude']);
+    });
+
+    it('shares in-flight model discovery between concurrent state requests', async () => {
+        configureEnabledAssistantRuntime();
+        mocks.claudeRuntimeLoadGate!.resolve();
+        const gate = createInitializeGate();
+        const catalog = [{
+            id: 'shared-claude',
+            label: 'Shared Claude',
+        }];
+        mocks.discoverClaudeModels.mockImplementationOnce(async () => {
+            await gate.promise;
+            return catalog;
+        }).mockResolvedValue([{
+            id: 'other-claude',
+            label: 'Other Claude',
+        }]);
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const requests = Promise.all([
+            getAgentAssistantState({
+                provider: 'claude',
+                discoverModels: true,
+            }),
+            getAgentAssistantState({
+                provider: 'claude',
+                discoverModels: true,
+            }),
+        ]);
+        gate.resolve();
+        for (const state of await requests) {
+            expect(state.status.providers.find(provider => provider.id === 'claude')?.models.map(model => model.id)).toEqual(['shared-claude']);
+        }
+    });
+
 });

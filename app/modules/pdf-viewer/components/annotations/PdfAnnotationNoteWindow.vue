@@ -51,12 +51,9 @@
             :placeholder="t('noteWindow.writeNote')"
             @keydown.esc.stop.prevent="minimizeNote"
             @input="updateText"
-            @change="updateText"
-            @blur="updateText"
         ></textarea>
 
         <p v-if="saving" class="note-window__status" role="status" aria-live="polite">{{ t('noteWindow.saving') }}</p>
-        <p v-if="error" class="note-window__error" role="alert" aria-live="assertive">{{ error }}</p>
     </div>
 </template>
 
@@ -67,7 +64,6 @@ import type { CSSProperties } from 'vue';
 
 import {
     useEventListener,
-    useMutationObserver,
     useResizeObserver,
 } from '@vueuse/core';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
@@ -94,10 +90,10 @@ interface IProps {
     modifiedAt: number | null;
     text: string;
     saving?: boolean;
-    error?: string | null;
     position?: IAnnotationNotePosition | null;
     zIndex?: number;
-    boundsRoot?: HTMLElement | null;
+    paneBounds?: IAnnotationNoteWindowBounds | null;
+    pageRect?: IAnnotationNoteWindowBounds | null;
 }
 
 const {
@@ -109,10 +105,10 @@ const {
     modifiedAt,
     text,
     saving = false,
-    error = null,
     position = null,
     zIndex = NOTE_WINDOW.DEFAULT_Z_INDEX,
-    boundsRoot = null,
+    paneBounds = null,
+    pageRect = null,
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
@@ -147,7 +143,6 @@ const isDragging = ref(false);
 const userPlacementSequence = ref(0);
 let initialFocusRepairFrame: number | null = null;
 const dragWindowTarget = shallowRef<Window | undefined>();
-const pageElement = shallowRef<HTMLElement | null>(null);
 const clipPath = ref<string | undefined>();
 const isPageOffscreen = ref(false);
 let pageAnchor: IAnnotationNoteWindowPageAnchor | null = null;
@@ -207,12 +202,6 @@ const windowStyle = computed<CSSProperties>(() => ({
 const isPaneSizedPresentation = computed(() => (
     width.value < NOTE_WINDOW.MIN_WIDTH
     || height.value < NOTE_WINDOW.MIN_HEIGHT
-));
-const boundsRootElement = computed(() => boundsRoot ?? null);
-const documentElement = computed(() => (
-    typeof document !== 'undefined'
-        ? document.documentElement
-        : null
 ));
 
 async function focusTextInput() {
@@ -310,53 +299,15 @@ function positionChanged(previous: IAnnotationNotePosition) {
 }
 
 function clampSize(nextWidth: number, nextHeight: number) {
-    return clampAnnotationNoteWindowSize(nextWidth, nextHeight, getWindowBounds());
-}
-
-function getWindowBounds(): IAnnotationNoteWindowBounds | null {
-    if (typeof window === 'undefined') {
-        return null;
-    }
-
-    const rootRect = boundsRoot?.getBoundingClientRect();
-    if (rootRect && rootRect.width > 0 && rootRect.height > 0) {
-        return {
-            left: rootRect.left,
-            top: rootRect.top,
-            right: rootRect.right,
-            bottom: rootRect.bottom,
-            width: rootRect.width,
-            height: rootRect.height,
-        };
-    }
-
-    return {
-        left: 0,
-        top: 0,
-        right: window.innerWidth,
-        bottom: window.innerHeight,
-        width: window.innerWidth,
-        height: window.innerHeight,
-    };
+    return clampAnnotationNoteWindowSize(nextWidth, nextHeight, paneBounds);
 }
 
 function clampPosition(x: number, y: number, nextWidth: number, nextHeight: number) {
-    return clampAnnotationNoteWindowPosition(x, y, nextWidth, nextHeight, getWindowBounds());
-}
-
-function resolvePageRect() {
-    const current = pageElement.value;
-    if (!current?.isConnected || current.dataset.page !== String(pageNumber)) {
-        pageElement.value = boundsRoot?.querySelector<HTMLElement>(
-            `.page_container[data-page="${String(pageNumber)}"]`,
-        ) ?? null;
-    }
-    const rect = pageElement.value?.getBoundingClientRect();
-    return rect && rect.width > 0 && rect.height > 0 ? rect : null;
+    return clampAnnotationNoteWindowPosition(x, y, nextWidth, nextHeight, paneBounds);
 }
 
 function refreshClipPath() {
-    const rootRect = boundsRoot?.getBoundingClientRect();
+    const rootRect = paneBounds;
     clipPath.value = rootRect && rootRect.width > 0 && rootRect.height > 0
         ? resolveAnnotationNoteWindowClipPath(offsetX.value, offsetY.value, width.value, height.value, rootRect)
         : undefined;
@@ -376,7 +327,6 @@ function placeClamped(
     offsetY.value = clamped.y;
     if (captureAnchor) {
         isPageOffscreen.value = false;
-        const pageRect = resolvePageRect();
         if (pageRect) {
             pageAnchor = captureAnnotationNoteWindowPageAnchor(clamped.x, clamped.y, pageRect);
         } else if (!pageAnchor) {
@@ -396,8 +346,7 @@ function followPage() {
     if (isDragging.value) {
         return;
     }
-    const pageRect = resolvePageRect();
-    const bounds = getWindowBounds();
+    const bounds = paneBounds;
     if (!pageRect || !bounds) {
         isPageOffscreen.value = true;
         clipPath.value = undefined;
@@ -497,19 +446,8 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
     };
 }
 
-useEventListener(
-    typeof window !== 'undefined' ? window : undefined,
-    'resize',
-    handleViewportResize,
-);
 useEventListener(dragWindowTarget, 'mousemove', noteDragMove.schedule);
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
-useEventListener(boundsRootElement, 'scroll', followPage, { passive: true });
-useMutationObserver(boundsRootElement, followPage, {
-    childList: true,
-    subtree: true,
-});
-useResizeObserver(pageElement, followPage);
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];
@@ -533,14 +471,6 @@ useResizeObserver(noteWindowRef, (entries) => {
         emitPositionUpdate();
     }
 }, { box: 'border-box' });
-
-useResizeObserver(boundsRootElement, () => {
-    handleViewportResize();
-});
-
-useResizeObserver(documentElement, () => {
-    handleViewportResize();
-});
 
 onMounted(() => {
     if (syncPosition(position)) {
@@ -580,9 +510,16 @@ watch(
 );
 
 watch(
-    () => boundsRoot,
-    () => {
-        handleViewportResize();
+    [
+        () => paneBounds,
+        () => pageRect,
+    ],
+    ([bounds], [previousBounds]) => {
+        if (bounds?.width !== previousBounds?.width || bounds?.height !== previousBounds?.height) {
+            handleViewportResize();
+        } else {
+            followPage();
+        }
     },
 );
 </script>
@@ -722,10 +659,5 @@ watch(
     padding: var(--app-pdf-note-status-padding);
 }
 
-.note-window__error {
-    margin: 0;
-    font-size: var(--app-pdf-note-error-font-size);
-    color: var(--note-delete-color);
-    padding: var(--app-pdf-note-error-padding);
-}
+
 </style>

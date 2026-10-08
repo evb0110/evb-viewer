@@ -14,7 +14,7 @@ import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWi
 import type { TDocumentRef } from '@contracts/documentRef';
 import { createDocumentAgentResources } from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
 
-function createResources(inventory: IAnnotationInventoryCompleteness | null) {
+function createResources(inventory: IAnnotationInventoryCompleteness | null, bookmarks: unknown[] = []) {
     return createDocumentAgentResources({
         annotationComments: ref<IAnnotationCommentSummary[]>([]),
         annotationCommentsStatus: ref<TAnnotationCommentsStatus>('ready'),
@@ -22,8 +22,8 @@ function createResources(inventory: IAnnotationInventoryCompleteness | null) {
         annotationDirty: ref(false),
         canSave: ref(false),
         createAgentBookmarkSnapshot: () => ({
-            bookmarks: [],
-            count: 0,
+            bookmarks,
+            count: bookmarks.length,
             dirty: false,
             flat: [],
             issues: [],
@@ -43,6 +43,32 @@ function createResources(inventory: IAnnotationInventoryCompleteness | null) {
 }
 
 describe('createDocumentAgentResources annotation inventory completeness', () => {
+    it.each([
+        'bookmarks',
+        'toc',
+    ])('returns the advertised %s tree without a second serialized alias', async (kind) => {
+        const bookmarks = [{
+            title: 'Chapter α',
+            items: [{title: 'Child'}],
+        }];
+        const {readAgentResource} = createResources(null, bookmarks);
+        const uri = `evb://document/tab-1/${kind}`;
+        const resource = JSON.parse(JSON.stringify(await readAgentResource(uri)));
+        expect(resource).toEqual({
+            uri,
+            tabId: 'tab-1',
+            status: 'ready',
+            schemaVersion: 2,
+            treeField: kind,
+            count: 1,
+            dirty: false,
+            flat: [],
+            issues: [],
+            summary: {},
+            [kind]: bookmarks,
+        });
+    });
+
     it('marks status, annotation, and note resources as incomplete when the scan omitted pages', async () => {
         const { readAgentResource } = createResources({
             complete: false,

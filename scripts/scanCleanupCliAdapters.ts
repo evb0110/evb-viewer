@@ -713,22 +713,24 @@ export async function runCliScanCleanupSidecar(
         },
         log,
     });
-    protocol.lines.on('line', line => {
-        if (protocolError !== null || terminalStatus !== null) {
-            return;
-        }
-        try {
-            const envelope = decodeNativeEnvelope(line);
-            if (envelope.type === 'progress') {
-                onProgress(envelope.progress);
-                return;
+    const consumeProgress = (async () => {
+        for await (const line of protocol.lines) {
+            if (protocolError !== null || terminalStatus !== null) {
+                continue;
             }
-            terminalStatus = envelope.result.status;
-            if (envelope.result.status === 'failure') nativeFailure.value = envelope.result;
-        } catch (error) {
-            protocol.failProtocol(error, line);
+            try {
+                const envelope = decodeNativeEnvelope(line);
+                if (envelope.type === 'progress') {
+                    await onProgress(envelope.progress);
+                    continue;
+                }
+                terminalStatus = envelope.result.status;
+                if (envelope.result.status === 'failure') nativeFailure.value = envelope.result;
+            } catch (error) {
+                protocol.failProtocol(error, line);
+            }
         }
-    });
+    })().catch(error => protocol.failProtocol(error, '[progress stream]'));
     let aborting = false as boolean;
     const onAbort = () => {
         aborting = true;
@@ -752,6 +754,7 @@ export async function runCliScanCleanupSidecar(
             throwCliProtocolError(protocolError);
             throw error;
         }
+        await consumeProgress;
         throwCliProtocolError(protocolError);
         if (aborting) throw signal.reason;
         const failure = nativeFailure.value;
@@ -770,6 +773,7 @@ export async function runCliScanCleanupSidecar(
     } finally {
         signal.removeEventListener('abort', onAbort);
         protocol.lines.close();
+        await consumeProgress;
         log('debug', `evb-scan-cleanup completed ${basename(manifestPath)}`);
     }
 }

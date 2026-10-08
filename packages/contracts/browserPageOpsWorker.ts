@@ -1,3 +1,7 @@
+import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
+import {PDF_DECRYPT_PASSWORD_SCHEMA} from '@contracts/pdfDecryptSchemas';
+import {isPdfDateString} from '@contracts/pdfDateString';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import type {ICropMargins} from '@contracts/shared';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
 import {
@@ -71,10 +75,48 @@ const workerRequestPayloadSchemas = {
     parseAnnotations: v.object({data: pdfBytesSchema}),
     readCatalog: v.object({data: pdfBytesSchema}),
     conformance: v.object({data: pdfBytesSchema}),
+    saveMutations: v.object({
+        data: pdfBytesSchema,
+        mutations: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeMutationSet(value, 'Browser PDF save mutations'))),
+        modifiedAt: v.custom<string>(isPdfDateString),
+    }),
+    decrypt: v.object({
+        data: pdfBytesSchema,
+        password: PDF_DECRYPT_PASSWORD_SCHEMA,
+    }),
+    printLayout: v.object({
+        data: pdfBytesSchema,
+        pageNumbers: v.array(positiveIntegerSchema),
+        viewMode: v.picklist([
+            'single',
+            'facing',
+            'facing-first-single',
+        ]),
+        orientation: v.picklist([
+            'auto',
+            'portrait',
+            'landscape',
+        ]),
+    }),
     mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1), v.maxLength(500))}),
 };
 
 const workerRequestSchema = v.union([
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('printLayout'),
+        payload: workerRequestPayloadSchemas.printLayout,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('decrypt'),
+        payload: workerRequestPayloadSchemas.decrypt,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('saveMutations'),
+        payload: workerRequestPayloadSchemas.saveMutations,
+    }),
     v.object({
         id: workerRequestIdSchema,
         type: v.literal('deletePages'),
@@ -157,7 +199,36 @@ const catalogResultSchema = v.pipe(
     v.transform(value => value as IBrowserPdfCatalog),
 );
 
+export const BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA = v.object({
+    status: v.literal('failed'),
+    error: NATIVE_ERROR_ENVELOPE_SCHEMA,
+});
+export type IBrowserPageOpsWasmFailure = v.InferOutput<typeof BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA>;
+export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPageOpsWasmFailure {
+    return v.safeParse(BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA, value, {abortEarly: true}).success;
+}
+export const BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA = v.object({
+    ...pageMutationResultSchema.entries,
+    identityBindings: v.array(v.object({
+        annotationId: v.string(),
+        pdfRef: v.string(),
+    })),
+    nativeMutationPostconditionsVerified: v.literal(true),
+});
+
 const workerResultSchemas = {
+    saveMutations: v.nullable(v.union([
+        BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ])),
+    decrypt: v.nullable(v.union([
+        pageMutationResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ])),
+    printLayout: v.nullable(v.union([
+        pageMutationResultSchema,
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ])),
     deletePages: pageMutationResultSchema,
     extractPages: pageMutationResultSchema,
     reorderPages: pageMutationResultSchema,
@@ -173,6 +244,24 @@ const workerResultSchemas = {
 };
 
 const workerSuccessResponseSchema = v.union([
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('printLayout'),
+        ok: v.literal(true),
+        data: workerResultSchemas.printLayout,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('decrypt'),
+        ok: v.literal(true),
+        data: workerResultSchemas.decrypt,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('saveMutations'),
+        ok: v.literal(true),
+        data: workerResultSchemas.saveMutations,
+    }),
     v.object({
         id: workerRequestIdSchema,
         type: v.literal('deletePages'),
@@ -281,8 +370,13 @@ export function getBrowserPageOpsWorkerRequestId(value: unknown) {
 }
 
 export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOpsWorkerRequest | null {
-    const result = v.safeParse(workerRequestSchema, value, {abortEarly: true});
-    return result.success ? result.output : null;
+    try {
+        const result = v.safeParse(workerRequestSchema, value, {abortEarly: true});
+        return result.success ? result.output : null;
+    } catch {
+        // Native mutation normalizers reject cross-field semantics at this wire boundary.
+        return null;
+    }
 }
 
 export {

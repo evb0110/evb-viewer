@@ -154,6 +154,23 @@ describe('DjVu platform feature', () => {
             .toBe(false);
     });
 
+    it('carries the typed source-text omission notice only on successful conversion results', () => {
+        const result = {
+            success: true,
+            pdfPath: '/tmp/book.pdf',
+            notice: 'source-text-not-preserved',
+        };
+        expect(v.parse(DJVU_PLATFORM_FEATURE.events.onConvertComplete.payload, result)).toEqual(result);
+        expect(v.safeParse(djvuConvertResultSchema, {
+            ...result,
+            notice: 'unknown',
+        }).success).toBe(false);
+        expect(v.safeParse(djvuConvertResultSchema, {
+            ...result,
+            success: false,
+        }).success).toBe(false);
+    });
+
     it('carries usable conversion page sizes and drops the entire array when any tuple is unusable', () => {
         const convertComplete = DJVU_PLATFORM_FEATURE.events.onConvertComplete.payload;
         const pageSize = {
@@ -296,6 +313,7 @@ describe('DjVu platform feature', () => {
         await expect(client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
             requestId: requireRequestId('djvu-search-1'),
             pageCount: 431,
+            resultOffset: 'last',
             wholeWord: true,
         })).resolves.toEqual({
             results: [],
@@ -308,6 +326,7 @@ describe('DjVu platform feature', () => {
             'needle',
             {
                 requestId: 'djvu-search-1',
+                resultOffset: 'last',
                 pageCount: 431,
                 matchCase: false,
                 wholeWord: true,

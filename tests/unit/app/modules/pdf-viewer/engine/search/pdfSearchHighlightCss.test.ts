@@ -18,7 +18,9 @@ vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
 }));
 
 const {
+    clearHighlightAPIForLayer,
     createCssHighlightState,
+    updateHighlightAPI,
     registerHighlightRange,
     getHighlightMode,
     isHighlightDebugEnabled,
@@ -103,6 +105,35 @@ describe('registerHighlightRange', () => {
         expect(ids?.current.size).toBe(0);
         expect(state.highlightRanges.size).toBe(2);
         expect(state.layerRangeIds.get(container)).toBe(ids);
+    });
+});
+
+describe('linked-view CSS registry ownership', () => {
+    it('retains both viewers and removes only the clearing layer contribution', () => {
+        const registry = new Map<string, Highlight>();
+        vi.stubGlobal('CSS', {highlights: registry});
+        vi.stubGlobal('Highlight', class extends Set<Range> {
+            constructor(...ranges: Range[]) { super(ranges); }
+        });
+        const first = createCssHighlightState();
+        const second = createCssHighlightState();
+        const firstLayer = {} as HTMLElement;
+        const secondLayer = {} as HTMLElement;
+        const firstRange = {} as Range;
+        const secondRange = {} as Range;
+        // Linked views may use the same local ID; Range identity owns registry membership.
+        registerHighlightRange(first, firstLayer, firstRange, true, 'same-id');
+        registerHighlightRange(second, secondLayer, secondRange, true, 'same-id');
+        updateHighlightAPI(first, 'normal', 'current');
+        updateHighlightAPI(second, 'normal', 'current');
+        expect([...registry.get('current')!]).toEqual([
+            firstRange,
+            secondRange,
+        ]);
+        clearHighlightAPIForLayer(first, firstLayer, 'normal', 'current');
+        expect([...registry.get('current')!]).toEqual([secondRange]);
+        clearHighlightAPIForLayer(second, secondLayer, 'normal', 'current');
+        expect(registry.has('current')).toBe(false);
     });
 });
 

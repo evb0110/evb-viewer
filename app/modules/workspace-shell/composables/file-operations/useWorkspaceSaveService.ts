@@ -1,5 +1,4 @@
 import type {Ref} from 'vue';
-import type {IPdfPersistResult} from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TRequestId } from '@contracts/shared';
@@ -308,29 +307,13 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
 
-    let persisted: IPdfPersistResult | null;
-    try {
-        persisted = await persistNativeMutationProjection(
-            plan,
-            effectiveProjection,
-            deps,
-            saveTransaction.verifyAnnotationSavePath,
-            saveTransaction.assertAnnotationSaveCurrent,
-        );
-    } catch (error) {
-        if (isStaleRevisionError(error)) {
-            throw error;
-        }
-        if (nativePathBacked) {
-            BrowserLogger.warn('workspace', 'Native path-backed PDF mutation failed', error);
-            return notSavedBeforeWrite(
-                'native-save-required',
-                plan.target.expectedRevisionToken,
-                null,
-            );
-        }
-        throw error;
-    }
+    let persisted = await persistNativeMutationProjection(
+        plan,
+        effectiveProjection,
+        deps,
+        saveTransaction.verifyAnnotationSavePath,
+        saveTransaction.assertAnnotationSaveCurrent,
+    );
     if (persisted?.nativeRefusalCode === 'too-large') {
         return notSavedBeforeWrite('too-large-for-edit', plan.target.expectedRevisionToken, null);
     }
@@ -345,18 +328,10 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
     if (!persisted.success) {
-        if (
-            nativePathBacked
-            && persisted.abortReason !== 'stale'
-            && persisted.abortReason !== 'cancelled'
-        ) {
-            return notSavedBeforeWrite(
-                'native-save-required',
-                plan.target.expectedRevisionToken,
-                null,
-            );
-        }
-        return notSavedAfterWrite(abortReasonForPersistResult(persisted), null);
+        return {
+            ...notSavedBeforeWrite(abortReasonForPersistResult(persisted), plan.target.expectedRevisionToken, null),
+            ...(persisted.failure === undefined ? {} : {failure: persisted.failure}),
+        };
     }
     const materializedIdentityBindings = persisted.materializedIdentityBindings;
     if (plan.request.kind === 'save-as' && !persisted.didSaveAs) {
@@ -371,7 +346,7 @@ async function executeNativeMutationSave(
             }),
         );
         if (!saveAsPersisted.success) {
-            return notSavedAfterWrite(abortReasonForPersistResult(saveAsPersisted), null);
+            return notSavedAfterWrite(abortReasonForPersistResult(saveAsPersisted), null, saveAsPersisted.failure);
         }
         persisted = saveAsPersisted;
     }
@@ -466,7 +441,7 @@ async function executeNativeRepairSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
     if (!staged.success) {
-        return notSavedAfterWrite(abortReasonForPersistResult(staged), null);
+        return notSavedAfterWrite(abortReasonForPersistResult(staged), null, staged.failure);
     }
 
     const repaired = deps.persistence.repairWorkingCopy;
@@ -482,7 +457,7 @@ async function executeNativeRepairSave(
         }),
     );
     if (!repairedResult.success) {
-        return notSavedAfterWrite(abortReasonForPersistResult(repairedResult), null);
+        return notSavedAfterWrite(abortReasonForPersistResult(repairedResult), null, repairedResult.failure);
     }
 
     saveTransaction.commitAnnotationSave?.(staged.materializedIdentityBindings);
@@ -667,7 +642,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 detail?: string | null;
                 expectedRevisionToken?: TDocumentRevisionToken | null;
                 failure?: Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
-                diagnostics?: unknown;
+                diagnostics?: Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[4];
             } = {},
         ) {
             if (request.kind === 'optimize-copy' && reason === 'capability-unavailable') {
@@ -738,14 +713,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         deps.annotations.openNoteCount.value > 0
                         && !await deps.annotations.persistOpenNotes()
                     ) {
-                        BrowserLogger.warn('workspace', 'Save aborted because annotation note persistence failed');
-                        const noteFailure = notSavedBeforeWrite(
-                            'note-persistence-failed',
-                            revisionBeforeNotes,
-                            null,
-                        );
-                        const completed = await completeWorkspaceSave(null, noteFailure, deps);
-                        reportSaveAbort(noteFailure);
+                        const completed = await completeWorkspaceSave(null,
+                            notSavedBeforeWrite('note-persistence-failed', revisionBeforeNotes, null), deps);
+                        reportSaveFailureIfCurrent('note-persistence-failed', {
+                            expectedRevisionToken: revisionBeforeNotes,
+                            failure: deps.annotations.getNoteFailurePresentation?.(),
+                        });
                         return completed;
                     }
 

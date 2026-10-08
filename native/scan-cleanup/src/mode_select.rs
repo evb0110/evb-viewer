@@ -238,6 +238,7 @@ pub(crate) struct PreparedModeEvidence<'a> {
     /// tape patch to become a picture on one knife-edge sample.
     pub picture_tone_evidence: bool,
     pub text_line_count: usize,
+    pub source_effectively_blank: bool,
 }
 
 fn picture_noise_floor(evidence: PreparedModeEvidence<'_>) -> f64 {
@@ -429,8 +430,9 @@ pub(crate) fn protect_bilevel_text_fidelity(
             soft_edge_to_ink_ratio,
             text_line_count,
         );
-    let fidelity_veto = (recommendation.mode == OutputMode::Bw && undersampled_soft_text)
-        || undersampled_photo_dominant_mixed;
+    let fidelity_veto = recommendation.reason != OutputModeRecommendationReason::Blank
+        && ((recommendation.mode == OutputMode::Bw && undersampled_soft_text)
+            || undersampled_photo_dominant_mixed);
     recommendation.diagnostics.source_dpi = source_dpi;
     recommendation.diagnostics.analysis_dpi = analysis_dpi;
     recommendation.diagnostics.calibrated_source_stroke_width_px = source_stroke_width_px;
@@ -637,11 +639,11 @@ pub(crate) fn recommend_output_mode_with_tone(
     result
 }
 
-/// Rejects an automatic Mixed recommendation when its own protected text
-/// evidence says that a meaningful text block is mostly picture-owned, but no
-/// independent picture owner corroborates that assignment. The comparison is
-/// made against the existing analysis-resolution content blocks. It does not
-/// render a second candidate, and it never changes an explicit user mode.
+/// Preserves protected text's continuous representation when a candidate
+/// picture enclosure mostly covers that text without independent picture tone.
+/// The existing analysis-resolution blocks retain this contradiction after
+/// picture qualification revokes the enclosure, so it also protects ink when
+/// Auto subsequently recommends B&W. Explicit user modes remain unchanged.
 pub(crate) fn veto_contradictory_mixed_ownership(
     mut recommendation: OutputModeRecommendation,
     auto_mode: bool,
@@ -684,10 +686,7 @@ pub(crate) fn veto_contradictory_mixed_ownership(
         .diagnostics
         .mixed_ownership_independent_picture_evidence = independent_picture_evidence;
 
-    let veto = auto_mode
-        && recommendation.mode == OutputMode::Mixed
-        && contradiction
-        && !independent_picture_evidence;
+    let veto = auto_mode && contradiction && !independent_picture_evidence;
     recommendation.diagnostics.mixed_ownership_veto = veto;
     if veto {
         let preserves_color = recommendation.diagnostics.significant_color;
@@ -728,22 +727,25 @@ pub(crate) fn qualifies_independent_outside_tone(
 pub(crate) fn recommend_output_mode(
     evidence: PreparedModeEvidence<'_>,
 ) -> OutputModeRecommendation {
-    let luminance = luminance_evidence(evidence.analysis);
+    let luminance = if evidence.source_effectively_blank {
+        luminance_evidence_region(evidence.analysis, blank_interior_bounds(evidence.analysis))
+    } else {
+        luminance_evidence(evidence.analysis)
+    };
     let (chroma, _) = chroma_evidence_and_mask(
         evidence.analysis,
         evidence.analysis_rgb,
-        evidence.text_line_count,
+        if evidence.source_effectively_blank {
+            0
+        } else {
+            evidence.text_line_count
+        },
     );
     let significant_color = has_significant_chroma(chroma);
 
-    // Blankness is source evidence, not a property of a later normalized or
-    // binarized raster. Resolve it before picture/content segmentation: subtle
-    // paper texture can look like a page-sized picture after illumination
-    // normalization even though the raw scan contains no meaningful marks.
-    if is_blank_luminance(luminance)
-        && !significant_color
-        && !has_coherent_edge_structure(evidence.analysis)
-    {
+    // The raw analysis plane owns blankness before normalization and
+    // segmentation. Auto consumes that verdict without reinterpreting rails.
+    if evidence.source_effectively_blank {
         let range_margin = (1.0
             - luminance.robust_luminance_range / BLANK_MAX_ROBUST_LUMINANCE_RANGE)
             .clamp(0.0, 1.0);
@@ -1357,7 +1359,8 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
     let minimum_area = minimum_height.saturating_mul(3);
     let maximum_width = (image.width() / 5).max(1);
     let maximum_height = (image.height() / 5).max(1);
-    let components = ComponentMap::from_binary(&edges);
+    let (rails, _) = crate::edge_artifacts::side_edge_rails(&edges);
+    let components = ComponentMap::from_binary(&edges.subtract(&rails));
     let candidates = components
         .components()
         .iter()
@@ -1406,7 +1409,7 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
             } else if right.right < left.left {
                 left.left - right.right - 1
             } else {
-                0
+                return false;
             };
             maximum_glyph_height <= minimum_glyph_height.saturating_mul(2)
                 && vertical_offset <= maximum_glyph_height / 2
@@ -1610,10 +1613,19 @@ fn chroma_evidence_and_mask(
         let dark_ink = gray.get(x, y) <= DARK_LUMINANCE_CUTOFF;
         let pixel_chroma = chroma_vector(pixel.map(f64::from));
         let pixel_tint = norm(pixel_chroma);
-        let follows_paper_tint = dark_ink
+        let follows_paper_tint = (dark_ink
+            || (text_line_count < MIN_TEXT_LINES && gray.get(x, y) <= bright_cutoff))
             && background_tint >= 8.0
             && pixel_tint >= 8.0
-            && dot(background_chroma, pixel_chroma) / (background_tint * pixel_tint) >= 0.82;
+            && dot(background_chroma, pixel_chroma) / (background_tint * pixel_tint) >= 0.82
+            && (dark_ink || {
+                let scale = dot(background_chroma, pixel_chroma)
+                    / dot(background_chroma, background_chroma);
+                let residual = std::array::from_fn(|channel| {
+                    pixel_chroma[channel] - scale * background_chroma[channel]
+                });
+                norm(residual) <= CHROMA_NOISE_FLOOR
+            });
         let compared = if paper_ink_model
             .is_some_and(|(paper, ink)| explained_by_paper_ink_segment(pixel, paper, ink))
             || follows_paper_tint
@@ -2057,6 +2069,7 @@ mod tests {
         }
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -2067,6 +2080,61 @@ mod tests {
         assert_eq!(recommendation.mode, OutputMode::Bw);
         assert_eq!(recommendation.reason, OutputModeRecommendationReason::Blank);
         assert!(recommendation.confidence >= 0.8);
+    }
+
+    #[test]
+    fn shaded_paper_rails_are_blank_but_edge_glyphs_keep_their_ink() {
+        let mut paper = RgbImage::new(620, 877, [242, 225, 205]);
+        for y in 0..877 {
+            for x in 0..620 {
+                let shade = (x * 24 / 620) as u8;
+                paper.set(x, y, [242 - shade, 225 - shade, 205 - shade]);
+            }
+        }
+        for y in 100..760 {
+            for x in 598..601 {
+                paper.set(x, y, [142, 125, 105]);
+            }
+        }
+        let gray = rgb_to_gray(&paper);
+        assert!(is_blank_scan_candidate(&gray, Some(&paper)));
+        assert!(independent_chroma_mask(&gray, Some(&paper), 0).is_none());
+        let mut card = paper.clone();
+        for y in 100..200 {
+            for x in 100..200 {
+                card.set(x, y, [200, 150, 100]);
+            }
+        }
+        assert!(independent_chroma_mask(&rgb_to_gray(&card), Some(&card), 8)
+            .is_some_and(|mask| mask.get(150, 150)));
+        let mut fibers = RgbImage::new(1528, 2400, [242, 225, 205]);
+        for x in 200..249 {
+            fibers.set(x, 400 + (x - 200) / 6, [142, 125, 105]);
+            fibers.set(x + 10, 404 + (x - 200) / 6, [142, 125, 105]);
+        }
+        assert!(is_blank_scan_candidate(
+            &rgb_to_gray(&fibers),
+            Some(&fibers)
+        ));
+        for mark_height in [18, 32] {
+            for ink in [[30, 30, 30], [199, 182, 162], [30, 55, 145]] {
+                let mut marked = paper.clone();
+                // A serifed edge page number, beside the rail, must not borrow
+                // the rail's run length merely because it is tall and narrow.
+                for y in 400..400 + mark_height {
+                    marked.set(613, y, ink);
+                    marked.set(614, y, ink);
+                }
+                for x in 610..618 {
+                    marked.set(x, 400, ink);
+                    marked.set(x, 399 + mark_height, ink);
+                }
+                assert!(!is_blank_scan_candidate(
+                    &rgb_to_gray(&marked),
+                    Some(&marked)
+                ));
+            }
+        }
     }
 
     #[test]
@@ -2149,6 +2217,7 @@ mod tests {
                 }
             }
             let recommendation = recommend_output_mode(PreparedModeEvidence {
+                source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &BinaryImage::new(gray.width(), gray.height()),
@@ -2183,6 +2252,7 @@ mod tests {
         }
 
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &BinaryImage::new(gray.width(), gray.height()),
@@ -2324,6 +2394,7 @@ mod tests {
         let gray = GrayImage::new(620, 877, 190);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -2679,6 +2750,7 @@ mod tests {
         }
 
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -2722,6 +2794,7 @@ mod tests {
         }
         let recommendation = recommend_output_mode_with_tone(
             PreparedModeEvidence {
+                source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &owned_picture_mask,
@@ -2744,6 +2817,7 @@ mod tests {
         let empty_picture_mask = BinaryImage::new(gray.width(), gray.height());
         let unowned = recommend_output_mode_with_tone(
             PreparedModeEvidence {
+                source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &empty_picture_mask,
@@ -2769,6 +2843,7 @@ mod tests {
         }
         let subfloor_unconfirmed = recommend_output_mode_with_tone(
             PreparedModeEvidence {
+                source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
                 analysis_rgb: None,
                 picture_mask: &subfloor_picture_mask,
@@ -2841,6 +2916,7 @@ mod tests {
             }
         }
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, Some(&rgb)),
             analysis: &gray,
             analysis_rgb: Some(&rgb),
             picture_mask: &picture_mask,
@@ -2883,6 +2959,7 @@ mod tests {
             }
         }
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -2904,6 +2981,33 @@ mod tests {
             vetoed.reason,
             OutputModeRecommendationReason::UncertainTonal
         );
+
+        // Revoking the false picture enclosure must not discard the same
+        // protected ink's continuous representation when Auto now sees B&W.
+        let empty_picture_mask = BinaryImage::new(gray.width(), gray.height());
+        let text_only = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
+            analysis: &gray,
+            analysis_rgb: None,
+            picture_mask: &empty_picture_mask,
+            picture_tone_evidence: false,
+            text_line_count: 8,
+        });
+        assert_eq!(text_only.mode, OutputMode::Bw, "{text_only:?}");
+        let blocks = [protected_text_block(328, 140, 328 * 140)];
+        let protected = veto_contradictory_mixed_ownership(text_only, true, &blocks, false);
+        assert_eq!(protected.mode, OutputMode::Grayscale, "{protected:?}");
+        assert!(protected.diagnostics.mixed_ownership_veto);
+        assert_eq!(
+            veto_contradictory_mixed_ownership(text_only, false, &blocks, false).mode,
+            OutputMode::Bw,
+            "an explicit mode remains user-owned"
+        );
+        assert_eq!(
+            veto_contradictory_mixed_ownership(text_only, true, &blocks, true).mode,
+            OutputMode::Bw,
+            "independent picture evidence still corroborates ownership"
+        );
     }
 
     #[test]
@@ -2916,6 +3020,7 @@ mod tests {
             }
         }
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -2998,6 +3103,10 @@ mod tests {
         }
         let dominant_gray = rgb_to_gray(&dominant_plate);
         let dominant_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(
+                &dominant_gray,
+                Some(&dominant_plate),
+            ),
             analysis: &dominant_gray,
             analysis_rgb: Some(&dominant_plate),
             picture_mask: &dominant_picture_mask,
@@ -3049,6 +3158,7 @@ mod tests {
         }
         let gray = rgb_to_gray(&rgb);
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, Some(&rgb)),
             analysis: &gray,
             analysis_rgb: Some(&rgb),
             picture_mask: &BinaryImage::new(gray.width(), gray.height()),
@@ -3101,6 +3211,7 @@ mod tests {
         let gray = rgb_to_gray(&cover);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, Some(&cover)),
             analysis: &gray,
             analysis_rgb: Some(&cover),
             picture_mask: &picture_mask,
@@ -3191,6 +3302,7 @@ mod tests {
             }
         }
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3225,6 +3337,7 @@ mod tests {
             }
         }
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3274,6 +3387,7 @@ mod tests {
         );
 
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3297,6 +3411,7 @@ mod tests {
             }
         }
         let low_contrast_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&low_contrast, None),
             analysis: &low_contrast,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3321,6 +3436,7 @@ mod tests {
             "{tonal_evidence:?}"
         );
         let tonal_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&tonal, None),
             analysis: &tonal,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3339,6 +3455,7 @@ mod tests {
         let (gray, _) = text_page([245; 3]);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
         let recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3357,6 +3474,7 @@ mod tests {
         );
 
         let no_line_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3376,6 +3494,7 @@ mod tests {
             }
         }
         let faint_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&faint, None),
             analysis: &faint,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3398,6 +3517,7 @@ mod tests {
             }
         }
         let sparse_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&sparse, None),
             analysis: &sparse,
             analysis_rgb: None,
             picture_mask: &picture_mask,
@@ -3421,6 +3541,7 @@ mod tests {
             }
         }
         let blob_recommendation = recommend_output_mode(PreparedModeEvidence {
+            source_effectively_blank: is_blank_scan_candidate(&solid_blob, None),
             analysis: &solid_blob,
             analysis_rgb: None,
             picture_mask: &picture_mask,

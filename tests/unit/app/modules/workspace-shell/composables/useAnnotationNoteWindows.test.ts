@@ -414,6 +414,68 @@ describe('useAnnotationNoteWindows', () => {
         expect(note.error).not.toBeNull();
     });
 
+    it.each([
+        'refusal',
+        'rejection',
+    ] as const)('retries the current draft after a note %s and retires the action with its window', async failureKind => {
+        let retry: (() => void) | undefined;
+        const committed: string[] = [];
+        const {
+            deps, windows,
+        } = createHarness(createComment(), {reportNoteFailure: input => {
+            retry = input.retry;
+            return {
+                failure: {
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    eventId: 'note-failure',
+                    occurredAt: requireEpochMs(1),
+                    severity: 'error',
+                },
+                title: 'Note update failed',
+                description: 'Draft retained',
+            };
+        }});
+        const noteId = 'ann:0:note-1:0';
+        windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
+        windows.updateAnnotationNoteText(noteId, 'Rejected draft');
+        deps.updateAnnotationCommentInViewer.mockImplementation(() => {
+            if (failureKind === 'rejection') throw new Error('Document refused note');
+            return false;
+        });
+        expect(await windows.persistAnnotationNote(noteId)).toBe(false);
+        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+            draftText: 'Rejected draft',
+            dirty: true,
+            error: 'Draft retained',
+        });
+        expect(windows.getAnnotationNoteFailurePresentation()?.failure.eventId).toBe('note-failure');
+
+        windows.updateAnnotationNoteText(noteId, 'Newer draft');
+        deps.updateAnnotationCommentInViewer.mockImplementation((_id, text) => {
+            committed.push(text);
+            return true;
+        });
+        retry?.();
+        expect(committed).toEqual(['Newer draft']);
+        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+            draftText: 'Newer draft',
+            dirty: false,
+            error: null,
+        });
+        expect(windows.getAnnotationNoteFailurePresentation()).toBeUndefined();
+
+        await windows.closeAnnotationNote(noteId);
+        windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
+        windows.updateAnnotationNoteText(noteId, 'Reopened draft');
+        retry?.();
+        expect(committed).toEqual(['Newer draft']);
+        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+            draftText: 'Reopened draft',
+            dirty: true,
+        });
+        await windows.closeAllAnnotationNotes({saveIfDirty: false});
+    });
+
     it('closes an open note window when its backing annotation disappears from a ready sync', async () => {
         const comment = createComment();
         const {

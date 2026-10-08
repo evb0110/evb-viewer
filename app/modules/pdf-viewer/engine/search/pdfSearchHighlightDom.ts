@@ -386,11 +386,9 @@ export function resetTextLayerMappedText(textLayerDiv: HTMLElement) {
 
     mapping.textDivs.forEach((span, index) => {
         const text = mapping.textContentItemsStr[index];
-        if (text === undefined) {
-            return;
+        if (text !== undefined && span.textContent !== text) {
+            span.textContent = text;
         }
-
-        span.textContent = text;
     });
     clearTextLayerIndexCache(textLayerDiv);
     return true;

@@ -136,6 +136,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         runDocumentOpen,
         assignDocument: controller.assign,
     });
+    const loadRecentFiles = () => void file.loadRecentFiles();
     const {
         workingCopyPath,
         documentRevisionToken,
@@ -195,6 +196,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const annotations = useWorkspaceAnnotationSession({
         views,
         pdfDocument,
+        reportNoteFailure: failure.reportNoteFailure,
     });
     const hasPendingUnsavedChanges = computed(() => (
         annotations.hasUnsavedAnnotationChanges.value
@@ -234,12 +236,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         bookmarkItems: bookmarkState.bookmarkItems,
         isSaving,
         isSavingAs,
-        annotationDirty: annotations.annotationDirty,
-        annotationNoteWindowsCount: computed(() => annotations.annotationNoteWindows.value.length),
-        pendingEmbeddedAnnotationDeleteCount: annotations.pendingEmbeddedAnnotationDeleteCount,
-        hasAnnotationChanges: annotations.hasAnnotationChanges,
-        markAnnotationSaved: annotations.markAnnotationSaved,
-        getAnnotationSaveStateToken: annotations.getAnnotationSaveStateToken,
+        annotations,
         markPageLabelsSaved: pageLabelState.markPageLabelsSaved,
         getPageLabelsSaveStateToken: pageLabelState.getPageLabelsRevision,
         markBookmarksSaved: bookmarkState.markBookmarksSaved,
@@ -256,10 +253,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         trySaveEmbeddedNoteTextUpdates: file.trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs: file.saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
-        persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
-        loadRecentFiles: () => {
-            void file.loadRecentFiles();
-        },
+        loadRecentFiles,
         currentPage,
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
@@ -271,6 +265,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         documentLifecycleKey: computed(() => originalPath.value ?? pendingDocumentPath.value),
         documentRevisionToken,
         isAnySaving: saveService.isAnySaving,
+        workingCopyPath,
     });
     const driver = useWorkspaceDocumentDriver({
         djvuSourcePath: file.djvuSourcePath,
@@ -479,7 +474,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         emitOpenInNewTab,
     });
 
-    const getPrintableSourceData = createPrintableSourceDataResolver({
+    const printableSource = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
         pdfViewerRef,
         save: saveService,
@@ -531,9 +526,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         ensurePrintReady: async () => (
             !annotations.hasOpenAnnotationNotes.value || annotations.persistAllAnnotationNotes()
         ),
-        ensureWorkingCopyFreshForRead,
-        getLastFailurePresentation: failure.getLastFailurePresentation,
-        getPrintableSourceData,
+        ...printableSource,
         renderLoadedPdfPagesForBrowserPrint: async (
             targetDocument: IBrowserPrintDocument,
             pageNumbers: number[],
@@ -595,6 +588,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     });
 
     const {ocr} = useWorkspaceDocumentLifecycleEffects({
+        documentAnnotations: pdfDocumentAnnotations,
         currentPage,
         totalPages,
         pdfDocument,
@@ -629,9 +623,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         closeAnnotationContextMenu: views.closeAnnotationContextMenus,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
-        loadRecentFiles: () => {
-            void file.loadRecentFiles();
-        },
+        loadRecentFiles,
         isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value || isHistoryBusy.value),
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,

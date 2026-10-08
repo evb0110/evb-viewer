@@ -10,14 +10,10 @@ import {
 
 export interface ICommitPdfAnnotationParseToStoreOptions {
     result: IPdfAnnotationParseResult;
-    request: number;
-    currentRequest: number;
     isTransitionCurrent: () => boolean;
     targetStore: AnnotationStore;
     currentStore: AnnotationStore;
     targetStoreMutationEpoch: number;
-    workingCopyPath: string;
-    currentWorkingCopyPath: string | null;
     expectedRevisionToken: TDocumentRevisionToken;
     currentRevisionToken: TDocumentRevisionToken | null;
     selectedTextByPdfRef?: ReadonlyMap<string, string | null>;
@@ -28,13 +24,13 @@ export function applyParsedHighlightTextToStore(options: {
     selectedTextByPdfRef: ReadonlyMap<string, string | null>;
     parsedMarkupGeometryByPdfRef: ReadonlyMap<string, ITextMarkupEntity['quadPoints']>;
 }) {
-    options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
+    options.targetStore.batch(() => options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
         const id = options.targetStore.resolveExternal({pdfRef});
         const expectedQuadPoints = options.parsedMarkupGeometryByPdfRef.get(pdfRef);
         if (id && expectedQuadPoints) {
             options.targetStore.updateTextMarkupSelectedText(id, selectedText, expectedQuadPoints);
         }
-    });
+    }));
 }
 
 /**
@@ -46,11 +42,9 @@ export function commitPdfAnnotationParseToStore(
     options: ICommitPdfAnnotationParseToStoreOptions,
 ) {
     if (
-        options.request !== options.currentRequest
-        || !options.isTransitionCurrent()
+        !options.isTransitionCurrent()
         || options.targetStore !== options.currentStore
         || options.targetStore.mutationEpoch !== options.targetStoreMutationEpoch
-        || options.currentWorkingCopyPath !== options.workingCopyPath
         || options.currentRevisionToken !== options.expectedRevisionToken
         || options.result.documentRevisionToken !== options.expectedRevisionToken
     ) {

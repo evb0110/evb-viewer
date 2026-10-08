@@ -70,12 +70,11 @@ export function createPdfViewportGeometryFromLayout(
             height: getLayoutPageHeight(metrics, pageIndex),
         };
     };
-    const pageRects = metrics.base.isSparse
-        ? createLazyIndexedCollection<IPdfViewportRect>({
-            length: metrics.base.totalPages,
-            getValue: getPageRect,
-        })
-        : metrics.base.pageWidths.map((_width, index) => getPageRect(index));
+    const pageRects = createLazyIndexedCollection<IPdfViewportRect>({
+        length: metrics.base.totalPages,
+        getValue: getPageRect,
+        cacheValues: false,
+    });
     const getRow = (rowIndex: number) => {
         const startPage = metrics.base.rowStartPages[rowIndex] ?? rowIndex + 1;
         const endPage = metrics.base.rowEndPages[rowIndex] ?? startPage;
@@ -97,30 +96,38 @@ export function createPdfViewportGeometryFromLayout(
             },
         };
     };
-    const rows = metrics.base.isSparse
-        ? createLazyIndexedCollection<IPdfViewportGeometry['rows'][number]>({
-            length: metrics.base.rowStartPages.length,
-            getValue: getRow,
-        })
-        : metrics.base.rowStartPages.map((_startPage, rowIndex) => getRow(rowIndex));
+    const rows = createLazyIndexedCollection<IPdfViewportGeometry['rows'][number]>({
+        length: metrics.base.rowStartPages.length,
+        getValue: getRow,
+        cacheValues: false,
+    });
     const maxPageWidth = Number.isFinite(metrics.base.maxPageWidth)
         ? Math.max(0, metrics.base.maxPageWidth)
         : 0;
-    const contentWidth = metrics.base.isSparse
-        ? Math.max(
-            viewport.width,
-            maxPageWidth * metrics.scale
-                * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
-                + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0)
-                + paddingInline * 2,
-        )
-        : Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width + paddingInline));
     return {
         revision,
         insetTop: metrics.paddingTop,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
-        contentWidth,
+        // Native scroll needs only indexed page/row reads. Authored anchor
+        // placement asks for the exact horizontal extent when clamping it.
+        get contentWidth() {
+            if (metrics.base.isSparse) {
+                return Math.max(
+                    viewport.width,
+                    maxPageWidth * metrics.scale
+                        * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
+                        + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0)
+                        + paddingInline * 2,
+                );
+            }
+            let width = viewport.width;
+            for (const endPage of metrics.base.rowEndPages) {
+                const rect = getPageRect(endPage - 1);
+                width = Math.max(width, rect.left + rect.width + paddingInline);
+            }
+            return width;
+        },
         contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
         physicalScrollOrigin: Math.max(0, physicalScrollOrigin),
         pageRects,
@@ -316,6 +323,55 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
         width: geometry.contentWidth,
         height: Math.max(geometry.viewportHeight, geometry.contentHeight - geometry.physicalScrollOrigin),
     }, geometry.insetTop);
+}
+
+/** R1 indicator projection; the semantic center anchor remains independent. */
+export function resolvePageIndicatorFromScroll(
+    geometry: IPdfViewportGeometry,
+    scroll: {
+        left: number;
+        top: number
+    },
+    previousPage: number,
+) {
+    const left = scroll.left;
+    const top = scroll.top + geometry.physicalScrollOrigin;
+    const right = left + geometry.viewportWidth;
+    const bottom = top + geometry.viewportHeight;
+    const previous = geometry.pageRects[previousPage - 1];
+    if (previous && previous.width > 0 && previous.height > 0
+        && previous.left >= left && previous.left + previous.width <= right
+        && previous.top >= top && previous.top + previous.height <= bottom) {
+        return previousPage;
+    }
+    // Only intersecting rows are candidates, including both facing pages.
+    let low = 0;
+    let high = geometry.rows.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        const row = geometry.rows[middle]!;
+        if (row.rect.top + row.rect.height < top) low = middle + 1;
+        else high = middle;
+    }
+    let page = previousPage;
+    let fraction = -1;
+    for (let rowIndex = low; rowIndex < geometry.rows.length; rowIndex += 1) {
+        const row = geometry.rows[rowIndex]!;
+        if (row.rect.top > bottom) break;
+        for (let candidate = row.startPage; candidate <= row.endPage; candidate += 1) {
+            const rect = geometry.pageRects[candidate - 1]!;
+            const width = Math.max(0, Math.min(right, rect.left + rect.width) - Math.max(left, rect.left));
+            const height = Math.max(0, Math.min(bottom, rect.top + rect.height) - Math.max(top, rect.top));
+            if (width <= 0 || rect.height <= 0
+                || height < Math.min(rect.height, geometry.viewportHeight) / 4) continue;
+            const visibleFraction = width * height / (rect.width * rect.height);
+            if (visibleFraction > fraction) {
+                page = candidate;
+                fraction = visibleFraction;
+            }
+        }
+    }
+    return page;
 }
 
 export function resolveAnchorFromScroll(

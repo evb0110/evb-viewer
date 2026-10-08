@@ -1,4 +1,4 @@
-import {resolvePdfAnnotationPreviewTextFromMarkerRects} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
+import {createPdfAnnotationPreviewTextResolver} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
 import type {IPdfTextPreviewItem} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
 import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import type {
@@ -67,19 +67,18 @@ export async function deriveSelectedTextForParsedHighlights({
                 return false;
             }
             const textItems = textContent.items as IPdfTextPreviewItem[];
+            const resolvePreviewText = createPdfAnnotationPreviewTextResolver(textItems, {
+                transform: [...pageViewport.transform],
+                width: pageViewport.width,
+                height: pageViewport.height,
+                scale: pageViewport.scale,
+            });
             entries.forEach((entry) => {
                 selectedTextByPdfRef.set(
                     pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
-                    resolvePdfAnnotationPreviewTextFromMarkerRects(
+                    resolvePreviewText(
                         entry.subtype,
                         entry.quadPoints,
-                        textItems,
-                        {
-                            transform: [...pageViewport.transform],
-                            width: pageViewport.width,
-                            height: pageViewport.height,
-                            scale: pageViewport.scale,
-                        },
                     ),
                 );
             });

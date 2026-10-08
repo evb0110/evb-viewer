@@ -84,15 +84,18 @@ describe('browserSearch worker', () => {
             data: {
                 matches: [
                     {
+                        pageMatchIndex: 0,
                         startOffset: 0,
                         endOffset: 1,
                     },
                     {
+                        pageMatchIndex: 1,
                         startOffset: 2,
                         endOffset: 3,
                     },
                 ],
                 truncated: true,
+                matchCount: 3,
                 matchingMs: expect.any(Number),
             },
         });
@@ -123,14 +126,71 @@ describe('browserSearch worker', () => {
             data: {
                 matches: fixture.expectedMatches.map(({
                     startOffset, endOffset,
-                }) => ({
+                }, pageMatchIndex) => ({
+                    pageMatchIndex,
                     startOffset,
                     endOffset,
                 })),
                 truncated: false,
+                matchCount: fixture.expectedMatches.length,
                 matchingMs: expect.any(Number),
             },
         });
+    });
+
+    it.each([
+        false,
+        true,
+    ])('returns bounded continuation and tail ordinals for regex=%s', async (useRegex) => {
+        const {
+            handler, postMessage,
+        } = await loadWorker();
+        for (const [
+            resultOffset,
+            first,
+            count,
+            truncated,
+        ] of [
+                [
+                    500,
+                    500,
+                    60,
+                    false,
+                ],
+                [
+                    'last',
+                    60,
+                    500,
+                    false,
+                ],
+            ] as const) {
+            handler({data: {
+                id: 10,
+                type: 'matchPageText',
+                payload: {
+                    text: 'valve '.repeat(560),
+                    query: 'valve',
+                    options: {
+                        matchCase: false,
+                        wholeWord: false,
+                        useRegex,
+                    },
+                    maxMatches: 500,
+                    resultOffset,
+                },
+            }} as MessageEvent<unknown>);
+            const response = postMessage.mock.lastCall?.[0];
+            expect(response.ok).toBe(true);
+            expect(response.data.matches).toHaveLength(count);
+            expect(response.data.matches[0]).toEqual({
+                startOffset: first * 6,
+                endOffset: first * 6 + 5,
+                pageMatchIndex: first,
+            });
+            expect(response.data.matches.at(-1).pageMatchIndex).toBe(559);
+            expect(response.data.matchCount).toBe(560);
+            expect(response.data.truncated).toBe(truncated);
+        }
     });
 
     it('returns a typed protocol code for an unsafe regex before matching', async () => {

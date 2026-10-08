@@ -32,16 +32,10 @@ import {
     requirePageNumber,
     type TPageNumber,
 } from '@contracts/pageNumbers';
-import { parseDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import {
-    applyParsedHighlightTextToStore,
-    commitPdfAnnotationParseToStore,
-} from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
-import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
@@ -53,12 +47,8 @@ import type {
 import {
     asAnnotationId,
     normalizeAnnotationText,
-    type ITextMarkupEntity,
+    type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {
-    getDocumentFilesCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
 import { groupBy } from 'es-toolkit/array';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
@@ -90,7 +80,6 @@ import { createPdfAnnotationStampImageResolver } from '@app/modules/pdf-viewer/r
 import { createPdfAnnotationOwnershipRefreshWatch } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch';
 import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolvePdfAnnotationSelectionGeometry } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
-import { deriveSelectedTextForParsedHighlights } from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
 import {resolvePdfAnnotationPreviewTextFromMarkerRects} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 import { subtypeForAnnotationTool } from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
@@ -105,8 +94,8 @@ import {createAnnotationSelectionInteractionController} from '@app/modules/pdf-v
 import {
     captureCanonicalAnnotationRecovery,
     restoreCanonicalAnnotationRecovery,
-    type IAnnotationRecoveryDraft,
     type ICanonicalAnnotationRecovery,
+    type TAnnotationRecoveryDraftInput,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentView;
@@ -252,11 +241,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentsCache,
         activeCommentStableKey,
     } = annotationCommentModel;
-    function projectCanonicalAnnotations() {
-        const entities = annotationApplication.value.store.list({includeDeleted: true});
+    function projectCanonicalAnnotations(snapshotIncludingDeleted: readonly AnnotationEntity[] = annotationApplication.value.store.list({includeDeleted: true})) {
         const nextStoreOwnedPdfAnnotationIds = new Set<string>();
         const nextRetiredPdfAnnotationIds = new Set(retiredPdfAnnotationIds.value);
-        entities.forEach((entity) => {
+        snapshotIncludingDeleted.forEach((entity) => {
             const pdfJsAnnotationId = normalizePdfJsAnnotationId(entity.identity.pdfRef);
             if (!pdfJsAnnotationId) {
                 return;
@@ -272,14 +260,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!sameStringSet(retiredPdfAnnotationIds.value, nextRetiredPdfAnnotationIds)) {
             retiredPdfAnnotationIds.value = nextRetiredPdfAnnotationIds;
         }
-        const projected = annotationApplication.value.listCommentSummaries().map(comment => ({
+        annotationProjection.value = annotationApplication.value.listCommentSummaries(snapshotIncludingDeleted).map(comment => Object.freeze({
             ...comment,
             text: (comment.annotationKind === 'text-box'
                 ? textBoxDrafts.get(comment.appAnnotationId ?? '')
                 : undefined) ?? comment.text,
         }));
-        annotationProjection.value = projected.map(comment => Object.freeze({...comment}));
-        annotationCommentModel.emitCommentsForSidebar(projected);
+        annotationCommentModel.emitCommentsForSidebar(annotationProjection.value);
     }
     let stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
     const annotationDocumentIdentity = documentAnnotations.documentIdentity;
@@ -318,7 +305,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     // the reloads of that revision may land after it has let go.
     watch(options.documentRevisionToken, (revision) => {
         if (options.isAnySaving.value && revision !== null) {
-            documentAnnotations.adoptSavedRevision(revision);
+            documentAnnotations.adoptCurrentRevision();
         }
     }, {flush: 'sync'});
 
@@ -397,7 +384,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         settings: options.annotationSettings,
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
-        runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
+        runHistoryTransaction: action => appAnnotationHistory.runTransaction(
+            () => annotationApplication.value.store.batch(action),
+        ),
         undo: () => appAnnotationHistory.undoForEditor(),
         redo: () => appAnnotationHistory.redoForEditor(),
         emitShapeContextMenu: options.emitShapeContextMenu,
@@ -942,152 +931,19 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         nextTick,
     });
     const scheduleSetAnnotationTool = (_tool: TAnnotationTool, _reason: string) => {};
-    let writerParseRequest = 0;
-    let writerParseAbortController: AbortController | null = null;
-    let writerParseTask: {
-        key: string;
-        promise: Promise<void>;
-    } | null = null;
-    function cancelWriterParse() {
-        writerParseRequest += 1;
-        writerParseAbortController?.abort();
-        writerParseAbortController = null;
-        writerParseTask = null;
-    }
-    async function performWriterParse(
+    async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
-        writerParseAbortController?.abort();
-        const request = ++writerParseRequest;
-        const abortController = new AbortController();
-        writerParseAbortController = abortController;
-        // Both exits from this function settle through here so they cannot
-        // drift apart: a superseded parse must not unblock consumers, and the
-        // document may have swapped during any await above.
-        function settleProjection() {
-            if (writerParseAbortController !== abortController) {
-                return;
-            }
-            writerParseAbortController = null;
-            if (request === writerParseRequest && transition.isCurrent()) {
-                annotationProjectionReady.value = true;
-            }
+        await documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath);
+        if (transition.isCurrent()) {
+            annotationProjectionReady.value = true;
         }
-        const parsePath = parseDocumentRef(options.workingCopyPath.value)
-            ?? parseDocumentRef(options.originalPath.value)
-            ?? (options.src.value instanceof Blob ? null : parseDocumentRef(options.src.value?.path ?? null));
-        const expectedRevisionToken = options.documentRevisionToken.value
-            ?? (parsePath
-                ? await getDocumentFilesCapability().getDocumentRevision(parsePath)
-                    .then(revision => revision.token)
-                    .catch(() => null)
-                : null);
-        const isProvisionalRevisionFence = transition.fence.documentRevision?.startsWith('load:') ?? false;
-        if (
-            !parsePath
-            || !expectedRevisionToken
-            || !documentSession.pdfDocument.value
-            || (
-                transition.fence.documentRevision !== expectedRevisionToken
-                && !isProvisionalRevisionFence
-            )
-        ) {
-            settleProjection();
-            return;
-        }
-        const targetStore = annotationApplication.value.store;
-        const targetStoreMutationEpoch = targetStore.mutationEpoch;
-        try {
-            const result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(
-                parsePath,
-                {
-                    expectedDocumentRevisionToken: expectedRevisionToken,
-                    signal: abortController.signal,
-                },
-            );
-            const committed = commitPdfAnnotationParseToStore({
-                result,
-                request,
-                currentRequest: writerParseRequest,
-                isTransitionCurrent: () => transition.isCurrent(),
-                targetStore,
-                currentStore: annotationApplication.value.store,
-                targetStoreMutationEpoch,
-                workingCopyPath: parsePath,
-                currentWorkingCopyPath: parsePath,
-                expectedRevisionToken,
-                currentRevisionToken: options.documentRevisionToken.value ?? expectedRevisionToken,
-            });
-            if (!committed) {
-                return;
-            }
-            const parsedMarkupGeometryByPdfRef = new Map<string, ITextMarkupEntity['quadPoints']>();
-            result.entities.forEach((entry) => {
-                if (entry.kind !== 'highlight') {
-                    return;
-                }
-                parsedMarkupGeometryByPdfRef.set(
-                    pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
-                    entry.quadPoints.map(rect => ({...rect})),
-                );
-            });
-            void deriveSelectedTextForParsedHighlights({
-                documentSession,
-                result,
-                transition,
-                signal: abortController.signal,
-            }).then((selectedTextByPdfRef) => {
-                if (
-                    !selectedTextByPdfRef
-                    || abortController.signal.aborted
-                    || request !== writerParseRequest
-                    || !transition.isCurrent()
-                    || annotationApplication.value.store !== targetStore
-                ) {
-                    return;
-                }
-                applyParsedHighlightTextToStore({
-                    targetStore,
-                    selectedTextByPdfRef,
-                    parsedMarkupGeometryByPdfRef,
-                });
-            }).catch((error) => {
-                if (!abortController.signal.aborted) {
-                    BrowserLogger.debug('annotations', 'Failed to enrich imported writer highlights', error);
-                }
-            });
-        } catch (error) {
-            if (!abortController.signal.aborted) {
-                BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
-            }
-        } finally {
-            settleProjection();
-        }
-    }
-    function feedStoreFromWriterParse(
-        transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
-    ) {
-        const key = [
-            transition.fence.loadToken,
-            transition.fence.documentVersion,
-            transition.fence.documentRevision ?? '',
-        ].join(':');
-        if (writerParseTask?.key === key) {
-            return writerParseTask.promise;
-        }
-        const promise = performWriterParse(transition);
-        writerParseTask = {
-            key,
-            promise,
-        };
-        return promise;
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
         if (!transition.isCurrent()) {
             return;
         }
         if (transition.phase === 'invalidated') {
-            cancelWriterParse();
             annotationProjectionReady.value = true;
             annotations.commentSync.incrementSyncToken();
             annotations.highlight.clearSelectionCache();
@@ -1135,7 +991,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (documentSession.pendingPageMutationRevisionSwap?.rotationDelta === undefined) {
                 annotationProjectionReady.value = false;
             }
-            cancelWriterParse();
         }
     }, {flush: 'sync'});
     watch(() => [
@@ -1158,7 +1013,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         immediate: true,
     });
     documentSession.registerDisposable(() => {
-        cancelWriterParse();
         unsubscribeDocumentTransitions();
         stopStoreOwnershipRefreshWatch();
         detachProjection();
@@ -1182,7 +1036,21 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotations,
         annotationMutationService,
         annotationApplication,
-        captureCanonicalAnnotationRecovery: (additionalDrafts: readonly IAnnotationRecoveryDraft[] = []): ICanonicalAnnotationRecovery => {
+        getCanonicalAnnotationRecoveryChangeSignature: () => {
+            void annotationProjection.value;
+            return [
+                annotationApplication.value.store.mutationEpoch,
+                Array.from(textBoxDrafts, ([
+                    id,
+                    text,
+                ]) => [
+                    id,
+                    textBoxDraftGenerations.get(id) ?? 0,
+                    text,
+                ] as const),
+            ] as const;
+        },
+        captureCanonicalAnnotationRecovery: (additionalDrafts: TAnnotationRecoveryDraftInput = []): ICanonicalAnnotationRecovery => {
             const drafts = Array.from(
                 textBoxDrafts,
                 ([
@@ -1207,9 +1075,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             ).filter((draft): draft is NonNullable<typeof draft> => draft !== null);
             return captureCanonicalAnnotationRecovery(
                 annotationApplication.value.store,
-                [
+                entities => [
                     ...drafts,
-                    ...additionalDrafts,
+                    ...(typeof additionalDrafts === 'function' ? additionalDrafts(entities) : additionalDrafts),
                 ],
             );
         },

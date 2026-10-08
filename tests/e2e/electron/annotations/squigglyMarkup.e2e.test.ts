@@ -600,7 +600,21 @@ describe('Electron E2E - EVB text markup', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
         await waitForRenderedTextSpans(page, [1]);
-        await createTextMarkup(page, 'Highlight', 1, 0, 1, 2);
+        await requireWorkspaceCommand<boolean>(page, 'setCustomZoomFromDisplay', [1]);
+        await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 1}, {timeoutMs: 20_000});
+        await waitForViewerInteractive(page);
+        const selectedText = await selectTextFromRenderedSpans(page, {
+            startPage: 1,
+            startSpan: 0,
+            endPage: 1,
+            endSpan: 2,
+        });
+        expect(selectedText).toContain('third line 1');
+        await clickVisibleAnnotationControl(page, '.zoom-controls button[aria-label="Zoom Out"]');
+        await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 0.75}, {timeoutMs: 20_000});
+        await waitForPageWidthAtZoom(page, 612, 0.75);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Highlight');
         await waitForEvbTextMarkupVisualCount(page, 1);
         const basePageWidth = await page.$eval('.page_container[data-page="1"]', (element) => {
             const width = element.getBoundingClientRect().width;

@@ -95,14 +95,48 @@ describe('JobBroker', () => {
         });
     });
 
-    it('caps low-tier concurrency without changing its memory formula', () => {
-        expect(resolveMainJobBrokerCapacity(
-            createResourceProfile(8, 8 * GIB, 'low'),
-        )).toEqual({
-            cpuTokens: 2,
+    it.each([
+        [
+            'auto',
+            6,
+        ],
+        [
+            'low',
+            2,
+        ],
+    ] as const)('uses the %s CPU budget on a RAM-limited host without changing other budgets', async (performanceMode, cpuTokens) => {
+        const capacity = resolveMainJobBrokerCapacity({
+            ...createResourceProfile(8, 8 * GIB, 'low'),
+            performanceMode,
+        });
+        expect(capacity).toEqual({
+            cpuTokens,
             estimatedResidentBytes: 6.8 * GIB,
             nativeProcesses: 2,
             ioWeight: 4,
+        });
+        const broker = new JobBroker(capacity, {
+            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+        });
+        const page = await broker.acquire(createRequest({resources: capacity}));
+        const queuedPage = broker.acquire(createRequest({ownerId: 'second-page'}));
+        const interactive = await broker.acquire(createRequest({
+            ownerId: 'visible-page',
+            admissionClass: 'interactive',
+            resources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+        }));
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 2,
+            queued: 1,
+            usedBulk: capacity,
+        });
+        interactive.release();
+        page.release();
+        (await queuedPage).release();
+        expect(broker.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
         });
     });
 

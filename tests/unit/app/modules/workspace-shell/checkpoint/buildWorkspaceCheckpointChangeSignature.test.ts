@@ -202,7 +202,15 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
                 items: [],
             }},
         };
-        const workspace = createWorkspaceExposeFixture({captureCanonicalAnnotationRecovery: () => recovery});
+        const workspace = createWorkspaceExposeFixture({
+            getWorkspaceDocumentRecoveryChangeSignature: () => [
+                recovery.metadata?.bookmarks?.revision ?? null,
+                recovery.metadata?.pageLabels?.revision ?? null,
+            ],
+            captureCanonicalAnnotationRecovery: () => {
+                throw new Error('Signature evaluation must not capture the recovery payload');
+            },
+        });
         options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
         const before = buildWorkspaceCheckpointChangeSignature(options);
         recovery.metadata!.bookmarks!.revision += 1;
@@ -222,16 +230,11 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         const options = createSignatureOptions();
         let originalPath: TDocumentRef | null = null;
         const workspace = {} as IWorkspaceExpose;
-        workspace.getAutomationStateSnapshot = () => ({
-            documentIdentity: null,
-            annotationComments: [],
-            annotationCommentsStatus: 'ready',
-            annotationInventory: null,
-            annotationDirty: false,
+        workspace.getWorkspaceDocumentRecoveryChangeSignature = () => [
             originalPath,
-            sortedAnnotationNoteWindows: [],
-            workingCopyPath: null,
-        });
+            null,
+            false,
+        ];
         options.documentSessionsByTabId.value['tab-a'].attachWorkspace('tab-a', workspace);
         const before = buildWorkspaceCheckpointChangeSignature(options);
 

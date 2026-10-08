@@ -6,7 +6,7 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
 type TPdfPageCanvasReadiness = 'none' | 'ready';
-type TPdfPageLayerReadiness = 'none' | 'canvas-only' | 'hydrating' | 'ready';
+type TPdfPageLayerReadiness = 'none' | 'canvas-only' | 'hydrating' | 'ready' | 'failed';
 type TPdfPageTextLayerReadiness = 'none' | 'ready';
 
 export interface IPdfCommittedRasterQuality {
@@ -487,6 +487,7 @@ export function createPdfPageRenderState() {
                 || (
                     current.layerReadiness !== 'none'
                     && current.layerReadiness !== 'canvas-only'
+                    && current.layerReadiness !== 'failed'
                 )
             ) {
                 return false;
@@ -621,7 +622,7 @@ export function createPdfPageRenderState() {
                 && current.job === 'idle'
                 && (current.layerReadiness === 'none' || current.layerReadiness === 'canvas-only');
         },
-        failLayerHydration(pageNumber: TPageNumber, version: number, requestId: number) {
+        failLayerHydration(pageNumber: TPageNumber, version: number, requestId: number, outcome: 'canvas-only' | 'failed' = 'canvas-only') {
             const current = getSlot(pageNumber);
             if (
                 current.contentVersion !== version
@@ -631,7 +632,7 @@ export function createPdfPageRenderState() {
                 return false;
             }
             updateSlot(pageNumber, {
-                layerReadiness: 'canvas-only',
+                layerReadiness: outcome,
                 hydrationRequestId: null,
                 ...(current.job === 'rendering' && current.requestId === requestId ? {
                     job: 'idle' as const,
@@ -648,7 +649,7 @@ export function createPdfPageRenderState() {
                 pageNumber,
                 contentVersion: version,
                 hydrationRequestId: requestId,
-                outcome: 'failed',
+                outcome,
             });
             return true;
         },

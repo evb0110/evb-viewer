@@ -344,7 +344,12 @@ describe('useAppShellTabLifecycle', () => {
             return true;
         })});
         session.attachWorkspace('tab-1', workspace as IWorkspaceExpose);
+        const shape = Promise.withResolvers<null>();
         const open = session.runOpen({
+            pageShape: {
+                path: requireDocumentRef('/docs/dictionary.pdf'),
+                answer: shape.promise,
+            },
             kind: 'open',
             target: {
                 fileName: 'dictionary.pdf',
@@ -359,6 +364,7 @@ describe('useAppShellTabLifecycle', () => {
 
         await lifecycle.handleCloseTab('pane-1', 'tab-1');
 
+        shape.resolve(null);
         await expect(open).resolves.toBe(false);
         expect(session.snapshot.value.activeTransaction).toBeNull();
         expect(session.snapshot.value.phase).toBe('empty');

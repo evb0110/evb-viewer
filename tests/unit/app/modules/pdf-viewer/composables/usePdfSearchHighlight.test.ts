@@ -23,6 +23,39 @@ import { requirePageIndex } from '@contracts/pageNumbers';
 import { assembleSearchablePageText } from '@pdf-core';
 
 describe('usePdfSearchHighlight', () => {
+    it('bounds drifted visual matches to the supplied window and preserves a later page ordinal', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'alpha',
+            matches: Array.from({length: 500}, (_, index) => ({
+                pageMatchIndex: index + 500,
+                matchIndex: index + 500,
+                start: 6 + (index + 500) * 6,
+                end: 11 + (index + 500) * 6,
+            })),
+        };
+        const result = buildVisualMatchesWithCurrent(pageMatches, {
+            pageIndex: requirePageIndex(0),
+            pageMatchIndex: 999,
+            matchIndex: 999,
+            startOffset: 6000,
+            endOffset: 6005,
+        }, 'head ' + 'alpha '.repeat(50_000) + 'tail');
+        expect(result).toHaveLength(500);
+        expect(result[0]).toEqual({
+            start: 3005,
+            end: 3010,
+            isCurrent: false,
+        });
+        expect(result.at(-1)).toEqual({
+            start: 5999,
+            end: 6004,
+            isCurrent: true,
+        });
+        expect(result.filter(match => match.isCurrent)).toHaveLength(1);
+    });
+
     it('keeps backend identity instead of re-finding matches in the rendered layer', () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
@@ -128,11 +161,6 @@ describe('usePdfSearchHighlight', () => {
             {
                 start: 0,
                 end: 5,
-                isCurrent: false,
-            },
-            {
-                start: 6,
-                end: 11,
                 isCurrent: false,
             },
             {

@@ -1,6 +1,8 @@
 import type {
     IResolvedSearchMatchOptions,
+    TSearchResultOffset,
     IPdfSearchExcerpt,
+    ISearchIndexCoverage,
 } from '@contracts/search';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import type { IOcrWord } from '@contracts/shared';
@@ -22,14 +24,17 @@ export interface IDocumentSearchMatch {
 export interface IDocumentSearchProgress {
     processed: number;
     total: number;
+    coverage?: ISearchIndexCoverage;
 }
 
 export interface IDocumentSearchResponse {
     results: IDocumentSearchMatch[];
     truncated: boolean;
+    coverage?: ISearchIndexCoverage;
 }
 
 export interface IDocumentSearchRequest {
+    resultOffset?: TSearchResultOffset;
     query: string;
     matchOptions: IResolvedSearchMatchOptions;
     signal: AbortSignal;

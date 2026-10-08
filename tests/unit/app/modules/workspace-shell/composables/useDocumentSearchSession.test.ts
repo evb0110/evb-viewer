@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
+import {searchDocumentTextProvider} from '@app/modules/document-viewer/providers/documentSearch';
 import type {
     IDocumentSearchBackend,
     IDocumentSearchRequest,
@@ -48,7 +49,116 @@ function withSession<T>(factory: () => T) {
 }
 
 describe('useDocumentSearchSession', () => {
-    it('owns query, progress, result selection, and cyclic navigation', async () => {
+    it('preserves quoted inner spaces through the page-text backend', async () => {
+        const harness = withSession(() => useDocumentSearchSession({backend: {
+            minQueryLength: 2,
+            search: request => searchDocumentTextProvider({
+                ...request,
+                pageCount: 1,
+                provider: {getPageText: async () => 'before hello after'},
+            }),
+        }}));
+        harness.session.setQuery('  " hello "  ');
+        expect(await harness.session.run()).toBe(true);
+        expect(harness.session.submittedQuery.value).toBe(' hello ');
+        expect(harness.session.results.value).toMatchObject([{
+            startOffset: 6,
+            endOffset: 13,
+        }]);
+        harness.stop();
+    });
+
+    it('retains final source coverage and clears it on a query or revision change', async () => {
+        const revision = ref('first');
+        const coverage = {
+            pageCount: 4,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+        const deferred = createDeferred<IDocumentSearchResponse>();
+        const backend = {
+            minQueryLength: 2,
+            search: vi.fn().mockResolvedValueOnce({
+                results: [],
+                truncated: false,
+                coverage,
+            }).mockReturnValueOnce(deferred.promise),
+        };
+        const harness = withSession(() => useDocumentSearchSession({
+            backend,
+            documentRevision: revision,
+        }));
+        harness.session.setQuery('first');
+        await harness.session.run();
+        expect(harness.session.progress.value?.coverage).toEqual(coverage);
+        harness.session.setQuery('next');
+        const next = harness.session.run();
+        expect(harness.session.progress.value?.coverage).toBeUndefined();
+        revision.value = 'second';
+        deferred.resolve({
+            results: [],
+            truncated: false,
+            coverage,
+        });
+        expect(await next).toBe(false);
+        expect(harness.session.progress.value).toBeUndefined();
+        harness.stop();
+    });
+
+    it('continues within a page and reverse-wraps without retaining preceding windows', async () => {
+        let pending: ReturnType<typeof createDeferred<IDocumentSearchResponse>> | null = null;
+        const harness = withSession(() => useDocumentSearchSession({backend: {
+            minQueryLength: 2,
+            search: request => pending?.promise ?? searchDocumentTextProvider({
+                ...request,
+                pageCount: 2,
+                provider: {getPageText: async page => page === 1 ? 'valve '.repeat(560) : 'valve final'},
+            }),
+        }}));
+        const session = harness.session;
+        session.setQuery('valve');
+        await session.run();
+        session.select(499);
+        session.setQuery('unsubmitted draft');
+        pending = createDeferred<IDocumentSearchResponse>();
+        session.navigate('next');
+        session.cancel();
+        pending.resolve({
+            results: [],
+            truncated: false,
+        });
+        await Promise.resolve();
+        pending = null;
+        expect(session.results.value).toHaveLength(500);
+        expect(session.isTruncated.value).toBe(true);
+        expect(session.navigate('next')).toBe(true);
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value).toHaveLength(61);
+        expect(session.results.value[session.currentResultIndex.value]).toMatchObject({
+            matchIndex: 500,
+            pageMatchIndex: 500,
+        });
+        session.navigate('previous');
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value[session.currentResultIndex.value]?.matchIndex).toBe(499);
+        session.select(0);
+        session.navigate('previous');
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value).toHaveLength(500);
+        expect(session.results.value[session.currentResultIndex.value]).toMatchObject({
+            matchIndex: 560,
+            pageIndex: 1,
+        });
+        session.select(0);
+        session.navigate('previous');
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value[session.currentResultIndex.value]?.matchIndex).toBe(60);
+        harness.stop();
+    });
+
+    it('owns query, progress, result selection, and cyclic navigation' , async () => {
         const onNavigate = vi.fn();
         const search = vi.fn(async (request: IDocumentSearchRequest) => {
             request.onProgress?.({
@@ -60,7 +170,7 @@ describe('useDocumentSearchSession', () => {
                     createMatch(1, 0),
                     createMatch(3, 1),
                 ],
-                truncated: true,
+                truncated: false,
             };
         });
         const backend: IDocumentSearchBackend = {
@@ -82,7 +192,7 @@ describe('useDocumentSearchSession', () => {
             total: 4,
         });
         expect(harness.session.results.value).toHaveLength(2);
-        expect(harness.session.isTruncated.value).toBe(true);
+        expect(harness.session.isTruncated.value).toBe(false);
         expect(harness.session.currentResultIndex.value).toBe(0);
         expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({pageIndex: 1}), 0);
 

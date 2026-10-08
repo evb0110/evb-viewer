@@ -431,11 +431,9 @@ fn run_manifest_inner(
                     )
                     .map_err(|error| map_page_error(error.as_ref()))
                 })?;
-            // Publish the page's independent verdict immediately. Document
-            // reconciliation may revise it after the batch finishes, at which
-            // point PageComplete replaces this provisional result. Keeping the
-            // useful fields off PageAnalyzed forced every thumbnail to spin until
-            // the slowest page in a large document had finished.
+            // The same page plan backs previews before and after reconciliation.
+            write_json_atomic(&result.page_metadata_path, &result.metadata)
+                .map_err(|error| map_page_error(error.as_ref()))?;
             let mut progress = page_complete_progress(&result, index, total_pages);
             progress.stage = ProgressStage::PageAnalyzed;
             progress.output_paths = None;

@@ -55,6 +55,7 @@ import {
     getDjvuPageCount,
     getDjvuResolution,
 } from '@electron/features/djvu/main/metadata';
+import {detectDjvuHasText} from '@electron/features/djvu/main/textSearch';
 import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
     evaluateDjvuPdfConversionPolicy,
@@ -1057,7 +1058,7 @@ async function runDjvuConvertToPdf(
             const tempPdfPath = join(exportTempDir, `${conversionId}.convert.pdf`);
             const tempBookmarkedPdfPath = join(exportTempDir, `${conversionId}.bookmarks.pdf`);
             await assertDjvuExportDiskSpace(djvuPath, normalizedOutputPath);
-            const result = await runDjvuConversionJobWithSlot(jobId, job.signal, async () => {
+            return runDjvuConversionJobWithSlot(jobId, job.signal, async () => {
                 const strategy = resolveDjvuPdfExportStrategy(options.pdfStrategy);
                 const [
                     pageCount,
@@ -1124,17 +1125,18 @@ async function runDjvuConvertToPdf(
                 if (!convertResult.success) {
                     const conversionFailure = getDjvuFailureReceipt(convertResult);
                     const conversionExpected = getDjvuExpectedOutcome(convertResult);
-                    return {
-                        success: false,
-                        jobId,
-                        ...progressScope,
-                        error: convertResult.error ?? 'DjVu conversion failed',
+                    throw Object.assign(new Error(convertResult.error ?? 'DjVu conversion failed'), {
                         ...(conversionFailure !== undefined && conversionExpected === undefined
                             ? {failure: conversionFailure}
                             : {}),
                         ...(conversionExpected === undefined ? {} : {expected: conversionExpected}),
-                    };
+                    });
                 }
+                throwIfCanceled(job.signal);
+
+                const hasSourceText = strategy === 'compact-djvu-aware'
+                    && await runDjvuMetadataWithSlot(jobId, job.signal, () => detectDjvuHasText(djvuPath, job.signal))
+                        .catch(error => logger.warn(`[${jobId}] Source text notice probe failed: ${getErrorMessage(error)}`));
                 throwIfCanceled(job.signal);
 
                 const bookmarks = options.preserveBookmarks !== false
@@ -1192,37 +1194,9 @@ async function runDjvuConvertToPdf(
                     jobId,
                     ...progressScope,
                     ...(pageSizes ? {pageSizes} : {}),
+                    ...(hasSourceText ? {notice: 'source-text-not-preserved' as const} : {}),
                 };
             });
-            if (!result.success) {
-                const error = getOptionalResultError(result);
-                const canceled = job.signal.aborted
-                    || isDjvuCancellationError(error);
-                if (canceled) {
-                    throw job.signal.reason ?? createAbortError('DjVu conversion canceled');
-                }
-
-                const expected = getDjvuExpectedOutcome(result);
-                if (expected !== undefined) {
-                    return {
-                        success: false,
-                        jobId,
-                        ...progressScope,
-                        error: error ?? 'DjVu conversion failed',
-                        expected,
-                    };
-                }
-                const failure = getDjvuFailureReceipt(result)
-                    ?? logger.error(`[${jobId}] Conversion failed: ${error ?? 'DjVu conversion failed'}`, {code: 'MAIN_DJVU_EXPORT_FAILED'});
-                return {
-                    success: false,
-                    jobId,
-                    ...progressScope,
-                    error: error ?? 'DjVu conversion failed',
-                    ...(failure === undefined ? {} : {failure}),
-                };
-            }
-            return result;
         });
     } catch (error) {
         const canceled = job.signal.aborted || isDjvuCancellationError(error);
@@ -1237,7 +1211,7 @@ async function runDjvuConvertToPdf(
             };
         }
 
-        const expected = classifyDjvuConversionExpectedOutcome(error);
+        const expected = getDjvuExpectedOutcome(error) ?? classifyDjvuConversionExpectedOutcome(error);
         if (expected !== undefined) {
             logger.warn(`[${jobId}] DjVu conversion ended with an expected outcome: ${getErrorMessage(error)}`);
             return {
@@ -1255,14 +1229,13 @@ async function runDjvuConvertToPdf(
                 code: 'MAIN_DJVU_EXPORT_FAILED',
                 cause: error,
             });
-        const result = {
+        return {
             success: false,
             jobId,
             ...progressScope,
             error: errorMessage,
             ...(failure === undefined ? {} : {failure}),
         };
-        return result;
     } finally {
         activePdfWorkerByJobId.delete(jobId);
     }

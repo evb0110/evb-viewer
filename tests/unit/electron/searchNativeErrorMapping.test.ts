@@ -34,12 +34,13 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
     stdin?: AsyncIterable<string>;
     onStdout?: (chunk: string) => void;
 }) {
+    const result = (stdout: string) => ({
+        stdout,
+        stderr: '',
+        exitCode: 0,
+    });
     if (command === '/fake/pdfinfo') {
-        return {
-            stdout: `Pages: ${fake.pageTexts.size}\n`,
-            stderr: '',
-            exitCode: 0,
-        };
+        return result(`Pages: ${fake.pageTexts.size}\n`);
     }
     if (command === '/fake/pdftotext') {
         const firstPage = Number(args[args.indexOf('-f') + 1]);
@@ -58,22 +59,14 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         };
     }
     if (args[0] === 'stat') {
-        return {
-            stdout: JSON.stringify(fake.indexCoverage),
-            stderr: '',
-            exitCode: 0,
-        };
+        return result(JSON.stringify(fake.indexCoverage));
     }
     if (args[0] === 'search') {
-        return {
-            stdout: JSON.stringify({
-                results: [],
-                truncated: false,
-                coverage: fake.indexCoverage,
-            }),
-            stderr: '',
-            exitCode: 0,
-        };
+        return result(JSON.stringify({
+            results: [],
+            truncated: false,
+            coverage: fake.indexCoverage,
+        }));
     }
     if (fake.indexFailure) {
         throw fake.indexFailure;
@@ -191,7 +184,7 @@ describe('search index text budget', () => {
             release = resolve;
         });
 
-        const pages = streamPdfPageTexts('/doc.pdf')[Symbol.asyncIterator]();
+        const pages = streamPdfPageTexts(join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
         // The first page arrives while the worker is still reading the window.
         expect((await pages.next()).value).toEqual({
             pageNumber: 1,

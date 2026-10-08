@@ -12,10 +12,6 @@ import {
     hasPdfSignatureMarkersInPdfText,
     PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
-import {
-    createPdfjsDocumentInit,
-    getPdfjsLib,
-} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
@@ -105,6 +101,9 @@ export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfVali
 
     try {
         await yieldToBrowser();
+        const {
+            createPdfjsDocumentInit, getPdfjsLib,
+        } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
         const pdfjsLib = await getPdfjsLib();
         const loadingTask = pdfjsLib.getDocument(
             createPdfjsDocumentInit(pdfjsLib, data),

@@ -25,8 +25,26 @@ const buildGitShaDefine = {
     '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
     'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? ''),
 };
+// Bundle the existing pins for Node, whose module loader does not resolve the
+// manifest's TypeScript aliases. Reuse these archive identities without probing
+// or hashing the installed tools again at checkpoint creation.
+const runtimeManifest = await esbuild.build({
+    entryPoints: ['scripts/runtimeBinaryManifest.ts'],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    write: false,
+    tsconfig: 'tsconfig.base.json',
+});
+const {RUNTIME_BINARY_MANIFEST_ENTRIES} = await import(
+    `data:text/javascript;base64,${Buffer.from(runtimeManifest.outputFiles[0].text).toString('base64')}`,
+);
 const buildMetadataDefine = {
     ...buildGitShaDefine,
+    '__EVB_RUNTIME_ARCHIVE_IDS__': JSON.stringify(Object.fromEntries(RUNTIME_BINARY_MANIFEST_ENTRIES.map(entry => [
+        `${entry.familyId}-${entry.target.platformArch}`,
+        entry.archiveSha256,
+    ]))),
     '__EVB_NATIVE_BUILD_IDS__': JSON.stringify(computeNativeBuildIds(fileURLToPath(new URL('..', import.meta.url)))),
 };
 const mainSentryDefine = {

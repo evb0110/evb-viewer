@@ -14,7 +14,10 @@ import type {
 } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {toLegacyShapeAnnotation} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    AnnotationEntity,
+    IShapeEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { cloneShape } from '@app/modules/pdf-viewer/engine/shapes/cloneShape';
 import {
     buildShapeAnnotation,
@@ -87,9 +90,8 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
         y: number
     } | null = null;
 
-    function projectCanonicalShapes() {
-        const entities = annotationApplication.value.store.list({includeDeleted: true})
-            .filter((entity): entity is IShapeEntity => entity.kind === 'shape');
+    function projectCanonicalShapes(snapshotIncludingDeleted: readonly AnnotationEntity[]) {
+        const entities = snapshotIncludingDeleted.filter((entity): entity is IShapeEntity => entity.kind === 'shape');
         shapeEntities.value = entities;
         const liveIds = new Set(entities.filter(entity => !entity.deleted).map(entity => projectShape(entity).id));
         if (selectedShapeId.value && !liveIds.has(selectedShapeId.value)) {

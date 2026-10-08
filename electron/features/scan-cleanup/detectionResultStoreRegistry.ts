@@ -138,6 +138,15 @@ export function claimScanCleanupDetectionResultStore(
     };
 }
 
+/** Read the current owner's page evidence through the same validated lease. */
+export function claimCurrentScanCleanupDetectionResultStore(
+    ownerKey: string,
+    owner: Pick<IScanCleanupDetectionResultStoreLease, 'detectionSignature' | 'documentRevision' | 'ownerId' | 'sourcePdfPath'>,
+) {
+    const storeId = currentStoreByOwnerKey.get(ownerKey);
+    return storeId === undefined ? null : claimScanCleanupDetectionResultStore(storeId, owner);
+}
+
 /** Release a still-unclaimed store when its owning service is disposed. */
 export async function releaseScanCleanupDetectionResultStore(storeId: string) {
     const registered = registeredStores.get(storeId);

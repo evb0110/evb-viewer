@@ -17,6 +17,7 @@ import type {
     IPdfSearchResult,
     IResolvedSearchMatchOptions,
     ISearchMatchOptions,
+    TSearchResultOffset,
 } from '@contracts/search';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
@@ -27,32 +28,27 @@ import type { MaybeRefOrGetter } from 'vue';
 import {
     findSearchErrorEnvelope,
     PDF_SEARCH_MIN_QUERY_LENGTH,
+    SEARCH_RESULT_LIMIT,
 } from '@contracts/search';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
+import {
+    getDocumentSearchQueryError,
+    resolveDocumentSearchQuery,
+    type IDocumentSearchProgress,
+} from '@app/modules/document-viewer/public';
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
 
 interface IScheduledPdfSearch {
+    resultOffset?: TSearchResultOffset;
     runId: number;
     query: string;
     pdfPath: string;
     documentRevisionToken: TDocumentRevisionToken | null;
     pageCount?: number;
     options: IResolvedSearchMatchOptions;
-}
-
-/**
- * Unquoted UI queries retain the established trim behavior. Double quotes are an
- * explicit affordance for matching intentional leading or trailing whitespace.
- */
-function resolvePdfSearchQuery(query: string) {
-    const trimmed = query.trim();
-    if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-        return trimmed.slice(1, -1);
-    }
-    return trimmed;
 }
 
 function normalizeDocumentRevisionToken(token: TDocumentRevisionToken | null | undefined) {
@@ -92,13 +88,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const currentResultNavigationId = ref(0);
     const isSearching = ref(false);
     const searchError = ref<string | null>(null);
-    const searchProgress = ref<{
-        processed: number;
-        total: number;
-    } | undefined>(undefined);
+    const searchProgress = ref<IDocumentSearchProgress>();
     const isTruncated = ref(false);
     const wasSearchCanceled = ref(false);
     let searchRunId = 0;
+    let searchCommand: IScheduledPdfSearch | null = null;
     const scheduledResolvers = new Map<number, (applied: boolean) => void>();
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: TRequestId | null = null;
@@ -189,7 +183,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             progressCleanup();
             progressCleanup = null;
         }
-        searchProgress.value = undefined;
+        if (!searchProgress.value?.coverage) searchProgress.value = undefined;
     }
 
     function normalizeSearchError(error: unknown) {
@@ -281,6 +275,8 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         query: string,
         options: IResolvedSearchMatchOptions,
         searchId: string,
+        direction?: TSearchDirection,
+        targetMatchIndex?: number,
     ) {
         const normalizedResponse = normalizeSearchResponse(response, query, options, searchId);
         const previousCurrentResult = currentResult.value;
@@ -288,14 +284,21 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         results.value = normalizedResponse.results;
         pageMatches.value = normalizedResponse.pageMatches;
         isTruncated.value = response.truncated;
+        if (response.coverage) searchProgress.value = {
+            processed: response.coverage.pagesScanned,
+            total: response.coverage.pageCount,
+            coverage: response.coverage,
+        };
 
         if (normalizedResponse.results.length === 0) {
             currentResultIndex.value = -1;
             return;
         }
 
-        if (currentResultIndex.value < 0) {
-            currentResultIndex.value = 0;
+        if (direction || currentResultIndex.value < 0) {
+            currentResultIndex.value = targetMatchIndex === undefined
+                ? direction === 'previous' ? results.value.length - 1 : 0
+                : results.value.findIndex(match => match.matchIndex === targetMatchIndex);
             currentResultNavigationId.value += 1;
             return;
         }
@@ -340,22 +343,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return nextResults;
     }
 
-    async function runScheduledSearch(payload: IScheduledPdfSearch) {
+    async function runScheduledSearch(payload: IScheduledPdfSearch, resultOffset?: TSearchResultOffset, direction?: TSearchDirection, targetMatchIndex?: number) {
         const resolver = scheduledResolvers.get(payload.runId);
         scheduledResolvers.delete(payload.runId);
-        if (!resolver) {
-            return;
-        }
-
         try {
-            await performSearch(
-                payload.runId,
-                payload.query,
-                payload.pdfPath,
-                payload.documentRevisionToken,
-                payload.pageCount,
-                payload.options,
-            );
+            await performSearch(payload, resultOffset, direction, targetMatchIndex);
         } catch (error) {
             if (isCurrentSearchRun(payload.runId, payload.documentRevisionToken)) {
                 searchError.value = normalizeSearchError(error);
@@ -363,13 +355,14 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 pageMatches.value = new Map();
                 currentResultIndex.value = -1;
                 isTruncated.value = false;
+                searchProgress.value = undefined;
             }
             BrowserLogger.warn('pdf-search', 'Search failed', {
                 query: payload.query,
                 error,
             });
         } finally {
-            resolver(isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value);
+            resolver?.(isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value);
         }
     }
 
@@ -435,14 +428,10 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         isSearching.value = false;
     }
 
-    async function performSearch(
-        runId: number,
-        query: string,
-        pdfPath: string,
-        documentRevisionToken: TDocumentRevisionToken | null,
-        pageCount?: number,
-        options: IResolvedSearchMatchOptions = searchOptions.value,
-    ) {
+    async function performSearch(payload: IScheduledPdfSearch, resultOffset?: TSearchResultOffset, direction?: TSearchDirection, targetMatchIndex?: number) {
+        const {
+            runId, query, pdfPath, documentRevisionToken, pageCount, options,
+        } = payload;
         if (query.length === 0) {
             return;
         }
@@ -455,14 +444,17 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
 
         try {
             isSearching.value = true;
-            isTruncated.value = false;
             wasSearchCanceled.value = false;
             searchError.value = null;
             submittedSearchQuery.value = query;
-            results.value = [];
-            pageMatches.value = new Map();
-            currentResultIndex.value = -1;
+            if (!direction) {
+                isTruncated.value = false;
+                results.value = [];
+                pageMatches.value = new Map();
+                currentResultIndex.value = -1;
+            }
             cleanupProgressListener();
+            if (!direction) searchProgress.value = undefined;
 
             // Call backend search API
             const api = getSearchCapability();
@@ -478,15 +470,17 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                     return;
                 }
                 searchProgress.value = {
+                    ...(direction ? searchProgress.value : {}),
                     processed: progress.processed,
                     total: progress.total,
+                    ...(progress.coverage ? {coverage: progress.coverage} : {}),
                 };
                 if (progress.canceled) {
                     wasSearchCanceled.value = true;
                     isSearching.value = false;
                     return;
                 }
-                if (progress.results) {
+                if (progress.results && !direction) {
                     streamedResults = applySearchProgressResults(
                         streamedResults,
                         progress.results,
@@ -495,6 +489,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                     applySearchResponse({
                         results: streamedResults,
                         truncated: Boolean(progress.truncated),
+                        ...(progress.coverage ? {coverage: progress.coverage} : {}),
                     }, query, options, searchId);
                 }
             });
@@ -502,6 +497,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             const requestOptions: IPdfSearchRequestOptions = {
                 requestId,
                 ...options,
+                ...(resultOffset === undefined ? {} : {resultOffset}),
             };
             if (documentRevisionToken !== null) {
                 requestOptions.documentRevision = documentRevisionToken;
@@ -526,9 +522,14 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 pageMatches.value = new Map();
                 currentResultIndex.value = -1;
                 isTruncated.value = false;
+                searchProgress.value = undefined;
                 return;
             }
-            applySearchResponse(response, query, options, searchId);
+            searchCommand = {
+                ...payload,
+                ...(resultOffset === undefined ? {} : {resultOffset}),
+            };
+            applySearchResponse(response, query, options, searchId, direction, targetMatchIndex);
             isTruncated.value = response.truncated;
         } finally {
             const isActiveRequest = activeRequestId === requestId;
@@ -549,13 +550,14 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         options: ISearchMatchOptions = searchOptions.value,
         documentRevisionToken?: TDocumentRevisionToken | null,
     ) {
+        searchCommand = null;
         searchQuery.value = query;
         searchOptions.value = {
             matchCase: Boolean(options.matchCase),
             wholeWord: Boolean(options.wholeWord),
             useRegex: Boolean(options.useRegex),
         };
-        const resolvedQuery = resolvePdfSearchQuery(query);
+        const resolvedQuery = resolveDocumentSearchQuery(query);
 
         if (!resolvedQuery) {
             clearSearch();
@@ -572,11 +574,13 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             return false;
         }
         cleanupProgressListener();
+        searchProgress.value = undefined;
 
-        if (resolvedQuery.length < PDF_SEARCH_MIN_QUERY_LENGTH) {
+        const queryError = getDocumentSearchQueryError(resolvedQuery, searchOptions.value);
+        if (queryError || resolvedQuery.length < PDF_SEARCH_MIN_QUERY_LENGTH) {
             isSearching.value = false;
             isTruncated.value = false;
-            searchError.value = null;
+            searchError.value = queryError ? t(queryError.key, {count: queryError.count}) : null;
             submittedSearchQuery.value = resolvedQuery;
             results.value = [];
             pageMatches.value = new Map();
@@ -621,19 +625,27 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         };
     }
 
-    function goToResult(direction: TSearchDirection) {
-        if (results.value.length === 0) {
+    async function goToResult(direction: TSearchDirection) {
+        if (isSearching.value || !results.value.length || !searchCommand
+            || !isCurrentSearchRun(searchRunId, searchCommand.documentRevisionToken)) return;
+        const nextIndex = currentResultIndex.value + (direction === 'next' ? 1 : -1);
+        if (nextIndex >= 0 && nextIndex < results.value.length) {
+            setResultIndex(nextIndex);
             return;
         }
-
-        if (direction === 'next') {
-            currentResultIndex.value = (currentResultIndex.value + 1) % results.value.length;
-        } else {
-            currentResultIndex.value = currentResultIndex.value <= 0
-                ? results.value.length - 1
-                : currentResultIndex.value - 1;
+        const firstOrdinal = results.value[0]!.matchIndex;
+        if (!isTruncated.value && (searchCommand.resultOffset ?? 0) === 0) {
+            setResultIndex(direction === 'next' ? 0 : results.value.length - 1);
+            return;
         }
-        currentResultNavigationId.value += 1;
+        const resultOffset = direction === 'next'
+            ? isTruncated.value ? results.value.at(-1)!.matchIndex + 1 : 0
+            : firstOrdinal > 0 ? Math.max(0, firstOrdinal - SEARCH_RESULT_LIMIT) : 'last';
+        await runScheduledSearch({
+            ...searchCommand,
+            runId: ++searchRunId,
+        }, resultOffset, direction,
+        direction === 'previous' && firstOrdinal > 0 ? firstOrdinal - 1 : undefined);
     }
 
     function setResultIndex(index: number) {
@@ -646,10 +658,12 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     function clearSearch() {
+        searchCommand = null;
         searchRunId++;
         cancelScheduledSearch();
         void cancelActiveSearch();
         cleanupProgressListener();
+        searchProgress.value = undefined;
         isSearching.value = false;
         searchQuery.value = '';
         submittedSearchQuery.value = '';

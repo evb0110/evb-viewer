@@ -123,7 +123,10 @@ const renderKey = ref(0);
 
 const snapshot = computed(() => documentSession.snapshot.value);
 const documentView = computed(() => documentSession.getView(tabId));
-const isOpening = computed(() => snapshot.value.phase === 'opening');
+const isOpening = computed(() => {
+    const transaction = snapshot.value.activeTransaction;
+    return transaction !== null && transaction.kind !== 'close';
+});
 // Start belongs to a tab without a document on screen, including one whose
 // open just failed. A tab that owns a document, is opening or closing one, or
 // is about to receive a transferred document does not show it.

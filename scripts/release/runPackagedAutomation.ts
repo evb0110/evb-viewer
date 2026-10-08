@@ -228,12 +228,9 @@ export async function startOwnedPackagedProcess(options: {
         throw error;
     }
     console.info(`Packaged automation runner PID ${process.pid}; child PID ${String(child.pid)}`);
-    const exited = new Promise<number>((resolveExit, reject) => {
-        child.once('error', reject);
-        child.once('exit', (code, signal) => {
-            console.info(`Packaged automation exited: code=${String(code)} signal=${String(signal)}`);
-            resolveExit(code ?? (signal ? 1 : 0));
-        });
+    const exited = once(child, 'exit').then(result => {
+        console.info(`Packaged automation exited: code=${String(result[0])} signal=${String(result[1])}`);
+        return Number(result[0] ?? (result[1] ? 1 : 0));
     });
     let finalStop: Promise<TOwnedHelperCleanup> | undefined;
     return {
@@ -272,7 +269,7 @@ async function run() {
     if (!values.executable || !values['work-directory']) {
         throw new Error('Usage: runPackagedAutomation.ts --executable <path> --work-directory <task directory> -- <Electron arguments>');
     }
-    const owned = await startOwnedPackagedProcess({
+    const starting = startOwnedPackagedProcess({
         executablePath: values.executable,
         workDirectory: values['work-directory'],
         args: positionals,
@@ -280,20 +277,22 @@ async function run() {
     let stopRequested = false;
     const stop = () => {
         stopRequested = true;
-        void owned.stop().catch(error => console.error(error));
+        void starting.then(owned => owned.stop()).catch(error => console.error(error));
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
     try {
-        process.exitCode = await owned.exited;
+        const owned = await starting;
+        process.exitCode = await owned.exited.finally(async () => {
+            const cleanup = await owned.stop();
+            if (cleanup === 'root-exited-helpers-unverified') {
+                console.warn('The packaged main process exited before cleanup; on Windows its reparented helpers cannot be verified.');
+            }
+        });
+        if (stopRequested) process.exitCode = 0;
     } finally {
         process.off('SIGINT', stop);
         process.off('SIGTERM', stop);
-        const cleanup = await owned.stop();
-        if (cleanup === 'root-exited-helpers-unverified') {
-            console.warn('The packaged main process exited before cleanup; on Windows its reparented helpers cannot be verified.');
-        }
-        if (stopRequested) process.exitCode = 0;
     }
 }
 

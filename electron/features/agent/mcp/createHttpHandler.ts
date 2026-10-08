@@ -109,20 +109,22 @@ function withRequestAbortSignal(
 
 function readRequestBody(request: IncomingMessage, signal: AbortSignal) {
     return new Promise<string>((resolve, reject) => {
-        let body = '';
+        const chunks: Buffer[] = [];
+        let bodyBytes = 0;
         const handleAbort = () => reject(signal.reason instanceof Error
             ? signal.reason
             : new Error('MCP HTTP request was aborted.'));
 
-        request.setEncoding('utf8');
-        request.on('data', (chunk: string) => {
-            body += chunk;
-            if (body.length > MAX_JSON_RPC_BODY_BYTES) {
+        request.on('data', (chunk: Buffer) => {
+            if (bodyBytes + chunk.length > MAX_JSON_RPC_BODY_BYTES) {
                 reject(new Error('JSON-RPC request body is too large.'));
                 request.destroy();
+                return;
             }
+            chunks.push(chunk);
+            bodyBytes += chunk.length;
         });
-        request.on('end', () => resolve(body));
+        request.on('end', () => resolve(Buffer.concat(chunks, bodyBytes).toString('utf8')));
         request.on('error', reject);
         signal.addEventListener('abort', handleAbort, {once: true});
     });

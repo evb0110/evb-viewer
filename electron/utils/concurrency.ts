@@ -34,13 +34,9 @@ export function getOcrConcurrency(targetCount: number) {
     return clamp(defaultConcurrency, 1, safeTargetCount);
 }
 
-export function getTesseractThreadLimit(concurrency: number) {
+export function getTesseractThreadLimit(grantedCpuTokens: number) {
     const configured = parsePositiveInt(process.env.OCR_TESSERACT_THREADS);
-    if (configured) {
-        return configured;
-    }
-    const cpuCount = getCpuCount();
-    return Math.max(1, Math.floor(cpuCount / Math.max(1, concurrency)));
+    return Math.max(1, Math.min(configured ?? grantedCpuTokens, Math.floor(grantedCpuTokens)));
 }
 
 export async function forEachConcurrent<T>(

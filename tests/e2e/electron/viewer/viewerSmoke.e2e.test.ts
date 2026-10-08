@@ -1,4 +1,5 @@
 import {execFile} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {promisify} from 'node:util';
 import {
     activateMenuItemAsUser,
@@ -50,11 +51,13 @@ import {
     fixtureBookmark,
     NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
     readPdfAnnotationSummary,
+    readPdfTextAnnotationRecords,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     clickToolbarButtonWhenEnabled,
     clickVisibleToolbarButton,
@@ -71,7 +74,12 @@ import {
     waitForViewerInteractive,
     triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import { openNewPane } from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
+    activatePaneByTab,
+    openNewPane,
+    splitActiveTabFromTabMenu,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {countWarmHighlightPixels} from '@tests/e2e/electron/helpers/searchHighlightPaint';
 import {
     describeToolbarPageIndicator,
     readToolbarPageIndicator,
@@ -96,6 +104,10 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
+import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -3256,6 +3268,743 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
     }, 90_000);
 
+    it('resizes split panes with keyboard input and exposes search toggle state', async () => {
+        const evidence = resolve('.devkit/lane-a-rux5', `input-${Date.now()}`);
+        await mkdir(evidence, {recursive: true});
+        const observations: unknown[] = [];
+        const problems: string[] = [];
+        let session = sessionFixture.getSession();
+        onTestFinished(async () => {
+            await session.page.screenshot({path: join(evidence, 'final.png')});
+            await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+        });
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let number = 1; number <= 8; number += 1) {
+            const page = pdf.addPage([
+                612,
+                792,
+            ]);
+            page.drawText(`Page ${number}`, {
+                x: 50,
+                y: 730,
+                font,
+                size: 18,
+            });
+            if (number === 4) page.drawText('Valve valve valves v.lve', {
+                x: 50,
+                y: 680,
+                font,
+                size: 16,
+            });
+            for (let line = 0; line < 24; line += 1) {
+                page.drawText(`Reading line ${line + 1}`, {
+                    x: 50,
+                    y: 640 - line * 22,
+                    font,
+                    size: 14,
+                });
+            }
+        }
+        const fixturePath = join(evidence, 'keyboard-splits.pdf');
+        await writeFile(fixturePath, await pdf.save());
+        const toggleStates: Array<string | null> = [];
+        for (const uiScale of [
+            'default',
+            'compact',
+            'large',
+        ] as const) {
+            for (const direction of [
+                'right',
+                'down',
+            ] as const) {
+                session = await sessionFixture.restart({clean: true});
+                session.page.on('pageerror', error => problems.push(String(error)));
+                session.page.on('console', message => {
+                    if ([
+                        'warning',
+                        'error',
+                    ].includes(message.type())) problems.push(message.text());
+                });
+                await session.page.evaluate(async (scale: 'default' | 'compact' | 'large') => {
+                    const target = window as IE2EWindow;
+                    await target.electronAPI!.settings.save({uiScale: scale});
+                }, uiScale);
+                await session.page.reload({waitUntil: 'domcontentloaded'});
+                await session.command('windowResize', [
+                    900,
+                    700,
+                ]);
+                await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                if (uiScale === 'default' && direction === 'right') {
+                    await ensureSidebarOpen(session.page);
+                    await openDocumentSidebarTab(session.page, 'Search');
+                    const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+                    const search = async (query: string, count: number) => {
+                        const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
+                        await clickAsUser(session.page, input!);
+                        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+                        await session.page.keyboard.down(modifier);
+                        await session.page.keyboard.press('KeyA');
+                        await session.page.keyboard.up(modifier);
+                        await session.page.keyboard.type(query);
+                        await session.page.keyboard.press('Enter');
+                        await waitForFunctionInPage(session.page, (root: string, expected: number) => (
+                            document.querySelectorAll(`${root} .document-search-result`).length === expected
+                            && !document.querySelector(`${root} .document-search-results-spinner`)
+                        ), {timeout: 15_000}, sidebar, count);
+                    };
+                    await search('valve', 3);
+                    for (const [
+                        label,
+                        count,
+                    ] of [
+                            [
+                                'Match case',
+                                2,
+                            ],
+                            [
+                                'Whole word',
+                                1,
+                            ],
+                        ] as const) {
+                        const selector = `${sidebar} button[aria-label="${label}"]`;
+                        toggleStates.push(await session.page.$eval(selector, button => button.getAttribute('aria-pressed')));
+                        await clickAsUser(session.page, selector);
+                        await search('valve', count);
+                        toggleStates.push(await session.page.$eval(selector, button => button.getAttribute('aria-pressed')));
+                    }
+                    await search('v.lve', 1);
+                    const regex = `${sidebar} button[aria-label="Use regular expression"]`;
+                    toggleStates.push(await session.page.$eval(regex, button => button.getAttribute('aria-pressed')));
+                    await clickAsUser(session.page, regex);
+                    await search('v.lve', 2);
+                    toggleStates.push(await session.page.$eval(regex, button => button.getAttribute('aria-pressed')));
+                    observations.push({toggleStates});
+                    await clickToolbarButtonWhenEnabled(session.page, 'Toggle Sidebar');
+                }
+                await requireWorkspaceCommand(session.page, 'handleFitWidth');
+                await goToPageViaToolbar(session.page, 4);
+                await nudgeActiveDocumentViewportWithWheel(session, 'pdf', 220);
+                const paneId = await session.page.$eval('.editor-pane.is-active', pane => (pane as HTMLElement).dataset.editorPaneId!);
+                const userAnchor = await readSplitResizeViewportAnchor(session, paneId, 'pdf');
+                await openNewPane(session.page, direction);
+                expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', userAnchor), userAnchor);
+                if (direction === 'down') await session.command('windowResize', [
+                    900,
+                    1000,
+                ]);
+                const anchor = await readSplitResizeViewportAnchor(session, paneId, 'pdf');
+                const sash = '.editor-sash';
+                const readGeometry = () => session.page.$eval(sash, element => {
+                    const parent = element.parentElement!;
+                    const first = parent.querySelector<HTMLElement>('.editor-split-pane-first')!;
+                    const rect = first.getBoundingClientRect();
+                    return {
+                        width: rect.width,
+                        height: rect.height,
+                        value: element.getAttribute('aria-valuenow'),
+                        min: element.getAttribute('aria-valuemin'),
+                        max: element.getAttribute('aria-valuemax'),
+                        label: element.getAttribute('aria-label'),
+                        controls: element.getAttribute('aria-controls'),
+                        controlsExists: Boolean(document.getElementById(element.getAttribute('aria-controls') ?? '')),
+                        focused: document.activeElement === element,
+                    };
+                });
+                await clickAsUser(session.page, sash);
+                const before = await readGeometry();
+                await session.page.keyboard.press(direction === 'right' ? 'ArrowRight' : 'ArrowDown');
+                await waitForAnimationFrames(session.page, 2);
+                const after = await readGeometry();
+                observations.push({
+                    uiScale,
+                    direction,
+                    before,
+                    after,
+                    anchor,
+                });
+                expect(direction === 'right' ? after.width : after.height).toBeGreaterThan(direction === 'right' ? before.width : before.height);
+                expect(after.focused).toBe(true);
+                expect(after.label).toBeTruthy();
+                expect(after.controlsExists).toBe(true);
+                expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
+                await session.page.keyboard.press('Home');
+                await waitForAnimationFrames(session.page, 2);
+                const minimum = await readGeometry();
+                expect(Number(minimum.value)).toBe(Number(minimum.min));
+                await session.page.keyboard.press('End');
+                await waitForAnimationFrames(session.page, 2);
+                const maximum = await readGeometry();
+                expect(Number(maximum.value)).toBe(Number(maximum.max));
+                expect(direction === 'right' ? maximum.width : maximum.height).toBeGreaterThan(direction === 'right' ? minimum.width : minimum.height);
+                expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
+                await session.page.keyboard.press('Tab');
+                await session.page.keyboard.down('Shift');
+                await session.page.keyboard.press('Tab');
+                await session.page.keyboard.up('Shift');
+                expect((await readGeometry()).focused).toBe(true);
+                if (uiScale === 'default' && direction === 'right') {
+                    const handle = await session.page.$(sash);
+                    const rect = await handle!.boundingBox();
+                    expect(rect).not.toBeNull();
+                    const x = rect!.x + rect!.width / 2;
+                    const y = rect!.y + rect!.height / 2;
+                    await session.page.mouse.move(x, y);
+                    await session.page.mouse.down();
+                    await session.page.keyboard.press('Tab');
+                    await session.page.mouse.move(x - 30, y);
+                    await session.page.mouse.up();
+                    await waitForAnimationFrames(session.page, 2);
+                    const dragged = await readGeometry();
+                    observations.push({
+                        pointerAfterBlur: dragged,
+                        pointerBeforeBlur: maximum,
+                    });
+                    expect(dragged.width).toBeLessThan(maximum.width);
+                    expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
+                    await session.page.keyboard.down('Shift');
+                    await session.page.keyboard.press('Tab');
+                    await session.page.keyboard.up('Shift');
+                    expect((await readGeometry()).focused).toBe(true);
+                }
+                const cdp = await session.page.createCDPSession();
+                const tree = await cdp.send('Accessibility.getFullAXTree');
+                expect(tree.nodes.some(node => node.role?.value === 'separator' && node.name?.value === after.label && node.value?.value !== undefined)).toBe(true);
+                await writeFile(join(evidence, `${uiScale}-${direction}-accessibility.json`), JSON.stringify(tree, null, 2));
+                await cdp.detach();
+                await session.page.screenshot({path: join(evidence, `${uiScale}-${direction}.png`)});
+                observations.push({
+                    uiScale,
+                    direction,
+                    minimum,
+                    maximum,
+                });
+            }
+        }
+        expect(toggleStates).toEqual([
+            'false',
+            'true',
+            'false',
+            'true',
+            'false',
+            'true',
+        ]);
+        expect(problems).toEqual([]);
+    }, 240_000);
+
+    it('reaches later search matches through bounded next and previous windows', async () => {
+        const session = await sessionFixture.restart({clean: true});
+        const evidence = resolve('.devkit/lane-a-1020', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let number = 1; number <= 80; number++) {
+            const page = pdf.addPage([
+                612,
+                792,
+            ]);
+            const lines = number === 1
+                ? Array.from({length: 70}, (_, row) => `Inspection ${row + 1}: valve valve valve valve valve valve valve valve`)
+                : [`PLANT MANUAL PAGE ${number}${[
+                    64,
+                    80,
+                ].includes(number) ? ` valve LATER_DISTINCTIVE_${number}` : ''}`];
+            lines.forEach((line, row) => page.drawText(line, {
+                x: 40,
+                y: 752 - row * 9.7,
+                size: 8,
+                font,
+            }));
+        }
+        const fixturePath = createFixturePath('search-continuation.pdf');
+        await writeFile(fixturePath, await pdf.save());
+        await copyFile(fixturePath, join(evidence, 'fixture.pdf'));
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.type('valve');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const panel = document.querySelector(`${root} .document-search-results`);
+            return panel?.querySelector('.document-search-results-header-summary')?.textContent?.includes('500')
+                && !panel.querySelector('.document-search-results-spinner');
+        }, {timeout: 15_000}, sidebar);
+        const heap = await session.page.createCDPSession();
+        onTestFinished(() => heap.detach());
+        const samples: unknown[] = [];
+        const inspect = async (ordinal: number, pageNumber: number, text: string) => {
+            const pageOrdinal = pageNumber === 1 ? ordinal + 1 : 1;
+            await waitForFunctionInPage(session.page, (root: string, number: number, match: number) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                const row = panel?.querySelector<HTMLElement>('.document-search-result.is-active');
+                return Number(row?.dataset.pageNumber) === number
+                    && row?.querySelector('.document-search-result-match')?.textContent === `Match ${match}`
+                    && !panel?.querySelector('.document-search-results-spinner');
+            }, {timeout: 15_000}, sidebar, pageNumber, pageOrdinal).catch(async error => {
+                await session.page.screenshot({path: join(evidence, `unreachable-${ordinal}.png`)});
+                await writeFile(join(evidence, 'failure.json'), JSON.stringify({
+                    ordinal,
+                    pageNumber,
+                    pageOrdinal,
+                    rendered: await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent),
+                    problems,
+                }, null, 2));
+                throw error;
+            });
+            const snapshot = await session.page.evaluate((root: string) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                const row = panel?.querySelector<HTMLElement>('.document-search-result.is-active');
+                return {
+                    pageNumber: Number(row?.dataset.pageNumber),
+                    text: row?.textContent,
+                    retained: Number.parseInt(panel?.querySelector('.document-search-results-header-summary')?.textContent ?? '', 10),
+                    rows: panel?.querySelectorAll('.document-search-result').length,
+                };
+            }, sidebar);
+            samples.push({
+                ordinal,
+                ...snapshot,
+                heap: await heap.send('Runtime.getHeapUsage'),
+            });
+            expect(snapshot.pageNumber).toBe(pageNumber);
+            expect(snapshot.text).toContain(text);
+            expect(snapshot.retained).toBeLessThanOrEqual(500);
+            expect(snapshot.rows).toBeLessThan(30);
+        };
+        await inspect(0, 1, 'Inspection 1');
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
+        for (let ordinal = 2; ordinal <= 561; ordinal++) {
+            await session.page.keyboard.press('Space');
+            if (ordinal === 500) await inspect(500, 1, 'Inspection 63');
+            if (ordinal === 560) await inspect(560, 64, 'LATER_DISTINCTIVE_64');
+        }
+        await inspect(561, 80, 'LATER_DISTINCTIVE_80');
+        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .pdf-search-highlight--current')?.textContent === 'valve', {timeout: 15_000});
+        await session.page.screenshot({path: join(evidence, 'later-match.png')});
+        await session.page.keyboard.press('Space');
+        await inspect(0, 1, 'Inspection 1');
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Previous match"]`);
+        await inspect(561, 80, 'LATER_DISTINCTIVE_80');
+        for (let ordinal = 560; ordinal >= 61; ordinal--) {
+            await session.page.keyboard.press('Space');
+            if (ordinal === 499) await inspect(499, 1, 'Inspection 63');
+            if (ordinal === 61) await inspect(61, 1, 'Inspection 8');
+        }
+        await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+            samples,
+            problems,
+        }, null, 2));
+        expect(problems).toEqual([]);
+    }, 120_000);
+
+    it('bounds painted search matches when native text offsets drift', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-search-drift-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-r08', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const page = pdf.addPage([
+            612,
+            792,
+        ]);
+        const lines = ['PLANT MAINTENANCE MANUAL'];
+        for (let row = 1; row <= 70; row++) lines.push(`Inspection ${row}: valve valve valve valve valve valve valve valve`);
+        lines.forEach((line, index) => page.drawText(line, {
+            x: 40,
+            y: 752 - index * 9.7,
+            size: 8,
+            font,
+        }));
+        const fixturePath = createFixturePath('drifted-search-window.pdf');
+        await writeFile(fixturePath, await pdf.save());
+        await copyFile(fixturePath, join(evidence, 'fixture.pdf'));
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        const search = async (query: string) => {
+            await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+            await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.press('A');
+            await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string, query: string) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                return Boolean(panel && !panel.querySelector('.document-search-results-spinner')
+                    && panel.querySelector('.document-search-results-header-summary')?.textContent?.includes(query));
+            }, {timeout: 15_000}, sidebar, query);
+        };
+        await search('MAINTENANCE');
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
+        const index = await readFile(indexPath);
+        const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
+        const binary = resolveNativeToolPath({
+            binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
+            crateName: 'pdf-search',
+            currentDir: process.cwd(),
+            isPackaged: false,
+        });
+        if (!binary) throw new Error('Native PDF search is unavailable');
+        // Controlled extraction drift, using the existing native index boundary.
+        await runNativeToolCommand(binary, [
+            'index',
+            '--out',
+            indexPath,
+            '--document-revision',
+            revision,
+            '--page-count',
+            '1',
+        ], {stdin: (async function* () {yield `${JSON.stringify({
+            pageNumber: 1,
+            text: 'X' + lines.join('\n'),
+        })}\n`;})()});
+        await search('valve');
+        await waitForFunctionInPage(session.page, () => document.querySelectorAll('.editor-pane.is-active .pdf-search-highlight').length >= 500, {timeout: 15_000});
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const painted = await session.page.$$eval('.editor-pane.is-active .pdf-search-highlight', nodes => nodes.map(node => ({
+            text: node.textContent,
+            current: node.classList.contains('pdf-search-highlight--current'),
+        })));
+        const summary = await session.page.$eval(`${sidebar} .document-search-results-header-summary`, node => node.textContent);
+        await session.page.screenshot({path: join(evidence, 'bounded-search.png')});
+        await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+            painted,
+            summary,
+            problems,
+        }, null, 2));
+        expect(summary).toContain('500');
+        expect(painted).toHaveLength(500);
+        expect(painted.every(match => match.text === 'valve')).toBe(true);
+        expect(painted.filter(match => match.current)).toHaveLength(1);
+        expect(problems).toEqual([]);
+    }, 90_000);
+
+    it('keeps CSS search highlight pixels when focus clears the other linked view', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-css-linked-search-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-css-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        await session.page.evaluate(() => localStorage.setItem('pdfHighlightMode', 'css'));
+        const fixturePath = await createMultiPageTextFixturePdf('css-linked-search.pdf', 2);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await splitActiveTabFromTabMenu(session.page, 'right');
+        const paneIds = await session.page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId!));
+        expect(paneIds).toHaveLength(2);
+        const searchInPane = async (paneId: string) => {
+            await activatePaneByTab(session.page, paneId);
+            await ensureSidebarOpen(session.page);
+            await openDocumentSidebarTab(session.page, 'Search');
+            const root = `.editor-pane[data-editor-pane-id="${paneId}"]`;
+            await clickAsUser(session.page, `${root} .document-search-bar input`);
+            await session.page.keyboard.type('Page 1 sample text');
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (selector: string) => document.querySelector(`${selector} .document-search-result`)?.textContent?.includes('Page 1 sample text'), {timeout: 15_000}, root);
+        };
+        for (const paneId of paneIds) await searchInPane(paneId);
+        const capture = async (label: string) => {
+            const geometry = await session.page.evaluate((ids: string[]) => ({
+                viewport: {
+                    width: innerWidth,
+                    height: innerHeight,
+                },
+                registry: [...CSS.highlights].map(([
+                    name,
+                    ranges,
+                ]) => ({
+                    name,
+                    ranges: [...ranges].map(range => {
+                        const element = range.startContainer.parentElement;
+                        return {
+                            pane: element?.closest<HTMLElement>('.editor-pane')?.dataset.editorPaneId,
+                            connected: element?.isConnected,
+                            text: range.toString(),
+                        };
+                    }),
+                })),
+                scripts: [...document.scripts].map(script => script.src).filter(Boolean),
+                panes: ids.map(id => {
+                    const pane = document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${id}"]`)!;
+                    const layer = pane.querySelector<HTMLElement>('.page_container[data-page="1"] .text-layer, .page_container[data-page="1"] .textLayer')!;
+                    const rect = layer.getBoundingClientRect();
+                    const paneRect = pane.getBoundingClientRect();
+                    return {
+                        id,
+                        rect: {
+                            left: Math.max(rect.left, paneRect.left),
+                            right: Math.min(rect.right, paneRect.right),
+                            top: Math.max(rect.top, paneRect.top),
+                            bottom: Math.min(rect.bottom, paneRect.bottom),
+                        },
+                    };
+                }),
+            }), paneIds);
+            const screenshot = await session.page.screenshot({path: join(evidence, `${label}.png`)});
+            const pixels = await Promise.all(geometry.panes.map(pane => countWarmHighlightPixels(screenshot, pane.rect, geometry.viewport, true)));
+            return {
+                label,
+                geometry,
+                pixels,
+            };
+        };
+        // Wait for the actual CSS range publication and a painted frame, not just result rows.
+        await waitForFunctionInPage(session.page, () => (CSS.highlights.get('pdf-search-current-match')?.size ?? 0) > 0, {timeout: 15_000});
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const secondActive = await capture('second-query-active');
+        await activatePaneByTab(session.page, paneIds[0]!);
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const firstActive = await capture('first-query-active');
+        await clickAsUser(session.page, '.editor-pane.is-active .app-search-input-clear');
+        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .document-search-result') === null, {timeout: 15_000});
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const cleared = await capture('first-query-cleared');
+        await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+            secondActive,
+            firstActive,
+            cleared,
+            problems,
+        }, null, 2));
+        expect(secondActive.pixels[0]).toBe(0);
+        expect(secondActive.pixels[1]).toBeGreaterThan(0);
+        expect(firstActive.pixels[0]).toBeGreaterThan(0);
+        expect(firstActive.pixels[1]).toBe(0);
+        expect(cleared.pixels).toEqual([
+            0,
+            0,
+        ]);
+        expect(problems).toEqual([]);
+    }, 90_000);
+
+    it('shared search explains an invalid regex and accepts a corrected query', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-query-error-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const fixturePath = await createMultiPageTextFixturePdf('query-error.pdf', 3);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Use regular expression"]`);
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.type('[');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const text = document.querySelector(`${root} .document-search-results`)?.textContent ?? '';
+            return text.includes('Search unavailable') || text.includes('Check your regular expression');
+        }, {timeout: 15_000}, sidebar);
+        const errorText = await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent);
+        await session.page.screenshot({path: join(evidence, 'invalid-query.png')});
+        await writeFile(join(evidence, 'invalid-query.json'), JSON.stringify({
+            errorText,
+            problems,
+        }, null, 2));
+        expect(errorText).toContain('Check your regular expression');
+        expect(errorText).not.toContain('Search unavailable');
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await session.page.keyboard.press('A');
+        await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await session.page.keyboard.type('Page 3 sample text');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => document.querySelector(`${root} .document-search-result`)?.textContent?.includes('Page 3 sample text'), {timeout: 15_000}, sidebar);
+        await clickAsUser(session.page, `${sidebar} .document-search-result`);
+        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .page_container[data-page="3"] .pdf-search-highlight--current') !== null, {timeout: 15_000});
+        await session.page.screenshot({path: join(evidence, 'corrected-query.png')});
+        expect(problems).toEqual([]);
+    }, 90_000);
+
+    it('shared search retains native partial-index coverage in results and cached searches', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-search-coverage-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const fixturePath = await createMultiPageTextFixturePdf('coverage.pdf', 4);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        async function search(query: string) {
+            await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+            await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.press('A');
+            await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string, query: string) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                return Boolean(panel && !panel.querySelector('.document-search-results-spinner')
+                    && (query === 'missing'
+                        ? panel.textContent?.includes('No ')
+                        : panel.querySelector('.document-search-result')?.textContent?.includes('Page 1 sample text')));
+            }, {timeout: 15_000}, sidebar, query);
+        }
+        await search('Page 1 sample text');
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
+        const index = await readFile(indexPath);
+        const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
+        const binary = resolveNativeToolPath({
+            binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
+            crateName: 'pdf-search',
+            currentDir: process.cwd(),
+            isPackaged: false,
+        });
+        if (!binary) throw new Error('Native PDF search is unavailable');
+        // Controlled admission setup: the same native over-budget page marker
+        // exercised by searchNativeErrorMapping, rather than a giant PDF.
+        const partial = await runNativeToolCommand(binary, [
+            'index',
+            '--out',
+            indexPath,
+            '--document-revision',
+            revision,
+            '--page-count',
+            '4',
+        ], {stdin: (async function* () {
+            yield `${JSON.stringify({
+                pageNumber: 1,
+                text: 'Page 1 sample text',
+            })}\n`;
+            yield `${JSON.stringify({
+                pageNumber: 2,
+                overBudget: true,
+            })}\n`;
+        })()});
+        await writeFile(join(evidence, 'native-index.json'), partial.stdout);
+        const coverageText = 'Only 1 of 4 pages were searched because the text index reached its size limit.';
+        for (const query of [
+            'sample',
+            'missing',
+            'sample',
+        ]) {
+            await search(query);
+            const text = await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent);
+            await writeFile(join(evidence, `query-${query}.json`), JSON.stringify({
+                query,
+                text,
+            }));
+            await session.page.screenshot({path: join(evidence, `query-${query}.png`)});
+            expect(text).toContain(coverageText);
+            if (query === 'missing') expect(text).toContain('No matches in the pages searched');
+            else expect(text).toContain('Page 1 sample text');
+        }
+        expect(problems).toEqual([]);
+    }, 90_000);
+
+    it('shared search preserves quoted inner spaces on a native DjVu source', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-quoted-source-${Date.now()}`,
+        });
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const fixturePath = createFixturePath('quoted-source.djvu');
+        const scriptPath = createFixturePath('quoted-source.dsed');
+        await copyFile(resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu'), fixturePath);
+        await writeFile(scriptPath, 'select 1\nset-txt\n(page 0 0 512 512 (line 40 300 470 360 (word 40 300 150 360 "before") (word 170 300 280 360 "hello") (word 300 300 410 360 "after")))\n.\n');
+        await execFileAsync(getDjvuNativeToolPaths().djvused, [
+            fixturePath,
+            '-f',
+            scriptPath,
+            '-s',
+        ]);
+        await openDjvuInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickAsUser(session.page, '.editor-pane.is-active .djvu-banner-close');
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.type('" hello "');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const panel = document.querySelector(`${root} .document-search-results`);
+            return Boolean(panel && !panel.querySelector('.document-search-results-spinner')
+                && (panel.querySelector('.document-search-results-header-summary') || panel.textContent?.includes('No results found')));
+        }, {timeout: 15_000}, sidebar);
+        const results = await session.page.$$eval(`${sidebar} .document-search-result`, nodes => nodes.map(node => node.textContent));
+        const evidence = resolve('.devkit/lane-a-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        await session.page.screenshot({path: join(evidence, 'quoted-source.png')});
+        await writeFile(join(evidence, 'quoted-source.json'), JSON.stringify(results));
+        expect(results).toHaveLength(1);
+        expect(results[0]).toContain('hello');
+        expect(await session.page.$eval(`${sidebar} .document-search-results-header-summary`, node => node.textContent)).toContain('for “ hello ”');
+        expect(await session.page.$eval(`${sidebar} .document-search-result-highlight`, node => node.textContent)).toBe(' hello ');
+        expect(problems).toEqual([]);
+    }, 90_000);
+
     it('exposes named sidebar tabs and navigates from a real search result', async () => {
         let session = sessionFixture.getSession();
 
@@ -4807,6 +5556,52 @@ describe('Electron E2E - Viewer Smoke', () => {
 // print dialog, so these run under their own session instead of the shared one.
 describe('Electron E2E - Document Output', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-document-output-${Date.now()}`});
+
+    it('hands off the first dirty path-backed print without saving the original', async () => {
+        const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);
+        const sourceChecksum = createHash('sha256').update(await readFile(fixturePath)).digest('hex');
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-dirty-print-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        // The existing native-dialog test mode retains the actual path handoff
+        // artifact. It does not exercise a physical printer or its OS dialog.
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-dirty-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const marker = 'First dirty print contains accepted text';
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const submit = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await clickAsUser(session.page, submit!);
+        await expect.poll(async () => {
+            if (!existsSync(printedPath)) return [];
+            return readPdfTextAnnotationRecords(printedPath);
+        }, {timeout: 30_000}).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+        expect(createHash('sha256').update(await readFile(fixturePath)).digest('hex')).toBe(sourceChecksum);
+        await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+    }, 120_000);
 
     it('prints a typed page range of a PDF through the print dialog', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-range-${Date.now()}.pdf`, 4);

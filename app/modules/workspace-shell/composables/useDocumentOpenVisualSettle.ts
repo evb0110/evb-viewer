@@ -14,8 +14,9 @@ interface IUseDocumentOpenVisualSettleOptions {
 
 /**
  * The viewer's view of an open: `documentOpenAccepted` once the document's
- * pages are loaded, `documentOpenSettled` once its first page is on screen.
- * An error settles both. The workspace reports these to the tab controller.
+ * pages are loaded, `documentOpenSettled` once its first page is on screen,
+ * painted or showing why it could not be. An open error settles both. The
+ * workspace reports these to the tab controller.
  */
 export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettleOptions) => {
     const committedInitialVisualIdentity = shallowRef<{
@@ -33,11 +34,19 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             viewport,
         ]) => {
             const identity = surface.identity;
+            // A page that could not be drawn is told on screen, with its
+            // Retry; waiting for its pixels would leave the open unsettled.
+            const pageErrorShown = viewport.lifecycle === 'failed'
+                && viewport.visual.kind === 'page'
+                && viewport.visual.presentation === 'error'
+                && viewport.visual.generation === viewport.generation;
             if (
                 identity === null
-                || surface.phase !== 'ready'
-                || surface.presentation !== 'committed'
-                || viewport.lifecycle !== 'ready'
+                || !pageErrorShown && (
+                    surface.phase !== 'ready'
+                    || surface.presentation !== 'committed'
+                    || viewport.lifecycle !== 'ready'
+                )
             ) {
                 return;
             }

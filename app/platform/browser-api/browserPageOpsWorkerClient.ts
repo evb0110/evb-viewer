@@ -4,8 +4,8 @@ import type {
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
-} from '@app/platform/browser-api/browserPageOpsWorker.types';
-import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPageOpsWorker.types';
+} from '@contracts/browserPageOpsWorker';
+import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@contracts/browserPageOpsWorker';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -17,6 +17,9 @@ import {browserAnnotationParseIsolation} from '@app/platform/browser-api/browser
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
+import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
@@ -118,14 +121,6 @@ function buildWorkerRequestWithTransfers(
 }
 
 
-function decodePageOpsWorkerResult<K extends TBrowserPageOpsWorkerRequestType>(
-    type: K,
-    data: unknown,
-): IBrowserPageOpsWorkerResultMap[K] | null {
-    const result = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], data, {abortEarly: true});
-    return result.success ? result.output as IBrowserPageOpsWorkerResultMap[K] : null;
-}
-
 export function canUseBrowserPageOpsWorker() {
     return canUseBrowserWorker();
 }
@@ -213,12 +208,12 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
                 if (settled) {
                     return false;
                 }
-                const decoded = decodePageOpsWorkerResult(type, value);
-                if (!decoded) {
+                const decoded = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], value, {abortEarly: true});
+                if (!decoded.success) {
                     return false;
                 }
                 finish();
-                resolve(decoded);
+                resolve(decoded.output as IBrowserPageOpsWorkerResultMap[K]);
                 return true;
             },
             reject: error => rejectRequest(reportWorkerFailure(error)),
@@ -257,6 +252,31 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     });
 }
 
+function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
+    return type === 'saveMutations' || type === 'decrypt' || type === 'printLayout';
+}
+
+async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerRequestType>(
+    type: K,
+    payload: IBrowserPageOpsWorkerRequestMap[K],
+    signal?: AbortSignal,
+): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    const data = (payload as IBrowserPageOpsWorkerRequestMap['decrypt']).data;
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+    if (data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
+        throw new BrowserPageOpsWorkerUnavailableError('Browser page operation exceeds the direct fallback byte budget');
+    }
+    await yieldToBrowser();
+    const result = await tryRunBrowserPageOpsWithWasm(type, payload);
+    await yieldToBrowser();
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+    return result as IBrowserPageOpsWorkerResultMap[K];
+}
+
 async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
@@ -265,6 +285,16 @@ async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOps
     const releaseAdmission = await browserAnnotationParseIsolation.acquire(signal);
     const client = createBrowserPageOpsWorkerClient();
     try {
+        if (isCpuPageOperation(type)) {
+            try {
+                client.getWorker();
+            } catch (error) {
+                if (!(error instanceof BrowserPageOpsWorkerUnavailableError) || signal?.aborted) {
+                    throw error;
+                }
+                return await runBrowserPageOpsWithoutWorker(type, payload, signal);
+            }
+        }
         return await runBrowserPageOpsWorkerRequestWithClient(client, type, payload, {
             ...(signal ? {signal} : {}),
             preserveInputOwnership: true,
@@ -281,6 +311,17 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
     payload: IBrowserPageOpsWorkerRequestMap[K],
     options: IRunBrowserPageOpsWorkerRequestOptions = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    if (isCpuPageOperation(type)) {
+        if (canUseBrowserPageOpsWorker()) {
+            return runDedicatedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+        }
+        const releaseAdmission = await browserAnnotationParseIsolation.acquire(options.signal);
+        try {
+            return await runBrowserPageOpsWithoutWorker(type, payload, options.signal);
+        } finally {
+            releaseAdmission();
+        }
+    }
     if (options.dedicated) {
         return runDedicatedBrowserPageOpsWorkerRequest(type, payload, options.signal);
     }

@@ -72,6 +72,7 @@ interface IPdfViewportWork {
 interface IViewportAuthorityDependencies {
     getDocumentRevision(): number;
     getGeometryRevision(): number;
+    resolveIndicatorPage?(anchor: IPdfSemanticAnchor, previousPage: number): number;
     isIntentCurrent?(intent: IPdfViewportIntent): boolean;
     shouldStageNavigationVisual?(intent: IPdfViewportIntent): boolean;
     reportNavigation?(
@@ -156,7 +157,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 ? intent.navigation.target.page
                 : null);
     });
-    const currentPage = computed(() => committedAnchor.value?.page ?? 1);
+    const currentPage = ref(1);
     let interactionEpoch = 0;
     let controller: AbortController | null = null;
     const terminal = new Map<string, 'settled' | 'cancelled'>();
@@ -257,19 +258,24 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         finish(intent, 'cancelled');
     }
 
+    function commitAnchor(anchor: IPdfSemanticAnchor, page = deps.resolveIndicatorPage?.(anchor, currentPage.value) ?? anchor.page) {
+        committedAnchor.value = anchor;
+        currentPage.value = page;
+    }
+
     function commitPosition(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
         applied: ReturnType<IViewportAuthorityDependencies['apply']>,
     ) {
-        committedAnchor.value = commit.anchor;
+        commitAnchor(commit.anchor, intent.navigation || intent.kind === 'document-restore' ? commit.anchor.page : undefined);
         const positionCommit: IPdfViewportPositionCommit = Object.freeze({
             intentId: intent.id,
             intentKind: intent.kind,
             documentRevision: intent.documentRevision,
             geometryRevision: deps.getGeometryRevision(),
             interactionEpoch: intent.interactionEpoch,
-            page: commit.anchor.page,
+            page: currentPage.value,
             left: applied?.left ?? commit.left,
             top: applied?.top ?? commit.top,
             ...(intent.navigationTicket ? {navigationTicket: intent.navigationTicket} : {}),
@@ -424,7 +430,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     function observeUserScroll(anchor: IPdfSemanticAnchor) {
         interactionEpoch += 1;
         cancelActive();
-        committedAnchor.value = anchor;
+        commitAnchor(anchor);
         activeIntent.value = null;
         phase.value = 'idle';
     }
@@ -444,13 +450,14 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             anchor,
             ...position
         } = input;
+        if (anchor) {
+            commitAnchor(anchor, input.intentKind === 'relayout' ? undefined : input.page);
+        }
         const commit = Object.freeze({
             ...position,
+            page: anchor ? currentPage.value : input.page,
             interactionEpoch,
         });
-        if (anchor) {
-            committedAnchor.value = anchor;
-        }
         deps.onPositionCommitted?.(commit);
         return commit;
     }
@@ -466,7 +473,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         activeIntent: readonly(activeIntent),
         committedAnchor: readonly(committedAnchor),
         pendingTargetPage,
-        currentPage,
+        currentPage: readonly(currentPage),
         submit,
         commitSettledPosition,
         observeUserScroll,

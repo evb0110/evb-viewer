@@ -1,3 +1,5 @@
+import type * as TNativeRunCommandModule from '@electron/native-tools/runNativeCommand';
+import type {IRunCommandOptions} from '@electron/native-tools/runNativeCommand';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
@@ -7,6 +9,7 @@ import {
     vi,
 } from 'vitest';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
@@ -176,5 +179,51 @@ describe('DjVu native streamed text search', () => {
 
         streamOutput('(page 0 0 1000 2000 "")\n(page 0 0 1000 2000 "")');
         await expect(detectDjvuHasText('/library/empty.djvu')).resolves.toBe(false);
+    });
+
+    it('streams all 5010 empty pages without treating a redundant output capture as unreadable text', async () => {
+        const {runNativeCommand} = await vi.importActual<typeof TNativeRunCommandModule>(
+            '@electron/native-tools/runNativeCommand',
+        );
+        mocks.runNativeCommand.mockImplementation((_command: string, _args: string[], options: IRunCommandOptions) =>
+            runNativeCommand(process.execPath, [
+                '-e',
+                'process.stdout.write(\'(page 0 0 100 100 "")\\n\'.repeat(5010))',
+            ], options));
+
+        await expect(detectDjvuHasText('/library/empty.djvu')).resolves.toBe(false);
+    });
+
+    it('detects the first nonempty zone without waiting for the rest of the page or book', async () => {
+        streamOutput('(page 0 0 100 100 (line 0 0 100 100 (word 0 0 100 100 "Found")', 11);
+        await expect(detectDjvuHasText('/library/book.djvu')).resolves.toBe(true);
+    });
+
+    it('keeps unproven termination visible after finding text rather than reporting a settled positive probe', async () => {
+        const unproven = markUnprovenNativeTermination(abortError(), 'DjVu reader still owns its source alias');
+        mocks.runNativeCommand.mockImplementation(async (_command: string, _args: string[], options: IRunOptions) => {
+            options.onStdout?.('(page 0 0 100 100 "Available source text")');
+            throw unproven;
+        });
+
+        await expect(detectDjvuHasText('/library/book.djvu')).rejects.toBe(unproven);
+    });
+
+    it('does not let a positive probe override governing cancellation', async () => {
+        const controller = new AbortController();
+        mocks.runNativeCommand.mockImplementation(async (_command: string, _args: string[], options: IRunOptions) => {
+            options.onStdout?.('(page 0 0 100 100 "Available source text")');
+            controller.abort();
+            throw abortError();
+        });
+
+        await expect(detectDjvuHasText('/library/book.djvu', controller.signal)).rejects.toMatchObject({name: 'AbortError'});
+    });
+
+    it('rejects unreadable or malformed source text rather than treating it as known empty', async () => {
+        mocks.runNativeCommand.mockRejectedValueOnce(new Error('DjVu source is unreadable'));
+        await expect(detectDjvuHasText('/library/book.djvu')).rejects.toThrow('DjVu source is unreadable');
+        streamOutput('(page 0 0 100 100 "Incomplete');
+        await expect(detectDjvuHasText('/library/book.djvu')).rejects.toThrow('Malformed or incomplete DjVu text output');
     });
 });

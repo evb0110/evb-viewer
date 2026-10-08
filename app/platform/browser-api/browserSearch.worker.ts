@@ -6,7 +6,7 @@ import {
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import { getErrorMessage } from '@app/utils/error';
 import {
-    iteratePdfSearchMatches,
+    matchPdfSearchPageWindow,
     SearchRegexLimitError,
     validateSearchQuery,
 } from '@pdf-core/pdfSearchCore';
@@ -18,28 +18,17 @@ function handleMatchPageTextRequest(
     request: IBrowserSearchWorkerRequest,
 ) {
     const {
-        text, query, options, maxMatches, budgetMs,
+        text, query, options, maxMatches, budgetMs, resultOffset,
     } = request.payload;
     validateSearchQuery(query, options);
 
     const startedAtMs = Date.now();
 
-    const matches = [];
-    let truncated = false;
-    for (const match of iteratePdfSearchMatches(text, query, {
-        ...options,
-        ...(budgetMs === undefined ? {} : {deadlineAtMs: startedAtMs + budgetMs}),
-    })) {
-        if (matches.length >= maxMatches) {
-            truncated = true;
-            break;
-        }
-        matches.push(match);
-    }
-
     return {
-        matches,
-        truncated,
+        ...matchPdfSearchPageWindow(text, query, {
+            ...options,
+            ...(budgetMs === undefined ? {} : {deadlineAtMs: startedAtMs + budgetMs}),
+        }, maxMatches, resultOffset),
         matchingMs: Date.now() - startedAtMs,
     };
 }

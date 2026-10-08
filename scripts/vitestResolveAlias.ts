@@ -22,6 +22,10 @@ export const vitestResolveAlias = {
     '@scripts': resolve(projectRoot, 'scripts'),
     '@server': resolve(projectRoot, 'server'),
     '@landing': resolve(projectRoot, 'landing'),
+    // Imported landing components keep their i18n aliases without redirecting
+    // the desktop application's general Nuxt `~` alias.
+    '~/i18n': resolve(projectRoot, 'landing/app/i18n'),
+    '~/types/i18nComposer': resolve(projectRoot, 'landing/app/types/i18nComposer.ts'),
     '@tests': resolve(projectRoot, 'tests'),
     '@root-package': resolve(projectRoot, 'package.json'),
     electron: resolve(projectRoot, 'tests/mocks/electron.ts'),

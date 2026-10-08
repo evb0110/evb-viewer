@@ -275,7 +275,7 @@ export function scanCleanupPreviewLifecycle(
     const detectionDependencies: IScanCleanupDetectionOwnerDependencies = dependencies;
     const rawRasterRetention = scanCleanupRasterRetention(dependencies);
     const detection = scanCleanupDetectionOwner(detectionDependencies, rawRasterRetention);
-    const rendering = scanCleanupPreviewRenderingOwner(dependencies, rawRasterRetention);
+    const rendering = scanCleanupPreviewRenderingOwner(dependencies, rawRasterRetention, detection.resolvePreviewPagePlan);
     interface IWatchedSender {
         sender: IScanCleanupDetectionSubscriber;
         handleGone: () => void;

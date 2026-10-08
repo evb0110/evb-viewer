@@ -107,7 +107,7 @@ export function mountAnnotationCommentsList({
         activeCommentStableKey: activeIndex === null
             ? null
             : String(annotationIdForSummary(comments[activeIndex]!)),
-        comments,
+        comments: [...comments],
         status: 'ready' as const,
     });
     const events: IAnnotationCommentsListHarnessEvents = {
@@ -161,7 +161,7 @@ export function mountAnnotationCommentsList({
         host,
         unmount,
         async setComments(nextComments: readonly IAnnotationCommentSummary[]) {
-            viewProps.comments = nextComments;
+            viewProps.comments = [...nextComments];
             await nextTick();
         },
         async scrollTo(offsetPx: number) {

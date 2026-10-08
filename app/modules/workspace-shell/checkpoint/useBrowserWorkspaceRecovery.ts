@@ -23,6 +23,7 @@ import { getBrowserWindowRecoveryOwnerId } from '@app/platform/browserWindowTabs
 import type { TDocumentRef } from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
 import type { TTabId } from '@contracts/windowTabs';
+import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
 import {
     createBrowserDocumentLiveLease,
     releaseBrowserDocumentLiveLease,
@@ -48,7 +49,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     let activeOwnerId: string | null = null;
     let generation: number | null = null;
     let liveLeaseGeneration: number | null = null;
-    let liveLeaseDependencies: Array<{ref: TDocumentRef}> = [];
+    const liveDocumentDependencies = () => Object.values(options.documentSessionsByTabId.value).flatMap(({snapshot}) => [
+        snapshot.value.identity.originalPath,
+        snapshot.value.identity.workingCopyPath,
+    ].flatMap(ref => ref ? [{ref}] : []));
     let fenced = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -58,7 +62,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     let persistedCheckpointRevision = -1;
     let attemptedCheckpointRevision = -1;
     let retryNotBefore = 0;
-    let previousTabSignatures = new Map<string, string>();
+    let previousContentSignatures = new Map<string, string>();
     let observedSignature: IWorkspaceCheckpointChangeSignature | null = null;
     const tabMutationRevisions = new Map<string, number>();
     const persistedTabMutationRevisions = new Map<string, number>();
@@ -106,27 +110,20 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
             if (outcome.saved) {
                 generation = outcome.generation;
-                if (liveLeaseGeneration !== null || liveLeaseDependencies.length > 0) {
+                if (liveLeaseGeneration !== null || liveDocumentDependencies().length > 0) {
                     try {
-                        // A null generation means the lease was reclaimed or
-                        // never published. Re-acquiring is what keeps a
-                        // quiescent window protected, since nothing else
-                        // publishes a lease until the next recovery save.
+                        // Acquire missing leases from the current document identities.
                         const liveLease = liveLeaseGeneration === null
-                            ? await createBrowserDocumentLiveLease(ownerId, liveLeaseDependencies)
+                            ? await createBrowserDocumentLiveLease(ownerId, liveDocumentDependencies())
                             : await saveBrowserDocumentLiveLease(
                                 ownerId,
                                 liveLeaseGeneration,
                                 'active',
-                                liveLeaseDependencies,
+                                liveDocumentDependencies(),
                             );
                         liveLeaseGeneration = liveLease.generation;
                     } catch (error) {
-                        // Maintenance reclaims the lease of an owner that looks
-                        // abandoned. Forget the generation so the next attempt
-                        // re-acquires; keeping the stale one would fail every
-                        // future write and leave this window's documents
-                        // unprotected without ever saying so.
+                        // Forget the failed generation so the next heartbeat can reacquire the lease.
                         liveLeaseGeneration = null;
                         BrowserLogger.warn('workspace-recovery', 'Browser document live lease was reclaimed; re-acquiring', error);
                     }
@@ -152,11 +149,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         }
     }
 
-    function hasDirtyTabs() {
-        return dirtyTabIds().size > 0;
-    }
-
     async function cleanupSnapshots(refs: Iterable<string>, retainedRefs = new Set<string>()) {
+        liveDocumentDependencies().forEach(({ref}) => retainedRefs.add(ref));
         await Promise.allSettled(Array.from(refs, async (ref) => {
             if (!retainedRefs.has(ref)) {
                 await browserDocumentStore.cleanupDetachedDocument(ref);
@@ -180,14 +174,31 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function recordCheckpointMutation(signature: IWorkspaceCheckpointChangeSignature) {
+        const contentSignatures = new Map([...signature.tabSignatures.keys()].map((tabId) => {
+            const session = options.documentSessionsByTabId.value[tabId];
+            let recoverySignature: readonly unknown[] | null = null;
+            try {
+                recoverySignature = session?.getView(tabId)?.mountedWorkspace.value?.getWorkspaceDocumentRecoveryChangeSignature?.() ?? null;
+            } catch {
+                // The checkpoint builder reports rejected document captures.
+            }
+            return [
+                tabId,
+                JSON.stringify([
+                    session?.snapshot.value.identity ?? null,
+                    session?.snapshot.value.dirty ?? false,
+                    recoverySignature,
+                ]),
+            ] as const;
+        }));
         const dirtyIds = dirtyTabIds();
-        const changedDirtyTabs = [...signature.tabSignatures]
+        const changedDirtyTabs = [...contentSignatures]
             .filter(([
                 tabId,
                 tabSignature,
-            ]) => dirtyIds.has(tabId) && previousTabSignatures.get(tabId) !== tabSignature)
+            ]) => dirtyIds.has(tabId) && previousContentSignatures.get(tabId) !== tabSignature)
             .map(([tabId]) => tabId);
-        previousTabSignatures = new Map(signature.tabSignatures);
+        previousContentSignatures = contentSignatures;
         markMutation(changedDirtyTabs);
     }
 
@@ -272,7 +283,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     // Keep the generation so the next drain can retry release.
                 }
             }
-            liveLeaseDependencies = [];
             persistedCheckpointRevision = Math.max(
                 persistedCheckpointRevision,
                 capturedCheckpointRevision,
@@ -340,16 +350,29 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                             ]
                                 .find(view => view?.mountedWorkspace.value)
                             : null;
-                        bytes = await mountedView?.mountedWorkspace.value?.createRecoverySnapshotBytes();
+                        const drafts = tab.annotationRecovery?.payload.drafts ?? [];
+                        bytes = await mountedView?.mountedWorkspace.value?.createRecoverySnapshotBytes(drafts.length > 0 ? tab.annotationRecovery : undefined);
+                        // Native snapshots already contain canonical edits. Only
+                        // drafts need the captured payload and unchanged base.
+                        if (drafts.length === 0) delete tab.annotationRecovery;
                     } catch (error) {
-                        BrowserLogger.warn(
-                            'workspace-recovery',
-                            `Failed to refresh recovery snapshot for dirty tab ${tab.tabId}`,
-                            error,
-                        );
+                        if (capturedCheckpointRevision === checkpointRevision) {
+                            BrowserLogger.warn(
+                                'workspace-recovery',
+                                `Failed to refresh recovery snapshot for dirty tab ${tab.tabId}`,
+                                error,
+                            );
+                        }
                     }
                 }
                 if (!bytes) {
+                    // Save or reopen can supersede this capture while it waits
+                    // for the document lease. The existing pending revision
+                    // captures the current owner; discard this old checkpoint.
+                    if (capturedCheckpointRevision !== checkpointRevision) {
+                        await cleanupSnapshots(createdRefs);
+                        return;
+                    }
                     if (!retained?.workingCopyRef) {
                         BrowserLogger.warn(
                             'workspace-recovery',
@@ -383,6 +406,13 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     },
                 );
                 createdRefs.push(snapshotRef);
+                if (tab.annotationRecovery) {
+                    tab.annotationRecovery = {
+                        ...tab.annotationRecovery,
+                        workingCopyRef: snapshotRef,
+                        workingByteRevision: (await browserDocumentStore.getDocumentRevision(snapshotRef)).token,
+                    };
+                }
                 replacements.set(tab.tabId, snapshotRef);
                 refreshedTabIds.add(tab.tabId);
                 if (session) documentCopies.set(session, {
@@ -391,12 +421,12 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 });
             }
 
-            const recoveryTabs = checkpoint.tabs.flatMap((tab) => {
+            const recoveryTabs = checkpoint.tabs.flatMap<IWorkspaceCheckpointTab>((tab) => {
                 if (unavailableRecoveryTabIds.has(tab.tabId)) {
                     return [];
                 }
                 const snapshotRef = replacements.get(tab.tabId);
-                if (snapshotRef) {
+                if (snapshotRef && refreshedTabIds.has(tab.tabId)) {
                     return [{
                         ...tab,
                         sourceRef: tab.sourceRef ?? snapshotRef,
@@ -407,11 +437,20 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         requiresSaveAsOnFirstSave: true,
                     }];
                 }
-                const retained = retainedRecoveryTabs.get(tab.tabId);
+                const retained = retainedRecoveryTabs.get(tab.tabId)
+                    ?? [...retainedRecoveryTabs.values()].find(candidate => candidate.workingCopyRef === snapshotRef);
                 if (tab.isDirty && retained?.workingCopyRef) {
+                    // Keep document identity and drafts bound to the retained
+                    // bytes, including when a newer content capture failed.
                     return [{
                         ...retained,
                         paneId: tab.paneId,
+                        currentPage: tab.currentPage,
+                        zoom: tab.zoom,
+                        zoomMode: tab.zoomMode,
+                        continuousScroll: tab.continuousScroll,
+                        viewMode: tab.viewMode,
+                        viewRotation: tab.viewRotation,
                     }];
                 }
                 return [{
@@ -462,11 +501,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 await cleanupSnapshots(createdRefs);
                 return;
             }
-            const liveDependencies = recoveryCheckpoint.tabs.flatMap(tab => [
-                ...(tab.workingCopyRef ? [{ref: tab.workingCopyRef}] : []),
-                ...(tab.sourceRef ? [{ref: tab.sourceRef}] : []),
-            ]);
-            liveLeaseDependencies = liveDependencies;
+            const liveDependencies = liveDocumentDependencies();
             try {
                 const liveLease = liveLeaseGeneration === null
                     ? await createBrowserDocumentLiveLease(ownerId, liveDependencies)
@@ -571,28 +606,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     const targetWindow = typeof window === 'undefined' ? undefined : window;
     const targetDocument = typeof document === 'undefined' ? undefined : document;
     useEventListener(targetWindow, 'pagehide', drain);
-    for (const eventName of [
-        'change',
-        'input',
-        'keyup',
-        'pointerup',
-    ] as const) {
-        useEventListener(targetWindow, eventName, () => {
-            if (!options.enabled.value) {
-                return;
-            }
-            if (!hasDirtyTabs()) {
-                return;
-            }
-            const activeTabId = options.activeTabId.value;
-            const dirtyIds = dirtyTabIds();
-            if (activeTabId && !dirtyIds.has(activeTabId)) {
-                return;
-            }
-            markMutation(activeTabId ? [activeTabId] : dirtyIds);
-            schedule();
-        });
-    }
     useEventListener(targetDocument, 'visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             drain();

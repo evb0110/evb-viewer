@@ -435,16 +435,13 @@ async function runAgentActionTool(
         } else if (id === 'annotation.list') {
             resourceKind = 'annotations';
         }
-        const resource = await readMcpResource({
-            windowId,
-            uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
-        }, options);
-        const content = Array.isArray(resource.contents) ? resource.contents[0] : null;
-        if (isRecord(content) && typeof content.text === 'string') {
-            const parsed: unknown = JSON.parse(content.text);
-            return parsed;
-        }
-        return resource;
+        return options.runCommand({
+            name: 'read_resource',
+            arguments: {
+                tabId: tab.tabId,
+                uri: `evb://document/${encodeURIComponent(tab.tabId)}/${resourceKind}`,
+            },
+        }, windowId);
     }
 
     if (id === 'view.activate_tab') {
@@ -652,13 +649,13 @@ function createDocumentResources(tab: IAgentTabSnapshot) {
             tab,
             'toc',
             'TOC',
-            'Document TOC/bookmarks with titles and one-based page numbers when present.',
+            'Legacy bookmark URI: version 2 returns the toc tree (treeField: toc), flat paths, summary, and issues. Use /bookmarks for its bookmarks field.',
         ),
         createDocumentJsonResource(
             tab,
             'bookmarks',
             'bookmarks',
-            'Editable nested bookmark tree with zero-based paths and one-based page numbers.',
+            'Editable nested bookmark tree: version 2 returns bookmarks (treeField: bookmarks), flat paths, summary, and issues. The legacy /toc URI returns toc.',
         ),
         createDocumentJsonResource(
             tab,

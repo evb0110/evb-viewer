@@ -130,8 +130,8 @@ it('keeps a markup preview in the sidebar when text extraction temporarily retur
         opacity: 0.4,
     });
     const mounted = mountAnnotationCommentsList({comments: application.listCommentSummaries()});
-    const unsubscribe = application.store.subscribe(() => {
-        void mounted.setComments(application.listCommentSummaries());
+    const unsubscribe = application.store.subscribe((snapshotIncludingDeleted) => {
+        void mounted.setComments(application.listCommentSummaries(snapshotIncludingDeleted));
     });
 
     try {
@@ -285,8 +285,8 @@ it('presents an image as an image without inventing a color or an empty note', a
 function noteWindows(application = applicationWith(note())) {
     const comments = ref([...application.listCommentSummaries()]);
     const syncReady = ref(true);
-    const unsubscribe = application.store.subscribe(() => {
-        comments.value = [...application.listCommentSummaries()];
+    const unsubscribe = application.store.subscribe((snapshotIncludingDeleted) => {
+        comments.value = [...application.listCommentSummaries(snapshotIncludingDeleted)];
     });
     const scope = effectScope();
     const windows = scope.run(() => useAnnotationNoteWindows({
@@ -402,8 +402,8 @@ it('preserves a dirty window through an empty loading projection without a canon
 it('does not reopen a deleted window when its pending save settles', async () => {
     const application = applicationWith(note());
     const comments = ref([...application.listCommentSummaries()]);
-    const unsubscribe = application.store.subscribe(() => {
-        comments.value = [...application.listCommentSummaries()];
+    const unsubscribe = application.store.subscribe((snapshotIncludingDeleted) => {
+        comments.value = [...application.listCommentSummaries(snapshotIncludingDeleted)];
     });
     const scope = effectScope();
     let settle!: (value: boolean) => void;

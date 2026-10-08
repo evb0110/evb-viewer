@@ -990,7 +990,7 @@ function mountPreviewZoomHarness(options: {
         manualZones: options.manualZonesRef?.value ?? options.manualZones,
         disabled: disabled.value,
         readingOrder: 'ltr',
-        zoneEditing: options.zoneEditing,
+        ...(options.zoneEditing === undefined ? {} : {zoneEditing: options.zoneEditing}),
         detailResult: options.detailResultRef
             ? options.detailResultRef.value
             : options.detailResult ?? null,
@@ -1400,7 +1400,7 @@ describe('Scan cleanup components', () => {
         const sourceSha256 = 'a'.repeat(64);
         workspaceSession.value = createWorkspaceEntrySession();
         mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: '/docs/visible-scan.pdf',
+            sourcePath: requireDocumentRef('/docs/visible-scan.pdf'),
             documentRevision: 'revision-7',
             sourceSha256,
             toolbarActive: toolbarActive.value,
@@ -1444,7 +1444,7 @@ describe('Scan cleanup components', () => {
         workspaceSession.value = createWorkspaceEntrySession({documentSettingsLoadFailure: ref(failure)});
         const toolbarActive = ref(false);
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: '/docs/settings-failure.pdf',
+            sourcePath: requireDocumentRef('/docs/settings-failure.pdf'),
             totalPages: 3,
             toolbarActive: toolbarActive.value,
         })));
@@ -1647,7 +1647,7 @@ describe('Scan cleanup components', () => {
         });
 
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: '/docs/scanned.pdf',
+            sourcePath: requireDocumentRef('/docs/scanned.pdf'),
             documentKey: 'document-a',
             currentPage: 1,
             totalPages: 2,
@@ -1675,7 +1675,7 @@ describe('Scan cleanup components', () => {
         workspaceSession.value = createWorkspaceEntrySession();
 
         const harness = mount(defineComponent(() => () => h(ScanCleanupWorkspace, {
-            sourcePath: '/docs/scanned.pdf',
+            sourcePath: requireDocumentRef('/docs/scanned.pdf'),
             currentPage: 1,
             totalPages: 2,
             pageSource: source,
@@ -1924,7 +1924,7 @@ describe('Scan cleanup components', () => {
             }),
             readerState.surfaceMode.value === 'scan-cleanup'
                 ? h(ScanCleanupWorkspace, {
-                    sourcePath: '/docs/book.pdf',
+                    sourcePath: requireDocumentRef('/docs/book.pdf'),
                     currentPage: readerState.viewport.page,
                     totalPages: 100,
                     sessionState: cleanupSession.value,
@@ -2696,7 +2696,7 @@ describe('Scan cleanup components', () => {
         const harness = mount(defineComponent({setup: () => () => h(ScanCleanupPreviewPane, {
             result: null,
             rawResult: {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 totalPages: 3,
                 rawImageData: new Uint8Array([1]),
                 rawWidthPx: 100,
@@ -5574,7 +5574,7 @@ describe('Scan cleanup components', () => {
             alignment: 'top-left',
             pageNumber: 1,
             totalPages: 3,
-            layoutClassification: 'single-page',
+            layoutClassification: 'single-uncut-page',
             manualSplit: null,
             readingOrder: 'ltr',
         })}));

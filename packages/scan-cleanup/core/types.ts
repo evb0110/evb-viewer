@@ -397,7 +397,7 @@ export type TScanCleanupRenderPage = (
  * workflow that ran the sidecar, which is the only owner that knows what the
  * frame means for the run the user is watching.
  */
-export type TScanCleanupSidecarProgress = (nativeProgress: TNativeScanCleanupProgressV3) => void;
+export type TScanCleanupSidecarProgress = (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>;
 
 export type TScanCleanupRunSidecar = (
     binaryPath: string,

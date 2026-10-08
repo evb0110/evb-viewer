@@ -273,6 +273,7 @@ describe('annotation history shared by two views of one document', () => {
             };
         };
         return {
+            documentAnnotations,
             documentRevisionToken,
             isSaving,
             mountView,
@@ -329,6 +330,31 @@ describe('annotation history shared by two views of one document', () => {
         expect(right.canonicalAnnotationIds()).toEqual([asAnnotationId('saved-note')]);
         expect(right.canUndo()).toBe(true);
         expect(left.application()).toBe(application);
+    });
+
+    it('keeps an accepted note and its undo in both views when OCR replaces bytes without the unsaved note', async () => {
+        const shared = createSharedDocument();
+        const left = shared.mountView();
+        const right = shared.mountView();
+        left.pdfDocument.value = createDocumentProxy('left-first');
+        right.pdfDocument.value = createDocumentProxy('right-first');
+        await nextTick();
+        left.application().store.createNote({
+            ...note('unsaved-note'),
+            contents: 'Accepted before OCR',
+        });
+
+        const ocrRevision = requireDocumentRevisionToken('revision-ocr');
+        shared.documentRevisionToken.value = ocrRevision;
+        shared.documentAnnotations.adoptCurrentRevision();
+        await left.reload(ocrRevision, 'left-ocr');
+        left.application().store.replaceFromDocument([], []);
+        await right.reload(ocrRevision, 'right-ocr');
+        expect(right.application().store.list()).toEqual([expect.objectContaining({contents: 'Accepted before OCR'})]);
+        right.application().store.undo();
+        expect(left.canonicalAnnotationIds()).toEqual([]);
+        left.application().store.redo();
+        expect(right.application().store.list()).toEqual([expect.objectContaining({contents: 'Accepted before OCR'})]);
     });
 
     it('shows an edit made in one view in the other, with its undo', async () => {

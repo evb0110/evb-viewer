@@ -107,7 +107,7 @@ function readDocumentRefs(session: IWorkspaceDocumentController | undefined, wor
 
 export function buildWorkspaceCheckpoint(
     options: IBuildWorkspaceCheckpointOptions,
-): IWorkspaceCheckpoint {
+) {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
     const seenDocuments = new Set<IWorkspaceDocumentController>();
 
@@ -172,5 +172,5 @@ export function buildWorkspaceCheckpoint(
                     : {}),
             };
         }),
-    };
+    } satisfies IWorkspaceCheckpoint;
 }

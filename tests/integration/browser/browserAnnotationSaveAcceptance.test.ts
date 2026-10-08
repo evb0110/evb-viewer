@@ -123,4 +123,33 @@ describe('browser annotation save acceptance in Chromium', () => {
             await browser.close();
         }
     }, 120_000);
+    it('prepares an admitted facing print without a UI-thread long task and preserves the input', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.evaluate(async () => {
+                const prepare = Reflect.get(globalThis, '__evbPreparePrintResponsivenessAcceptance');
+                if (typeof prepare !== 'function') throw new Error('Missing print acceptance entry');
+                await prepare();
+            });
+            await page.getByRole('button', {
+                name: 'Prepare facing print',
+                exact: true,
+            }).click();
+            const result = await page.evaluate(() => Reflect.get(globalThis, '__evbPrintResponsivenessResult'));
+            expect(result).toEqual({
+                pageCount: 2_000,
+                inputPreserved: true,
+                longTasks: [],
+            });
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
 });

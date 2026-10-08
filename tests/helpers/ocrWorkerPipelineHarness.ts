@@ -35,6 +35,9 @@ export async function createOcrWorkerPipelineHarness(options: {
     tempRoot?: string;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
     const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
+    // Synthetic size fixture for page admission; the scripted recognizer never
+    // loads it. Real-model RSS is measured separately with pinned tessdata_best.
+    await writeFile(join(root, 'eng.traineddata'), Buffer.alloc(1_024));
     const sourcePdfPath = join(root, 'source.pdf');
     const document = await PDFDocument.create();
     for (let page = 0; page < 3; page += 1) {

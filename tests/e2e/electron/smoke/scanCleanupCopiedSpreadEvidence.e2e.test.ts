@@ -4,7 +4,9 @@ import {
     mkdtempSync,
     statSync,
 } from 'node:fs';
-import {rm} from 'node:fs/promises';
+import {
+    mkdir, readFile, readdir, rm, writeFile,
+} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
     join, resolve,
@@ -14,13 +16,19 @@ import {
     expect,
     it,
     onTestFinished,
+    vi,
 } from 'vitest';
+import type {TScanCleanupDetectionJobState} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
-import {readPdfPageSnapshots} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createLargeScannedFixturePdf, readPdfPageSnapshots,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     openPdfInApp,
@@ -50,6 +58,90 @@ async function clickText(
 }
 
 describe('scan cleanup copied spread evidence', () => {
+    it('reuses the analyzed page plan for a preview during detection', async () => {
+        const evidenceDir = resolve('.devkit/lane-a-1185', `real-app-${process.pid}`);
+        await mkdir(evidenceDir, {recursive: true});
+        await sessionFixture.restart({extraEnv: {EVB_SCAN_CLEANUP_EVIDENCE_DIR: evidenceDir}});
+        const app = sessionFixture.getSession();
+        await app.command('windowResize', [
+            1280,
+            900,
+        ]);
+        const observed: TScanCleanupDetectionJobState[] = [];
+        await app.page.exposeFunction('__recordScanCleanupPlan', (state: TScanCleanupDetectionJobState) => observed.push(state));
+        await app.page.evaluate(() => {
+            const probe = window as Window & {__recordScanCleanupPlan?: (state: TScanCleanupDetectionJobState) => Promise<void>};
+            const api = window.electronAPI?.scanCleanup;
+            if (api === undefined || probe.__recordScanCleanupPlan === undefined) throw new Error('Scan cleanup event recorder unavailable');
+            api.onDetectionJobState(state => {void probe.__recordScanCleanupPlan!(state);});
+        });
+        const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-provisional-plan.pdf', 64, 0);
+        await openPdfInApp(app.page, sourcePath, 90_000);
+        await waitForPdfLoaded(app.page, 90_000);
+        await waitForViewerInteractive(app.page, 90_000);
+        await clickAsUser(app.page, 'button[aria-label="Scan cleanup"]');
+        await app.page.waitForSelector('.scan-cleanup-surface', {visible: true});
+        await clickText(app, 'button', 'Got it');
+        let analyzed: TScanCleanupDetectionJobState | undefined;
+        await vi.waitFor(() => {
+            analyzed = observed.find(state => state.status === 'running' && state.progress.completedUnits > 0
+                && state.progress.completedUnits < state.progress.totalUnits && state.results.some(result => result.pageNumber === 1));
+            expect(analyzed).toBeDefined();
+        }, {timeout: 90_000});
+        await writeFile(join(evidenceDir, 'observed-provisional.json'), JSON.stringify(analyzed, null, 2));
+        const plan = analyzed!.results.find(result => result.pageNumber === requirePageNumber(1))?.pagePlanEvidence;
+        expect(plan).toBeDefined();
+        const contentBoxes = Object.fromEntries(Object.entries(plan!.outputs).flatMap(([
+            half,
+            output,
+        ]) => (
+            output.contentBox === undefined ? [] : [[
+                half,
+                output.contentBox,
+            ]]
+        )));
+        expect(Object.keys(contentBoxes).length).toBeGreaterThan(0);
+        expect(await app.page.$eval('.scan-cleanup-surface', element => element.getAttribute('data-detection-status'))).toBe('pending');
+        await clickAsUser(app.page, '.scan-thumbnail-list [data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="2"])');
+        await clickAsUser(app.page, '.scan-thumbnail-list [data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="1"])');
+        const appTemp = electronAppTempDirPath(app.name);
+        await vi.waitFor(async () => {
+            const files = (await readdir(appTemp, {recursive: true})).filter(name => name.endsWith('/manifest.json')
+                && name.startsWith('scan-cleanup-preview-'));
+            const manifests = await Promise.all(files.map(async name => {
+                try {
+                    return JSON.parse(await readFile(join(appTemp, name), 'utf8')) as {
+                        operation?: string;
+                        pages?: Array<{
+                            sourcePageIndex: number;
+                            options: {automaticContentBoxes?: unknown}
+                        }>;
+                    };
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+                    throw error;
+                }
+            }));
+            const replay = manifests.find(manifest => manifest?.operation === 'render'
+                && manifest.pages?.some(page => page.sourcePageIndex === 0
+                    && JSON.stringify(page.options.automaticContentBoxes) === JSON.stringify(contentBoxes)));
+            expect(replay).toBeDefined();
+            await writeFile(join(evidenceDir, 'preview-replay-manifest.json'), JSON.stringify(replay, null, 2));
+        }, {timeout: 90_000});
+        await app.page.waitForSelector('.cleaned-outputs .uniform-canvas', {
+            visible: true,
+            timeout: 90_000,
+        });
+        await waitForFunctionInPage(app.page, () => (
+            !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText)
+                && Array.from(document.querySelectorAll<HTMLImageElement>('.cleaned-outputs img.preview-pixel:not(.is-outgoing)'))
+                    .some(image => image.complete && image.naturalWidth > 0 && image.checkVisibility())
+        ), {timeout: 90_000});
+        expect(await app.page.$eval('.scan-cleanup-surface', element => element.getAttribute('data-detection-status'))).toBe('pending');
+        await app.page.screenshot({path: join(evidenceDir, 'preview.png')});
+        await writeFile(join(evidenceDir, 'observed-states.json'), JSON.stringify(observed, null, 2));
+    }, 180_000);
+
     it('completes a spread copied to every page with current detection evidence', async () => {
         const session = sessionFixture.getSession();
         await session.command('windowResize', [

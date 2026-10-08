@@ -263,6 +263,34 @@ describe('Search platform feature schemas', () => {
         expectArgs(channels.resetCache, [], []);
     });
 
+    it('preserves bounded-window offsets through the existing request codec', () => {
+        for (const resultOffset of [
+            0,
+            500,
+            'last',
+        ]) {
+            const request = {
+                pdfPath: '/tmp/manual.pdf',
+                query: 'valve',
+                resultOffset,
+            };
+            expect(codecs[channels.run]!.decodeArgs([request])).toEqual([request]);
+        }
+        for (const resultOffset of [
+            -1,
+            0.5,
+            Number.MAX_SAFE_INTEGER + 1,
+            'first',
+            null,
+        ]) {
+            expect(() => codecs[channels.run]!.decodeArgs([{
+                pdfPath: '/tmp/manual.pdf',
+                query: 'valve',
+                resultOffset,
+            }])).toThrow();
+        }
+    });
+
     it('keeps malformed argument and result messages stable', () => {
         expect(() => codecs[channels.run]!.decodeArgs([]))
             .toThrow('expected 1 arguments, received 0');

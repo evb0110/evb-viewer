@@ -23,29 +23,46 @@ import type {
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { cast } from '@tests/helpers/cast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 // The browser stores are the boundary: what recovery stores is what a later
 // session recovers from.
 const stores = vi.hoisted(() => ({
     documents: [] as string[],
+    readableDocuments: new Map<string, Uint8Array>(),
     checkpoints: [] as unknown[],
 }));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
-    createStoredDocument: vi.fn(async (fileName: string) => {
+    createStoredDocument: vi.fn(async (fileName: string, bytes: Uint8Array) => {
         stores.documents.push(fileName);
-        return `/browser-recovery/${String(stores.documents.length)}-${fileName}`;
+        const ref = `/browser-recovery/${String(stores.documents.length)}-${fileName}`;
+        stores.readableDocuments.set(ref, bytes.slice());
+        return ref;
     }),
-    cleanupDetachedDocument: vi.fn(async () => {}),
+    read: vi.fn(async (ref: string) => {
+        const bytes = stores.readableDocuments.get(ref);
+        if (!bytes) throw new Error(`Browser document not found: ${ref}`);
+        return bytes;
+    }),
+    cleanupDetachedDocument: vi.fn(async (ref: string) => stores.readableDocuments.delete(ref)),
 }}));
 vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => ({
-    loadBrowserWorkspaceRecovery: vi.fn(async () => null),
+    loadBrowserWorkspaceRecovery: vi.fn(async () => {
+        const checkpoint = stores.checkpoints.at(-1) as IWorkspaceCheckpoint | undefined;
+        return checkpoint ? {
+            checkpoint,
+            generation: stores.checkpoints.length,
+            snapshotRefs: checkpoint.tabs.flatMap(tab => tab.isDirty && tab.workingCopyRef ? [tab.workingCopyRef] : []),
+        } : null;
+    }),
     saveBrowserWorkspaceRecovery: vi.fn(async (_ownerId: string, generation: number, checkpoint: unknown) => {
         stores.checkpoints.push(checkpoint);
         return {
@@ -114,6 +131,7 @@ const unmounts: Array<() => void> = [];
 afterEach(() => {
     unmounts.splice(0).forEach(unmount => unmount());
     stores.documents.length = 0;
+    stores.readableDocuments.clear();
     stores.checkpoints.length = 0;
     notices.value = [];
     vi.unstubAllGlobals();
@@ -122,8 +140,11 @@ afterEach(() => {
 
 // Mounts recovery over one dirty PDF shown in two views (tab-1 and tab-2),
 // whose mounted workspaces produce recovery bytes through `snapshotBytes`.
-function mountLinkedDocumentRecovery(snapshotBytes: () => Promise<Uint8Array | null>) {
-    const workingCopyPath = requireDocumentRef('/browser-working/shared.pdf');
+function mountLinkedDocumentRecovery(
+    snapshotBytes: () => Promise<Uint8Array | null>,
+    contentRevision = ref(0),
+    workingCopyPath = requireDocumentRef('/browser-working/shared.pdf'),
+) {
     const originalPath = requireDocumentRef('/documents/shared.pdf');
     const session = createWorkspaceDocumentController({tabId: 'tab-1'});
     session.commitDocument({
@@ -147,6 +168,7 @@ function mountLinkedDocumentRecovery(snapshotBytes: () => Promise<Uint8Array | n
     ]) {
         session.attachWorkspace(tabId, createWorkspaceExposeFixture({
             createRecoverySnapshotBytes: snapshotBytes,
+            getWorkspaceDocumentRecoveryChangeSignature: () => [contentRevision.value],
             getAutomationStateSnapshot: () => cast({
                 originalPath,
                 workingCopyPath,
@@ -200,6 +222,7 @@ function mountLinkedDocumentRecovery(snapshotBytes: () => Promise<Uint8Array | n
     }}));
     app.mount(host);
     unmounts.push(() => app.unmount());
+    return session;
 }
 
 const PDF_BYTES = new Uint8Array([
@@ -216,7 +239,8 @@ function latestCheckpointRefs() {
 describe('browser workspace recovery', () => {
     it('stores one recovery copy for a dirty document shown in two views, named by both tabs', async () => {
         vi.useFakeTimers();
-        mountLinkedDocumentRecovery(async () => PDF_BYTES);
+        const contentRevision = ref(0);
+        mountLinkedDocumentRecovery(async () => PDF_BYTES, contentRevision);
 
         await vi.advanceTimersByTimeAsync(1_000);
 
@@ -227,7 +251,7 @@ describe('browser workspace recovery', () => {
         expect(refs[1]).toBe(refs[0]);
 
         // An edit through the other view refreshes the one copy both tabs name.
-        window.dispatchEvent(new Event('input'));
+        contentRevision.value += 1;
         await vi.advanceTimersByTimeAsync(1_000);
 
         expect(stores.documents).toHaveLength(2);
@@ -236,10 +260,189 @@ describe('browser workspace recovery', () => {
         expect(refreshed[1]).toBe(refreshed[0]);
     });
 
+    it('keeps adopted recovery bytes readable when replacement and clean checkpoints are published', async () => {
+        vi.useFakeTimers();
+        mountLinkedDocumentRecovery(async () => PDF_BYTES);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const adoptedRef = requireDocumentRef(latestCheckpointRefs()[0]);
+        unmounts.pop()!();
+        const session = mountLinkedDocumentRecovery(async () => PDF_BYTES, ref(0), adoptedRef);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const replacementRef = requireDocumentRef(latestCheckpointRefs()[0]);
+        const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        expect(replacementRef).not.toBe(adoptedRef);
+        await expect(browserDocumentStore.read(adoptedRef)).resolves.toEqual(PDF_BYTES);
+        await expect(browserDocumentStore.read(replacementRef)).resolves.toEqual(PDF_BYTES);
+
+        session.setDirty(false);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await expect(browserDocumentStore.read(adoptedRef)).resolves.toEqual(PDF_BYTES);
+        await expect(browserDocumentStore.read(replacementRef)).rejects.toThrow('Browser document not found');
+    });
+
+    it('updates linked reading views while retaining unchanged dirty recovery bytes', async () => {
+        vi.useFakeTimers();
+        const session = mountLinkedDocumentRecovery(async () => PDF_BYTES);
+        const first = session.getView('tab-1')!;
+        const second = session.getView('tab-2')!;
+        first.publishToolbarSnapshot({
+            ...first.toolbarSnapshot.value,
+            hasPdf: true,
+            currentPage: 1,
+            zoom: 1,
+        });
+        second.publishToolbarSnapshot({
+            ...second.toolbarSnapshot.value,
+            hasPdf: true,
+            currentPage: 1,
+            zoom: 1,
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        const refs = latestCheckpointRefs();
+
+        for (const eventName of [
+            'change',
+            'input',
+            'keyup',
+            'pointerup',
+        ]) {
+            window.dispatchEvent(new Event(eventName));
+        }
+        first.publishToolbarSnapshot({
+            ...first.toolbarSnapshot.value,
+            currentPage: 3,
+            zoom: 1.25,
+        });
+        second.publishToolbarSnapshot({
+            ...second.toolbarSnapshot.value,
+            currentPage: 2,
+            zoom: 1.5,
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(stores.documents).toHaveLength(1);
+        expect(latestCheckpointRefs()).toEqual(refs);
+        const checkpoint = stores.checkpoints.at(-1) as IWorkspaceCheckpoint;
+        expect(checkpoint.tabs.map(tab => [
+            tab.currentPage,
+            tab.zoom,
+        ])).toEqual([
+            [
+                3,
+                1.25,
+            ],
+            [
+                2,
+                1.5,
+            ],
+        ]);
+    });
+
+    it.each([
+        'unavailable',
+        'rejected',
+    ] as const)('does not report saved work as unprotected when Save finishes during %s recovery capture', async (outcome) => {
+        vi.useFakeTimers();
+        const heldSnapshot = Promise.withResolvers<Uint8Array | null>();
+        let snapshot = heldSnapshot.promise;
+        const session = mountLinkedDocumentRecovery(() => snapshot);
+        const diagnostics: string[] = [];
+        const warning = vi.spyOn(BrowserLogger, 'warn').mockImplementation((section, message) => {
+            diagnostics.push(`[${section}] ${message}`);
+        });
+        try {
+            await vi.advanceTimersByTimeAsync(1_000);
+            session.setDirty(false);
+            await nextTick();
+            if (outcome === 'rejected') heldSnapshot.reject(createStaleRevisionError({}));
+            else heldSnapshot.resolve(null);
+            await vi.advanceTimersByTimeAsync(1_000);
+
+            expect(diagnostics).toEqual([]);
+            expect(latestCheckpointRefs()).toEqual([]);
+
+            // A subsequent accepted edit still protects the document's two views.
+            snapshot = Promise.resolve(PDF_BYTES);
+            session.setDirty(true);
+            await vi.advanceTimersByTimeAsync(1_000);
+            const refs = latestCheckpointRefs();
+            expect(refs).toHaveLength(2);
+            expect(refs[0]).not.toBeNull();
+            expect(refs[1]).toBe(refs[0]);
+        } finally {
+            warning.mockRestore();
+        }
+    });
+
+    it('keeps retained bytes bound to their document when a newer capture is unavailable', async () => {
+        vi.useFakeTimers();
+        let bytes: Uint8Array | null = PDF_BYTES;
+        const session = mountLinkedDocumentRecovery(async () => bytes);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const refs = latestCheckpointRefs();
+        bytes = null;
+        session.commitDocument({
+            fileName: 'replacement.pdf',
+            originalPath: requireDocumentRef('/documents/replacement.pdf'),
+            isDjvu: false,
+            revisionInfo: {
+                version: 1,
+                token: requireDocumentRevisionToken('revision-2'),
+                documentRef: requireDocumentRef('/browser-working/replacement.pdf'),
+                authority: 'browser-document-store',
+                contentRevision: 1,
+                mintedAt: requireEpochMs(2),
+            },
+        });
+        session.setDirty(true);
+        const view = session.getView('tab-1')!;
+        view.publishToolbarSnapshot({
+            ...view.toolbarSnapshot.value,
+            hasPdf: true,
+            currentPage: 3,
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        expect(latestCheckpointRefs()).toEqual(refs);
+        const checkpoint = stores.checkpoints.at(-1) as IWorkspaceCheckpoint;
+        expect(checkpoint.tabs[0]?.sourceRef).toBe('/documents/shared.pdf');
+        expect(checkpoint.tabs[0]?.fileName).toBe('shared.pdf');
+        expect(checkpoint.tabs[0]?.currentPage).toBe(3);
+    });
+
+    it('reports a current capture rejection while retaining readable recovery bytes', async () => {
+        vi.useFakeTimers();
+        const contentRevision = ref(0);
+        const error = createStaleRevisionError({});
+        let rejectCapture = false;
+        mountLinkedDocumentRecovery(async () => {
+            if (rejectCapture) throw error;
+            return PDF_BYTES;
+        }, contentRevision);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const refs = latestCheckpointRefs();
+        const diagnostics: string[] = [];
+        const warning = vi.spyOn(BrowserLogger, 'warn').mockImplementation((section, message, cause) => {
+            diagnostics.push(`[${section}] ${message}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        });
+        try {
+            rejectCapture = true;
+            contentRevision.value += 1;
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(diagnostics.some(message => message.includes('Failed to refresh recovery snapshot') && message.includes(error.message))).toBe(true);
+            expect(latestCheckpointRefs()).toEqual(refs);
+            const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
+            await expect(browserDocumentStore.read(requireDocumentRef(refs[0]))).resolves.toEqual(PDF_BYTES);
+        } finally {
+            warning.mockRestore();
+        }
+    });
+
     it('leaves both views of a document out together until one recovery copy can be made', async () => {
         vi.useFakeTimers();
         let bytes: Uint8Array | null = null;
-        mountLinkedDocumentRecovery(async () => bytes);
+        const contentRevision = ref(0);
+        mountLinkedDocumentRecovery(async () => bytes, contentRevision);
 
         await vi.advanceTimersByTimeAsync(1_000);
 
@@ -250,7 +453,7 @@ describe('browser workspace recovery', () => {
         expect(latestCheckpointRefs()).toEqual([]);
 
         bytes = PDF_BYTES;
-        window.dispatchEvent(new Event('input'));
+        contentRevision.value += 1;
         await vi.advanceTimersByTimeAsync(1_000);
 
         const refs = latestCheckpointRefs();

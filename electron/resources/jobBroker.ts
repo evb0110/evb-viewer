@@ -424,7 +424,7 @@ export function resolveMainJobBrokerCapacity(
         8,
     );
     return {
-        cpuTokens: profile.tier === 'low'
+        cpuTokens: profile.performanceMode === 'low'
             ? Math.min(cpuTokens, 2)
             : cpuTokens,
         estimatedResidentBytes: Math.max(

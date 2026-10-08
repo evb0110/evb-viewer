@@ -175,19 +175,24 @@ describe('useFailureToast', () => {
         ]);
     });
 
-    it('says Copied on the toast once the details are on the clipboard', async () => {
+    it.each([
+        false,
+        true,
+    ])('says Copied without changing its lifetime (persistent=%s)', async (persistent) => {
         vi.stubGlobal('navigator', {clipboard: {writeText: vi.fn().mockResolvedValue(undefined)}});
         const {useFailureToast} = await loadFailureToast();
 
         useFailureToast().presentFailureToast({
             failure: createFailure(),
             title: 'Renderer failure',
+            persistent,
         });
         presentedToast().actions.at(-1)?.onClick();
 
         await vi.waitFor(() => expect(toastUpdate).toHaveBeenCalledOnce());
         expect(toastUpdate.mock.calls[0]?.[0]).toBe('0123456789abcdef0123456789abcdef');
         expect(toastUpdate.mock.calls[0]?.[1].actions.at(-1).label).toBe('errors.runtime.copied');
+        expect(toastUpdate.mock.calls[0]?.[1].duration).toBe(persistent ? Number.POSITIVE_INFINITY : 10_000);
     });
 
     it('labels a toast in the locale current when it is shown, not when the composable was created', async () => {

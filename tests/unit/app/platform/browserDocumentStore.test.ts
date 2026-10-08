@@ -311,6 +311,74 @@ describe('BrowserDocumentStore', () => {
         expect(getFile).toHaveBeenCalled();
     });
 
+    it('refreshes content snapshots through a source proxy without replacing its stored bytes', async () => {
+        let currentFile = new File([Uint8Array.of(1, 2, 3, 4)], 'snapshot.pdf', {lastModified: 11});
+        const handle = createFileSystemFileHandle({
+            name: currentFile.name,
+            getFile: async () => currentFile,
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(currentFile, {saveHandle: handle});
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const initial = await store.getContentSnapshot(workingRef);
+        expect(initial).toEqual({
+            ...await store.stat(sourceRef),
+            contentSignature: await store.getContentSignature(sourceRef),
+        });
+
+        currentFile = new File([Uint8Array.of(9, 8, 7, 6)], currentFile.name, {lastModified: 11});
+        const changed = await store.getContentSnapshot(workingRef);
+        expect(changed.size).toBe(initial.size);
+        expect(changed.contentSignature).not.toBe(initial.contentSignature);
+        expect(await store.getContentSnapshot(sourceRef)).toEqual(changed);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
+
+        currentFile = new File([Uint8Array.of(5, 4)], currentFile.name, {lastModified: 11});
+        const resized = await store.getContentSnapshot(workingRef);
+        expect(resized.size).toBe(initial.size);
+        expect(resized.contentSignature).not.toBe(changed.contentSignature);
+        const resizedRevision = await store.getDocumentRevision(sourceRef);
+        expect(await store.getContentSnapshot(workingRef)).toEqual(resized);
+        expect(await store.getDocumentRevision(sourceRef)).toEqual(resizedRevision);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
+        await expect(store.readRange(workingRef, 1, 3)).resolves.toEqual(Uint8Array.of(2, 3, 4));
+    });
+
+    it('refreshes large content snapshots with the existing bounded head, middle and tail witness', async () => {
+        const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+        let currentFile = new File([bytes], 'sampled.pdf', {lastModified: 11});
+        const handle = createFileSystemFileHandle({
+            name: currentFile.name,
+            getFile: async () => {
+                const file = currentFile;
+                Object.defineProperty(file, 'arrayBuffer', {value: async () => {
+                    throw new Error('Large content snapshots must not read the full source');
+                }});
+                return file;
+            },
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(currentFile.name, new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            storageMode: 'handle',
+            saveHandle: handle,
+        });
+        let previous = await store.getContentSnapshot(ref);
+        for (const offset of [
+            0,
+            Math.floor(bytes.length / 2),
+            bytes.length - 1,
+        ]) {
+            bytes[offset] = 7;
+            currentFile = new File([bytes], currentFile.name, {lastModified: 11});
+            const next = await store.getContentSnapshot(ref);
+            expect(next.size).toBe(bytes.length);
+            expect(next.contentSignature).not.toBe(previous.contentSignature);
+            await expect(store.readRange(ref, offset, 1)).resolves.toEqual(Uint8Array.of(7));
+            previous = next;
+        }
+    });
+
     it('rejects document creation when durable IndexedDB writes cannot commit', async () => {
         vi.stubGlobal('indexedDB', undefined);
         const store = new BrowserDocumentStore();
@@ -996,7 +1064,7 @@ describe('BrowserDocumentStore', () => {
         });
 
         const entry = await store.requireEntry(ref);
-        expect(entry.storageMode).toBe('inline');
+        expect(entry.storageMode).toBe('chunked');
 
         store.unload(ref);
 
@@ -1024,7 +1092,7 @@ describe('BrowserDocumentStore', () => {
         );
 
         const entry = await store.requireEntry(ref);
-        expect(entry.storageMode).toBe('inline');
+        expect(entry.storageMode).toBe('chunked');
 
         store.unload(ref);
 
@@ -1052,7 +1120,7 @@ describe('BrowserDocumentStore', () => {
 
         await store.ensureByteBackedSource(ref);
         const entry = await store.requireEntry(ref);
-        expect(entry.storageMode).toBe('inline');
+        expect(entry.storageMode).toBe('chunked');
 
         getFile.mockImplementation(async () => {
             throw new DOMException('Not allowed', 'NotAllowedError');
@@ -1079,6 +1147,49 @@ describe('BrowserDocumentStore', () => {
         expect(entry.data.byteLength).toBe(0);
         await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(4));
         await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(9));
+    });
+
+    it('reads adjacent and simultaneous ranges without rereading their immutable chunk', async () => {
+        const chunkSize = 4 * 1024 * 1024;
+        const rangeSize = 1024 * 1024;
+        const bytes = new Uint8Array(5 * chunkSize);
+        for (let offset = 0; offset < bytes.byteLength; offset += 1) {
+            bytes[offset] = offset % 251;
+        }
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'chunk-ranges.pdf', bytes);
+        expect((await store.requireEntry(ref)).storageMode).toBe('chunked');
+        const chunks = indexedDbFactory.getDatabase('evb-viewer-browser-documents')?.getStoreRecords('document-chunks');
+        if (!chunks) {
+            throw new Error('Chunked document database is missing');
+        }
+        const gets = vi.spyOn(chunks, 'get');
+        for (let offset = 0; offset < chunkSize; offset += rangeSize) {
+            expect(Buffer.compare(await store.readRange(ref, offset, rangeSize), bytes.subarray(offset, offset + rangeSize))).toBe(0);
+        }
+        expect(gets).toHaveBeenCalledTimes(1);
+        const ranges = await Promise.all(Array.from({length: 4}, (_, index) => store.readRange(ref, chunkSize + index * rangeSize, rangeSize)));
+        for (const [
+            index,
+            range,
+        ] of ranges.entries()) {
+            const offset = chunkSize + index * rangeSize;
+            expect(Buffer.compare(range, bytes.subarray(offset, offset + rangeSize))).toBe(0);
+        }
+        expect(gets).toHaveBeenCalledTimes(2);
+        ranges[0]!.fill(0);
+        expect(Buffer.compare(await store.readRange(ref, chunkSize, rangeSize), bytes.subarray(chunkSize, chunkSize + rangeSize))).toBe(0);
+        expect(gets).toHaveBeenCalledTimes(2);
+        expect(Buffer.compare(await store.readRange(ref, 0, rangeSize), bytes.subarray(0, rangeSize))).toBe(0);
+        expect(gets).toHaveBeenCalledTimes(3);
+        const revision = await store.getDocumentRevision(ref);
+        const replacement = bytes.map(value => 255 - value);
+        await store.write(ref, replacement, {expectedDocumentRevisionToken: revision.token});
+        gets.mockClear();
+        expect(Buffer.compare(await store.readRange(ref, 0, rangeSize), replacement.subarray(0, rangeSize))).toBe(0);
+        expect(gets).toHaveBeenCalledTimes(1);
+        await store.remove(ref);
+        await expect(store.readRange(ref, 0, rangeSize)).rejects.toThrow('Browser document not found');
     });
 
     it('keeps large writes chunked instead of collapsing back to inline storage', async () => {

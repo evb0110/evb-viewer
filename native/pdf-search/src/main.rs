@@ -8,14 +8,14 @@
 //! missing or unreadable file, another document revision, or another format
 //! answers `{"stale":true}` so the caller rebuilds it from the document.
 
-use evb_native_support::{bounded_io::read_open_file_bounded, NativeError, NativeErrorCode};
+use evb_native_support::{NativeError, NativeErrorCode};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::OnceLock;
@@ -56,12 +56,12 @@ struct PageRecord {
 }
 
 #[derive(Debug)]
-struct SearchIndex {
+struct SearchIndex<R = Cursor<Vec<u8>>> {
     page_count: u32,
     pages_scanned: u32,
     truncated: bool,
     records: Vec<PageRecord>,
-    data: Vec<u8>,
+    data: R,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -75,7 +75,7 @@ struct Coverage {
     missing_text_page_sample: Vec<u32>,
 }
 
-impl SearchIndex {
+impl<R: Read + Seek> SearchIndex<R> {
     fn coverage(&self) -> Coverage {
         let mut written = self
             .records
@@ -101,58 +101,72 @@ impl SearchIndex {
         }
     }
 
-    fn page_text(&self, record: &PageRecord) -> Result<&str, NativeError> {
-        std::str::from_utf8(&self.data[record.offset..record.offset + record.byte_len]).map_err(
-            |_| {
-                NativeError::new(
-                    NativeErrorCode::CorruptXref,
-                    "Search index text is not UTF-8",
-                )
-            },
-        )
+    fn page_text(&mut self, record: &PageRecord) -> Result<String, NativeError> {
+        self.data
+            .seek(SeekFrom::Start(record.offset as u64))
+            .map_err(|error| NativeError::new(NativeErrorCode::Io, error.to_string()))?;
+        let mut bytes = vec![0; record.byte_len];
+        self.data
+            .read_exact(&mut bytes)
+            .map_err(|error| NativeError::new(NativeErrorCode::Io, error.to_string()))?;
+        String::from_utf8(bytes).map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::CorruptXref,
+                "Search index text is not UTF-8",
+            )
+        })
     }
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
-    let slice = bytes.get(offset..offset.checked_add(4)?)?;
-    Some(u32::from_le_bytes(slice.try_into().ok()?))
-}
-
-/// Parses an index file. `None` means the file does not describe this
-/// document revision in the current format, which callers treat as stale.
-fn parse_index(data: Vec<u8>, expected_revision: &str) -> Option<SearchIndex> {
-    if data.get(..8) != Some(&MAGIC[..]) || read_u32(&data, 28)? != 0 {
-        return None;
+/// Reads only the header and table; page bytes stay in the admitted open file.
+fn parse_index<R: Read + Seek>(
+    mut data: R,
+    file_len: usize,
+    expected_revision: &str,
+) -> io::Result<Option<SearchIndex<R>>> {
+    let mut header = [0; HEADER_SIZE];
+    data.read_exact(&mut header)?;
+    let [page_count, pages_scanned, flags, revision_len, record_count, reserved] =
+        std::array::from_fn(|i| {
+            u32::from_le_bytes(header[8 + i * 4..12 + i * 4].try_into().unwrap())
+        });
+    let (revision_len, record_count) = (revision_len as usize, record_count as usize);
+    let Some(payload_len) = file_len
+        .checked_sub(HEADER_SIZE)
+        .and_then(|len| len.checked_sub(revision_len))
+    else {
+        return Ok(None);
+    };
+    // Each distinct scanned page owns a table entry and at least one text byte.
+    if &header[..8] != MAGIC
+        || reserved != 0
+        || pages_scanned > page_count
+        || flags & !FLAG_TRUNCATED != 0
+        || revision_len != expected_revision.len()
+        || record_count > pages_scanned as usize
+        || record_count > payload_len / (RECORD_SIZE + 1)
+    {
+        return Ok(None);
     }
-    let page_count = read_u32(&data, 8)?;
-    let pages_scanned = read_u32(&data, 12)?;
-    let flags = read_u32(&data, 16)?;
-    let revision_len = usize::try_from(read_u32(&data, 20)?).ok()?;
-    let record_count = usize::try_from(read_u32(&data, 24)?).ok()?;
-    if pages_scanned > page_count || flags & !FLAG_TRUNCATED != 0 {
-        return None;
-    }
-    let records_offset = HEADER_SIZE.checked_add(revision_len)?;
-    if data.get(HEADER_SIZE..records_offset)? != expected_revision.as_bytes() {
-        return None;
-    }
-    let text_offset = records_offset.checked_add(record_count.checked_mul(RECORD_SIZE)?)?;
-    // Each record names a distinct scanned page and owns at least one text
-    // byte after the table, so a count the file cannot hold is refused before
-    // anything is reserved for it.
-    let text_len = data.len().checked_sub(text_offset)?;
-    if record_count > usize::try_from(pages_scanned).ok()? || record_count > text_len {
-        return None;
+    let mut revision = vec![0; revision_len];
+    data.read_exact(&mut revision)?;
+    if revision != expected_revision.as_bytes() {
+        return Ok(None);
     }
     let mut records = Vec::with_capacity(record_count);
-    let mut offset = text_offset;
-    let mut previous_page = 0u32;
-    for index in 0..record_count {
-        let record_offset = records_offset + index * RECORD_SIZE;
-        let page_number = read_u32(&data, record_offset)?;
-        let byte_len = usize::try_from(read_u32(&data, record_offset + 4)?).ok()?;
-        if page_number <= previous_page || page_number > pages_scanned || byte_len == 0 {
-            return None;
+    let mut offset = HEADER_SIZE + revision_len + record_count * RECORD_SIZE;
+    let mut previous_page = 0;
+    for _ in 0..record_count {
+        let mut bytes = [0; RECORD_SIZE];
+        data.read_exact(&mut bytes)?;
+        let page_number = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+        let byte_len = u32::from_le_bytes(bytes[4..].try_into().unwrap()) as usize;
+        if page_number <= previous_page
+            || page_number > pages_scanned
+            || byte_len == 0
+            || byte_len > file_len - offset
+        {
+            return Ok(None);
         }
         records.push(PageRecord {
             page_number,
@@ -160,33 +174,41 @@ fn parse_index(data: Vec<u8>, expected_revision: &str) -> Option<SearchIndex> {
             byte_len,
         });
         previous_page = page_number;
-        offset = offset.checked_add(byte_len)?;
+        offset += byte_len;
     }
-    if offset != data.len() {
-        return None;
-    }
-    Some(SearchIndex {
+    Ok((offset == file_len).then_some(SearchIndex {
         page_count,
         pages_scanned,
         truncated: flags & FLAG_TRUNCATED != 0,
         records,
         data,
-    })
+    }))
 }
 
-fn load_index(path: &Path, expected_revision: &str) -> Result<Option<SearchIndex>, NativeError> {
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(NativeError::new(
-                NativeErrorCode::Io,
-                format!("Search index could not be opened: {error}"),
-            ))
+fn load_index(
+    path: &Path,
+    expected_revision: &str,
+) -> Result<Option<SearchIndex<BufReader<File>>>, NativeError> {
+    let result = (|| {
+        let file = File::open(path)?;
+        let length = file.metadata()?.len();
+        if length > MAX_INDEX_BYTES as u64 {
+            return Ok(Err(too_large(format!(
+                "Search index exceeds the {MAX_INDEX_BYTES}-byte admission ceiling"
+            ))));
         }
-    };
-    let data = read_open_file_bounded(file, MAX_INDEX_BYTES, "Search index")?;
-    Ok(parse_index(data, expected_revision))
+        parse_index(BufReader::new(file), length as usize, expected_revision).map(Ok)
+    })();
+    match result {
+        Ok(index) => index,
+        Err(error) => match error.kind() {
+            io::ErrorKind::NotFound | io::ErrorKind::UnexpectedEof => Ok(None),
+            _ => Err(NativeError::new(
+                NativeErrorCode::Io,
+                format!("Search index could not be read: {error}"),
+            )),
+        },
+    }
 }
 
 /// The text one index holds, in UTF-8 bytes: the caller's budget, within the
@@ -317,7 +339,7 @@ fn read_index_input(
         pages_scanned,
         truncated,
         records,
-        data,
+        data: Cursor::new(data),
     })
 }
 
@@ -341,7 +363,7 @@ fn write_index(index: &SearchIndex, revision: &str, out: &Path) -> Result<(), Bo
             writer.write_all(&record.page_number.to_le_bytes())?;
             writer.write_all(&u32::try_from(record.byte_len)?.to_le_bytes())?;
         }
-        writer.write_all(&index.data)?;
+        writer.write_all(index.data.get_ref())?;
         writer.into_inner().map_err(|error| error.into_error())?;
         fs::rename(&temporary, out)?;
         Ok(())
@@ -352,11 +374,11 @@ fn write_index(index: &SearchIndex, revision: &str, out: &Path) -> Result<(), Bo
     result
 }
 
-#[derive(Debug, Clone)]
 struct SearchOptions {
     query: String,
     limit: usize,
     context_chars: usize,
+    result_offset: Option<usize>,
     match_case: bool,
     whole_word: bool,
     use_regex: bool,
@@ -420,27 +442,18 @@ fn normalize_search_fragment(value: &str) -> String {
     folded.nfc().collect()
 }
 
-#[derive(Debug)]
-struct NormalizedCharSpan {
-    normalized_start: usize,
-    normalized_end: usize,
-    original_start: usize,
-    original_end: usize,
-}
-
-/// Page text normalized per composition span, with each character mapped
-/// back to the original bytes it came from.
+/// Only changed composition spans need a mapping back to original bytes.
 #[derive(Debug)]
 struct NormalizedText {
     text: String,
-    spans: Vec<NormalizedCharSpan>,
+    spans: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>,
 }
 
 impl NormalizedText {
     fn new(value: &str) -> Self {
         let mut normalized = Self {
             text: String::with_capacity(value.len()),
-            spans: Vec::with_capacity(value.len()),
+            spans: Vec::new(),
         };
         static GROUPS: OnceLock<Regex> = OnceLock::new();
         let groups = GROUPS.get_or_init(|| Regex::new(
@@ -448,39 +461,39 @@ impl NormalizedText {
         ).expect("canonical search grouping is valid"));
         for group in groups.find_iter(value) {
             let text = normalize_search_fragment(group.as_str());
-            let unchanged = text == group.as_str();
-            for (offset, character) in text.char_indices() {
-                let (start, end) = if unchanged {
-                    (
-                        group.start() + offset,
-                        group.start() + offset + character.len_utf8(),
-                    )
-                } else {
-                    (group.start(), group.end())
-                };
-                let normalized_start = normalized.text.len();
-                normalized.text.push(character);
-                normalized.spans.push(NormalizedCharSpan {
-                    normalized_start,
-                    normalized_end: normalized.text.len(),
-                    original_start: start,
-                    original_end: end,
-                });
+            let normalized_start = normalized.text.len();
+            normalized.text.push_str(&text);
+            if text != group.as_str() {
+                normalized
+                    .spans
+                    .push((normalized_start..normalized.text.len(), group.range()));
             }
         }
         normalized
     }
 
-    fn original_byte_range(&self, start: usize, end: usize) -> Option<(usize, usize)> {
-        let start_span = &self.spans[self
-            .spans
-            .binary_search_by_key(&start, |span| span.normalized_start)
-            .ok()?];
-        let end_span = &self.spans[self
-            .spans
-            .binary_search_by_key(&end, |span| span.normalized_end)
-            .ok()?];
-        Some((start_span.original_start, end_span.original_end))
+    fn original_byte_range(&self, start: usize, end: usize) -> (usize, usize) {
+        let original_offset = |offset, end_boundary| {
+            let index = self.spans.partition_point(|(range, _)| {
+                if end_boundary {
+                    range.start < offset
+                } else {
+                    range.start <= offset
+                }
+            });
+            self.spans
+                .get(index.wrapping_sub(1))
+                .map_or(offset, |(range, original)| {
+                    if offset >= range.end {
+                        original.end + (offset - range.end)
+                    } else if end_boundary {
+                        original.end
+                    } else {
+                        original.start
+                    }
+                })
+        };
+        (original_offset(start, false), original_offset(end, true))
     }
 }
 
@@ -534,15 +547,6 @@ impl Matcher {
         Ok(Self { regex, bounded })
     }
 
-    fn match_at(&self, text: &str, position: usize) -> Option<(usize, usize)> {
-        let found = if self.bounded {
-            self.regex.captures_at(text, position)?.get(1)?
-        } else {
-            self.regex.find_at(text, position)?
-        };
-        Some((found.start(), found.end()))
-    }
-
     /// Non-empty match byte ranges in `text`. Each search resumes at the end
     /// of the previous match, so one boundary character can close a whole
     /// word and open the next.
@@ -550,9 +554,14 @@ impl Matcher {
         let mut position = 0usize;
         std::iter::from_fn(move || {
             while position <= text.len() {
-                let (start, end) = self.match_at(text, position)?;
+                let found = if self.bounded {
+                    self.regex.captures_at(text, position)?.get(1)?
+                } else {
+                    self.regex.find_at(text, position)?
+                };
+                let (start, end) = (found.start(), found.end());
                 if start == end {
-                    position = next_char_boundary(text, start);
+                    position = start + text[start..].chars().next().map_or(1, char::len_utf8);
                     continue;
                 }
                 position = end;
@@ -560,55 +569,6 @@ impl Matcher {
             }
             None
         })
-    }
-}
-
-fn next_char_boundary(text: &str, offset: usize) -> usize {
-    text[offset..]
-        .chars()
-        .next()
-        .map_or(text.len() + 1, |character| offset + character.len_utf8())
-}
-
-struct PageTextMap {
-    byte_offsets: Vec<usize>,
-    utf16_offsets: Vec<usize>,
-}
-
-impl PageTextMap {
-    fn new(text: &str) -> Self {
-        let mut byte_offsets = Vec::new();
-        let mut utf16_offsets = Vec::new();
-        let mut utf16_offset = 0usize;
-        for (byte_offset, character) in text.char_indices() {
-            byte_offsets.push(byte_offset);
-            utf16_offsets.push(utf16_offset);
-            utf16_offset += character.len_utf16();
-        }
-        byte_offsets.push(text.len());
-        utf16_offsets.push(utf16_offset);
-        Self {
-            byte_offsets,
-            utf16_offsets,
-        }
-    }
-
-    fn utf16_offset_for_byte(&self, byte_offset: usize) -> usize {
-        match self.byte_offsets.binary_search(&byte_offset) {
-            Ok(index) | Err(index) => self.utf16_offsets[index.min(self.utf16_offsets.len() - 1)],
-        }
-    }
-
-    fn byte_index_for_utf16_offset(&self, target_offset: usize) -> usize {
-        match self.utf16_offsets.binary_search(&target_offset) {
-            Ok(index) => self.byte_offsets[index],
-            Err(0) => 0,
-            Err(index) => self.byte_offsets[index - 1],
-        }
-    }
-
-    fn utf16_len(&self) -> usize {
-        self.utf16_offsets.last().copied().unwrap_or(0)
     }
 }
 
@@ -635,35 +595,57 @@ fn collapse_whitespace(value: &str) -> String {
 
 fn build_excerpt(
     text: &str,
-    text_map: &PageTextMap,
     (start_byte, end_byte): (usize, usize),
-    (start_utf16, end_utf16): (usize, usize),
+    start_utf16: usize,
     context_chars: usize,
 ) -> SearchExcerpt {
-    let text_utf16_len = text_map.utf16_len();
-    let excerpt_start_utf16 = start_utf16.saturating_sub(context_chars);
-    let excerpt_end_utf16 = text_utf16_len.min(end_utf16.saturating_add(context_chars));
-    let excerpt_start_byte = text_map.byte_index_for_utf16_offset(excerpt_start_utf16);
-    let excerpt_end_byte = text_map.byte_index_for_utf16_offset(excerpt_end_utf16);
+    // Context boundaries round down in UTF-16, including a scalar whose
+    // trailing surrogate precedes the match and excluding one after it.
+    let excerpt_start_byte = text[..start_byte]
+        .char_indices()
+        .rev()
+        .scan(0, |units, (byte, character)| {
+            if *units >= context_chars {
+                return None;
+            }
+            *units += character.len_utf16();
+            Some(byte)
+        })
+        .last()
+        .unwrap_or(start_byte);
+    let excerpt_end_byte = end_byte
+        + text[end_byte..]
+            .chars()
+            .scan(0, |units, character| {
+                *units += character.len_utf16();
+                (*units <= context_chars).then_some(character.len_utf8())
+            })
+            .sum::<usize>();
     let before = collapse_whitespace(&text[excerpt_start_byte..start_byte]);
     let after = collapse_whitespace(&text[end_byte..excerpt_end_byte]);
     SearchExcerpt {
-        prefix: excerpt_start_utf16 > 0,
-        suffix: excerpt_end_utf16 < text_utf16_len,
+        prefix: start_utf16 > context_chars,
+        suffix: text[end_byte..]
+            .encode_utf16()
+            .take(context_chars + 1)
+            .count()
+            > context_chars,
         before: before.trim_start_matches(is_js_whitespace).to_string(),
         matched_text: text[start_byte..end_byte].to_string(),
         after: after.trim_end_matches(is_js_whitespace).to_string(),
     }
 }
 
-fn search_index(
-    index: &SearchIndex,
+fn search_index<R: Read + Seek>(
+    index: &mut SearchIndex<R>,
     options: &SearchOptions,
 ) -> Result<SearchResponse, NativeError> {
     let matcher = Matcher::new(options)?;
-    let mut results = Vec::new();
+    let mut results = VecDeque::new();
     let mut truncated = false;
-    'pages: for record in &index.records {
+    let mut match_count = 0;
+    'pages: for record_index in 0..index.records.len() {
+        let record = index.records[record_index];
         if options
             .pages
             .as_ref()
@@ -671,43 +653,57 @@ fn search_index(
         {
             continue;
         }
-        let text = index.page_text(record)?;
-        let normalized = needs_normalization(text).then(|| NormalizedText::new(text));
+        let text = index.page_text(&record)?;
+        let normalized = needs_normalization(&text).then(|| NormalizedText::new(&text));
         let haystack = normalized
             .as_ref()
-            .map_or(text, |value| value.text.as_str());
-        let mut text_map: Option<PageTextMap> = None;
+            .map_or(text.as_str(), |value| value.text.as_str());
+        let mut ascii = None;
+        let (mut mapped_byte, mut mapped_utf16) = (0, 0);
         for (page_match_index, (start, end)) in matcher.matches(haystack).enumerate() {
-            if results.len() >= options.limit {
+            let match_index = match_count;
+            match_count += 1;
+            if options
+                .result_offset
+                .is_some_and(|offset| match_index < offset)
+            {
+                continue;
+            }
+            if options.result_offset.is_some() && results.len() >= options.limit {
                 truncated = true;
                 break 'pages;
             }
             let bytes = match &normalized {
-                Some(value) => value.original_byte_range(start, end).ok_or_else(|| {
-                    NativeError::new(
-                        NativeErrorCode::NativeFailure,
-                        "Normalized search match offset is invalid",
-                    )
-                })?,
+                Some(value) => value.original_byte_range(start, end),
                 None => (start, end),
             };
-            let text_map = text_map.get_or_insert_with(|| PageTextMap::new(text));
-            let utf16 = (
-                text_map.utf16_offset_for_byte(bytes.0),
-                text_map.utf16_offset_for_byte(bytes.1),
-            );
-            results.push(SearchMatch {
+            let utf16 = if *ascii.get_or_insert_with(|| text.is_ascii()) {
+                bytes
+            } else {
+                // Matches advance in source order, including repeated ranges
+                // inside an expanded ligature. Count each preceding scalar once.
+                mapped_utf16 += text[mapped_byte..bytes.0].encode_utf16().count();
+                mapped_byte = bytes.0;
+                (
+                    mapped_utf16,
+                    mapped_utf16 + text[bytes.0..bytes.1].encode_utf16().count(),
+                )
+            };
+            results.push_back(SearchMatch {
                 page_number: record.page_number,
                 page_match_index,
-                match_index: results.len(),
+                match_index,
                 start_offset: utf16.0,
                 end_offset: utf16.1,
-                excerpt: build_excerpt(text, text_map, bytes, utf16, options.context_chars),
+                excerpt: build_excerpt(&text, bytes, utf16.0, options.context_chars),
             });
+            if results.len() > options.limit {
+                results.pop_front();
+            }
         }
     }
     Ok(SearchResponse {
-        results,
+        results: results.into(),
         truncated,
         page_count: index.page_count,
         coverage: index.coverage(),
@@ -715,29 +711,25 @@ fn search_index(
 }
 
 fn usage() -> &'static str {
-    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>] [--max-page-text-bytes <n>] [--max-total-text-bytes <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>]\n  evb-pdf-search stat --index <path> --document-revision <token>"
+    "Usage:\n  evb-pdf-search index --out <path> --document-revision <token> [--page-count <n>] [--max-page-text-bytes <n>] [--max-total-text-bytes <n>]  (page JSON lines on stdin)\n  evb-pdf-search search --index <path> --document-revision <token> --query <text> [--match-case] [--whole-word] [--regex] [--limit <n>] [--context <n>] [--pages <n,n,...>] [--result-offset <n|-1>]\n  evb-pdf-search stat --index <path> --document-revision <token>"
 }
 
 struct CliArgs {
-    values: Vec<(String, Option<String>)>,
+    values: Vec<(String, String)>,
 }
 
 impl CliArgs {
-    const FLAGS: [&'static str; 3] = ["--match-case", "--whole-word", "--regex"];
-
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, NativeError> {
         let mut values = Vec::new();
         while let Some(name) = args.next() {
             if !name.starts_with("--") {
                 return Err(invalid_request(format!("Unexpected argument: {name}")));
             }
-            let value = if Self::FLAGS.contains(&name.as_str()) {
-                None
+            let value = if ["--match-case", "--whole-word", "--regex"].contains(&name.as_str()) {
+                String::new()
             } else {
-                Some(
-                    args.next()
-                        .ok_or_else(|| invalid_request(format!("Missing value for {name}")))?,
-                )
+                args.next()
+                    .ok_or_else(|| invalid_request(format!("Missing value for {name}")))?
             };
             values.push((name, value));
         }
@@ -746,12 +738,11 @@ impl CliArgs {
 
     fn take(&mut self, name: &str) -> Option<String> {
         let index = self.values.iter().position(|(key, _)| key == name)?;
-        self.values.remove(index).1
+        Some(self.values.remove(index).1)
     }
 
     fn flag(&mut self, name: &str) -> bool {
-        let index = self.values.iter().position(|(key, _)| key == name);
-        index.map(|index| self.values.remove(index)).is_some()
+        self.take(name).is_some()
     }
 
     fn required(&mut self, name: &str) -> Result<String, NativeError> {
@@ -808,15 +799,17 @@ fn parse_search_options(args: &mut CliArgs) -> Result<SearchOptions, NativeError
     }
     let limit = args.number("--limit", MAX_RESULT_LIMIT)?;
     let context_chars = args.number("--context", 24usize)?;
-    if limit > MAX_RESULT_LIMIT || context_chars > MAX_CONTEXT_CHARS {
+    let result_offset: i64 = args.number("--result-offset", 0)?;
+    if limit > MAX_RESULT_LIMIT || context_chars > MAX_CONTEXT_CHARS || result_offset < -1 {
         return Err(too_large(
-            "Search limit or context exceeds its admission ceiling",
+            "Search limit, context or result offset exceeds its admission ceiling",
         ));
     }
     Ok(SearchOptions {
         query,
         limit,
         context_chars,
+        result_offset: (result_offset >= 0).then_some(result_offset as usize),
         match_case: args.flag("--match-case"),
         whole_word: args.flag("--whole-word"),
         use_regex: args.flag("--regex"),
@@ -826,11 +819,6 @@ fn parse_search_options(args: &mut CliArgs) -> Result<SearchOptions, NativeError
             .map(parse_pages)
             .transpose()?,
     })
-}
-
-#[derive(Serialize)]
-struct StaleResponse {
-    stale: bool,
 }
 
 fn print_json(value: &impl Serialize) -> Result<(), Box<dyn Error>> {
@@ -876,8 +864,10 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
             };
             args.finish()?;
             match (load_index(&index_path, &revision)?, options) {
-                (None, _) => print_json(&StaleResponse { stale: true }),
-                (Some(index), Some(options)) => print_json(&search_index(&index, &options)?),
+                (None, _) => print_json(&serde_json::json!({"stale": true})),
+                (Some(mut index), Some(options)) => {
+                    print_json(&search_index(&mut index, &options)?)
+                }
                 (Some(index), None) => print_json(&index.coverage()),
             }
         }

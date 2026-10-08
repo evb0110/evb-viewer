@@ -12,6 +12,7 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
+import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 const toastAddMock = vi.fn();
@@ -75,6 +76,49 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.runtime.errorId: receipt')}));
     });
 
+    it('keeps the note cause, receipt and retry when Save encounters the same rejected draft', () => {
+        const surface = useWorkspaceFailureSurface();
+        const retry = vi.fn();
+        const note = surface.reportNoteFailure({
+            cause: new Error('Document policy refused the note'),
+            retry,
+        });
+        expect(formatFailurePresentationCopy(note)).toContain('Document policy refused the note');
+        expect(note.actions?.[0]?.label).toBe('common.retry');
+
+        surface.reportSaveFailure('save-with-rejected-note', 'note-persistence-failed', undefined, note);
+        const saved = surface.saveFailurePresentation.value;
+        expect(saved?.failure).toBe(note.failure);
+        expect(saved?.description).toBe(note.description);
+        expect(saved && formatFailurePresentationCopy(saved)).toContain('Document policy refused the note');
+        saved?.actions?.[0]?.onClick();
+        expect(retry).toHaveBeenCalledOnce();
+        expect(new Set(toastAddMock.mock.calls.map(([toast]) => toast.id)).size).toBe(1);
+    });
+
+    it.each([
+        '',
+        '   ',
+        new Error(''),
+    ])('provides a truthful reason for an empty note failure cause %s', cause => {
+        const note = useWorkspaceFailureSurface().reportNoteFailure({cause});
+        expect(formatFailurePresentationCopy(note)).toContain('errors.annotation.noteUpdateRejected');
+    });
+
+    it('keeps the known deletion reason when its caller has no exception', () => {
+        const note = useWorkspaceFailureSurface().reportNoteFailure({message: 'Unable to delete this note.'});
+        expect(formatFailurePresentationCopy(note)).toContain('Unable to delete this note.');
+        expect(formatFailurePresentationCopy(note)).not.toContain('errors.annotation.noteUpdateRejected');
+    });
+
+    it.each([
+        '',
+        '   ',
+    ])('provides a visible title for an empty note operation message %s', message => {
+        const note = useWorkspaceFailureSurface().reportNoteFailure({message});
+        expect(note.title).toBe('errors.annotation.updateNote');
+    });
+
     it('shows one toast when a low-level failure and a service result share an operation', () => {
         const surface = useWorkspaceFailureSurface();
 
@@ -135,6 +179,31 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.save.documentChanged')}));
         expect(surface.hasSaveFailure.value).toBe(false);
+    });
+
+    it('keeps the native bridge receipt and cause in the save presentation', () => {
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: '0123456789abcdef0123456789abcdef',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const cause = Object.assign(new Error('EACCES: permission denied'), {failure: receipt});
+        const surface = useWorkspaceFailureSurface();
+        surface.reportSaveFailure('save-native', 'persist-rejected', undefined, undefined, {
+            channel: 'native',
+            operation: 'persist',
+            phase: 'mutation',
+            reason: 'write-failed',
+            message: cause.message,
+            cause,
+        });
+        expect(surface.saveFailurePresentation.value).toMatchObject({
+            failure: receipt,
+            description: 'errors.save.permissionDenied',
+            technicalDetails: expect.stringContaining(cause.message),
+        });
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: receipt.eventId}));
     });
 
     it('keeps a rejected annotation out of the save state', () => {

@@ -13,7 +13,6 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import { isRecord } from '@contracts/runtimeGuards';
 import {
     findSerializableErrorEnvelope,
     SERIALIZABLE_ERROR_ENVELOPE_SCHEMA,
@@ -344,7 +343,15 @@ export const SEARCH_OPTION_SEMANTICS = [
     },
 ] as const;
 
+/** Zero-based first result, or the final bounded window for reverse wrap. */
+export type TSearchResultOffset = number | 'last';
+export const searchResultOffsetSchema = v.union([
+    v.literal('last'),
+    safeNonNegativeInteger,
+]);
+
 export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
+    resultOffset?: TSearchResultOffset;
     requestId?: TRequestId;
     pageCount?: number;
     documentRevision?: TDocumentRevisionToken;
@@ -464,54 +471,10 @@ function normalizeOptionalSearchDocumentRevision(raw: unknown) {
     return documentRevision;
 }
 
-function normalizePdfSearchRequest(raw: unknown) {
-    if (!isRecord(raw)) {
-        throw new Error('Invalid search request payload');
-    }
-    if (typeof raw.query !== 'string') {
-        throw new Error('Invalid search query');
-    }
-
-    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount);
-    const requestId = normalizeOptionalSearchRequestId(raw.requestId);
-    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
-    const matchCase = normalizeSearchBooleanOption(raw.matchCase);
-    const wholeWord = normalizeSearchBooleanOption(raw.wholeWord);
-    const useRegex = normalizeSearchBooleanOption(raw.useRegex);
-    validateSearchQueryLength(raw.query, useRegex === true);
-
-    return {
-        pdfPath: normalizeSearchPdfPath(raw.pdfPath),
-        query: raw.query,
-        ...(pageCount === undefined ? {} : {pageCount}),
-        ...(requestId === undefined ? {} : {requestId}),
-        ...(documentRevision === undefined ? {} : {documentRevision}),
-        ...(matchCase === undefined ? {} : {matchCase}),
-        ...(wholeWord === undefined ? {} : {wholeWord}),
-        ...(useRegex === undefined ? {} : {useRegex}),
-    };
-}
-
-function normalizePdfSearchWarmIndexRequest(raw: unknown) {
-    if (!isRecord(raw)) {
-        throw new Error('Invalid warm-index payload');
-    }
-
-    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount);
-    const requestId = normalizeOptionalSearchRequestId(raw.requestId);
-    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
-
-    return {
-        pdfPath: normalizeSearchPdfPath(raw.pdfPath),
-        ...(pageCount === undefined ? {} : {pageCount}),
-        ...(requestId === undefined ? {} : {requestId}),
-        ...(documentRevision === undefined ? {} : {documentRevision}),
-    };
-}
-
 const searchRequestInputSchema = v.object({
     pdfPath: v.unknown(),
-    query: v.unknown(),
+    resultOffset: v.optional(searchResultOffsetSchema),
+    query: v.string('Invalid search query'),
     requestId: v.optional(v.unknown()),
     pageCount: v.optional(v.unknown()),
     documentRevision: v.optional(v.unknown()),
@@ -519,6 +482,36 @@ const searchRequestInputSchema = v.object({
     wholeWord: v.optional(v.unknown()),
     useRegex: v.optional(v.unknown()),
 }, 'Invalid search request payload');
+function normalizePdfSearchRequest(raw: v.InferOutput<typeof searchRequestInputSchema>) {
+    const matchCase = normalizeSearchBooleanOption(raw.matchCase);
+    const wholeWord = normalizeSearchBooleanOption(raw.wholeWord);
+    const useRegex = normalizeSearchBooleanOption(raw.useRegex);
+    validateSearchQueryLength(raw.query, useRegex === true);
+
+    return {
+        ...normalizePdfSearchWarmIndexRequest(raw),
+        query: raw.query,
+        ...(raw.resultOffset === undefined ? {} : {resultOffset: raw.resultOffset}),
+        ...(matchCase === undefined ? {} : {matchCase}),
+        ...(wholeWord === undefined ? {} : {wholeWord}),
+        ...(useRegex === undefined ? {} : {useRegex}),
+    };
+}
+
+function normalizePdfSearchWarmIndexRequest(raw: Pick<v.InferOutput<typeof searchRequestInputSchema>, 'pdfPath' | 'pageCount' | 'requestId' | 'documentRevision'>) {
+
+    const pageCount = normalizeOptionalSearchPageCount(raw.pageCount);
+    const requestId = normalizeOptionalSearchRequestId(raw.requestId);
+    const documentRevision = normalizeOptionalSearchDocumentRevision(raw.documentRevision);
+
+    return {
+        pdfPath: normalizeSearchPdfPath(raw.pdfPath),
+        ...(pageCount === undefined ? {} : {pageCount}),
+        ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRevision === undefined ? {} : {documentRevision}),
+    };
+}
+
 export const pdfSearchRequestSchema = v.pipe(
     searchRequestInputSchema,
     v.transform(value => normalizePdfSearchRequest(value)),

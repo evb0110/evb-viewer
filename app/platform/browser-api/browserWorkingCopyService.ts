@@ -30,10 +30,8 @@ import {
     isPdfDecryptPassword,
     PDF_DECRYPT_PASSWORD_MAX_BYTES,
 } from '@contracts/pdfDecryptSchemas';
-import {
-    isBrowserPageOpsWasmFailure,
-    tryRunBrowserPageOpsWithWasm,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 
 function buildBrowserLargeJobError(label: string, maxBytes: number, hint?: string) {
     return buildBrowserByteLimitError(
@@ -51,7 +49,7 @@ async function touchRecentFileForOpen(ref: TDocumentRef) {
     await browserDocumentStore.touchRecentFile(ref);
 }
 
-export async function decryptBrowserWorkingCopy(workingPath: string, password?: string) {
+export async function decryptBrowserWorkingCopy(workingPath: string, password?: string, signal?: AbortSignal) {
     if (password !== undefined && !isPdfDecryptPassword(password)) {
         throw new Error(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     }
@@ -88,11 +86,12 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         );
     }
 
+    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
     const bytes = await browserDocumentStore.read(workingPath);
-    const result = await tryRunBrowserPageOpsWithWasm('decrypt', {
+    const result = await runBrowserPageOpsWorkerRequest('decrypt', {
         data: bytes,
         password: password ?? '',
-    });
+    }, signal ? {signal} : {});
     if (result === null) {
         throw new Error('Browser PDF decrypt operation is unavailable');
     }
@@ -111,10 +110,7 @@ export async function decryptBrowserWorkingCopy(workingPath: string, password?: 
         }
         throw new Error(result.error.message);
     }
-    if (!(result && result.data instanceof Uint8Array)) {
-        throw new Error('Browser PDF decrypt operation returned an invalid result');
-    }
-    const revision = await browserDocumentStore.getDocumentRevision(workingPath);
+    signal?.throwIfAborted();
     await browserDocumentStore.write(workingPath, new Uint8Array(result.data), {expectedDocumentRevisionToken: revision.token});
     return {
         outcome: 'decrypted',

@@ -72,7 +72,7 @@ describe('assistant turn liveness', () => {
         expect(publish).toHaveBeenCalledTimes(2);
     });
 
-    it('preserves stall boundary recording and publication', async () => {
+    it('preserves provider timestamps across ongoing stalled heartbeats', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(100_000);
         const session = {
@@ -92,8 +92,10 @@ describe('assistant turn liveness', () => {
         });
 
         controller.sync();
-        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(30_000);
 
+        expect(publish).toHaveBeenCalledTimes(15);
+        expect(session.turnPresentation.lastEventAtMs).toBe(1);
         expect(session.turnPresentation.phase).toBe('stalled');
         expect(recordBoundary).toHaveBeenCalledWith(session);
         expect(publish).toHaveBeenCalledWith({

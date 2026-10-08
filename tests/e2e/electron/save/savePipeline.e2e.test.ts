@@ -703,6 +703,61 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
     }, E2E_TIMEOUT_MS);
 
+    // chmod directory refusal exercises POSIX publication; the Windows file-lock
+    // refusal remains covered by the Save As case below.
+    it.runIf(process.platform !== 'win32')('names a native save permission refusal and preserves the note for Save As', async () => {
+        const fixture = await createMultiPageTextFixturePdf(`native-save-permission-${Date.now()}.pdf`, 1);
+        const directory = join(dirname(fixture), `native-save-permission-${Date.now()}`);
+        await mkdir(directory, {recursive: true});
+        const source = join(directory, 'source.pdf');
+        const destination = join(dirname(fixture), `native-save-permission-recovered-${Date.now()}.pdf`);
+        await writeFile(source, await readFile(fixture));
+        const originalBytes = await readFile(source);
+        onTestFinished(() => chmod(directory, 0o755));
+        session = await startElectronE2ESession(`e2e-native-save-permission-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destination},
+            initialOpenPaths: [source],
+        });
+        const {page} = session;
+        await waitForOpenedPdf(page, source);
+        const noteText = 'Accepted note retained after permission refusal';
+        await createStickyNoteWithPointer(page, noteText, {
+            x: 0.62,
+            y: 0.3,
+        });
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await waitForSaveFrontierReady(page);
+        await chmod(directory, 0o555);
+        await clickEnabledSaveButton(page);
+        await page.waitForSelector('[aria-label="Last save failed"]', {
+            visible: true,
+            timeout: SAVE_TIMEOUT_MS,
+        });
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        await waitForVisibleSidebarNoteText(page, noteText);
+        expect(await readFile(source)).toEqual(originalBytes);
+        expect(await isSaveButtonEnabled(page)).toBe(true);
+        const failureText = await page.$eval('.app-toast-failure:not([data-state="closed"])', element => element.textContent ?? '');
+        expect(failureText).toContain('Failed to save file');
+        expect(failureText).toContain('Permission to write the file was denied. Choose Save As to save your changes elsewhere.');
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
+            .find(button => button.textContent?.trim() === 'Copy details'), null, {description: 'Copy save failure details'});
+        const copied = await page.evaluate(() => navigator.clipboard.readText());
+        expect(copied).toMatch(/EACCES|permission denied/iu);
+        expect(copied).toContain('Error ID:');
+        await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('.save-split-trigger'), null, {description: 'Save options'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-item'))
+            .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'Save As'});
+        await expect.poll(() => existsSync(destination), {timeout: SAVE_TIMEOUT_MS}).toBe(true);
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        expect((await readPdfTextAnnotationRecords(destination)).filter(note => note.contents === noteText)).toHaveLength(1);
+        expect(await readFile(source)).toEqual(originalBytes);
+        await waitForVisibleSidebarNoteText(page, noteText);
+        expect(await isSaveButtonEnabled(page)).toBe(false);
+    }, E2E_TIMEOUT_MS);
+
     it('reports a refused Save As once and leaves the open document unmarked', async () => {
         const sourcePath = await createMultiPageTextFixturePdf(
             `save-as-refused-source-${Date.now()}.pdf`,

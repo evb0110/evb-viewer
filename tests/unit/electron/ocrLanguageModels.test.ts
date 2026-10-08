@@ -11,6 +11,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'path';
 import { Readable } from 'node:stream';
 import type * as NodeFs from 'fs';
+import type * as NodeFsPromises from 'node:fs/promises';
+import type * as NodeOs from 'node:os';
 
 const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
 
@@ -520,5 +522,116 @@ describe('ensureRuntimeTessdataSeeded', () => {
         expect(String(mocks.fetch.mock.calls[0]?.[0])).toContain(
             'raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/eng.traineddata',
         );
+    });
+});
+
+// The download contract is the verified file a consumer can use, including
+// when another consumer stops waiting. Keep the filesystem and model real.
+describe('verified model download publication', () => {
+    let runtimeRoot: string;
+    let files: typeof NodeFsPromises;
+    let modelBytes: Buffer;
+    let resourcesPathDescriptor: PropertyDescriptor | undefined;
+
+    beforeEach(async () => {
+        vi.resetModules();
+        vi.doUnmock('fs');
+        vi.doUnmock('fs/promises');
+        files = await vi.importActual<typeof NodeFsPromises>('node:fs/promises');
+        const {tmpdir} = await vi.importActual<typeof NodeOs>('node:os');
+        runtimeRoot = await files.mkdtemp(join(tmpdir(), 'ocr-model-publication-'));
+        modelBytes = await files.readFile(join(tessdataFixtureRoot, 'eng.traineddata'));
+        mocks.app.isPackaged = true;
+        mocks.app.getPath.mockReturnValue(runtimeRoot);
+        mocks.getOcrRuntimePolicy.mockReturnValue({modelDownloadConcurrency: 3});
+        resourcesPathDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
+        Object.defineProperty(process, 'resourcesPath', {
+            configurable: true,
+            value: join(runtimeRoot, 'empty-bundle'),
+        });
+    });
+
+    afterEach(async () => {
+        vi.unstubAllGlobals();
+        if (resourcesPathDescriptor) {
+            Object.defineProperty(process, 'resourcesPath', resourcesPathDescriptor);
+        } else {
+            Reflect.deleteProperty(process, 'resourcesPath');
+        }
+        await files.rm(runtimeRoot, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    async function expectVerifiedModel() {
+        const installed = await files.readFile(join(runtimeRoot, 'tessdata', 'eng.traineddata'));
+        expect(installed.equals(modelBytes)).toBe(true);
+        expect(createHash('sha256').update(installed).digest('hex')).toBe(
+            '8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba',
+        );
+        expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual(['eng.traineddata']);
+    }
+
+    it('publishes a pinned model after a transient response, then uses it offline', async () => {
+        let failed = false;
+        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+            if (init.method === 'HEAD') return new Response(null, {status: 200});
+            if (!failed) {
+                failed = true;
+                return new Response(null, {status: 503});
+            }
+            return new Response(new Uint8Array(modelBytes));
+        });
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+
+        await ensureTessdataLanguages(['eng']);
+        await expectVerifiedModel();
+        vi.stubGlobal('fetch', () => { throw new Error('offline'); });
+        await ensureTessdataLanguages(['eng']);
+        await expectVerifiedModel();
+    });
+
+    it('keeps a shared download usable when one consumer cancels', async () => {
+        const started = Promise.withResolvers<undefined>();
+        let deliverBody = () => {};
+        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+            if (init.method === 'HEAD') return new Response(null, {status: 200});
+            return new Response(new ReadableStream<Uint8Array>({start(controller) {
+                deliverBody = () => {
+                    controller.enqueue(modelBytes);
+                    controller.close();
+                };
+                started.resolve(undefined);
+            }}));
+        });
+        const {
+            ensureTessdataLanguages,
+            getOcrLanguageModelStates,
+        } = await import('@electron/features/ocr/languageModels');
+        const canceled = new AbortController();
+        const first = ensureTessdataLanguages(['eng'], {signal: canceled.signal});
+        const firstOutcome = first.catch(error => error as Error);
+        await started.promise;
+        const second = ensureTessdataLanguages(['eng']);
+        expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('downloading');
+        canceled.abort();
+        expect(await firstOutcome).toMatchObject({name: 'AbortError'});
+        deliverBody();
+
+        await second;
+        await expectVerifiedModel();
+    });
+
+    it('leaves no usable model or staging file after a checksum mismatch', async () => {
+        const changedBytes = Buffer.from(modelBytes);
+        changedBytes[changedBytes.length - 1]! ^= 1;
+        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => (
+            init.method === 'HEAD' ? new Response(null, {status: 200}) : new Response(new Uint8Array(changedBytes))
+        ));
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+
+        await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'CHECKSUM_MISMATCH'});
+        expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual([]);
     });
 });

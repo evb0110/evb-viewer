@@ -1,6 +1,9 @@
+import {matchPdfSearchPageWindow} from '@pdf-core/pdfSearchCore';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
+    TSearchResultOffset,
 } from '@contracts/search';
 import type {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import type {TDocumentRef} from '@contracts/documentRef';
@@ -30,6 +33,7 @@ const { browserDjvuTextSearchCapability } = await import(
 );
 
 interface ISearchWorkerOptionsForTest {
+    resultOffset?: TSearchResultOffset;
     onProgress?: (progress: IPdfSearchProgress) => void;
     requestId: ReturnType<typeof requireRequestId>;
     signal: AbortSignal;
@@ -90,6 +94,31 @@ describe('browserDjvuTextSearchCapability', () => {
             });
             return deferred.promise;
         });
+    });
+
+    it.each([
+        500,
+        'last',
+    ] as const)('returns the requested DjVu window at %s', async resultOffset => {
+        mocks.searchWorkerText.mockImplementation((_worker, options: ISearchWorkerOptionsForTest) => {
+            const response = matchPdfSearchPageWindow('valve '.repeat(561), 'valve', {}, 500, options.resultOffset);
+            return {
+                results: response.matches.map(match => ({
+                    ...match,
+                    pageNumber: requirePageNumber(1),
+                    matchIndex: match.pageMatchIndex,
+                })),
+                truncated: response.truncated,
+            };
+        });
+        const response = await browserDjvuTextSearchCapability.searchText(requireDocumentRef('browser://documents/dense.djvu'), 'valve', {
+            ...createSearchOptions(requireRequestId('window-request')),
+            resultOffset,
+        });
+        expect(response.results).toHaveLength(resultOffset === 500 ? 61 : 500);
+        expect(response.results[0]?.matchIndex).toBe(resultOffset === 500 ? 500 : 61);
+        expect(response.results.at(-1)?.matchIndex).toBe(560);
+        expect(response.truncated).toBe(false);
     });
 
     it('lets the same request ID run concurrently on different document sources and cancels all matches', async () => {

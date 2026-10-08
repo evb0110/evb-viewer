@@ -98,6 +98,35 @@ impl IncrementalDocument {
         self.previous_last_byte
     }
 
+    /// Read-only consumers decode a transient stream instead of retaining it.
+    pub(crate) fn read_base_stream_bounded(
+        &self,
+        path: &Path,
+        qpdf_path: Option<&Path>,
+        object_id: ObjectId,
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>> {
+        let Ok(Object::Stream(stream)) = self.previous_document.get_object(object_id) else {
+            return Ok(None);
+        };
+        if self.unavailable_base_streams.contains(&object_id) {
+            if let Some(qpdf_path) = qpdf_path {
+                let mut transient = stream.clone();
+                transient.set_content(read_qpdf_stream_bounded(
+                    path, qpdf_path, object_id, max_bytes,
+                )?);
+                return Ok(
+                    if transient.filters().is_ok_and(|filters| !filters.is_empty()) {
+                        transient.decompressed_content_with_limit(max_bytes).ok()
+                    } else {
+                        Some(transient.content)
+                    },
+                );
+            }
+        }
+        Ok(stream.get_plain_content_with_limit(max_bytes).ok())
+    }
+
     pub(crate) fn materialize_base_stream(
         &mut self,
         path: &Path,

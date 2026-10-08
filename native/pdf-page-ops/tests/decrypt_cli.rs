@@ -333,3 +333,36 @@ fn save_mutations_append_refuses_an_empty_password_encrypted_base() {
     let _ = remove_file(&input);
     let _ = remove_file(&mutations);
 }
+
+#[test]
+fn visibility_session_refuses_encrypted_bytes_as_the_legacy_request_does() {
+    let input = path("visibility-encrypted", "pdf");
+    let pages = path("visibility-pages", "txt");
+    write(&pages, "1\n").unwrap();
+    for password in ["", USER_PASSWORD] {
+        write(&input, rc4_r3_fixture(password)).unwrap();
+        let legacy = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["ocr-text-visibility", "--input"])
+            .arg(&input)
+            .arg("--pages-file")
+            .arg(&pages)
+            .output()
+            .unwrap();
+        let session = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["ocr-text-visibility", "--input"])
+            .arg(&input)
+            .arg("--pages-stdin")
+            .output()
+            .unwrap();
+        let expected = if password.is_empty() {
+            "encrypted"
+        } else {
+            "corrupt-xref"
+        };
+        assert_eq!(error_envelope(&legacy)["code"], expected);
+        assert_eq!(legacy.stdout, session.stdout);
+        assert_eq!(legacy.stderr, session.stderr);
+    }
+    let _ = remove_file(input);
+    let _ = remove_file(pages);
+}

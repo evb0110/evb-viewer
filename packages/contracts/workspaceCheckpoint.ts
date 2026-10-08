@@ -50,7 +50,6 @@ export function readWorkspaceRecoveryMetadata(value: unknown) {
     return v.parse(documentRecoveryMetadataSchema, value).metadata;
 }
 
-const MAX_CHECKPOINT_TABS = 128;
 const paneIdSchema = v.pipe(v.string(), v.check(value => parsePaneId(value) !== null), v.transform(value => parsePaneId(value)!));
 const tabIdSchema = v.pipe(v.string(), v.check(value => parseTabId(value) !== null), v.transform(value => parseTabId(value)!));
 const documentRefSchema = v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!));
@@ -94,7 +93,7 @@ const annotationRecoverySchema = v.object({
 
 const paneSchema = v.object({
     paneId: paneIdSchema,
-    tabIds: v.pipe(v.array(tabIdSchema), v.maxLength(MAX_CHECKPOINT_TABS)),
+    tabIds: v.array(tabIdSchema),
     activeTabId: nullableTabIdSchema,
 });
 
@@ -131,7 +130,7 @@ export const workspaceCheckpointSchema = v.object({
     activeTabId: nullableTabIdSchema,
     layout: layoutSchema,
     panes: v.pipe(v.array(paneSchema), v.maxLength(32)),
-    tabs: v.pipe(v.array(checkpointTabSchema), v.maxLength(MAX_CHECKPOINT_TABS)),
+    tabs: v.array(checkpointTabSchema),
 });
 
 export type TWorkspaceCheckpointSurfaceMode = 'reader' | 'scan-cleanup';

@@ -63,6 +63,7 @@ describe('assistant turn lifecycle', () => {
         const claimed = claimAssistantTurn(createInitialAssistantTurnOwner(), scopeBinding, 'local-1');
         const staleStart = markAssistantTurnRunning(claimed, claimed.generation - 1, 'turn-old');
         const running = markAssistantTurnRunning(claimed, claimed.generation, 'turn-1');
+        expect(markAssistantTurnRunning(running, running.generation, 'turn-1')).toBe(running);
         const wrongCompletion = completeAssistantTurn(running, running.generation, 'turn-2');
         const staleCompletion = completeAssistantTurn(running, running.generation - 1, 'turn-1');
         const completed = completeAssistantTurn(running, running.generation, 'turn-1');

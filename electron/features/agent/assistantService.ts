@@ -129,33 +129,38 @@ async function loadClaudeRuntimeModule() {
     return claudeRuntimeModulePromise;
 }
 
-let modelDiscovery: Promise<void> | null = null;
+const modelDiscovery: Partial<Record<TAgentAssistantProviderId, Promise<boolean> | undefined>> = {};
 async function discoverAssistantModels() {
-    modelDiscovery ??= Promise.all([
-        runtimeLifecycle.refreshCodexModelList().catch(error => logger.warn(`Failed to read Codex model list: ${getErrorMessage(error)}`)),
-        (async () => {
+    await Promise.all(([
+        'codex',
+        'claude',
+    ] as const).map(async providerId => {
+        const discovery = modelDiscovery[providerId] ??= (async () => {
+            if (providerId === 'codex') {
+                return runtimeLifecycle.refreshCodexModelList();
+            }
             const info = await refreshClaudeInfo();
             if (!info.installed) {
-                return;
+                return false;
             }
             const provider = await loadClaudeRuntimeModule();
             const models = await provider.discoverClaudeAssistantModels(await ensureAssistantCwd(), info.executablePath);
             if (models.length > 0) {
                 claudeAssistantModels = models;
             }
-        })().catch(error => logger.warn(`Failed to read Claude model list: ${getErrorMessage(error)}`)),
-    ]).then(() => undefined);
-    await modelDiscovery;
+            return models.length > 0;
+        })().catch(error => {
+            logger.warn(`Failed to read ${providerId} model list: ${getErrorMessage(error)}`);
+            return false;
+        });
+        if (!(await discovery) && modelDiscovery[providerId] === discovery) {
+            modelDiscovery[providerId] = undefined;
+        }
+    }));
 }
 
 const sessionStore = createAssistantChatSessionStore({
     onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
-        const currentRuntime = runtimeLifecycle.getRuntime();
-        if (session.provider === 'codex' && currentRuntime && session.providerThreadId) {
-            void currentRuntime.client.request('thread/archive', { threadId: session.providerThreadId }).catch((error: unknown) => {
-                logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
-            });
-        }
         if (session.provider === 'claude' && session.claudeSession) {
             void session.claudeSession.close().catch((error: unknown) => {
                 logger.warn(`Failed to close ${reason} Claude assistant session: ${getErrorMessage(error)}`);
@@ -257,11 +262,11 @@ function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) 
     const activeScope = getActiveAssistantMcpSessionScope();
     return activeScope !== null && activeScope.sessionKey !== sessionStore.keyForSession(session);
 }
-function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
+async function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
     const scope = sessionStore.resolveRequestedScope(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     rememberStateScope(scope, selection);
-    return scope ? sessionStore.getSession(scope, selection, { create: true }) : null;
+    return scope ? sessionStore.loadSession(scope, selection, { create: true }) : null;
 }
 function currentCodexSelection(): IAssistantSelection {
     const selection = sessionStore.getRememberedSelection();
@@ -321,20 +326,6 @@ function createAssistantSuccessResult(session: IAssistantChatSession) {
         ok: true as const,
         state: currentState(session.scope, session),
     };
-}
-
-function addUserMessageAndPublish(
-    session: IAssistantChatSession,
-    text: string,
-    attachments: NonNullable<IAgentAssistantSendMessageRequest['attachments']>,
-) {
-    const message = sessionStore.addMessage(session, {
-        role: 'user',
-        text,
-        ...(attachments.length > 0 ? {attachments} : {}),
-    });
-    publishState(session.scope, session);
-    return message;
 }
 
 function setProviderError(provider: TAgentAssistantProviderId, error: string) {
@@ -829,7 +820,7 @@ export async function getAgentAssistantState(
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
     await assistantFeatureLifecycle.waitForShutdown();
-    const session = getRequestChatSession(request);
+    const session = await getRequestChatSession(request);
     const scope = session?.scope ?? null;
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     if (!(await isAssistantFeatureEnabled())) {
@@ -874,7 +865,7 @@ export async function sendAgentAssistantMessage(
         setProviderError(selection.provider, error);
         return createAssistantErrorResult(error, null, selection);
     }
-    const session = sessionStore.getSession(scope, selection, { create: true });
+    const session = await sessionStore.loadSession(scope, selection, { create: true });
     session.lastSenderWindowId = options.windowId ?? null;
     if (hasConflictingAssistantMcpSessionScope(session)) {
         return createAssistantBusyResult(() => currentState(session.scope, session));
@@ -917,6 +908,11 @@ export async function sendAgentAssistantMessage(
         if (!text && attachments.length === 0 && !presetInstructions) {
             return createAssistantErrorResult('Message is empty.', session.scope, session);
         }
+        const userMessage = {
+            role: 'user' as const,
+            text,
+            ...(attachments.length > 0 ? {attachments} : {}),
+        };
 
         // Reserve the session before any provider setup can yield. This makes
         // the session turn and its MCP scope the transaction owner while a
@@ -960,7 +956,7 @@ export async function sendAgentAssistantMessage(
                 }
                 claudeProviderRuntime.runtimeState = 'busy';
                 delete session.lastError;
-                claudeUserMessageId = addUserMessageAndPublish(session, text, attachments).id;
+                claudeUserMessageId = sessionStore.addMessage(session, userMessage).id;
                 await claudeSession.sendMessage(modelText, attachments, selection.model);
                 claudeMessageSubmitted = true;
                 await assertClaimCurrent();
@@ -973,12 +969,7 @@ export async function sendAgentAssistantMessage(
                     });
                     session.claudeSession = undefined;
                 }
-                if (!isClaimCurrent()) {
-                    discardCanceledClaudeMessage();
-                    releaseClaimedSessionTurn(session, claimedTurnGeneration);
-                    return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
-                }
-                if (error instanceof AssistantTurnSupersededError) {
+                if (!isClaimCurrent() || error instanceof AssistantTurnSupersededError) {
                     discardCanceledClaudeMessage();
                     releaseClaimedSessionTurn(session, claimedTurnGeneration);
                     return createAssistantErrorResult(ASSISTANT_TURN_CANCELLED_ERROR, session.scope, session);
@@ -1021,7 +1012,7 @@ export async function sendAgentAssistantMessage(
             sessionStore.setActiveSession(session);
             codexProviderRuntime.runtimeState = 'busy';
             delete session.lastError;
-            addUserMessageAndPublish(session, text, attachments);
+            sessionStore.addMessage(session, userMessage);
             const response = await currentRuntime.client.requestDecoded('turn/start', {
                 threadId: currentThreadId,
                 input: [
@@ -1150,7 +1141,7 @@ export async function interruptAgentAssistant(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
-    const requestedSession = getRequestChatSession(request);
+    const requestedSession = await getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
@@ -1225,7 +1216,7 @@ export async function resetAgentAssistantChat(
     request?: IAgentAssistantScopedRequest,
 ): Promise<IAgentAssistantState> {
     await sessionStore.ready;
-    const session = getRequestChatSession(request);
+    const session = await getRequestChatSession(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request, claudeAssistantModels);
     abortActiveEmbeddedMcpRequests(
         session?.scopeBinding ?? (session ? getAssistantTurnScope(session.turnOwner) : null),

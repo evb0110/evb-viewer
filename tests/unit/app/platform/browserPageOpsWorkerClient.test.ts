@@ -5,6 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    effectScope,
+    ref,
+} from 'vue';
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
@@ -509,4 +513,167 @@ describe('browserPageOpsWorkerClient', () => {
         expect(failedWorker.terminated).toBe(true);
         expect(siblingWorker.terminated).toBe(true);
     });
+    it.each([
+        'saveMutations',
+        'decrypt',
+        'printLayout',
+    ] as const)(
+        'isolates cancellation of %s from an overlapping page operation', async (type) => {
+            FakeWorker.autoRespond = false;
+            const {runBrowserPageOpsWorkerRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
+            const controller = new AbortController();
+            const input = new Uint8Array([
+                1,
+                2,
+                3,
+            ]);
+            const payload = type === 'saveMutations'
+                ? {
+                    data: input,
+                    mutations: {updates: [{
+                        objectNumber: 1,
+                        generationNumber: 0,
+                        text: 'Saved',
+                    }]},
+                    modifiedAt: 'D:20260102000000Z',
+                }
+                : type === 'decrypt'
+                    ? {
+                        data: input,
+                        password: 'transient',
+                    }
+                    : {
+                        data: input,
+                        pageNumbers: [],
+                        viewMode: 'facing' as const,
+                        orientation: 'landscape' as const,
+                    };
+            const canceled = runBrowserPageOpsWorkerRequest(type, payload, {signal: controller.signal});
+            await Promise.resolve();
+            const sibling = runBrowserPageOpsWorkerRequest('rotate', {
+                data: new Uint8Array([4]),
+                pages: [1],
+                angle: 90,
+            });
+            const reason = new Error('Document closed');
+            const rejection = expect(canceled).rejects.toBe(reason);
+            controller.abort(reason);
+            await rejection;
+            const siblingWorker = FakeWorker.lastInstance;
+            if (!siblingWorker) throw new Error('Missing sibling worker');
+            siblingWorker.dispatchMessage({
+                id: 1,
+                type: 'rotate',
+                ok: true,
+                data: {
+                    data: new Uint8Array([5]),
+                    pageCount: 1,
+                },
+            });
+            await expect(sibling).resolves.toEqual({
+                data: new Uint8Array([5]),
+                pageCount: 1,
+            });
+            expect(input).toEqual(new Uint8Array([
+                1,
+                2,
+                3,
+            ]));
+        },
+    );
+
+    it('stops the isolated layout worker when the workspace print dialog closes', async () => {
+        FakeWorker.autoRespond = false;
+        const notices: unknown[] = [];
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            remove: () => undefined,
+        }));
+        const {useWorkspacePrint} = await import('@app/modules/workspace-shell/composables/useWorkspacePrint');
+        const scope = effectScope();
+        const input = new Uint8Array([
+            1,
+            2,
+            3,
+        ]);
+        const print = scope.run(() => useWorkspacePrint({
+            totalPages: ref(2),
+            currentPage: ref(1),
+            selectedPages: ref([]),
+            sourcePdf: ref(null),
+            workingCopyPath: ref(null),
+            fileName: ref('cancel-print.pdf'),
+            hasPendingUnsavedChanges: ref(false),
+            getQuickPrintPageMetrics: async () => null,
+            getPrintableSourceData: async () => input,
+        }));
+        if (!print) throw new Error('Missing print owner');
+        print.handlePrintDialogOpenChange(true);
+        const preparation = print.handlePrintDialogSubmit({
+            viewMode: 'facing',
+            orientation: 'landscape',
+        });
+        try {
+            await vi.waitFor(() => expect(FakeWorker.lastInstance).not.toBeNull());
+            const worker = FakeWorker.lastInstance!;
+            print.handlePrintDialogOpenChange(false);
+            await vi.waitFor(() => expect(worker.terminated).toBe(true));
+            await preparation;
+            expect(print.isPreparingPrint.value).toBe(false);
+            expect(notices).toEqual([]);
+            expect(input).toEqual(new Uint8Array([
+                1,
+                2,
+                3,
+            ]));
+        } finally {
+            scope.stop();
+            // Release the pre-fix pending worker after the failing assertion.
+            const worker = FakeWorker.lastInstance;
+            const request = worker?.postMessageCalls[0]?.message;
+            if (request && typeof request === 'object' && 'id' in request) {
+                worker?.dispatchMessage({
+                    id: request.id,
+                    type: 'printLayout',
+                    ok: true,
+                    data: {
+                        data: new Uint8Array([4]),
+                        pageCount: 1,
+                    },
+                });
+            }
+            await preparation;
+            FakeWorker.autoRespond = true;
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('preserves typed decrypt failures and unavailable WASM results across the worker boundary', async () => {
+        FakeWorker.autoRespond = false;
+        const {runBrowserPageOpsWorkerRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
+        for (const result of [
+            null,
+            {
+                status: 'failed',
+                error: {
+                    code: 'needs-password',
+                    message: 'Password required',
+                },
+            },
+        ]) {
+            const request = runBrowserPageOpsWorkerRequest('decrypt', {
+                data: new Uint8Array([1]),
+                password: '',
+            });
+            await Promise.resolve();
+            FakeWorker.lastInstance?.dispatchMessage({
+                id: 1,
+                type: 'decrypt',
+                ok: true,
+                data: result,
+            });
+            await expect(request).resolves.toEqual(result);
+        }
+    });
+
 });

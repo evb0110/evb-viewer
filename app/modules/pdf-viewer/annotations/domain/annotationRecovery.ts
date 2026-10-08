@@ -24,6 +24,9 @@ export interface IAnnotationRecoveryDraft {
 
 export interface IAnnotationRecoveryDraftError extends IAnnotationRecoveryDraft {readonly error: string;}
 
+export type TAnnotationRecoveryDraftInput = readonly IAnnotationRecoveryDraft[]
+    | ((entities: readonly AnnotationEntity[]) => readonly IAnnotationRecoveryDraft[]);
+
 export interface ICanonicalAnnotationRecovery {
     readonly version: typeof CANONICAL_ANNOTATION_RECOVERY_VERSION;
     readonly annotationMutationGeneration: number;
@@ -118,15 +121,17 @@ function assertRecoveryWithinBudget(recovery: ICanonicalAnnotationRecovery) {
 
 export function captureCanonicalAnnotationRecovery(
     store: Pick<AnnotationStore, 'mutationEpoch' | 'list' | 'foreign'>,
-    drafts: readonly IAnnotationRecoveryDraft[] = [],
+    draftInput: TAnnotationRecoveryDraftInput = [],
 ): ICanonicalAnnotationRecovery {
     assertFiniteNonNegativeInteger(store.mutationEpoch, 'Annotation mutation generation');
+    const entities = store.list({includeDeleted: true});
+    const drafts = typeof draftInput === 'function' ? draftInput(entities) : draftInput;
     drafts.forEach(validateDraft);
     const recovery: ICanonicalAnnotationRecovery = {
         version: CANONICAL_ANNOTATION_RECOVERY_VERSION,
         annotationMutationGeneration: store.mutationEpoch,
-        entities: clone(store.list({includeDeleted: true})),
-        foreign: clone(store.foreign),
+        entities,
+        foreign: store.foreign,
         drafts: clone(drafts),
     };
     assertRecoveryWithinBudget(recovery);

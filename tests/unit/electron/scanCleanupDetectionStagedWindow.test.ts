@@ -331,7 +331,7 @@ function createLeaseSidecar(options: {
         manifestPath: string,
         signal: AbortSignal,
         _log: unknown,
-        onProgress: (progress: TNativeScanCleanupProgressV3) => void,
+        onProgress: (progress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     ) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TStagedManifest;
         manifests.push(manifest);
@@ -345,7 +345,7 @@ function createLeaseSidecar(options: {
                 event: 'acquired',
                 pageNumber,
             });
-            onProgress({
+            await onProgress({
                 stage: 'page-input-required',
                 completedPages: 0,
                 totalPages,
@@ -364,12 +364,12 @@ function createLeaseSidecar(options: {
                 }
             }
         };
-        const release = (pageNumber: number) => {
+        const release = async (pageNumber: number) => {
             leases.push({
                 event: 'released',
                 pageNumber,
             });
-            onProgress({
+            await onProgress({
                 stage: 'page-input-released',
                 completedPages: 0,
                 totalPages,
@@ -399,7 +399,7 @@ function createLeaseSidecar(options: {
                         outputCount: sourcePageNumber % 3 === 0 ? 2 : 1,
                     }));
                     completedPages += 1;
-                    onProgress({
+                    await onProgress({
                         stage: 'page-analyzed',
                         completedPages,
                         totalPages,
@@ -407,7 +407,7 @@ function createLeaseSidecar(options: {
                         classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
                         confidence: 0.8,
                     });
-                    release(pageNumber);
+                    await release(pageNumber);
                 }
             },
         ));
@@ -416,7 +416,7 @@ function createLeaseSidecar(options: {
             const page = manifest.pages.find(candidate => candidate.sourcePageIndex + 1 === pageNumber)!;
             const manifestPageNumber = manifest.pages.indexOf(page) + 1;
             await acquire(manifestPageNumber, page.inputPath, pageNumber);
-            release(manifestPageNumber);
+            await release(manifestPageNumber);
         }
         for (const [
             manifestIndex,
@@ -424,7 +424,7 @@ function createLeaseSidecar(options: {
         ] of manifest.pages.entries()) {
             const pageNumber = manifestIndex + 1;
             const sourcePageNumber = page.sourcePageIndex + 1;
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: totalPages,
                 totalPages,

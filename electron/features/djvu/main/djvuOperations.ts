@@ -699,7 +699,10 @@ export async function handleDjvuSearchText(
         const indexed = await searchIndexedDocument(
             await djvuSearchDocument(normalizedDjvuPath),
             query,
-            matchOptions,
+            {
+                ...matchOptions,
+                ...(options.resultOffset === undefined ? {} : {resultOffset: options.resultOffset}),
+            },
             {
                 signal: abortController.signal,
                 onIndexProgress(processed) {

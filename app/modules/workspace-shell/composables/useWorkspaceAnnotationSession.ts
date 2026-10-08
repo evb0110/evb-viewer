@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {
     syncRef,
     useStorage,
@@ -21,6 +22,7 @@ interface IWorkspaceAnnotationSessionOptions {
     /** The document's views: commands reach the viewer of the one in use. */
     views: Pick<TDocumentViews, 'commandView' | 'commandTabId'>;
     pdfDocument: Ref<IPdfDocument | null>;
+    reportNoteFailure: TWorkspaceFailureSurface['reportNoteFailure'];
 }
 
 export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessionOptions) => {
@@ -111,10 +113,12 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         isAnyAnnotationNoteSaving,
         updateAnnotationNoteText,
         captureAnnotationNoteDrafts,
+        getAnnotationNoteDraftsChangeSignature,
         restoreAnnotationNoteDraft,
         updateAnnotationNotePosition,
         minimizeAnnotationNote,
         restoreAnnotationNote,
+        getAnnotationNoteFailurePresentation,
         persistAllAnnotationNotes,
         closeAnnotationNote,
         discardAnnotationNote,
@@ -127,6 +131,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     } = useAnnotationNoteWindows({
         annotationComments,
         markAnnotationDirty,
+        reportNoteFailure: options.reportNoteFailure,
         updateAnnotationCommentInViewer: (annotationId, text) => {
             const comment = resolveNoteComment(annotationId);
             return comment
@@ -213,10 +218,12 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         isAnyAnnotationNoteSaving,
         updateAnnotationNoteText,
         captureAnnotationNoteDrafts,
+        getAnnotationNoteDraftsChangeSignature,
         restoreAnnotationNoteDraft,
         updateAnnotationNotePosition,
         minimizeAnnotationNote,
         restoreAnnotationNote,
+        getAnnotationNoteFailurePresentation,
         persistAllAnnotationNotes,
         closeAnnotationNote,
         discardAnnotationNote,

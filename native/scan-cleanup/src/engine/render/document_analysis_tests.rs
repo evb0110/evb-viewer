@@ -212,6 +212,7 @@ fn final_picture_ownership_applies_manual_zones_before_crop_extension() {
         trusted_mrc_owned_tone_mask: None,
         text_mask: None,
         text_vicinity_mask: None,
+        permissive_tone_mask: None,
         picture_mask: None,
         options: &options,
         effective_dpi: 300.0,
@@ -234,12 +235,12 @@ fn tonal_evidence_fallback_keeps_tone_separate_without_text_vicinity() {
         rotated: &image,
         layout_normalized: &image,
         text_vicinity_mask: None,
+        permissive_tone_mask: None,
         picture_mask: None,
         automatic_picture_mask: None,
         trusted_mrc_owned_tone_mask: None,
         continuous_tone_mask: None,
         options: &CleanupOptions::default(),
-        effective_dpi: 300.0,
         calibration: PageCalibration::estimate(&image, 300.0, CalibrationConfig::default()),
         text_line_count: 0,
         blank_scan_candidate: false,
@@ -265,6 +266,7 @@ fn mode_stage_pins_mixed_line_art_soft_foreground_override() {
         ..CleanupOptions::default()
     };
     let output = resolve_mode_and_preservation(ModePreservationInput {
+        source_effectively_blank: false,
         rotated: &image,
         layout_normalized: &image,
         analysis_rgb: None,
@@ -301,6 +303,7 @@ fn mode_stage_pins_coherent_photo_preservation_and_mask_replacement() {
         ..CleanupOptions::default()
     };
     let output = resolve_mode_and_preservation(ModePreservationInput {
+        source_effectively_blank: false,
         rotated: &image,
         layout_normalized: &image,
         analysis_rgb: None,

@@ -204,6 +204,32 @@ function findScratchFile(root: string, fileName: string) {
         .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0] ?? null;
 }
 
+
+// These conversion controls are rasters; the native read must not write an
+// assembler output or invent positioned source text on their refused pages.
+async function rasterTextVisibilityResult(args: readonly string[]) {
+    if (args[0] !== 'ocr-text-visibility') return null;
+    const pages = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8'))
+        .trim().split('\n').map(Number);
+    return {
+        exitCode: 0,
+        stderr: '',
+        stdout: JSON.stringify({
+            format: 'evb-pdf-ocr-text-visibility',
+            schemaVersion: 2,
+            pages: pages.map(pageNumber => ({
+                pageNumber,
+                evbOcrLayer: false,
+                paintedText: false,
+                hiddenText: false,
+                uncertain: null,
+                unsupported: null,
+                evbOcrText: null,
+            })),
+        }),
+    };
+}
+
 function outputMetadata() {
     return {
         outputWidthPx: 1,
@@ -781,6 +807,8 @@ describe('scan-cleanup-core conversion coverage', () => {
             }
         });
         const runCommand = vi.fn(async (_command: string, args: string[]) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -1059,6 +1087,8 @@ describe('scan-cleanup-core conversion coverage', () => {
             }
         });
         const runCommand = vi.fn(async (command: string, args: string[]) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -1389,6 +1419,8 @@ describe('scan-cleanup-core conversion coverage', () => {
                 }
             }),
             runCommand: vi.fn(async (command, args) => {
+                const visibility = await rasterTextVisibilityResult(args);
+                if (visibility) return visibility;
                 if (args[0] === '--check') {
                     return {
                         exitCode: 0,
@@ -1472,7 +1504,8 @@ describe('scan-cleanup-core conversion coverage', () => {
             completedUnits: 2,
             totalUnits: 2,
         });
-        expect(log).not.toHaveBeenCalledWith('warn', expect.any(String));
+        expect(summary.sourceTextOmission).toBeUndefined();
+        expect(summary.warnings).toEqual([]);
     });
 
     it('retains conversion scratch until deferred sidecar recovery completes', async () => {

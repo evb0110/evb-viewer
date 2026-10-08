@@ -109,16 +109,24 @@ export function updateHighlightAPI(
         return;
     }
 
-    if (state.highlightRanges.size === 0) {
-        CSS.highlights.delete(highlightApiName);
-    } else {
-        CSS.highlights.set(highlightApiName, new Highlight(...state.highlightRanges.values()));
-    }
-
-    if (state.currentHighlightRanges.size === 0) {
-        CSS.highlights.delete(highlightApiCurrentName);
-    } else {
-        CSS.highlights.set(highlightApiCurrentName, new Highlight(...state.currentHighlightRanges.values()));
+    for (const [
+        name,
+        ranges,
+    ] of [
+            [
+                highlightApiName,
+                state.highlightRanges,
+            ],
+            [
+                highlightApiCurrentName,
+                state.currentHighlightRanges,
+            ],
+        ] as const) {
+        // The native registry owns all viewers' ranges; publication adds only ours.
+        const highlight = CSS.highlights.get(name) ?? new Highlight();
+        for (const range of ranges.values()) highlight.add(range);
+        if (highlight.size === 0) CSS.highlights.delete(name);
+        else CSS.highlights.set(name, highlight);
     }
 }
 
@@ -162,11 +170,28 @@ export function clearHighlightAPIForLayer(
         return;
     }
 
-    for (const id of ids.normal) {
-        state.highlightRanges.delete(id);
-    }
-    for (const id of ids.current) {
-        state.currentHighlightRanges.delete(id);
+    for (const [
+        name,
+        ranges,
+        rangeIds,
+    ] of [
+            [
+                highlightApiName,
+                state.highlightRanges,
+                ids.normal,
+            ],
+            [
+                highlightApiCurrentName,
+                state.currentHighlightRanges,
+                ids.current,
+            ],
+        ] as const) {
+        const highlight = CSS.highlights.get(name);
+        for (const id of rangeIds) {
+            const range = ranges.get(id);
+            if (range) highlight?.delete(range);
+            ranges.delete(id);
+        }
     }
 
     state.layerRangeIds.delete(container);

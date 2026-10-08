@@ -25,9 +25,9 @@ export function diagnosePdfPageSkeletonGeometry(
     }
     const surface = chassisAuthority.openSurface;
     const snapshot = surface.snapshot.value;
+    // The session decides which phases take a first geometry.
     if (
-        snapshot.phase !== 'pending'
-        || snapshot.geometry !== null
+        snapshot.geometry !== null
         || options.expectedGeneration !== undefined && snapshot.generation !== options.expectedGeneration
         || pageNumber !== authoritativePageNumber
     ) {

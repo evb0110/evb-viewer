@@ -858,6 +858,79 @@ describe('processMcpRequest', () => {
         expect(options.readDocumentPages).not.toHaveBeenCalled();
     });
 
+    it.each([
+        [
+            'toc.read',
+            'toc',
+        ],
+        [
+            'bookmarks.read',
+            'bookmarks',
+        ],
+        [
+            'page_labels.read',
+            'page-labels',
+        ],
+        [
+            'annotation.list',
+            'annotations',
+        ],
+        [
+            'annotation.list_notes',
+            'notes',
+        ],
+    ])('returns the same metadata through %s and its resource', async (id, kind) => {
+        const options = createOptions();
+        const metadata = {
+            entries: [{
+                title: '한글 “Chapter”',
+                page: 7,
+            }],
+            issues: [],
+        };
+        options.runCommand.mockResolvedValue(metadata);
+        const uri = `evb://document/tab-1/${kind}`;
+        const action = await callTool(options, 'evb_read_action', {
+            id,
+            windowId: 42,
+        });
+        const resource = await request(options, 'resources/read', {
+            uri,
+            windowId: 42,
+        });
+        expect(action?.result).toMatchObject({structuredContent: metadata});
+        expect(action?.result).toMatchObject({content: [{
+            type: 'text',
+            text: JSON.stringify(metadata),
+        }]});
+        expect(resource?.result).toMatchObject({contents: [{
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify(metadata, null, 2),
+        }]});
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'read_resource',
+            arguments: {
+                tabId: 'tab-1',
+                uri,
+            },
+        }, 42);
+    });
+
+    it('keeps a metadata command scope rejection in the tool error result', async () => {
+        const options = createOptions();
+        options.runCommand.mockRejectedValue(new Error('Document revision changed before execution.'));
+        const response = await callTool(options, 'evb_read_action', {id: 'bookmarks.read'});
+        expect(response?.result).toMatchObject({
+            isError: true,
+            structuredContent: {
+                code: 'tool_execution_failed',
+                message: 'Document revision changed before execution.',
+                capabilityId: 'bookmarks.read',
+            },
+        });
+    });
+
     it('exposes workspace resources, page text resources, and prompts', async () => {
         const options = createOptions();
 

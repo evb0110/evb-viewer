@@ -72,6 +72,46 @@ describe('DjVu artifact manifests', () => {
         await resumed.cleanup?.();
     });
 
+    it.each([
+        '__EVB_NATIVE_BUILD_IDS__',
+        '__EVB_RUNTIME_ARCHIVE_IDS__',
+    ])('reuses saved bytes only with the same tool identity (%s)', async (identityName) => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-recipe-test-'));
+        directories.push(directory);
+        const sourcePath = join(directory, 'source.djvu');
+        writeFileSync(sourcePath, 'djvu-source');
+        const identityKey = identityName === '__EVB_NATIVE_BUILD_IDS__'
+            ? 'evb-pdf-image-combine'
+            : `djvulibre-${process.platform}-${process.arch}`;
+        const ranges = [{
+            startPage: 1,
+            endPage: 1,
+        }];
+        try {
+            vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
+            const first = await openDjvuArtifactJob(sourcePath, ranges, {artifactKind: 'compact-page'});
+            writeFileSync(first.manifest.ranges[0]!.outputPath, 'old-recipe-pixels');
+            await first.updateRange(0, {status: 'verified'});
+            await first.close();
+
+            const same = await openDjvuArtifactJob(sourcePath, ranges, {artifactKind: 'compact-page'});
+            expect(same.manifest.ranges[0]!.status).toBe('verified');
+            expect(readFileSync(same.manifest.ranges[0]!.outputPath, 'utf8')).toBe('old-recipe-pixels');
+            await same.close();
+
+            vi.stubGlobal(identityName, {[identityKey]: 'new-tool'});
+            const changed = await openDjvuArtifactJob(sourcePath, ranges, {artifactKind: 'compact-page'});
+            try {
+                expect(changed.manifest.ranges[0]!.status).toBe('pending');
+            } finally {
+                await changed.cleanup?.();
+                await first.cleanup?.();
+            }
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('rejects same-size tampering of a verified range artifact', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-manifest-tamper-test-'));
         directories.push(directory);
