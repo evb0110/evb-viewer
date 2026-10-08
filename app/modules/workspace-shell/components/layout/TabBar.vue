@@ -611,7 +611,7 @@ function runContextCommand(command: TTabContextCommand) {
     align-items: center;
     gap: var(--app-space-sm);
     padding: 0 calc(var(--app-tab-close-size, 1.25rem) + var(--app-space-3xl) + var(--app-space-sm)) 0 var(--app-space-9xl);
-    min-width: 0;
+    min-width: calc((var(--app-tab-close-size, 1.25rem) + var(--app-space-3xl) + var(--app-space-sm)) * 2);
     max-width: var(--app-tab-max-width);
     height: 100%;
     border: none;
@@ -677,7 +677,6 @@ function runContextCommand(command: TTabContextCommand) {
     justify-content: center;
     width: var(--app-tab-close-size, 1.25rem);
     height: var(--app-tab-close-size, 1.25rem);
-    min-width: var(--app-tab-close-size, 1.25rem);
     border: none;
     border-radius: var(--app-radius-xs);
     background: transparent;
