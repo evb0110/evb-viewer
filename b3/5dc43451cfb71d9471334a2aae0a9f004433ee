@@ -1,0 +1,34 @@
+tests/unit/app/modules/agent-panel/assistantMessageFormatting.test.ts
+  s_20cd99d580410b::t_a24b9f780d0cfc 158-161
+tests/fixtures/electron/codex-model-picker.mjs
+  s_20cd99d580410b::t_2e742cc069690d 16-19,81
+  s_20cd99d580410b::t_8e677189a4a2a0 20-40,66-80,82-83
+  s_9f279db081c874::t_3ca7ef9e63585c 45
+tests/e2e/electron/viewer/assistantModelPicker.e2e.test.ts
+  s_20cd99d580410b::t_2e742cc069690d 138
+  s_20cd99d580410b::t_8e677189a4a2a0 21-22,24,30-36,73,99,131-137,141-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b35dc43451cfb71d9471334a2aae0a9f004433ee",
+  "prompts": {},
+  "sessions": {
+    "s_20cd99d580410b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11a70-30f1-74b1-ba9a-294200753727",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9f279db081c874": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a116be-e0fc-7de3-8358-a60d2a84f6ba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
