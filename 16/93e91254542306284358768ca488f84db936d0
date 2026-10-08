@@ -1,0 +1,23 @@
+electron/features/ocr/pipeline/pdfPageSizeProbe.ts
+  s_14a8e623d27ee8::t_5690905abe27db 5-6,27,36-40,48-51,53,55-73,78-92,94-97,99-104,107-145
+tests/unit/electron/ocrWorkerPageSizeFallback.test.ts
+  s_14a8e623d27ee8::t_5690905abe27db 3,16,56-62,64-65,68,72-100,103,105,120-147,149-150,158,161,179,184
+electron/features/ocr/pipeline/runOcrJob.ts
+  s_14a8e623d27ee8::t_5690905abe27db 67,69,605,637,642,709-715,885,1027
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1693e91254542306284358768ca488f84db936d0",
+  "prompts": {},
+  "sessions": {
+    "s_14a8e623d27ee8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9efb816c-fde3-4991-90c7-9313ed7d9894",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
