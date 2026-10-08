@@ -1,0 +1,19 @@
+app/modules/agent-panel/utils/formatAssistantMessage.ts
+  s_20cd99d580410b::t_7fcb2b61710106 126-129,131-135,153-156,161,172,179-182,191,206-210,212,229,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6e72cace49bd42117457330fb0fdf2aef0016a66",
+  "prompts": {},
+  "sessions": {
+    "s_20cd99d580410b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11a70-30f1-74b1-ba9a-294200753727",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
