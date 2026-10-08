@@ -378,7 +378,6 @@ describe('browser document lifecycle UI', () => {
             expect(contents.filter(text=>text==='Retained RUX06 draft plus newer typing')).toHaveLength(1);
             observations.push({
                 step:'retry-saved',
-                text:await input.inputValue(),
                 contents,
             });
             const reopenedContext = await browser.newContext({
