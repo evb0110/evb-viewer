@@ -29,7 +29,17 @@ describe('createPdfDocumentSearchSession', () => {
             currentResultNavigationId: ref(1),
             isSearching: ref(false),
             error: ref(null),
-            progress: ref(undefined),
+            progress: ref({
+                processed: 1,
+                total: 4,
+                coverage: {
+                    pageCount: 4,
+                    pagesScanned: 1,
+                    pagesWritten: 1,
+                    truncated: true,
+                    missingTextPageSample: [],
+                },
+            }),
             isTruncated: ref(false),
             minQueryLength: ref(1),
             setQuery: vi.fn(),
@@ -41,6 +51,11 @@ describe('createPdfDocumentSearchSession', () => {
             navigate,
         });
 
+        expect(session.progress.value?.coverage).toMatchObject({
+            pageCount: 4,
+            pagesScanned: 1,
+            truncated: true,
+        });
         expect(await session.run()).toBe(true);
         expect(session.select(0)).toBe(true);
         expect(session.navigate('next')).toBe(true);

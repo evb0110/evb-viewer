@@ -61,7 +61,7 @@ export {
 export { createPdfPageSource } from '@app/modules/document-viewer/source/createPdfPageSource';
 export { createWheelFlipGate } from '@app/modules/document-viewer/single-page-wheel/createWheelFlipGate';
 export {
-    DEFAULT_DOCUMENT_SEARCH_OPTIONS, type IDocumentSearchMatch,
+    DEFAULT_DOCUMENT_SEARCH_OPTIONS, getDocumentSearchQueryError, resolveDocumentSearchQuery, type IDocumentSearchMatch,
 } from '@app/modules/document-viewer/providers/documentSearch';
 export {
     DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT, DocumentThumbnailLayout, type IDocumentThumbnailScrollSegmentTransition,

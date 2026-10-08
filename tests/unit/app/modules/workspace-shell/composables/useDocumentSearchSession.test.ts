@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
+import {searchDocumentTextProvider} from '@app/modules/document-viewer/providers/documentSearch';
 import type {
     IDocumentSearchBackend,
     IDocumentSearchRequest,
@@ -48,7 +49,65 @@ function withSession<T>(factory: () => T) {
 }
 
 describe('useDocumentSearchSession', () => {
-    it('owns query, progress, result selection, and cyclic navigation', async () => {
+    it('preserves quoted inner spaces through the page-text backend', async () => {
+        const harness = withSession(() => useDocumentSearchSession({backend: {
+            minQueryLength: 2,
+            search: request => searchDocumentTextProvider({
+                ...request,
+                pageCount: 1,
+                provider: {getPageText: async () => 'before hello after'},
+            }),
+        }}));
+        harness.session.setQuery('  " hello "  ');
+        expect(await harness.session.run()).toBe(true);
+        expect(harness.session.submittedQuery.value).toBe(' hello ');
+        expect(harness.session.results.value).toMatchObject([{
+            startOffset: 6,
+            endOffset: 13,
+        }]);
+        harness.stop();
+    });
+
+    it('retains final source coverage and clears it on a query or revision change', async () => {
+        const revision = ref('first');
+        const coverage = {
+            pageCount: 4,
+            pagesScanned: 1,
+            pagesWritten: 1,
+            truncated: true,
+            missingTextPageSample: [],
+        };
+        const deferred = createDeferred<IDocumentSearchResponse>();
+        const backend = {
+            minQueryLength: 2,
+            search: vi.fn().mockResolvedValueOnce({
+                results: [],
+                truncated: false,
+                coverage,
+            }).mockReturnValueOnce(deferred.promise),
+        };
+        const harness = withSession(() => useDocumentSearchSession({
+            backend,
+            documentRevision: revision,
+        }));
+        harness.session.setQuery('first');
+        await harness.session.run();
+        expect(harness.session.progress.value?.coverage).toEqual(coverage);
+        harness.session.setQuery('next');
+        const next = harness.session.run();
+        expect(harness.session.progress.value?.coverage).toBeUndefined();
+        revision.value = 'second';
+        deferred.resolve({
+            results: [],
+            truncated: false,
+            coverage,
+        });
+        expect(await next).toBe(false);
+        expect(harness.session.progress.value).toBeUndefined();
+        harness.stop();
+    });
+
+    it('owns query, progress, result selection, and cyclic navigation' , async () => {
         const onNavigate = vi.fn();
         const search = vi.fn(async (request: IDocumentSearchRequest) => {
             request.onProgress?.({

@@ -99,6 +99,9 @@ import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudg
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -3257,6 +3260,193 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expectSplitResizeAnchorPreserved(afterWideDrag, userAnchor);
         expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
+    }, 90_000);
+
+    it('shared search explains an invalid regex and accepts a corrected query', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-query-error-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const fixturePath = await createMultiPageTextFixturePdf('query-error.pdf', 3);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Use regular expression"]`);
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.type('[');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const text = document.querySelector(`${root} .document-search-results`)?.textContent ?? '';
+            return text.includes('Search unavailable') || text.includes('Check your regular expression');
+        }, {timeout: 15_000}, sidebar);
+        const errorText = await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent);
+        await session.page.screenshot({path: join(evidence, 'invalid-query.png')});
+        await writeFile(join(evidence, 'invalid-query.json'), JSON.stringify({
+            errorText,
+            problems,
+        }, null, 2));
+        expect(errorText).toContain('Check your regular expression');
+        expect(errorText).not.toContain('Search unavailable');
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await session.page.keyboard.press('A');
+        await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await session.page.keyboard.type('Page 3 sample text');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => document.querySelector(`${root} .document-search-result`)?.textContent?.includes('Page 3 sample text'), {timeout: 15_000}, sidebar);
+        await clickAsUser(session.page, `${sidebar} .document-search-result`);
+        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .page_container[data-page="3"] .pdf-search-highlight--current') !== null, {timeout: 15_000});
+        await session.page.screenshot({path: join(evidence, 'corrected-query.png')});
+        expect(problems).toEqual([]);
+    }, 90_000);
+
+    it('shared search retains native partial-index coverage in results and cached searches', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-search-coverage-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const fixturePath = await createMultiPageTextFixturePdf('coverage.pdf', 4);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        async function search(query: string) {
+            await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+            await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.press('A');
+            await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string, query: string) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                return Boolean(panel && !panel.querySelector('.document-search-results-spinner')
+                    && (query === 'missing'
+                        ? panel.textContent?.includes('No ')
+                        : panel.querySelector('.document-search-result')?.textContent?.includes('Page 1 sample text')));
+            }, {timeout: 15_000}, sidebar, query);
+        }
+        await search('Page 1 sample text');
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
+        const index = await readFile(indexPath);
+        const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
+        const binary = resolveNativeToolPath({
+            binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
+            crateName: 'pdf-search',
+            currentDir: process.cwd(),
+            isPackaged: false,
+        });
+        if (!binary) throw new Error('Native PDF search is unavailable');
+        // Controlled admission setup: the same native over-budget page marker
+        // exercised by searchNativeErrorMapping, rather than a giant PDF.
+        const partial = await runNativeToolCommand(binary, [
+            'index',
+            '--out',
+            indexPath,
+            '--document-revision',
+            revision,
+            '--page-count',
+            '4',
+        ], {stdin: (async function* () {
+            yield `${JSON.stringify({
+                pageNumber: 1,
+                text: 'Page 1 sample text',
+            })}\n`;
+            yield `${JSON.stringify({
+                pageNumber: 2,
+                overBudget: true,
+            })}\n`;
+        })()});
+        await writeFile(join(evidence, 'native-index.json'), partial.stdout);
+        const coverageText = 'Only 1 of 4 pages were searched because the text index reached its size limit.';
+        for (const query of [
+            'sample',
+            'missing',
+            'sample',
+        ]) {
+            await search(query);
+            const text = await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent);
+            await writeFile(join(evidence, `query-${query}.json`), JSON.stringify({
+                query,
+                text,
+            }));
+            await session.page.screenshot({path: join(evidence, `query-${query}.png`)});
+            expect(text).toContain(coverageText);
+            if (query === 'missing') expect(text).toContain('No matches in the pages searched');
+            else expect(text).toContain('Page 1 sample text');
+        }
+        expect(problems).toEqual([]);
+    }, 90_000);
+
+    it('shared search preserves quoted inner spaces on a native DjVu source', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-quoted-source-${Date.now()}`,
+        });
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const fixturePath = createFixturePath('quoted-source.djvu');
+        const scriptPath = createFixturePath('quoted-source.dsed');
+        await copyFile(resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu'), fixturePath);
+        await writeFile(scriptPath, 'select 1\nset-txt\n(page 0 0 512 512 (line 40 300 470 360 (word 40 300 150 360 "before") (word 170 300 280 360 "hello") (word 300 300 410 360 "after")))\n.\n');
+        await execFileAsync(getDjvuNativeToolPaths().djvused, [
+            fixturePath,
+            '-f',
+            scriptPath,
+            '-s',
+        ]);
+        await openDjvuInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickAsUser(session.page, '.editor-pane.is-active .djvu-banner-close');
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+        await session.page.keyboard.type('" hello "');
+        await session.page.keyboard.press('Enter');
+        await waitForFunctionInPage(session.page, (root: string) => {
+            const panel = document.querySelector(`${root} .document-search-results`);
+            return Boolean(panel && !panel.querySelector('.document-search-results-spinner')
+                && (panel.querySelector('.document-search-results-header-summary') || panel.textContent?.includes('No results found')));
+        }, {timeout: 15_000}, sidebar);
+        const results = await session.page.$$eval(`${sidebar} .document-search-result`, nodes => nodes.map(node => node.textContent));
+        const evidence = resolve('.devkit/lane-a-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        await session.page.screenshot({path: join(evidence, 'quoted-source.png')});
+        await writeFile(join(evidence, 'quoted-source.json'), JSON.stringify(results));
+        expect(results).toHaveLength(1);
+        expect(results[0]).toContain('hello');
+        expect(await session.page.$eval(`${sidebar} .document-search-results-header-summary`, node => node.textContent)).toContain('for “ hello ”');
+        expect(await session.page.$eval(`${sidebar} .document-search-result-highlight`, node => node.textContent)).toBe(' hello ');
+        expect(problems).toEqual([]);
     }, 90_000);
 
     it('exposes named sidebar tabs and navigates from a real search result', async () => {

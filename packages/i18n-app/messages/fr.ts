@@ -1291,7 +1291,10 @@ export default {
         'incompleteCoverage': 'Seules {processed} pages sur {total} ont été examinées, car l’index de texte a atteint sa taille limite.',
         'incompleteCoverageHint': 'Pour continuer, extrayez les pages {nextPage}–{total} dans un nouveau PDF et effectuez la recherche dans celui-ci.',
         'noResultsHint': 'Essayez un autre terme ou lancez l’OCR si le texte visible sur les pages numérisées est introuvable.',
-        'unavailable': 'Recherche indisponible',
+        'error': 'Erreur de recherche',
+        'invalidRegex': 'Vérifiez votre expression régulière et réessayez.',
+        'regexTooComplex': 'Cette expression régulière est trop complexe. Simplifiez-la et réessayez.',
+        'queryTooLong': 'Raccourcissez votre recherche à {count} caractères maximum.',
         'resultCount': plural({
             zero: '{count} résultats',
             one: '{count} résultat',
