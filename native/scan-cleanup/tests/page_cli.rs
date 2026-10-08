@@ -500,6 +500,85 @@ fn final_manifest_writes_pbm_only_for_binary_outputs_and_marks_metadata() {
 }
 
 #[test]
+fn final_grayscale_render_whitens_unmarked_paper_and_keeps_mark_tone() {
+    // Grayscale keeps the tone of marks, however faint, and whitens the
+    // paper away from them and a speck too small to be a glyph.
+    let scratch = Scratch::new("gray-paper");
+    let input = scratch.path("gray-paper-input.png");
+    let manifest = scratch.path("gray-paper-manifest.json");
+    let output = scratch.path("gray-paper.png");
+    let metadata = scratch.path("gray-paper.json");
+    let page_metadata = scratch.path("gray-paper-page.json");
+    let mut page = GrayImage::new(600, 800, 226);
+    let mut fill = |x: std::ops::Range<usize>, y: std::ops::Range<usize>, value: u8| {
+        for row in y {
+            for column in x.clone() {
+                page.set(column, row, value);
+            }
+        }
+    };
+    for line in 0..12 {
+        for glyph in 0..20 {
+            fill(
+                60 + glyph * 24..72 + glyph * 24,
+                100 + line * 40..116 + line * 40,
+                40,
+            );
+        }
+    }
+    fill(60..300, 600..602, 200);
+    fill(500..502, 720..722, 70);
+    fs::write(&input, encode_gray(&page).unwrap()).unwrap();
+    let options = CleanupOptions {
+        dpi: 150.0,
+        output_mode: OutputMode::Grayscale,
+        crop_content: false,
+        normalize_illumination: false,
+        despeckle: false,
+        ..unmatched_options()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": metadata,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let rendered = decode_gray(&fs::read(&output).unwrap(), 1_000_000, 2_000).unwrap();
+    assert_eq!((rendered.width(), rendered.height()), (600, 800));
+    assert!(rendered.get(66, 108) <= 60, "a glyph lost its tone");
+    let pencil = rendered.get(100, 600);
+    assert!(pencil < 250, "the faint stroke was whitened: {pencil}");
+    assert_eq!(
+        rendered.get(450, 660),
+        255,
+        "paper away from marks kept its tone"
+    );
+    assert_eq!(rendered.get(501, 721), 255, "the lone speck stayed");
+}
+
+#[test]
 fn final_mixed_manifest_writes_inpainted_background_and_native_resolution_foreground() {
     let scratch = Scratch::new("mixed-layers");
     let input = scratch.path("mixed-input.png");

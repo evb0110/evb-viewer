@@ -1,5 +1,5 @@
 use crate::{
-    calibration::PageCalibration, content::is_scanner_border_shadow, CleanupOptions,
+    calibration::PageCalibration, edge_artifacts::is_scanner_border_shadow, CleanupOptions,
     NormalizedZonePolygon, PictureZoneLayer,
 };
 use rayon::prelude::*;
@@ -986,7 +986,7 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
         return BinaryImage::new(candidate.width(), candidate.height());
     }
 
-    let border_artifacts = crate::content::border_artifact_mask(source);
+    let border_artifacts = crate::edge_artifacts::border_artifact_mask(source);
     let measured_gutter = gutter_shadow(source);
     let picture_map = ComponentMap::from_binary(candidate);
     let mut owner = candidate.clone();
@@ -2055,7 +2055,7 @@ mod tests {
                 }
             }
         }
-        let border = crate::content::border_artifact_mask(&page);
+        let border = crate::edge_artifacts::border_artifact_mask(&page);
         let border_overlap = border.and(&candidate).count_black();
         assert!(
             border_overlap >= 16 && border_overlap.saturating_mul(100) >= candidate.count_black(),
