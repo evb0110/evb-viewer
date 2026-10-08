@@ -35,16 +35,10 @@ pub(crate) fn capture_note_recovery(
             return Err("Note recovery graph exceeds the object ceiling".into());
         }
         let source_object = source.object(reference)?;
-        if source_object.as_stream().is_ok_and(|stream| {
-            stream.content.is_empty()
-                && stream.start_position == Some(0)
-                && stream
-                    .dict
-                    .get(b"Length")
-                    .ok()
-                    .and_then(|value| value.as_i64().ok())
-                    != Some(0)
-        }) {
+        if source_object
+            .as_stream()
+            .is_ok_and(|stream| is_unread_base_stream(source, stream))
+        {
             return Err("Note recovery requires unavailable source stream bytes".into());
         }
         if source_object
