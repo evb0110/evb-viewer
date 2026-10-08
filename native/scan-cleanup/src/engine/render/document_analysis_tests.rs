@@ -73,11 +73,12 @@ fn layout_picture_stage_returns_calibration_and_picture_evidence() {
         timings: &mut PageStageTimings::default(),
     });
 
+    let layout_normalized = output
+        .layout_normalized
+        .as_ref()
+        .expect("illumination normalization defaults on and owns a layout plane");
     assert_eq!(
-        (
-            output.layout_normalized.width(),
-            output.layout_normalized.height()
-        ),
+        (layout_normalized.width(), layout_normalized.height()),
         (image.width(), image.height())
     );
     assert!(output.illumination_preparation.is_some());
@@ -367,7 +368,7 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
             evidence: NormalizationEvidence {
                 illumination_preparation: Some(illumination_preparation),
                 rotated: source.clone(),
-                layout_normalized: layout_normalized.clone(),
+                layout_normalized: Some(layout_normalized.clone()),
                 picture_mask: None,
                 tonal_protection_mask: Some(Arc::clone(&tonal_protection_mask)),
                 semantic_preservation_alpha: Some(Arc::clone(&semantic_preservation_alpha)),
@@ -426,4 +427,68 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
         .expect("synthetic cache lock must succeed")
         .get::<AnalysisArtifact>(&key)
         .is_some());
+}
+
+#[test]
+fn identical_analysis_planes_share_one_allocation() {
+    let page = GrayImage::from_vec(
+        40,
+        30,
+        40,
+        (0..30)
+            .flat_map(|y| (0..40).map(move |x| if (x + y) % 7 == 0 { 30 } else { 230 }))
+            .collect(),
+    )
+    .expect("synthetic raster dimensions must be valid");
+    let analyze = |source: &GrayImage, dpi: f64, normalize_illumination: bool| {
+        build_analysis_artifact(ArtifactInput {
+            analysis_key: None,
+            source,
+            color_source: None,
+            options: &CleanupOptions {
+                dpi,
+                normalize_illumination,
+                ..CleanupOptions::default()
+            },
+            prepare_quality_raster: true,
+            render_policy: PageRenderPolicy::COMPLETE,
+            calibration_config: CalibrationConfig::default(),
+            cache: None,
+            trusted_mrc_background: None,
+            timings: &mut PageStageTimings::default(),
+        })
+    };
+
+    // At the analysis DPI with normalization off, all three planes are the
+    // source itself.
+    let identity = analyze(&page, 150.0, false);
+    assert!(Arc::ptr_eq(
+        &identity.normalized,
+        &identity.layout_normalized
+    ));
+    assert!(Arc::ptr_eq(
+        &identity.normalized,
+        &identity.canonical_routing_source
+    ));
+    assert_eq!(identity.canonical_routing_source.data(), page.data());
+
+    // Normalization changes the analysis planes but not the routing source.
+    let normalized = analyze(&page, 150.0, true);
+    assert!(!Arc::ptr_eq(
+        &normalized.normalized,
+        &normalized.canonical_routing_source
+    ));
+    assert_eq!(normalized.canonical_routing_source.data(), page.data());
+
+    // A downscaled analysis keeps a full-resolution routing source of its own.
+    let downscaled = analyze(&page, 600.0, false);
+    assert_eq!(
+        (
+            downscaled.canonical_routing_source.width(),
+            downscaled.canonical_routing_source.height()
+        ),
+        (40, 30)
+    );
+    assert_eq!(downscaled.canonical_routing_source.data(), page.data());
+    assert!(downscaled.normalized.width() < 40);
 }

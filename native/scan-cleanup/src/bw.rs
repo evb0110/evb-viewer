@@ -618,7 +618,10 @@ fn finish_thresholded_with_line_budget(
         None,
         &mut preview_interventions,
     );
-    let preview = output_exclusion.map_or(preview.clone(), |mask| preview.subtract(mask));
+    let preview = match output_exclusion {
+        Some(mask) => preview.subtract(mask),
+        None => preview,
+    };
     if !line_stroke_budget_has_offenders(&preview, options.dpi) {
         return (preview, preview_fallback, preview_interventions);
     }
@@ -647,7 +650,10 @@ fn finish_thresholded_with_line_budget(
         budget.as_ref(),
         &mut interventions,
     );
-    let output = output_exclusion.map_or(output.clone(), |mask| output.subtract(mask));
+    let output = match output_exclusion {
+        Some(mask) => output.subtract(mask),
+        None => output,
+    };
     (output, fallback, interventions)
 }
 
@@ -1215,7 +1221,8 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     } else {
         None
     };
-    let binary = dark_background_mask.clone().unwrap_or_else(|| {
+    let dark_background = dark_background_mask.is_some();
+    let binary = dark_background_mask.unwrap_or_else(|| {
         threshold_with_mode(
             &threshold_input,
             normalized,
@@ -1228,12 +1235,9 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, _) = if dark_background_mask.is_some() {
-        (
-            binary.clone(),
-            false,
-            inactive_line_stroke_budget_interventions(&binary),
-        )
+    let (binary, despeckle_fallback, _) = if dark_background {
+        let interventions = inactive_line_stroke_budget_interventions(&binary);
+        (binary, false, interventions)
     } else {
         finish_thresholded_with_line_budget(
             &binary,
@@ -1309,7 +1313,8 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     }
     .map(|mask| mask.subtract(&protected_picture_mask))
     .filter(|mask| mask.count_black() > 0);
-    let binary = dark_background_mask.clone().unwrap_or_else(|| {
+    let dark_background = dark_background_mask.is_some();
+    let binary = dark_background_mask.unwrap_or_else(|| {
         threshold_with_mode_excluding(
             &threshold_input,
             normalized,
@@ -1323,12 +1328,9 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, _) = if dark_background_mask.is_some() {
-        (
-            binary.clone(),
-            false,
-            inactive_line_stroke_budget_interventions(&binary),
-        )
+    let (binary, despeckle_fallback, _) = if dark_background {
+        let interventions = inactive_line_stroke_budget_interventions(&binary);
+        (binary, false, interventions)
     } else {
         finish_thresholded_with_line_budget(
             &binary,
