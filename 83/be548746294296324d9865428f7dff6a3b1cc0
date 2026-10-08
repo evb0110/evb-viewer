@@ -1,0 +1,21 @@
+app/platform/browser-api/djvujsLoader.ts
+  s_cebf8c6cb5f092::t_10838b7c3cc8e2 12
+app/platform/browser-api/browserDjvuRasterizer.ts
+  s_cebf8c6cb5f092::t_10838b7c3cc8e2 167,293,305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "83be548746294296324d9865428f7dff6a3b1cc0",
+  "prompts": {},
+  "sessions": {
+    "s_cebf8c6cb5f092": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c0d-e5e0-7e32-a564-6ea4bf758bad",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
