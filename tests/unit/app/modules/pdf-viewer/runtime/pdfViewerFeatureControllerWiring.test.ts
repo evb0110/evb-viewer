@@ -3,6 +3,7 @@
 import type * as TPdfRenderViewModel from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
+    afterAll,
     afterEach,
     beforeEach,
     describe,
@@ -30,6 +31,11 @@ import type {
     IPdfViewerEmit,
     IPdfViewerProps,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+
+// Nuxt supplies these globals when the renderer owns its failure presenter.
+vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+afterAll(() => vi.unstubAllGlobals());
 
 const renderViewModelCapture = vi.hoisted(() => ({options: null as unknown}));
 

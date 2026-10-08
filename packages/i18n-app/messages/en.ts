@@ -1024,6 +1024,7 @@ export default {
         'unitMegabyte': 'MB',
         'pdfPage': 'PDF page {page}',
         'pageRenderFailed': 'Unable to render this page',
+        'pageInteractionFailed': 'Page {page} links and annotation interactions could not be loaded.',
     },
     'print': {
         'title': 'Print',

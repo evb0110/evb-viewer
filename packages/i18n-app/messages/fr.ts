@@ -1025,6 +1025,7 @@ export default {
         'unitMegabyte': 'Mo',
         'pdfPage': 'Page PDF {page}',
         'pageRenderFailed': 'Impossible d’afficher cette page',
+        'pageInteractionFailed': 'Les liens et les interactions avec les annotations de la page {page} n’ont pas pu être chargés.',
     },
     'print': {
         'title': 'Imprimer',

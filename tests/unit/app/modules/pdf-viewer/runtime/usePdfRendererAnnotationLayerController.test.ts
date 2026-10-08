@@ -1,6 +1,7 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
+import {PDF_PAGE_RENDER_TIMEOUT_MS} from '@app/constants/timeouts';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
@@ -42,6 +43,80 @@ function createHarness() {
 }
 
 describe('usePdfRendererAnnotationLayerController', () => {
+    it('reports genuine rejected interaction without committing a successful continuation', async () => {
+        const harness = createHarness();
+        const error = new Error('annotation interaction failed');
+        const render = harness.controller(requirePageNumber(1), 1, 1,
+            cast<Parameters<typeof harness.controller>[3]>({
+                container: harness.container,
+                pdfPage: cast<IPdfPage>({}),
+                renderResult: {
+                    viewport: {
+                        width: 100,
+                        height: 100,
+                        rotation: 0,
+                    },
+                    annotationCanvasMap: null,
+                },
+            }), () => true);
+        harness.renderDeferred.reject(error);
+        await expect(render).resolves.toMatchObject({
+            shouldContinue: false,
+            error,
+        });
+        expect(harness.container.querySelector('.annotation-layer')?.childElementCount).toBe(0);
+    });
+
+    it('settles a timed-out current annotation stage as failed interaction', async () => {
+        vi.useFakeTimers();
+        const harness = createHarness();
+        try {
+            const render = harness.controller(requirePageNumber(1), 1, 1,
+                cast<Parameters<typeof harness.controller>[3]>({
+                    container: harness.container,
+                    pdfPage: cast<IPdfPage>({}),
+                    renderResult: {
+                        viewport: {
+                            width: 100,
+                            height: 100,
+                            rotation: 0,
+                        },
+                        annotationCanvasMap: null,
+                    },
+                }), () => true);
+            await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+            const outcome = await render;
+            expect(outcome.shouldContinue).toBe(false);
+            expect(outcome.error).toBeInstanceOf(Error);
+            expect(outcome.annotationLayerInstance).toBeNull();
+        } finally {
+            harness.renderDeferred.resolve(null);
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not report a rejected annotation stage after its document is superseded', async () => {
+        const harness = createHarness();
+        let current = true;
+        const render = harness.controller(requirePageNumber(1), 1, 1,
+            cast<Parameters<typeof harness.controller>[3]>({
+                container: harness.container,
+                pdfPage: cast<IPdfPage>({}),
+                renderResult: {
+                    viewport: {
+                        width: 100,
+                        height: 100,
+                        rotation: 0,
+                    },
+                    annotationCanvasMap: null,
+                },
+            }), () => current);
+        current = false;
+        harness.renderDeferred.reject(new Error('late old document failure'));
+        await expect(render).resolves.toMatchObject({shouldContinue: false});
+        expect(await render).not.toHaveProperty('error');
+    });
+
     it('aborts active annotation work when a page is released', async () => {
         const harness = createHarness();
         const render = harness.controller(
