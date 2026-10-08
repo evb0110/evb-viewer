@@ -265,6 +265,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         documentLifecycleKey: computed(() => originalPath.value ?? pendingDocumentPath.value),
         documentRevisionToken,
         isAnySaving: saveService.isAnySaving,
+        workingCopyPath,
     });
     const driver = useWorkspaceDocumentDriver({
         djvuSourcePath: file.djvuSourcePath,

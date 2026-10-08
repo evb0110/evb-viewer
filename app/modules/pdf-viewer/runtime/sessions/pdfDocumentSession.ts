@@ -10,6 +10,7 @@ import type {
 } from 'vue';
 import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
@@ -128,6 +129,7 @@ export interface ICreatePdfDocumentSessionOptions {
     reloadSrc?: Readonly<Ref<TPdfSource | null>> | undefined;
     documentLifecycleKey?: Readonly<Ref<string | null>> | undefined;
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>> | undefined;
+    workingCopyPath?: Readonly<Ref<TDocumentRef | null>> | undefined;
     isAnySaving?: Readonly<Ref<boolean>> | undefined;
 }
 
@@ -606,18 +608,18 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     async function readNativePageGeometry(source: TPdfSource, version: number): Promise<IPdfNativePageGeometry | null> {
-        if (!isPathPdfSource(source)) return null;
-        const revision = source.revision ?? options.documentRevisionToken?.value;
-        if (!revision) return null;
+        const path = isPathPdfSource(source) ? source.path : options.workingCopyPath?.value;
+        const revision = (isPathPdfSource(source) ? source.revision : undefined) ?? options.documentRevisionToken?.value;
+        if (!path || !revision) return null;
         try {
             const read = getDocumentFilesCapability().getPdfNativePageSizes;
             if (!read) return null;
-            const geometry = await read(source.path, {
+            const geometry = await read(path, {
                 mode: 'exact',
                 expectedDocumentRevisionToken: revision,
             });
             return geometry.kind === 'exact'
-                && geometry.documentRef === source.path
+                && geometry.documentRef === path
                 && geometry.documentRevisionToken === revision
                 ? geometry
                 : null;
@@ -631,7 +633,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
     }
 
-    function installNativePageGeometry(geometry: IPdfNativePageGeometry, totalPages: number) {
+    function installNativePageGeometry(geometry: IPdfNativePageGeometry, totalPages: number, source: TPdfSource) {
+        if (!isPathPdfSource(source) && (
+            geometry.documentRef !== options.workingCopyPath?.value
+            || geometry.documentRevisionToken !== options.documentRevisionToken?.value
+        )) return false;
         if (geometry.pageCount !== totalPages || geometry.pages.length !== totalPages) return false;
         const metrics: IPdfPageMetric[] = [];
         for (const [
@@ -665,7 +671,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             }
             return;
         }
-        // Blob sources have no native revision identity. Read their geometry
+        // Sources without matching native provenance read their geometry
         // through PDF.js and publish once, so navigation never uses a mixture
         // of exact heights and page-count-sized estimates.
         const metrics = new Array<IPdfPageMetric>(document.numPages);
@@ -751,7 +757,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         });
         numPages.value = document.numPages;
         if (!preserveExistingPageMetrics) {
-            if (nativeGeometry && installNativePageGeometry(nativeGeometry, document.numPages)) {
+            if (nativeGeometry && installNativePageGeometry(nativeGeometry, document.numPages, source)) {
                 await verifyNativePageGeometry(document);
             } else {
                 await readPdfjsPageGeometry(document, version);

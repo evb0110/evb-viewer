@@ -386,6 +386,78 @@ describe('PdfDocumentSession range loading', () => {
         }
     });
 
+    it.each([
+        'matching',
+        'pathless',
+        'missing-revision',
+        'mismatched-ref',
+        'mismatched-revision',
+        'stale-revision',
+        'stale-path',
+        'mismatched-count',
+    ])('keeps Blob reading and admits only matching native geometry: %s', async (witness) => {
+        const path = requireDocumentRef('/tmp/blob-native-geometry.pdf');
+        const revision = requireDocumentRevisionToken('rev-blob-native');
+        const workingCopyPath = ref(witness === 'pathless' ? null : path);
+        const documentRevisionToken = ref(witness === 'missing-revision' ? null : revision);
+        const source = new Blob(['pdf'], {type: 'application/pdf'});
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 2,
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 100,
+                        height: 200,
+                    })),
+                })),
+                loadingTask: {destroy: vi.fn()},
+            }),
+            destroy: vi.fn(),
+        });
+        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', async () => {
+            if (witness === 'stale-revision') {
+                documentRevisionToken.value = requireDocumentRevisionToken('rev-newer');
+            }
+            if (witness === 'stale-path') {
+                workingCopyPath.value = requireDocumentRef('/tmp/newer-blob.pdf');
+            }
+            return {
+                kind: 'exact',
+                documentRef: witness === 'mismatched-ref' ? requireDocumentRef('/tmp/other.pdf') : path,
+                documentRevisionToken: witness === 'mismatched-revision' ? requireDocumentRevisionToken('rev-other') : revision,
+                pageCount: witness === 'mismatched-count' ? 3 : 2,
+                pages: [
+                    100,
+                    400,
+                ].map((widthPoints, index) => ({
+                    pageNumber: requirePageNumber(index + 1),
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints,
+                    heightPoints: 200,
+                    rotation: 0,
+                    userUnit: 1,
+                })),
+            };
+        });
+        const documentState = createPdfDocumentSession({
+            workingCopyPath,
+            documentRevisionToken,
+        });
+        try {
+            await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
+            expect(documentState.acceptedSource.value).toBe(source);
+            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual([
+                100,
+                witness === 'matching' ? 400 : 100,
+            ]);
+        } finally {
+            documentState.cleanup();
+            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+        }
+    });
+
     it('does not impose a total-page product cap on path-backed PDFs', async () => {
         const pageCount = 100_001;
         pdfjsState.getDocument.mockReturnValue({
