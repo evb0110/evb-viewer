@@ -33,45 +33,17 @@ function buildTabSignature(
     const workspace = view?.mountedWorkspace.value ?? null;
     const toolbar = view?.toolbarSnapshot.value ?? null;
     const identity = session?.snapshot.value.identity ?? null;
-    let workspaceDocumentRefs: readonly [unknown, unknown, boolean] = [
-        null,
-        null,
-        false,
-    ];
+    let recoverySignature: readonly unknown[] = [];
     try {
-        const state = workspace?.getAutomationStateSnapshot();
-        workspaceDocumentRefs = [
-            state?.originalPath ?? null,
-            state?.workingCopyPath ?? null,
-            state?.requiresSaveAsOnFirstSave ?? false,
-        ];
+        recoverySignature = workspace?.getWorkspaceDocumentRecoveryChangeSignature?.() ?? [];
     } catch {
         // A capture failure is reported by the checkpoint builder.
-    }
-    let annotationRecoverySignature: readonly unknown[] = [];
-    try {
-        const recovery = workspace?.captureCanonicalAnnotationRecovery?.();
-        annotationRecoverySignature = recovery
-            ? [
-                recovery.annotationMutationGeneration,
-                recovery.metadata?.bookmarks?.revision ?? null,
-                recovery.metadata?.pageLabels?.revision ?? null,
-                ...recovery.drafts.map(draft => [
-                    draft.annotationId,
-                    draft.generation,
-                    draft.text,
-                ]),
-            ]
-            : [];
-    } catch {
-        // A recovery capture failure is reported by the checkpoint builder.
     }
     return JSON.stringify([
         tab.id,
         paneId,
         session ? describeTabDocument(session.snapshot.value) : null,
         workspace !== null,
-        ...workspaceDocumentRefs,
         identity?.revisionInfo?.token ?? null,
         identity?.revisionInfo?.documentRef ?? null,
         identity?.revisionInfo?.contentRevision ?? null,
@@ -83,13 +55,12 @@ function buildTabSignature(
         toolbar?.continuousScroll ?? null,
         toolbar?.viewMode ?? null,
         toolbar?.viewRotation ?? null,
-        annotationRecoverySignature,
+        recoverySignature,
     ]);
 }
 
 // Distills every field the persisted checkpoint depends on into a cheap string
-// (the document revision identity stands in for the automation-owned
-// source/working-copy refs it derives from), so checkpoint watchers can detect
+// and the mounted document owners, so checkpoint watchers can detect
 // changes without rebuilding and serializing the full checkpoint per reactive
 // tick. The field lists here must track buildWorkspaceCheckpoint's inputs: a
 // checkpoint-relevant field missing from the signature delays re-persistence

@@ -32,8 +32,8 @@ import type {
     AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
-    IAnnotationRecoveryDraft,
     ICanonicalAnnotationRecovery,
+    TAnnotationRecoveryDraftInput,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
@@ -209,7 +209,8 @@ export interface IPdfViewerAnnotationCommandExpose {
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
     ) => boolean;
     /** Renderer-owned canonical state for main-process recovery publication. */
-    captureCanonicalAnnotationRecovery?: (drafts?: readonly IAnnotationRecoveryDraft[]) => ICanonicalAnnotationRecovery;
+    getCanonicalAnnotationRecoveryChangeSignature?: () => readonly [number, ReadonlyArray<readonly [string, number, string]>];
+    captureCanonicalAnnotationRecovery?: (drafts?: TAnnotationRecoveryDraftInput) => ICanonicalAnnotationRecovery;
     restoreCanonicalAnnotationRecovery?: (value: unknown) => ICanonicalAnnotationRecovery;
 }
 

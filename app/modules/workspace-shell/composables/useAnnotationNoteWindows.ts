@@ -437,15 +437,27 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         };
     }
 
+    function getAnnotationNoteDraftsChangeSignature() {
+        return states.value.flatMap((state) => {
+            const id = asAnnotationId(state.annotationId);
+            return runtime.get(id)?.dirty
+                ? [[
+                    id,
+                    draftGenerations.get(id) ?? 0,
+                    state.draftText,
+                ] as const]
+                : [];
+        });
+    }
+
     function captureAnnotationNoteDrafts(
         getCanonicalRevision: (annotationId: AnnotationId) => number | null,
     ): readonly IAnnotationRecoveryDraft[] {
-        return states.value.flatMap((state) => {
-            const id = asAnnotationId(state.annotationId);
-            const metadata = runtime.get(id);
-            if (!metadata || !metadata.dirty) {
-                return [];
-            }
+        return getAnnotationNoteDraftsChangeSignature().flatMap(([
+            id,
+            generation,
+            text,
+        ]) => {
             const canonicalRevision = getCanonicalRevision(id);
             if (canonicalRevision === null) {
                 return [];
@@ -454,8 +466,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
                 annotationId: id,
                 kind: 'note' as const,
                 canonicalRevision,
-                text: state.draftText,
-                generation: draftGenerations.get(id) ?? 0,
+                text,
+                generation,
             }];
         });
     }
@@ -753,6 +765,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         restoreAnnotationNote,
         updateAnnotationNoteText,
         captureAnnotationNoteDrafts,
+        getAnnotationNoteDraftsChangeSignature,
         restoreAnnotationNoteDraft,
         updateAnnotationNotePosition,
         getAnnotationNoteFailurePresentation,

@@ -209,6 +209,31 @@ describe('AnnotationStore public API', () => {
         expect(restored.foreign).toEqual([foreign]);
     });
 
+    it('resolves drafts against the detached final capture without retaining mutable store bytes', () => {
+        const store = new AnnotationStore();
+        const entity = store.createNote(note('captured-note'));
+        const recovery = captureCanonicalAnnotationRecovery(store, entities => entities.map(captured => ({
+            annotationId: captured.identity.id,
+            kind: 'note' as const,
+            canonicalRevision: captured.revision,
+            text: 'uncommitted note draft',
+            generation: 3,
+        })));
+        store.updateNote(entity.identity.id, {contents: 'later edit'});
+        expect(recovery.entities).toEqual([entity]);
+        const restored = new AnnotationStore();
+        const result = restoreCanonicalAnnotationRecovery(restored, recovery);
+        expect(result.draftErrors).toEqual([]);
+        expect(result.drafts).toEqual([{
+            annotationId: entity.identity.id,
+            kind: 'note',
+            canonicalRevision: entity.revision,
+            text: 'uncommitted note draft',
+            generation: 3,
+        }]);
+        expect(restored.get(entity.identity.id)).toEqual(entity);
+    });
+
     it('rejects malformed and over-sized recovery drafts before admission', () => {
         const store = new AnnotationStore();
         expect(() => captureCanonicalAnnotationRecovery(store, [{

@@ -1,30 +1,45 @@
 import type {IPdfViewerExpose} from '@app/modules/pdf-viewer/public';
-import type {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import type {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
+import type {TDocumentContext} from '@app/modules/workspace-shell/documentContext';
 import {readWorkspaceRecoveryMetadata} from '@contracts/workspaceCheckpoint';
 import type {
     IWorkspaceDocumentRecovery, IWorkspaceDocumentRecoveryPort,
 } from '@app/types/workspaceDocumentRecovery';
 
 /** Extends the existing annotation artifact with edits owned by the document. */
-export function createWorkspaceDocumentRecovery(options: {
-    pdfViewer: () => IPdfViewerExpose | null;
-    annotations: Pick<ReturnType<typeof useWorkspaceAnnotationSession>, 'captureAnnotationNoteDrafts' | 'restoreAnnotationNoteDraft'>;
-    metadata: Pick<ReturnType<typeof useMetadataSession>, 'captureRecovery' | 'restoreRecovery'>;
-}): Required<IWorkspaceDocumentRecoveryPort> {
+export function createWorkspaceDocumentRecovery(
+    document: Pick<TDocumentContext, 'file' | 'annotations' | 'metadata'>,
+    pdfViewer: () => IPdfViewerExpose | null,
+): Required<IWorkspaceDocumentRecoveryPort> {
     const {
-        pdfViewer, annotations, metadata,
-    } = options;
+        file, annotations, metadata,
+    } = document;
     return {
+        getWorkspaceDocumentRecoveryChangeSignature: () => {
+            // These owner refs are the reactive edge for their existing revisions.
+            void metadata.bookmarkState.bookmarkItems.value;
+            void metadata.pageLabelState.pageLabelRanges.value;
+            return [
+                file.originalPath.value,
+                file.workingCopyPath.value,
+                file.requiresSaveAsOnFirstSave.value,
+                pdfViewer()?.getCanonicalAnnotationRecoveryChangeSignature?.() ?? null,
+                metadata.bookmarkState.bookmarksDirty.value ? metadata.bookmarkState.getBookmarksRevision() : null,
+                metadata.pageLabelState.pageLabelsDirty.value ? metadata.pageLabelState.getPageLabelsRevision() : null,
+                annotations.getAnnotationSaveStateToken(),
+                annotations.getAnnotationNoteDraftsChangeSignature(),
+            ];
+        },
         captureCanonicalAnnotationRecovery: (): IWorkspaceDocumentRecovery | null => {
             const viewer = pdfViewer();
-            const initial = viewer?.captureCanonicalAnnotationRecovery?.();
-            if (!initial || !viewer?.captureCanonicalAnnotationRecovery) return null;
-            const drafts = annotations.captureAnnotationNoteDrafts(annotationId => (
-                initial.entities.find(entity => entity.identity.id === annotationId)?.revision ?? null
-            ));
+            if (!viewer?.captureCanonicalAnnotationRecovery) return null;
             return {
-                ...viewer.captureCanonicalAnnotationRecovery(drafts),
+                ...viewer.captureCanonicalAnnotationRecovery((entities) => {
+                    const revisions = new Map(entities.map(entity => [
+                        entity.identity.id,
+                        entity.revision,
+                    ]));
+                    return annotations.captureAnnotationNoteDrafts(id => revisions.get(id) ?? null);
+                }),
                 metadata: metadata.captureRecovery(),
             };
         },
