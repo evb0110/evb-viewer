@@ -1,18 +1,10 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import type { TPdfjsTextOps } from '@pdf-core/pdfjsTextGeometry';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import type { IBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserSearchLimits';
-
-interface ILoadedBrowserSearchDocument {
-    pdfDocument: IPdfDocument;
-    pdfjsOps: TPdfjsTextOps;
-    pageCount: number;
-    destroy: () => Promise<void>;
-}
 
 interface IExtractBrowserSearchDocumentTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
 
@@ -26,30 +18,33 @@ async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSear
     }
 }
 
-async function loadBrowserSearchDocument(
-    pdfPath: string,
-): Promise<ILoadedBrowserSearchDocument> {
+export async function loadBrowserSearchDocument(pdfPath: string) {
     const pdfDocument = await loadBrowserPdfjsDocument(pdfPath);
-
+    try {
+        validateBrowserSearchPageCount(pdfDocument.numPages);
+    } catch (error) {
+        await pdfDocument.loadingTask.destroy();
+        throw error;
+    }
     return {
-        pdfDocument,
-        pdfjsOps: pdfjsLib.OPS,
         pageCount: pdfDocument.numPages,
+        extractPage: (pageNumber: number, options: IExtractBrowserSearchDocumentTextOptions = {}) =>
+            extractBrowserSearchDocumentPage(pdfDocument, pageNumber, options),
         destroy: () => pdfDocument.loadingTask.destroy(),
     };
 }
 
 async function extractBrowserSearchDocumentPage(
-    document: ILoadedBrowserSearchDocument,
+    pdfDocument: IPdfDocument,
     pageNumber: number,
     options: IExtractBrowserSearchDocumentTextOptions = {},
 ): Promise<IExtractedBrowserSearchPage> {
     await throwIfBrowserSearchCanceled(options.shouldContinue);
-    const page = await document.pdfDocument.getPage(pageNumber);
+    const page = await pdfDocument.getPage(pageNumber);
     await throwIfBrowserSearchCanceled(options.shouldContinue);
     const pageData = await extractBrowserSearchPageData(
         page,
-        document.pdfjsOps,
+        pdfjsLib.OPS,
         options.shouldContinue ? {shouldContinue: options.shouldContinue} : {},
     );
     await throwIfBrowserSearchCanceled(options.shouldContinue);
@@ -70,9 +65,8 @@ export async function* streamBrowserSearchDocumentPages(
 ): AsyncGenerator<IBrowserSearchDocumentPageRecord, void, void> {
     const document = await loadBrowserSearchDocument(pdfPath);
     try {
-        validateBrowserSearchPageCount(document.pageCount);
         for (let pageNumber = 1; pageNumber <= document.pageCount; pageNumber += 1) {
-            const page = await extractBrowserSearchDocumentPage(document, pageNumber, options);
+            const page = await document.extractPage(pageNumber, options);
             yield {
                 ...page,
                 pageCount: document.pageCount,

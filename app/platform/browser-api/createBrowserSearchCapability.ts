@@ -33,7 +33,10 @@ import {
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,
 } from '@app/platform/browser-api/browserSearchWorkerClient';
-import { iterateBrowserSearchDocumentPages } from '@app/platform/browser-api/browserSearchCore';
+import {
+    iterateBrowserSearchDocumentPages,
+    loadBrowserSearchDocument,
+} from '@app/platform/browser-api/browserSearchCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
@@ -118,12 +121,11 @@ interface ICreateBrowserSearchCapabilityResult {
 }
 
 interface IIterateSearchPagesOptions {
-    onPage: (page: ISearchPageData, pageCount: number) => Promise<unknown> | unknown;
+    onPage: (page: ISearchPageData, pageCount: number, loadGeometry?: () => Promise<ISearchPageData>) => Promise<unknown> | unknown;
     requestId?: TRequestId;
     requestGeneration?: number | undefined;
     expectedPageCount?: number;
     continueExtractionAfterStop?: boolean;
-    requireGeometry?: boolean;
 }
 
 interface ISearchPageGeometry {
@@ -167,22 +169,11 @@ function isBrowserSearchCanceledError(error: unknown) {
     return error instanceof Error && getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED';
 }
 
-function hasCachedGeometryForEveryPage(cache: IPreparedSearchDocumentCache) {
-    if (typeof cache.pageCount !== 'number' || cache.pageCount <= 0) {
-        return false;
-    }
-    return cache.pageGeometries.size >= cache.pageCount;
-}
-
-function isRecordCacheReady(
-    cache: IPreparedSearchDocumentCache,
-    requireGeometry = false,
-) {
+function isRecordCacheReady(cache: IPreparedSearchDocumentCache) {
     return typeof cache.pageCount === 'number'
         && cache.pageCount > 0
         && cache.canCacheWholeDocumentText
-        && cache.isComplete
-        && (!requireGeometry || hasCachedGeometryForEveryPage(cache));
+        && cache.isComplete;
 }
 
 function createDocumentCache(): IPreparedSearchDocumentCache {
@@ -380,7 +371,7 @@ function hydrateCacheFromPersistedRecord(
     cache: IPreparedSearchDocumentCache,
     record: IPersistedSearchDocumentCacheRecord | null,
 ) {
-    if (!record || cache.pageCount !== null) {
+    if (!record) {
         return;
     }
 
@@ -494,15 +485,15 @@ function getCachedPageText(
 function getCachedPageData(
     cache: IPreparedSearchDocumentCache,
     pageNumber: number,
-    requireGeometry: boolean,
 ): ISearchPageData | null {
     const text = getCachedPageText(cache, pageNumber);
     if (typeof text !== 'string') {
         return null;
     }
     const geometry = cache.pageGeometries.get(pageNumber);
-    if (requireGeometry && !geometry) {
-        return null;
+    if (geometry) {
+        cache.pageGeometries.delete(pageNumber);
+        cache.pageGeometries.set(pageNumber, geometry);
     }
     return {
         pageNumber,
@@ -685,7 +676,8 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         if (record.textBytes !== textBytes) {
             return null;
         }
-        if (getPersistedRecordBytes(record) > SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES) {
+        if (record.pages.length > SEARCH_DOCUMENT_TEXT_CACHE_MAX_RECORDS
+            || getPersistedRecordBytes(record) > SEARCH_DOCUMENT_TEXT_CACHE_MAX_BYTES) {
             return null;
         }
         return record;
@@ -780,11 +772,12 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         page: ISearchPageData,
         pageCount: number,
         options: IIterateSearchPagesOptions,
+        loadGeometry?: () => Promise<ISearchPageData>,
     ): Promise<TPageOutcome> {
         if (isSearchCanceled(options.requestId, options.requestGeneration)) {
             return 'cancel';
         }
-        const result = await options.onPage(page, pageCount);
+        const result = await options.onPage(page, pageCount, loadGeometry);
         if (result === false) {
             return 'stop';
         }
@@ -794,45 +787,41 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     }
 
     async function iterateCachedDocumentPages(
+        pdfPath: string,
         cache: IPreparedSearchDocumentCache,
         pageCount: number,
         options: IIterateSearchPagesOptions,
     ) {
-        for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-            const cachedPage = getCachedPageData(cache, pageNumber, Boolean(options.requireGeometry)) ?? {
-                pageNumber,
-                text: '',
-            };
-            const outcome = await deliverPage(cachedPage, pageCount, options);
-            if (outcome === 'cancel' || outcome === 'stop') {
+        let document: Awaited<ReturnType<typeof loadBrowserSearchDocument>> | undefined;
+        try {
+            for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+                const cachedPage = getCachedPageData(cache, pageNumber) ?? {
+                    pageNumber,
+                    text: '',
+                };
+                const outcome = await deliverPage(cachedPage, pageCount, options, hasSearchPageGeometry(cachedPage)
+                    ? undefined
+                    : async () => {
+                        document ??= await loadBrowserSearchDocument(pdfPath);
+                        const page = await document.extractPage(pageNumber, {shouldContinue: () => (
+                            !isExtractionCanceled(options.requestId, options.requestGeneration)
+                        )});
+                        rememberPageData(cache, page);
+                        return page;
+                    });
+                if (outcome === 'cancel' || outcome === 'stop') {
+                    return false;
+                }
+            }
+            return true;
+        } catch (error) {
+            if (isBrowserSearchCanceledError(error)) {
                 return false;
             }
+            throw error;
+        } finally {
+            await document?.destroy();
         }
-        return true;
-    }
-
-    async function iteratePersistedDocumentPages(
-        record: IPersistedSearchDocumentCacheRecord,
-        options: IIterateSearchPagesOptions,
-    ) {
-        const pageTexts = new Map<number, string>();
-        for (const page of record.pages) {
-            pageTexts.set(page.pageNumber, page.text);
-        }
-        for (let pageNumber = 1; pageNumber <= record.pageCount; pageNumber += 1) {
-            const text = pageTexts.get(pageNumber) ?? '';
-            const outcome = await deliverPage({
-                pageNumber,
-                text,
-            }, record.pageCount, options);
-            if (outcome === 'cancel') {
-                return false;
-            }
-            if (outcome === 'stop') {
-                return true;
-            }
-        }
-        return true;
     }
 
     async function iterateSearchPages(
@@ -846,20 +835,18 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         let cache = getDocumentCache(memoryCacheKey);
         const cachedPageCount = cache.pageCount;
 
-        if (isRecordCacheReady(cache, Boolean(options.requireGeometry)) && cachedPageCount) {
+        if (isRecordCacheReady(cache) && cachedPageCount) {
             if (
                 typeof options.expectedPageCount !== 'number'
                 || options.expectedPageCount === cachedPageCount
             ) {
-                return iterateCachedDocumentPages(cache, cachedPageCount, options);
+                return iterateCachedDocumentPages(pdfPath, cache, cachedPageCount, options);
             }
             searchDocumentCache.delete(memoryCacheKey);
             cache = getDocumentCache(memoryCacheKey);
         }
 
-        const persistedRecord = options.requireGeometry
-            ? null
-            : await loadPersistedSearchCacheRecord(pdfPath);
+        const persistedRecord = await loadPersistedSearchCacheRecord(pdfPath);
         const validPersistedRecord = pickValidPersistedRecord(
             persistedRecord,
             fileSize,
@@ -888,7 +875,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 void touchPersistedSearchCacheRecord(validPersistedRecord);
             }
             hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
-            return iteratePersistedDocumentPages(validPersistedRecord, options);
+            return iterateCachedDocumentPages(pdfPath, cache, validPersistedRecord.pageCount, options);
         }
         if (persistedRecord) {
             await clearPersistedSearchCacheForDocument(pdfPath);
@@ -1004,8 +991,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     requestId,
                     ...(requestGeneration === undefined ? {} : {requestGeneration}),
                     ...(options.pageCount !== undefined ? {expectedPageCount: options.pageCount} : {}),
-                    requireGeometry: true,
-                    onPage: async (page, pageCount) => {
+                    onPage: async (page, pageCount, loadGeometry) => {
                         if (isSearchCanceled(requestId, requestGeneration)) {
                             return false;
                         }
@@ -1019,6 +1005,11 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             (SEARCH_RESULT_LIMIT - results.length) + 1,
                             regexBudget,
                         );
+                        // Cached text proves whether geometry is needed. Read only hit
+                        // pages, using the same PDF.js representation as the text index.
+                        const matchPage = matchResult.matches.length > 0 && results.length < SEARCH_RESULT_LIMIT && loadGeometry
+                            ? await loadGeometry()
+                            : page;
                         for (const match of matchResult.matches) {
                             if (isSearchCanceled(requestId, requestGeneration)) {
                                 return false;
@@ -1041,7 +1032,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
                             const pageMatchIndex = pageMatchCounts.get(page.pageNumber) ?? 0;
                             pageMatchCounts.set(page.pageNumber, pageMatchIndex + 1);
-                            const words = collectSearchMatchWords(page, match.startOffset, match.endOffset);
+                            const words = collectSearchMatchWords(matchPage, match.startOffset, match.endOffset);
                             results.push({
                                 pageNumber: requirePageNumber(page.pageNumber),
                                 pageMatchIndex,
@@ -1049,14 +1040,14 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                                 startOffset: match.startOffset,
                                 endOffset: match.endOffset,
                                 excerpt: buildPdfSearchExcerpt(
-                                    page.text,
+                                    matchPage.text,
                                     match.startOffset,
                                     match.endOffset,
                                     SEARCH_EXCERPT_CONTEXT_CHARS,
                                 ),
                                 ...(words !== undefined ? {words} : {}),
-                                ...(words !== undefined && page.pageWidth !== undefined ? {pageWidth: page.pageWidth} : {}),
-                                ...(words !== undefined && page.pageHeight !== undefined ? {pageHeight: page.pageHeight} : {}),
+                                ...(words !== undefined && matchPage.pageWidth !== undefined ? {pageWidth: matchPage.pageWidth} : {}),
+                                ...(words !== undefined && matchPage.pageHeight !== undefined ? {pageHeight: matchPage.pageHeight} : {}),
                             });
                         }
 
