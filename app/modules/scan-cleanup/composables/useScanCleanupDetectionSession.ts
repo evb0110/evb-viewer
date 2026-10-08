@@ -812,7 +812,6 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         ) {
             detectionSessionCache.set(jobDocumentKey, {
                 ownerId: options.ownerId,
-                results: state.results.map(result => ({...result})),
                 signatures: new Map(signatures),
                 documentSignature: detectionDocumentSignature,
                 signatureToken: detectionPageOverrideSignatureToken,
@@ -1293,7 +1292,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (!evidenceIsCurrent(entry.signatures, documentPageCount)) {
             return false;
         }
-        return entry.state.status === 'completed' && entry.results.length === documentPageCount;
+        return entry.state.status === 'completed' && entry.state.results.length === documentPageCount;
     }
 
     function restoreSession(key: string | null) {
@@ -1311,15 +1310,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         documentCanvasSignature.value = cached.state.documentCanvasSignature ?? '';
         placementAnchorSummary.value = cached.state.placementAnchorSummary ?? null;
         placementAnchorCalibrationError.value = '';
-        detectionResultCount.value = cached.state.resultCount ?? cached.results.length;
+        const cachedResults = cached.state.results;
+        detectionResultCount.value = cached.state.resultCount ?? cachedResults.length;
         detectionDocumentPageCount.value = cached.totalPages;
         detectionEvidenceComplete.value = detectionResultCount.value >= cached.totalPages;
         retainedDetectionPages.clear();
-        for (const result of cached.results) {
+        for (const result of cachedResults) {
             retainDetectionPage(result.pageNumber, cached.totalPages);
         }
         sourcePageMetadataByPage.clear();
-        for (const result of cached.results) {
+        for (const result of cachedResults) {
             if (result.sourcePageMetadata !== undefined) {
                 sourcePageMetadataByPage.set(result.pageNumber, result.sourcePageMetadata);
             }
@@ -1330,9 +1330,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             value,
         ] of cached.signatures) signatures.set(pageNumber, value);
         settledPages.clear();
-        for (const result of cached.results) retainSettledPage(result.pageNumber, cached.totalPages);
+        for (const result of cachedResults) retainSettledPage(result.pageNumber, cached.totalPages);
         applyScanCleanupDetectionResults(
-            cached.results,
+            cachedResults,
             detectedLayoutByPage,
             confidenceByPage,
             undefined,
@@ -1344,7 +1344,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             softAlphaForegroundRecommendationByPage,
         );
         pagePlanEvidenceByPage.clear();
-        for (const result of cached.results) {
+        for (const result of cachedResults) {
             if (result.pagePlanEvidence !== undefined) {
                 pagePlanEvidenceByPage.set(result.pageNumber, result.pagePlanEvidence);
             }

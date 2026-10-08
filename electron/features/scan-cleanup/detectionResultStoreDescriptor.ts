@@ -70,6 +70,35 @@ function assertDescriptor(descriptor: unknown): asserts descriptor is IScanClean
  * page-offset index. The store is read one bounded chunk at a time, so this
  * handoff never recreates a result array in the main process.
  */
+/**
+ * A complete detection store already keeps its records on disk in the format
+ * the worker reads. Describe those files instead of writing a second copy.
+ * The caller's lease must keep the store open until the worker has settled,
+ * and the caller does not remove these files: the store does, when it closes.
+ * Returns null for a store without its own files or with any page missing.
+ */
+export function describePersistedScanCleanupDetectionResultStore(
+    store: IScanCleanupDetectionResultStore,
+): IScanCleanupDetectionResultStoreDescriptor | null {
+    const files = store.persistedFiles;
+    if (
+        files === undefined
+        || !Number.isSafeInteger(store.pageCount)
+        || store.pageCount < 1
+        || store.resultCount !== store.pageCount
+    ) {
+        return null;
+    }
+    return {
+        format: DESCRIPTOR_FORMAT,
+        indexPath: files.indexPath,
+        pageCount: store.pageCount,
+        recordsPath: files.recordsPath,
+        resultCount: store.resultCount,
+        schemaVersion: DESCRIPTOR_SCHEMA_VERSION,
+    };
+}
+
 export async function persistScanCleanupDetectionResultStore(
     store: IScanCleanupDetectionResultStore,
     rootDir: string,

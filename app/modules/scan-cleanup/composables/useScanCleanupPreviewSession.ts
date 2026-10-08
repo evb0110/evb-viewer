@@ -1,3 +1,4 @@
+import {narrowScanCleanupPreviewRequestToPage} from '@contracts/scan-cleanup/narrowScanCleanupPreviewRequestToPage';
 import { getErrorMessage } from '@app/utils/error';
 import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
 import {
@@ -435,7 +436,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 return Promise.reject(new Error('Scan cleanup preview is unavailable'));
             }
             inFlightPreviewRequestIds.add(request.requestId);
-            return capability.preview(toBridgeSafeScanCleanupPayload(request))
+            return capability.preview(toBridgeSafeScanCleanupPayload(narrowScanCleanupPreviewRequestToPage(request)))
                 .then(previewResult => withStreamedRaw(previewResult, request.requestId))
                 .finally(() => {
                     inFlightPreviewRequestIds.delete(request.requestId);
@@ -1006,7 +1007,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 // `onPreviewRaw` a sidecar run ahead of the cleaned outputs and
                 // is displayed there; this promise settles with the cleaned
                 // result that supersedes it.
-                const previewResult = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload({
+                const previewResult = withStreamedRaw(await capability.preview(toBridgeSafeScanCleanupPayload(narrowScanCleanupPreviewRequestToPage({
                     requestId,
                     sourcePdfPath: requestSourcePath,
                     ownerId: options.ownerId,
@@ -1025,7 +1026,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     ...(resolvedPlacementAnchors === undefined ? {} : {placementAnchors: resolvedPlacementAnchors}),
                     layoutDetectionComplete: options.layoutDetectionComplete.value,
                     layoutByPage: layoutByPage.value,
-                })), requestId);
+                }))), requestId);
                 // A cancelled request has no result to keep or display. When the
                 // page it was rendering is still the page the user is on, the
                 // run was retired by something that has since finished — a
@@ -1218,7 +1219,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             const pagePlanEvidence = options.pagePlanEvidenceByPage.get(requestPage);
             const placementAnchors = placementAnchorsFor(requestPage);
             const requestId = nextRequestId();
-            const wireResult = await capability.preview(toBridgeSafeScanCleanupPayload({
+            const wireResult = await capability.preview(toBridgeSafeScanCleanupPayload(narrowScanCleanupPreviewRequestToPage({
                 requestId,
                 sourcePdfPath: requestSourcePath,
                 ownerId: options.ownerId,
@@ -1237,7 +1238,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     viewports,
                     outputMode,
                 },
-            }));
+            })));
             const next = withStreamedRaw(wireResult, requestId);
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
