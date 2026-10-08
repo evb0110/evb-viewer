@@ -3486,9 +3486,17 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
         ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'page 1 Retry'});
         const painted = await waitForVisiblePageCanvas(session, 1, 15_000);
-        const after = await readViewerPageOutcome(session, 1);
-        expect(painted, JSON.stringify(after)).toBe(true);
+        expect(painted, JSON.stringify(await readViewerPageOutcome(session, 1))).toBe(true);
         await waitForScannedFixturePageIdentity(session.page, 1, 5_000);
-        expect(after.visualPresentation, JSON.stringify(after)).not.toBe('error');
+        // The open itself recovers: its viewport reaches ready on the page.
+        await session.page.waitForFunction(() => document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
+        )?.dataset.viewportLifecycle === 'ready', {timeout: 10_000}).catch(() => undefined);
+        const recovered = await readViewerPageOutcome(session, 1);
+        expect(recovered, JSON.stringify(recovered)).toMatchObject({
+            viewportLifecycle: 'ready',
+            visualPage: '1',
+        });
+        expect(recovered.visualPresentation, JSON.stringify(recovered)).not.toBe('error');
     }, 180_000);
 });
