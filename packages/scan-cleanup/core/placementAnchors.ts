@@ -139,7 +139,9 @@ export async function buildScanCleanupPlacementAnchorSummary({
             );
             if (pageOverride.excluded) continue;
             const sheet = resolveScanCleanupSheetRect(result.sourcePageMetadata);
-            if (sheet !== null) addScanCleanupPaperCohortRect(sheets, sheet);
+            if (sheet !== null) {
+                addScanCleanupPaperCohortRect(sheets, sheet, result.classification === 'two-page-spread' ? 2 : 1);
+            }
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 if (resolveInkSample(result, options, half, 0) !== undefined) {
                     sampleCount += 1;

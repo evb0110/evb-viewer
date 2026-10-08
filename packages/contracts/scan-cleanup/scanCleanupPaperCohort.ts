@@ -12,9 +12,12 @@ import type {IScanCleanupSourcePageMetadata} from '@contracts/scan-cleanup/elect
  * pages. A genuinely mixed document has no dominant paper, and callers keep
  * their fallback, the largest sheet.
  *
- * The tally is bounded: it tracks at most `MAX_COHORTS` distinct sizes and
- * counts everything else only in the total, so a document of any length stays
- * a constant-size summary.
+ * The tally is bounded: a weighted Misra-Gries summary of at most
+ * `MAX_COHORTS` sizes. When a new size overflows it, every count drops by the
+ * smallest one and emptied sizes leave. A size held by more than a
+ * `MAX_COHORTS + 1`th of the pages is never lost, whatever order pages arrive
+ * in, and counts only ever understate, so the three-quarter test can only err
+ * toward the largest-sheet fallback.
  */
 export interface IScanCleanupPaperRect {
     widthPoints: number;
@@ -73,11 +76,33 @@ export function isLargerScanCleanupPaperRect(
             && candidate.heightPoints > current.heightPoints);
 }
 
+function trimScanCleanupPaperCohorts(tally: IScanCleanupPaperCohortTally) {
+    if (tally.cohorts.size <= MAX_COHORTS) {
+        return;
+    }
+    const counts = [...tally.cohorts.values()].map(cohort => cohort.count).sort((left, right) => right - left);
+    const cut = counts[MAX_COHORTS]!;
+    for (const [
+        key,
+        cohort,
+    ] of tally.cohorts) {
+        cohort.count -= cut;
+        if (cohort.count <= 0) {
+            tally.cohorts.delete(key);
+        }
+    }
+}
+
+/**
+ * Tally one sheet. `weight` is the number of output pages it produces, so a
+ * spread that splits votes for both of its leaves.
+ */
 export function addScanCleanupPaperCohortRect(
     tally: IScanCleanupPaperCohortTally,
     rect: IScanCleanupPaperRect,
+    weight = 1,
 ) {
-    tally.total += 1;
+    tally.total += weight;
     if (!(rect.widthPoints > 0 && rect.heightPoints > 0)
         || !Number.isFinite(rect.widthPoints)
         || !Number.isFinite(rect.heightPoints)) {
@@ -87,18 +112,17 @@ export function addScanCleanupPaperCohortRect(
     const key = cohortKey(...cohortCoordinates(rect));
     const cohort = tally.cohorts.get(key);
     if (cohort !== undefined) {
-        cohort.count += 1;
+        cohort.count += weight;
         if (isLargerScanCleanupPaperRect(rect, cohort.rect)) {
             cohort.rect = {...rect};
         }
         return;
     }
-    if (tally.cohorts.size < MAX_COHORTS) {
-        tally.cohorts.set(key, {
-            count: 1,
-            rect: {...rect},
-        });
-    }
+    tally.cohorts.set(key, {
+        count: weight,
+        rect: {...rect},
+    });
+    trimScanCleanupPaperCohorts(tally);
 }
 
 export function mergeScanCleanupPaperCohortTallies(
@@ -126,6 +150,7 @@ export function mergeScanCleanupPaperCohortTallies(
             }
         }
     }
+    trimScanCleanupPaperCohorts(merged);
     return merged;
 }
 

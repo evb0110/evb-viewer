@@ -50,13 +50,18 @@ const POINTS_PER_MM = 72 / 25.4;
  * output on its own ink and only stops pages from snapping together.
  */
 function resolveInkReferenceHeightPoints(
-    pageNumbers: Iterable<number>,
+    pages: Iterable<readonly [number, {layoutClassification: string}]>,
     metadataByPage: ReadonlyMap<number, IScanCleanupSourcePageMetadata>,
 ) {
     const sheets = createScanCleanupPaperCohortTally();
-    for (const pageNumber of pageNumbers) {
+    for (const [
+        pageNumber,
+        evidence,
+    ] of pages) {
         const sheet = resolveScanCleanupSheetRect(metadataByPage.get(pageNumber));
-        if (sheet !== null) addScanCleanupPaperCohortRect(sheets, sheet);
+        if (sheet !== null) {
+            addScanCleanupPaperCohortRect(sheets, sheet, evidence.layoutClassification === 'two-page-spread' ? 2 : 1);
+        }
     }
     return resolveScanCleanupInkReferenceHeightPoints(sheets);
 }
@@ -161,10 +166,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                 requirePageNumber(pageNumber),
             ).excluded,
         );
-        const referenceHeightPoints = resolveInkReferenceHeightPoints(
-            included.map(([pageNumber]) => pageNumber),
-            metadataByPage,
-        );
+        const referenceHeightPoints = resolveInkReferenceHeightPoints(included, metadataByPage);
         const samples: IScanCleanupPlacementAnchorSample[] = [];
         // A sheet that cannot be measured keeps its own-sheet fraction, which
         // is not comparable with the others; snapping is only meaningful when

@@ -169,6 +169,21 @@ function resolveSheetShares(
     return readObservedLayout(layoutByPage, pageNumber) === 'two-page-spread' ? 2 : 1;
 }
 
+/**
+ * How many output pages a sheet produces: both halves of a split spread, one
+ * kept half of it, or the whole sheet.
+ */
+function resolveProducedOutputCount(options: IScanCleanupOptions, pageNumber: number, shares: number) {
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
+    );
+    const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
+    return layout === 'keep-left' || layout === 'keep-right' ? 1 : shares;
+}
+
 function isAutomaticLayout(options: IScanCleanupOptions, pageNumber: number) {
     const pageOverride = getScanCleanupPageOverride(
         options.pageOverrides,
@@ -245,7 +260,11 @@ function addScanCleanupCanvasSummaryPage(
         ?? options.outputMode;
     bucket.hasContinuousTone ||= outputMode !== 'bw';
     const outputRect = resolveScanCleanupOutputPageRect(pageSize, shares);
-    addScanCleanupPaperCohortRect(bucket.paperCohorts, outputRect);
+    addScanCleanupPaperCohortRect(
+        bucket.paperCohorts,
+        outputRect,
+        resolveProducedOutputCount(options, pageSize.pageNumber, shares),
+    );
     if (isLargerScanCleanupPaperRect(outputRect, bucket.largestOutputRect)) {
         bucket.largestOutputRect = outputRect;
     }
@@ -748,11 +767,13 @@ export function resolveScanCleanupDocumentCanvas(
     const paperCohorts = createScanCleanupPaperCohortTally();
     let largest: IScanCleanupOrientedRect | null = null;
     for (const pageSize of produced) {
-        const rect = resolveScanCleanupOutputPageRect(
-            pageSize,
-            resolveSheetShares(options, pageSize.pageNumber, layoutByPage),
+        const shares = resolveSheetShares(options, pageSize.pageNumber, layoutByPage);
+        const rect = resolveScanCleanupOutputPageRect(pageSize, shares);
+        addScanCleanupPaperCohortRect(
+            paperCohorts,
+            rect,
+            resolveProducedOutputCount(options, pageSize.pageNumber, shares),
         );
-        addScanCleanupPaperCohortRect(paperCohorts, rect);
         if (isLargerScanCleanupPaperRect(rect, largest)) {
             largest = rect;
         }

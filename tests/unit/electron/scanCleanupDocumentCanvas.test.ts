@@ -309,6 +309,69 @@ describe('scan cleanup document canvas', () => {
             });
         });
 
+        it('finds the leaves even after many other sizes filled the tally first', () => {
+            // Seventy one-off sizes arrive before the leaves.
+            const oddities = Array.from({length: 70}, (_, index) => page({
+                pageNumber: index + 1,
+                widthPoints: 1_000 + index * 40,
+                heightPoints: 1_500 + index * 40,
+            }));
+            const leaves = Array.from({length: 300}, (_, index) => page({
+                pageNumber: index + 71,
+                widthPoints: 2_060,
+                heightPoints: 3_235,
+            }));
+            const accumulator = createScanCleanupDocumentCanvasAccumulator();
+            for (const pageSize of [
+                ...oddities,
+                ...leaves,
+            ]) {
+                addScanCleanupDocumentCanvasPage(accumulator, pageSize, options, 'single-uncut-page');
+            }
+
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 72, options, true))
+                .toMatchObject({
+                    widthPoints: 2_060,
+                    heightPoints: 3_235,
+                });
+        });
+
+        it('counts both leaves a split spread produces', () => {
+            // Three spreads give six leaves beside two whole sheets of another
+            // size: three quarters of the output pages are leaves.
+            const sheets = [
+                ...[
+                    1,
+                    2,
+                    3,
+                ].map(pageNumber => page({
+                    pageNumber,
+                    widthPoints: 1_224,
+                    heightPoints: 792,
+                })),
+                ...[
+                    4,
+                    5,
+                ].map(pageNumber => page({
+                    pageNumber,
+                    widthPoints: 595,
+                    heightPoints: 842,
+                })),
+            ];
+            const layouts: TScanCleanupLayoutByPage = {
+                '1': 'two-page-spread',
+                '2': 'two-page-spread',
+                '3': 'two-page-spread',
+                '4': 'single-uncut-page',
+                '5': 'single-uncut-page',
+            };
+
+            expect(resolveScanCleanupDocumentCanvas(sheets, 72, options, layouts)).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
+        });
+
         it('keeps the largest sheet for a document with no paper three quarters of it share', () => {
             const mixed = book.slice(0, 4).map((pageSize, index) => index < 2
                 ? {
@@ -673,8 +736,9 @@ describe('scan cleanup document canvas', () => {
                 widthPoints: 612,
                 heightPoints: 792,
             });
-            // Once reconciliation is complete, a genuine single page is hard
-            // evidence and the authoritative mixed-document canvas grows.
+            // Once reconciliation is complete, every output page votes: two
+            // split spreads give four leaves beside one landscape single, so
+            // the leaves hold the paper and the single is fitted onto it.
             expect(resolveScanCleanupProvisionalDocumentCanvas(
                 pages,
                 150,
@@ -686,11 +750,28 @@ describe('scan cleanup document canvas', () => {
                 },
                 true,
             )).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
+            // Half leaves and half whole sheets is a genuinely mixed document,
+            // and its authoritative canvas grows to the largest sheet.
+            expect(resolveScanCleanupProvisionalDocumentCanvas(
+                pages,
+                150,
+                options,
+                {
+                    '1': 'two-page-spread',
+                    '2': 'single-uncut-page',
+                    '3': 'single-uncut-page',
+                },
+                true,
+            )).toMatchObject({
                 widthPoints: 1_224,
                 heightPoints: 792,
             });
             // A manual single-page choice is already authoritative while
-            // automatic reconciliation is still running.
+            // automatic reconciliation is still running: it votes with the
+            // known spreads, whose four leaves still hold the paper.
             expect(resolveScanCleanupProvisionalDocumentCanvas(
                 pages,
                 150,
@@ -703,7 +784,7 @@ describe('scan cleanup document canvas', () => {
                     '3': 'two-page-spread',
                 },
             )).toMatchObject({
-                widthPoints: 1_224,
+                widthPoints: 612,
                 heightPoints: 792,
             });
             // Explicit layout is evidence before detection starts.
