@@ -3,6 +3,7 @@ import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
     IResolvedSearchMatchOptions,
+    TSearchResultOffset,
 } from '@contracts/search';
 
 export type TDocumentPageSourceKind = 'pdf' | 'djvu';
@@ -37,6 +38,7 @@ export interface IDocumentPageRenderRequest {
 export interface IDocumentTextProvider {getPageText(pageNumber: number, signal: AbortSignal): Promise<string>;}
 
 export interface IDocumentSearchRequest {
+    resultOffset?: TSearchResultOffset;
     matchOptions: IResolvedSearchMatchOptions;
     onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
     query: string;

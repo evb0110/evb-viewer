@@ -55,6 +55,7 @@ function createDocumentTextProviderSearchBackend(options: {
             matchOptions: request.matchOptions,
             signal: request.signal,
             onProgress: request.onProgress,
+            ...(request.resultOffset === undefined ? {} : {resultOffset: request.resultOffset}),
         }),
     };
 }

@@ -68,6 +68,7 @@ export function createNativeDjvuTextSearchBridge(documentRef: TDocumentRef) {
                 requestId,
                 pageCount: request.pageCount,
                 ...request.matchOptions,
+                ...(request.resultOffset === undefined ? {} : {resultOffset: request.resultOffset}),
             });
             request.signal.throwIfAborted();
             return response;

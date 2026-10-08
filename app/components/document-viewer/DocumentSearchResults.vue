@@ -45,12 +45,12 @@
                 >
                     {{ progressText }}
                 </span>
-                <div
-                    v-if="!isSearching && isTruncated"
-                    class="document-search-results-truncated"
-                >
-                    {{ t('searchResults.showingFirst', { count: results.length }) }}
-                </div>
+            </div>
+            <div
+                v-if="!isSearching && (isTruncated || (results[0]?.matchIndex ?? 0) > 0)"
+                class="document-search-results-truncated"
+            >
+                {{ t('searchResults.showingRange', { start: (results[0]?.matchIndex ?? 0) + 1, end: (results.at(-1)?.matchIndex ?? 0) + 1 }) }}
             </div>
             <div v-if="!isSearching && isIncompleteCoverage" class="document-search-results-coverage" role="status">
                 {{ incompleteCoverageText }}
@@ -508,7 +508,7 @@ watch(
 }
 
 .document-search-results-truncated {
-    margin-left: auto;
+    padding: var(--app-sidebar-row-padding-block) var(--app-sidebar-row-padding-inline);
     font-size: var(--app-sidebar-caption-font-size);
     color: var(--ui-text-dimmed);
 }

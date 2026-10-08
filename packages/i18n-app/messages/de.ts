@@ -1299,6 +1299,7 @@ export default {
         }),
         'forQuery': 'für „{query}“',
         'showingFirst': 'Erste {count} Ergebnisse angezeigt — tippen Sie weiter, um einzugrenzen',
+        'showingRange': 'Treffer {start}–{end}. Mit Weiter oder Zurück fortsetzen.',
         'page': 'Seite {page}',
         'pageWithCount': plural({
             one: 'Seite {page} ({count} Treffer)',

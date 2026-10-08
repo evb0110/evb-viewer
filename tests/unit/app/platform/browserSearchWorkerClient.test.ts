@@ -87,10 +87,12 @@ class FakeWorker {
                 ok: true,
                 data: {
                     matches: [{
+                        pageMatchIndex: 0,
                         startOffset: 0,
                         endOffset: 5,
                     }],
                     truncated: false,
+                    matchCount: 1,
                     matchingMs: 0,
                 },
             });
@@ -152,10 +154,12 @@ describe('browserSearchWorkerClient', () => {
                     ok: true,
                     data: {
                         matches: [{
+                            pageMatchIndex: 0,
                             startOffset: 5,
                             endOffset: 5,
                         }],
                         truncated: false,
+                        matchCount: 1,
                         matchingMs: 0,
                     },
                 });
@@ -205,10 +209,12 @@ describe('browserSearchWorkerClient', () => {
                         ok: true,
                         data: {
                             matches: [{
+                                pageMatchIndex: 0,
                                 startOffset: 3,
                                 endOffset: 9,
                             }],
                             truncated: false,
+                            matchCount: 1,
                             matchingMs: 0,
                         },
                     });
@@ -235,10 +241,12 @@ describe('browserSearchWorkerClient', () => {
             maxMatches: 2,
         }).promise).resolves.toEqual({
             matches: [{
+                pageMatchIndex: 0,
                 startOffset: 3,
                 endOffset: 9,
             }],
             truncated: false,
+            matchCount: 1,
             matchingMs: 0,
         });
 
@@ -378,10 +386,12 @@ describe('browserSearchWorkerClient', () => {
             ok: true,
             data: {
                 matches: [{
+                    pageMatchIndex: 0,
                     startOffset: 0,
                     endOffset: 5,
                 }],
                 truncated: false,
+                matchCount: 1,
                 matchingMs: 0,
             },
         });
@@ -391,20 +401,24 @@ describe('browserSearchWorkerClient', () => {
             ok: true,
             data: {
                 matches: [{
+                    pageMatchIndex: 0,
                     startOffset: 0,
                     endOffset: 11,
                 }],
                 truncated: false,
+                matchCount: 1,
                 matchingMs: 0,
             },
         });
 
         await expect(replacementRequest.promise).resolves.toEqual({
             matches: [{
+                pageMatchIndex: 0,
                 startOffset: 0,
                 endOffset: 11,
             }],
             truncated: false,
+            matchCount: 1,
             matchingMs: 0,
         });
     });
@@ -431,12 +445,14 @@ describe('browserSearchWorkerClient', () => {
             data: {
                 matches: [],
                 truncated: false,
+                matchCount: 0,
                 matchingMs: 0,
             },
         });
         await expect(otherRequest.promise).resolves.toEqual({
             matches: [],
             truncated: false,
+            matchCount: 0,
             matchingMs: 0,
         });
         expect(terminateSpy).not.toHaveBeenCalled();

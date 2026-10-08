@@ -38,6 +38,7 @@ export const browserDjvuTextSearchCapability = {
             return await searchDjvuWorkerText(worker, {
                 requestId: options.requestId,
                 pageCount: options.pageCount,
+                ...(options.resultOffset === undefined ? {} : {resultOffset: options.resultOffset}),
                 query,
                 matchOptions: {
                     matchCase: Boolean(options.matchCase),

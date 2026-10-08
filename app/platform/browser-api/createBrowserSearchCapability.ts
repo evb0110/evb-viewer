@@ -3,6 +3,7 @@ import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
     IPdfSearchResult,
+    TSearchResultOffset,
 } from '@contracts/search';
 import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import {
@@ -10,7 +11,7 @@ import {
 } from '@pdf-core';
 import {
     buildPdfSearchExcerpt,
-    iteratePdfSearchMatches,
+    matchPdfSearchPageWindow,
 } from '@pdf-core/pdfSearchCore';
 import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -695,6 +696,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         requestGeneration: number,
         maxMatches: number,
         regexBudget: {remainingMs: number},
+        resultOffset: TSearchResultOffset,
     ) {
         if (matchOptions.useRegex && regexBudget.remainingMs <= 0) {
             throw new SearchRegexLimitError(
@@ -702,19 +704,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             );
         }
         if (!matchOptions.useRegex) {
-            const matches = [];
-            let truncated = false;
-            for (const match of iteratePdfSearchMatches(pageText, query, matchOptions)) {
-                if (matches.length >= maxMatches) {
-                    truncated = true;
-                    break;
-                }
-                matches.push(match);
-            }
-            return {
-                matches,
-                truncated,
-            };
+            return matchPdfSearchPageWindow(pageText, query, matchOptions, maxMatches, resultOffset);
         }
 
         if (!canUseBrowserSearchWorker()) {
@@ -730,6 +720,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 query,
                 options: matchOptions,
                 maxMatches,
+                resultOffset,
                 budgetMs: regexBudget.remainingMs,
             },
             {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
@@ -740,17 +731,19 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         });
         try {
             const {
-                matches, truncated, matchingMs,
+                matches, truncated, matchingMs, matchCount,
             } = await workerRequest.promise;
             regexBudget.remainingMs -= matchingMs;
             return isSearchCanceled(requestId, requestGeneration)
                 ? {
                     matches: [],
                     truncated: false,
+                    matchCount: 0,
                 }
                 : {
                     matches,
                     truncated,
+                    matchCount,
                 };
         } catch (error) {
             if (error instanceof BrowserSearchWorkerTimeoutError) {
@@ -978,7 +971,8 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             const results: IPdfSearchResult[] = [];
             let emittedResultCount = 0;
             let truncated = false;
-            const pageMatchCounts = new Map<number, number>();
+            let matchedCount = 0;
+            const resultOffset = options.resultOffset ?? 0;
             const requestGeneration = startSearchRequest(requestId);
             // Only time spent matching spends the budget: reading page text
             // and starting the worker do not.
@@ -1002,19 +996,20 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                             matchOptions,
                             requestId,
                             requestGeneration ?? 0,
-                            (SEARCH_RESULT_LIMIT - results.length) + 1,
+                            resultOffset === 'last' ? SEARCH_RESULT_LIMIT : (SEARCH_RESULT_LIMIT - results.length) + 1,
                             regexBudget,
+                            resultOffset === 'last' ? resultOffset : Math.max(0, resultOffset - matchedCount),
                         );
                         // Cached text proves whether geometry is needed. Read only hit
                         // pages, using the same PDF.js representation as the text index.
-                        const matchPage = matchResult.matches.length > 0 && results.length < SEARCH_RESULT_LIMIT && loadGeometry
+                        const matchPage = matchResult.matches.length > 0 && loadGeometry
                             ? await loadGeometry()
                             : page;
                         for (const match of matchResult.matches) {
                             if (isSearchCanceled(requestId, requestGeneration)) {
                                 return false;
                             }
-                            if (results.length >= SEARCH_RESULT_LIMIT) {
+                            if (resultOffset !== 'last' && results.length >= SEARCH_RESULT_LIMIT) {
                                 // Only a match we refuse to report proves the set was cut, so the
                                 // limit-th match alone must never raise the truncated flag.
                                 truncated = true;
@@ -1030,13 +1025,13 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                                 return false;
                             }
 
-                            const pageMatchIndex = pageMatchCounts.get(page.pageNumber) ?? 0;
-                            pageMatchCounts.set(page.pageNumber, pageMatchIndex + 1);
+                            const pageMatchIndex = match.pageMatchIndex;
+                            const matchIndex = matchedCount + pageMatchIndex;
                             const words = collectSearchMatchWords(matchPage, match.startOffset, match.endOffset);
-                            results.push({
+                            const result = {
                                 pageNumber: requirePageNumber(page.pageNumber),
                                 pageMatchIndex,
-                                matchIndex: results.length,
+                                matchIndex,
                                 startOffset: match.startOffset,
                                 endOffset: match.endOffset,
                                 excerpt: buildPdfSearchExcerpt(
@@ -1048,15 +1043,18 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                                 ...(words !== undefined ? {words} : {}),
                                 ...(words !== undefined && matchPage.pageWidth !== undefined ? {pageWidth: matchPage.pageWidth} : {}),
                                 ...(words !== undefined && matchPage.pageHeight !== undefined ? {pageHeight: matchPage.pageHeight} : {}),
-                            });
+                            };
+                            if (resultOffset === 'last') results[matchIndex % SEARCH_RESULT_LIMIT] = result;
+                            else results.push(result);
                         }
+                        matchedCount += matchResult.matchCount;
 
                         const delta = results.slice(emittedResultCount);
                         emitSearchProgress({
                             requestId,
                             processed: page.pageNumber,
                             total: pageCount,
-                            ...(matchOptions.useRegex ? {} : {
+                            ...(matchOptions.useRegex || resultOffset === 'last' ? {} : {
                                 results: delta,
                                 resultsStartIndex: emittedResultCount,
                                 truncated: false,
@@ -1075,6 +1073,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     };
                 }
 
+                results.sort((first, second) => first.matchIndex - second.matchIndex);
                 return {
                     results,
                     truncated,

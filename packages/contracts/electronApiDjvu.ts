@@ -1,7 +1,7 @@
+import {searchResultOffsetSchema} from '@contracts/search';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import {EXPECTED_OUTCOME_CODES} from '@contracts/diagnostics/failureReceipt';
-import type {TPageNumber} from '@contracts/pageNumbers';
 import {parsePageNumber} from '@contracts/pageNumbers';
 import type {
     pdfSearchProgressSchema,
@@ -26,7 +26,6 @@ const pageNumberSchema = v.pipe(v.number(error), v.check(value => parsePageNumbe
 const documentRefSchema = v.pipe(v.string(error), v.check(value => parseDocumentRef(value) !== null, error), v.transform(value => parseDocumentRef(value)!));
 const jobIdSchema = v.pipe(v.string(error), v.check(value => parseJobId(value) !== null, error), v.transform(value => parseJobId(value)!));
 const requestIdSchema = (fieldName = 'requestId') => v.pipe(v.string(`${fieldName} must be a string`), v.transform(value => value.trim()), v.maxLength(128, `${fieldName} exceeds maximum length (128)`), v.check(value => parseRequestId(value) !== null, `${fieldName} must be a valid request ID`), v.transform(value => parseRequestId(value)!));
-const positiveSafeIntegerWithMessage = (message: string) => v.pipe(v.number(message), v.check(value => Number.isSafeInteger(value), message), v.minValue(1, message));
 const epochMsSchema = v.pipe(v.number(error), v.check(value => parseEpochMs(value) !== null, error), v.transform(value => parseEpochMs(value)!));
 const failureReceiptSchema = v.strictObject({
     eventId: v.pipe(v.string(error), v.regex(/^[0-9a-f]{32}$/u, error)),
@@ -80,8 +79,9 @@ export const djvuPagePreviewOptionsSchema = v.object({
 export type IDjvuPagePreviewOptions = v.InferOutput<typeof djvuPagePreviewOptionsSchema>;
 
 export const djvuTextSearchOptionsSchema = v.object({
+    resultOffset: v.optional(searchResultOffsetSchema),
     requestId: requestIdSchema('searchText.options.requestId'),
-    pageCount: positiveSafeIntegerWithMessage('searchText.options.pageCount must be a positive safe integer'),
+    pageCount: v.message(v.pipe(v.number(), v.safeInteger(), v.minValue(1)), 'searchText.options.pageCount must be a positive safe integer'),
     matchCase: v.optional(v.boolean('matchCase must be a boolean')),
     wholeWord: v.optional(v.boolean('wholeWord must be a boolean')),
     useRegex: v.optional(v.boolean('useRegex must be a boolean')),
@@ -168,18 +168,17 @@ export type IDjvuSizeEstimate = v.InferOutput<typeof djvuSizeEstimateSchema>;
 
 // The outline's aggregate node, depth, and title limits require a traversal after structural validation.
 export const djvuOutlineSchema = v.pipe(v.array(v.unknown(), error), v.transform(value => mapDjvuOutlineWithLimits(value)));
-interface IDjvuOutlineItemOutput {
+export interface IDjvuOutlineItem {
     title: string;
-    pageNumber: TPageNumber | null;
-    children: IDjvuOutlineItemOutput[];
+    pageNumber: ReturnType<typeof parsePageNumber>;
+    children: IDjvuOutlineItem[];
 }
-export type IDjvuOutlineItem = v.InferOutput<typeof djvuOutlineSchema>[number];
-function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItemOutput[] {
-    const result: IDjvuOutlineItemOutput[] = [];
+function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItem[] {
+    const result: IDjvuOutlineItem[] = [];
     const stack: Array<{
         depth: number;
         item: unknown;
-        target: IDjvuOutlineItemOutput[]
+        target: IDjvuOutlineItem[]
     }> = value.toReversed().map(item => ({
         depth: 1,
         item,
@@ -197,7 +196,7 @@ function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItemOutput[] {
         nodeCount++;
         titleChars += item.title.length;
         if (entry.depth > DJVU_OUTLINE_MAX_DEPTH || nodeCount > DJVU_OUTLINE_MAX_NODES || titleChars > DJVU_OUTLINE_MAX_TITLE_CHARS) throw new Error('DjVu outline exceeds the supported limit');
-        const mapped: IDjvuOutlineItemOutput = {
+        const mapped: IDjvuOutlineItem = {
             title: item.title,
             pageNumber: pageNumber === null ? null : parsePageNumber(pageNumber)!,
             children: [],

@@ -23,6 +23,7 @@ import {
     SEARCH_RESULT_LIMIT,
     type IPdfSearchProgress,
     type IPdfSearchResponse,
+    type TSearchResultOffset,
 } from '@contracts/search';
 import {
     assembleSearchablePageText,
@@ -60,6 +61,7 @@ interface IDjvuWorkerReadOptions {signal?: AbortSignal;}
 type TBrowserDjvuWorker = Awaited<ReturnType<typeof createDjvuWorkerFromPath>>;
 
 interface IDjvuWorkerTextSearchOptions {
+    resultOffset?: TSearchResultOffset;
     matchOptions: IResolvedSearchMatchOptions;
     onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
     pageCount: number;
@@ -355,6 +357,8 @@ export async function searchDjvuWorkerText(
     const results: Array<IPdfSearchResponse['results'][number]> = [];
     let truncated = false;
     let progressResultsStartIndex = 0;
+    const resultOffset = options.resultOffset ?? 0;
+    let matchIndex = 0;
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         options.signal.throwIfAborted();
@@ -371,7 +375,10 @@ export async function searchDjvuWorkerText(
         const progressResults: Array<IPdfSearchResponse['results'][number]> = [];
         let pageMatchIndex = 0;
         for (const match of iteratePdfSearchMatches(searchable.text, options.query, options.matchOptions)) {
-            if (results.length >= SEARCH_RESULT_LIMIT) {
+            const currentMatchIndex = matchIndex++;
+            const currentPageMatchIndex = pageMatchIndex++;
+            if (typeof resultOffset === 'number' && currentMatchIndex < resultOffset) continue;
+            if (resultOffset !== 'last' && results.length >= SEARCH_RESULT_LIMIT) {
                 truncated = true;
                 break;
             }
@@ -379,8 +386,8 @@ export async function searchDjvuWorkerText(
             const pageSize = pageSizes[pageNumber - 1];
             const result: IPdfSearchResponse['results'][number] = {
                 pageNumber: pageNumber as IPdfSearchResponse['results'][number]['pageNumber'],
-                pageMatchIndex,
-                matchIndex: results.length,
+                pageMatchIndex: currentPageMatchIndex,
+                matchIndex: currentMatchIndex,
                 startOffset: match.startOffset,
                 endOffset: match.endOffset,
                 excerpt: buildPdfSearchExcerpt(
@@ -396,9 +403,11 @@ export async function searchDjvuWorkerText(
                     rotation: 0 as const,
                 } : {}),
             };
-            results.push(result);
-            progressResults.push(result);
-            pageMatchIndex += 1;
+            if (resultOffset === 'last') results[currentMatchIndex % SEARCH_RESULT_LIMIT] = result;
+            else {
+                results.push(result);
+                progressResults.push(result);
+            }
         }
         if (progressResults.length === 0) {
             options.onProgress?.({
@@ -437,6 +446,7 @@ export async function searchDjvuWorkerText(
         await new Promise<void>(resolve => setTimeout(resolve, 0));
     }
 
+    results.sort((first, second) => first.matchIndex - second.matchIndex);
     return {
         results,
         truncated,

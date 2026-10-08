@@ -1299,6 +1299,7 @@ export default {
         }),
         'forQuery': 'para “{query}”',
         'showingFirst': 'Mostrando los primeros {count} resultados — siga escribiendo para acotar',
+        'showingRange': 'Coincidencias {start}–{end}. Continúe con Siguiente o Anterior.',
         'page': 'Página {page}',
         'pageWithCount': plural({
             one: 'Página {page} ({count} coincidencia)',

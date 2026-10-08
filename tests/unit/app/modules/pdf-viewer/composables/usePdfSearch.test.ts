@@ -56,6 +56,7 @@ interface IPdfSearchTestProgress {
 }
 
 interface IPdfSearchRunOptions {
+    resultOffset?: IPdfSearchRequestOptions['resultOffset'];
     documentRevision?: string;
     pageCount?: number;
     requestId: string;
@@ -727,6 +728,83 @@ describe('usePdfSearch', () => {
 
         expect(search.currentResultIndex.value).toBe(1);
         expect(search.currentResultNavigationId.value).toBe(1);
+    });
+
+    it('traverses bounded windows using the submitted query and discards a stale continuation', async () => {
+        const revision = ref(requireDocumentRevisionToken('first-revision'));
+        let delayed: ((response: IPdfSearchRunResult) => void) | undefined;
+        mockSearch.run.mockImplementation(async (_path, query, options) => {
+            expect(query).toBe('alpha');
+            if (delayed) return new Promise<IPdfSearchRunResult>(resolve => { delayed = resolve; });
+            const start = options.resultOffset === 'last' ? 62 : options.resultOffset ?? 0;
+            return {
+                results: Array.from({length: Math.min(500, 562 - start)}, (_, index) => {
+                    const ordinal = start + index;
+                    return {
+                        pageNumber: ordinal < 560 ? 1 : ordinal === 560 ? 64 : 80,
+                        pageMatchIndex: ordinal < 560 ? ordinal : 0,
+                        matchIndex: ordinal,
+                        startOffset: ordinal * 6,
+                        endOffset: ordinal * 6 + 5,
+                    };
+                }),
+                truncated: start + 500 < 562,
+            };
+        });
+        const search = await createPdfSearch({documentRevisionToken: revision});
+        const initial = search.search('alpha', '/tmp/work.pdf');
+        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await initial;
+        search.setResultIndex(499);
+        search.searchQuery.value = 'unsubmitted draft';
+        delayed = () => {};
+        const canceled = search.goToResult('next');
+        search.cancelSearch();
+        delayed?.({
+            results: [],
+            truncated: false,
+        });
+        await canceled;
+        delayed = undefined;
+        expect(search.results.value).toHaveLength(500);
+        expect(search.currentResult.value?.matchIndex).toBe(499);
+        expect(search.isTruncated.value).toBe(true);
+        await search.goToResult('next');
+        expect(search.results.value).toHaveLength(62);
+        expect(search.currentResult.value).toMatchObject({
+            matchIndex: 500,
+            pageMatchIndex: 500,
+        });
+        await search.goToResult('previous');
+        expect(search.results.value).toHaveLength(500);
+        expect(search.currentResult.value?.matchIndex).toBe(499);
+        search.setResultIndex(0);
+        await search.goToResult('previous');
+        expect(search.currentResult.value).toMatchObject({
+            matchIndex: 561,
+            pageIndex: 79,
+        });
+        search.setResultIndex(0);
+        await search.goToResult('previous');
+        expect(search.currentResult.value?.matchIndex).toBe(61);
+        delayed = () => {};
+        search.setResultIndex(499);
+        const stale = search.goToResult('next');
+        revision.value = requireDocumentRevisionToken('second-revision');
+        search.clearSearch();
+        delayed?.({
+            results: [{
+                pageNumber: 80,
+                pageMatchIndex: 0,
+                matchIndex: 561,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+        });
+        await stale;
+        expect(search.results.value).toEqual([]);
+        expect(search.currentResult.value).toBeNull();
     });
 
     it('advances match navigation only for explicit result commands after initial selection', async () => {

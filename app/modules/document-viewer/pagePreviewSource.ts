@@ -2,6 +2,7 @@ import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
     IResolvedSearchMatchOptions,
+    TSearchResultOffset,
 } from '@contracts/search';
 
 export interface IDocumentPreviewPageState {
@@ -50,6 +51,7 @@ export interface IPagePreviewSource {
     getPageSourceInfo?(pageNumber: number): Promise<IPagePreviewSourceInfo>;
     getPageText?(pageNumber: number): Promise<string>;
     searchText?(request: {
+        resultOffset?: TSearchResultOffset;
         matchOptions: IResolvedSearchMatchOptions;
         onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
         pageCount: number;

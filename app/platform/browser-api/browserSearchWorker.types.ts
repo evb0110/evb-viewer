@@ -2,7 +2,9 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
-import {SEARCH_RESULT_LIMIT} from '@contracts/search';
+import {
+    SEARCH_RESULT_LIMIT, searchResultOffsetSchema,
+} from '@contracts/search';
 import * as v from 'valibot';
 
 export const BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST = SEARCH_RESULT_LIMIT + 1;
@@ -18,6 +20,7 @@ const matchOptionsSchema = v.object({
 
 const searchRangeSchema = v.pipe(
     v.object({
+        pageMatchIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
         startOffset: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
         endOffset: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
     }),
@@ -28,10 +31,12 @@ const resultSchemas = {matchPageText: v.object({
     matches: v.pipe(v.array(searchRangeSchema), v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
     truncated: v.boolean(),
     matchingMs: durationMsSchema,
+    matchCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
 })};
 
 const requestPayloadSchemas = {matchPageText: v.object({
     text: v.string(),
+    resultOffset: v.optional(searchResultOffsetSchema),
     query: v.string(),
     options: matchOptionsSchema,
     maxMatches: v.pipe(
