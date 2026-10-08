@@ -55,5 +55,29 @@ describe('preload debug log buffer', () => {
         });
         expect(getDebugLogMessages()).toHaveLength(2_000);
         expect(getDebugLogMessages()[0]?.source).toBe('main-1');
+        expect(getDebugLogMessages().at(-1)?.source).toBe('main-final');
+    });
+
+    it('returns the newest 2000 entries oldest first after the buffer wraps more than once', async () => {
+        const {
+            getDebugLogMessages,
+            pushDebugLogMessage,
+        } = await import('@electron/preload/debugLogBuffer');
+        const timestamp = requireIsoTimestamp('2026-09-03T00:00:00.000Z');
+
+        for (let index = 0; index < 4_700; index += 1) {
+            pushDebugLogMessage({
+                source: `main-${index}`,
+                message: `[WARN] message ${index}`,
+                timestamp,
+                level: 'WARN',
+            });
+        }
+
+        const buffered = getDebugLogMessages();
+        expect(buffered.map(entry => entry.source)).toEqual(Array.from({length: 2_000}, (_, index) => `main-${2_700 + index}`));
+
+        buffered.length = 0;
+        expect(getDebugLogMessages()).toHaveLength(2_000);
     });
 });
