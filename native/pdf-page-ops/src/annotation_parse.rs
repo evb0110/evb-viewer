@@ -1393,12 +1393,11 @@ fn previous_numbers(tokens: &[String], operator_index: usize, count: usize) -> V
     values
 }
 
-/// Return true only for the legacy FreeText note representation. The parser
-/// and the later marker-rewrite writer share this predicate so the 0.02-point
-/// compatibility rule cannot drift between read and edit paths.
 /// The page-independent part of the legacy FreeText note-marker test: a
 /// FreeText annotation with a popup and an empty normal appearance. Only a
-/// candidate needs its page to finish the test.
+/// candidate needs its page to finish the test. An appearance the structural
+/// reader left unread is unknown, not empty, so a file above the eager-load
+/// ceiling gets the same answer as an eagerly loaded one.
 pub(crate) fn is_free_text_note_marker_candidate(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
@@ -1413,9 +1412,14 @@ pub(crate) fn is_free_text_note_marker_candidate(
             .and_then(|appearance| appearance.get(b"N").ok())
             .and_then(|object| document.resolved(object).ok())
             .and_then(|object| object.as_stream().ok())
-            .is_some_and(|appearance| appearance.content.is_empty())
+            .is_some_and(|appearance| {
+                appearance.content.is_empty() && !is_unread_base_stream(document, appearance)
+            })
 }
 
+/// Return true only for the legacy FreeText note representation. The parser
+/// and the later marker-rewrite writer share this predicate so the 0.02-point
+/// compatibility rule cannot drift between read and edit paths.
 pub(crate) fn is_free_text_note_marker(
     document: &impl PdfObjectSource,
     dict: &Dictionary,

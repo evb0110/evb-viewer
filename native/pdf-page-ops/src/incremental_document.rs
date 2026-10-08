@@ -177,6 +177,22 @@ impl IncrementalDocument {
     }
 }
 
+/// The structural reader stands each base stream in as its dictionary with no
+/// bytes at position 0; an eager load always records the stream's real file
+/// offset. Such a stand-in's bytes are unknown, unless its declared /Length
+/// says there are none.
+pub(crate) fn is_unread_base_stream(document: &impl PdfObjectSource, stream: &Stream) -> bool {
+    stream.content.is_empty()
+        && stream.start_position == Some(0)
+        && stream
+            .dict
+            .get(b"Length")
+            .ok()
+            .and_then(|length| document.resolved(length).ok())
+            .and_then(|length| length.as_i64().ok())
+            != Some(0)
+}
+
 pub(crate) struct TempQpdfFiles {
     pub(crate) structure: PathBuf,
     diagnostics: PathBuf,
