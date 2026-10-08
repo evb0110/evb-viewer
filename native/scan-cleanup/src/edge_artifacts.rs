@@ -107,7 +107,7 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) 
                     columns.clone().any(|cross| {
                         let x = column(cross);
                         let label = components.label_at(x, y) as usize;
-                        binary.get(x, y)
+                        label != 0
                             && !piece[label]
                             && !rail[label]
                             && components.components()[label - 1].area >= owner_area

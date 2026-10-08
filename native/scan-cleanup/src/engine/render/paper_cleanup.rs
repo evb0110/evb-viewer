@@ -11,7 +11,10 @@
 
 use super::*;
 use crate::{bw::paper_reference, edge_artifacts::side_edge_rails};
-use scan_primitives::morphology::{dilate, erode_gray};
+use scan_primitives::{
+    morphology::{dilate, erode_gray},
+    Component,
+};
 
 /// How much darker than the brightest paper nearby a pixel must be to be a
 /// mark. Paper clouds and edge shading change far more slowly than that
@@ -60,20 +63,30 @@ pub(crate) fn whiten_unmarked_paper(
     let speck_area = (stroke * stroke).round().max(4.0) as usize;
     let reach = ((2.0 * x_height).round() as usize).max(4);
     let components = ComponentMap::from_binary(&marks);
-    let kept = components.retain(|component| {
-        if component.area > speck_area {
-            return true;
+    let specks = components.retain(|component| component.area <= speck_area);
+    // A speck stays when a larger mark lies within reach of it, or another
+    // speck does: two specks within reach meet once each grows by half of it.
+    let near_large = dilate(&marks.subtract(&specks), reach, reach);
+    let groups = ComponentMap::from_binary(&dilate(&specks, reach.div_ceil(2), reach.div_ceil(2)));
+    let mut specks_per_group = vec![0usize; groups.components().len() + 1];
+    let group_of = |component: &Component| {
+        (component.top..=component.bottom)
+            .flat_map(|y| (component.left..=component.right).map(move |x| (x, y)))
+            .find(|&(x, y)| components.label_at(x, y) == component.label)
+            .map_or(0, |(x, y)| groups.label_at(x, y) as usize)
+    };
+    for component in components.components() {
+        if component.area <= speck_area {
+            specks_per_group[group_of(component)] += 1;
         }
-        let left = component.left.saturating_sub(reach);
-        let top = component.top.saturating_sub(reach);
-        let right = (component.right + reach).min(width - 1);
-        let bottom = (component.bottom + reach).min(height - 1);
-        (top..=bottom).any(|y| {
-            (left..=right).any(|x| {
-                let label = components.label_at(x, y);
-                label != 0 && label != component.label
+    }
+    let kept = components.retain(|component| {
+        component.area > speck_area
+            || specks_per_group[group_of(component)] > 1
+            || (component.top..=component.bottom).any(|y| {
+                (component.left..=component.right)
+                    .any(|x| components.label_at(x, y) == component.label && near_large.get(x, y))
             })
-        })
     });
     let halo = ((x_height / 2.0).round() as usize).max(2);
     let keep = dilate(&kept, halo, halo);
