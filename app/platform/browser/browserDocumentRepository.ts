@@ -31,7 +31,7 @@ import type {
 } from '@app/platform/browser/browserDocumentTypes';
 import {
     deleteRecord,
-    persistRecord,
+    queueBrowserDocumentRecordWrite,
     runObjectStoresTransaction,
 } from '@app/platform/browser/browserDocumentIdb';
 import { createChunkKey } from '@app/platform/browser/browserDocumentChunks';
@@ -201,7 +201,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.fileLastModified = undefined;
                 entry.updatedAt = Date.now();
             }
-            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+            await this.persistEntry(entry);
             stagedGeneration = undefined;
             stagedChunkCount = 0;
         } catch (error) {
@@ -310,7 +310,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             this.fileHandleRefs.update(ref, options.saveHandle);
         }
         if (changed) {
-            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+            await this.persistEntry(entry);
         }
     }
 
@@ -717,11 +717,10 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
                         queuePersistedChunkDeletes(chunks, targetRecord);
                         queuePersistedChunkDeletes(chunks, stagedRecord);
-                        documents.put(createPersistedBrowserDocumentRecord(
-                            targetEntry,
-                            targetEntry.data,
-                            false,
-                        ));
+                        Object.assign(targetEntry, queueBrowserDocumentRecordWrite(
+                            transaction,
+                            createPersistedBrowserDocumentRecord(targetEntry, committedBytes, false),
+                        ), {data: committedBytes});
                         documents.delete(stagedRef);
                         finish({
                             targetEntry,
@@ -847,7 +846,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         const metadata = await readFileHandleMetadata(sourceEntry.saveHandle);
         workingEntry.sourceBaseWitness = await createBrowserFileContentWitness(metadata.file);
-        await persistRecord(createPersistedBrowserDocumentRecord(workingEntry, workingEntry.data, false));
+        await this.persistEntry(workingEntry);
     }
 
     private async writeUnlocked(
@@ -888,7 +887,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.fileSize = bytes.byteLength;
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
-                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+                await this.persistEntry(entry);
                 this.emitRevisionChangeForEntry(entry, previousToken, 'write');
                 stagedGeneration = undefined;
                 stagedChunkCount = 0;
@@ -900,7 +899,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 entry.updatedAt = Date.now();
                 const previousToken = updateBrowserDocumentEntryContentToken(entry);
                 delete entry.chunkGeneration;
-                await persistRecord(createPersistedBrowserDocumentRecord(entry, bytes, false));
+                await this.persistEntry(entry, bytes);
                 entry.data = bytes;
                 this.emitRevisionChangeForEntry(entry, previousToken, 'write');
             }
@@ -946,7 +945,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             workingEntry.storageMode = 'source-proxy';
             workingEntry.data = new Uint8Array();
         }
-        await persistRecord(createPersistedBrowserDocumentRecord(workingEntry, workingEntry.data, false));
+        await this.persistEntry(workingEntry);
         const nextRevision = await this.getDocumentRevision(workingRef);
         if (nextRevision.token !== previousRevision.token) {
             this.emitDocumentRevisionChanged({
@@ -969,7 +968,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         entry.saveHandle = saveHandle ?? null;
         this.fileHandleRefs.update(ref, entry.saveHandle);
         entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
-        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+        await this.persistEntry(entry);
     }
 
     public async setRetention(
@@ -978,7 +977,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     ) {
         const entry = await this.requireEntry(ref);
         entry.retention = retention;
-        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+        await this.persistEntry(entry);
     }
 
     public async getSourceRef(ref: string) {
@@ -1061,7 +1060,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             entry.saveName = options.saveName;
             entry.fileName = options.saveName;
         }
-        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+        await this.persistEntry(entry);
         this.emitRevisionChangeForEntry(entry, previousToken, 'replace-working-copy');
     }
 
@@ -1077,7 +1076,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             entry.pendingChunkSize = options?.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE;
             entry.pendingFileSize = 0;
             entry.pendingChunkUpdatedAt = Date.now();
-            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+            await this.persistEntry(entry);
         });
     }
 
@@ -1102,7 +1101,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 (index * Math.max(1, entry.pendingChunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE)) + data.byteLength,
             );
             entry.pendingChunkUpdatedAt = Date.now();
-            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+            await this.persistEntry(entry);
         });
     }
 
@@ -1147,7 +1146,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             }
             clearPendingBrowserDocumentChunkMetadata(entry);
             try {
-                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+                await this.persistEntry(entry);
             } catch (error) {
                 restoreBrowserDocumentEntryStorageState(entry, previousEntryState);
                 entry.fileName = previousFileName;
@@ -1188,7 +1187,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             }
             if (entry.pendingChunkGeneration) {
                 await clearPendingBrowserDocumentChunks(entry);
-                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+                await this.persistEntry(entry);
                 return;
             }
             if (entry.storageMode !== 'chunked') {
@@ -1203,7 +1202,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             entry.fileSize = 0;
             entry.updatedAt = Date.now();
             const previousToken = updateBrowserDocumentEntryContentToken(entry);
-            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+            await this.persistEntry(entry);
             this.emitRevisionChangeForEntry(entry, previousToken, 'write');
         });
     }
@@ -1236,7 +1235,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 if (entry.kind === 'source' && entry.saveHandle && !entry.sourceBaseWitness) {
                     entry.sourceBaseWitness = entry.contentToken;
                 }
-                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+                await this.persistEntry(entry);
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             } else {
                 const bytes = new Uint8Array(await file.arrayBuffer());
@@ -1249,7 +1248,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 if (entry.kind === 'source' && entry.saveHandle && !entry.sourceBaseWitness) {
                     entry.sourceBaseWitness = entry.contentToken;
                 }
-                await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+                await this.persistEntry(entry);
                 this.emitRevisionChangeForEntry(entry, previousToken, 'open');
             }
             entry.memoryOnly = false;

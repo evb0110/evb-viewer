@@ -1,7 +1,7 @@
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 export const DB_NAME = 'evb-viewer-browser-documents';
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 export const DOCUMENTS_STORE = 'documents';
 export const DOCUMENT_CHUNKS_STORE = 'document-chunks';
 export const WORKSPACE_RECOVERY_STORE = 'workspace-recovery';

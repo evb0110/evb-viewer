@@ -120,6 +120,43 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
+    it.each([
+        'managed',
+        'handle',
+    ] as const)('keeps %s bytes and size coherent through a stable physical witness', async mode => {
+        const openingBytes = Uint8Array.of(37, 80, 68, 70);
+        let currentFile = new File([openingBytes], 'physical-size.pdf', {lastModified: 100});
+        const handle = createFileSystemFileHandle({
+            name: currentFile.name,
+            getFile: vi.fn(async () => currentFile),
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.registerFile(currentFile, {
+            saveHandle: handle,
+            saveKind: 'pdf',
+        });
+        if (mode === 'handle') {
+            await store.replaceWithHandleBackedDocument(ref, {
+                fileSize: openingBytes.length,
+                saveHandle: handle,
+                saveName: currentFile.name,
+            });
+        }
+        const openingRevision = await store.getDocumentRevision(ref);
+        const physicalBytes = Uint8Array.of(9, 8, 7);
+        currentFile = new File([physicalBytes], currentFile.name, {lastModified: 200});
+        const changedRevision = await store.getDocumentRevision(ref);
+        const stableRevision = await store.getDocumentRevision(ref);
+        const expectedBytes = mode === 'managed' ? openingBytes : physicalBytes;
+
+        expect(changedRevision.token).not.toBe(openingRevision.token);
+        expect(stableRevision).toEqual(changedRevision);
+        expect((await store.stat(ref)).size).toBe(expectedBytes.length);
+        await expect(store.read(ref)).resolves.toEqual(expectedBytes);
+        await expect(store.readRange(ref, 1, 2)).resolves.toEqual(expectedBytes.slice(1, 3));
+        expect((await store.requireEntry(ref)).contentToken).toBe(await createBrowserFileContentWitness(currentFile));
+    });
+
     it('reopens fresh bytes after a prior physical witness refresh', async () => {
         let currentFile = new File([Uint8Array.of(37, 80, 68, 70)], 'witness-reopen.pdf', {
             type: 'application/pdf',

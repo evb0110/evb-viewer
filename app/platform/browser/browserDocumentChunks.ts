@@ -6,7 +6,10 @@ import type {
     IBrowserDocumentChunkRecord,
     IChunkKeyRecord,
 } from '@app/platform/browser/browserDocumentTypes';
-import {BROWSER_DOCUMENT_CHUNK_RECORD_SCHEMA} from '@app/platform/browser/browserDocumentTypes';
+import {
+    createChunkKey,
+    BROWSER_DOCUMENT_CHUNK_RECORD_SCHEMA,
+} from '@app/platform/browser/browserDocumentTypes';
 import {
     withObjectStore,
     withObjectStoreReadResult,
@@ -38,11 +41,7 @@ const persistedChunkRecordSchema = v.pipe(
     BROWSER_DOCUMENT_CHUNK_RECORD_SCHEMA,
 );
 
-export function createChunkKey(ref: string, index: number, generation?: string) {
-    return generation
-        ? `${ref}::${generation}::${index}`
-        : `${ref}::${index}`;
-}
+export {createChunkKey} from '@app/platform/browser/browserDocumentTypes';
 
 export function parseChunkKey(key: string): IChunkKeyRecord | null {
     const separatorIndex = key.lastIndexOf('::');

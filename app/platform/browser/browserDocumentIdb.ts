@@ -2,12 +2,18 @@ import {
     DB_NAME,
     DB_VERSION,
     DOCUMENTS_STORE,
+    BROWSER_DOCUMENT_CHUNK_SIZE,
     DOCUMENT_CHUNKS_STORE,
     WORKSPACE_RECOVERY_STORE,
     BROWSER_LIVE_LEASES_STORE,
     BROWSER_TRANSFER_AUTHORITY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
-import type {IBrowserPersistedDocumentRecord} from '@app/platform/browser/browserDocumentTypes';
+import {
+    createChunkKey,
+    toPersistedDocumentRecord,
+    type IBrowserPersistedDocumentRecord,
+} from '@app/platform/browser/browserDocumentTypes';
+import {isRecord} from '@contracts/runtimeGuards';
 import {windowTabIncomingTransferSchema} from '@contracts/windowTabsValidation';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 import * as v from 'valibot';
@@ -51,7 +57,7 @@ async function openDatabase() {
         timeout = setTimeout(() => finish(null), INDEXED_DB_OPEN_TIMEOUT_MS);
 
         request.onupgradeneeded = () => {
-            upgradeBrowserDocumentDatabase(request.result);
+            upgradeBrowserDocumentDatabase(request.result, request.transaction);
         };
 
         request.onsuccess = () => finish(request.result);
@@ -65,7 +71,7 @@ async function openDatabase() {
 
 // Exercised by the real IndexedDB migration harness through a runtime dynamic import.
 // fallow-ignore-next-line unused-export
-export function upgradeBrowserDocumentDatabase(database: IDBDatabase) {
+export function upgradeBrowserDocumentDatabase(database: IDBDatabase, transaction?: IDBTransaction | null) {
     if (!database.objectStoreNames.contains(DOCUMENTS_STORE)) {
         database.createObjectStore(DOCUMENTS_STORE, { keyPath: 'ref' });
     }
@@ -80,6 +86,24 @@ export function upgradeBrowserDocumentDatabase(database: IDBDatabase) {
     }
     if (!database.objectStoreNames.contains(BROWSER_TRANSFER_AUTHORITY_STORE)) {
         database.createObjectStore(BROWSER_TRANSFER_AUTHORITY_STORE, { keyPath: 'id' });
+    }
+
+    if (transaction) {
+        // The versionchange transaction owns both payload publication and metadata.
+        // Failed/aborted upgrades leave the old rows and database version intact.
+        const request = transaction.objectStore(DOCUMENTS_STORE).openCursor();
+        request.onsuccess = () => {
+            const cursor = request.result;
+            if (!cursor) return;
+            const value: unknown = cursor.value;
+            const record = toPersistedDocumentRecord(value);
+            if (record?.storageMode === 'inline' && record.data.byteLength > 0
+                && record.fileSize === record.data.byteLength) {
+                queueBrowserDocumentRecordWrite(transaction, record, value);
+            }
+            // Invalid and inconsistent legacy rows keep their existing refusal/read behavior.
+            cursor.continue();
+        };
     }
 }
 
@@ -233,21 +257,75 @@ export async function runObjectStoresTransaction<T>(
             resolve(value);
         };
 
+        let transaction: IDBTransaction | null = null;
         try {
-            const transaction = database.transaction(storeNames, mode);
-            run(transaction, value => { result = value; });
+            transaction = database.transaction(storeNames, mode);
             transaction.onabort = () => cleanup(null);
             transaction.onerror = () => cleanup(null);
             transaction.oncomplete = () => queueMicrotask(() => cleanup(result));
+            run(transaction, value => { result = value; });
         } catch {
+            transaction?.abort();
             cleanup(null);
         }
     });
 }
 
+/** Queues bytes and their compact authoritative row in the caller's transaction. */
+export function queueBrowserDocumentRecordWrite(
+    transaction: IDBTransaction,
+    record: IBrowserPersistedDocumentRecord,
+    persistedValue: unknown = record,
+): IBrowserPersistedDocumentRecord {
+    let metadata = record;
+    if (record.storageMode === 'inline' && record.data.byteLength > 0) {
+        if (record.fileSize !== record.data.byteLength) {
+            throw new Error('Inline browser document size does not match its managed bytes.');
+        }
+        const chunks = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+        const chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
+        const chunkCount = Math.ceil(record.data.byteLength / chunkSize);
+        for (let index = 0; index < chunkCount; index += 1) {
+            // add refuses a colliding generation instead of overwriting existing authority.
+            chunks.add({
+                key: createChunkKey(record.ref, index, record.chunkGeneration),
+                ref: record.ref,
+                index,
+                ...(record.chunkGeneration ? {generation: record.chunkGeneration} : {}),
+                data: record.data.slice(index * chunkSize, (index + 1) * chunkSize),
+            });
+        }
+        const layout = {
+            data: new Uint8Array(),
+            storageMode: 'chunked' as const,
+            chunkSize,
+            chunkCount,
+        };
+        metadata = {
+            ...record,
+            ...layout,
+        };
+        // Preserve even legacy optional fields verbatim; decoding still owns normalization.
+        persistedValue = {
+            ...(isRecord(persistedValue) ? persistedValue : record),
+            ...layout,
+        };
+    }
+    transaction.objectStore(DOCUMENTS_STORE).put(persistedValue);
+    return metadata;
+}
+
 export async function persistRecord(record: IBrowserPersistedDocumentRecord) {
-    const result = await withObjectStore(DOCUMENTS_STORE, 'readwrite', (store) => store.put(record));
+    const result = await runObjectStoresTransaction<IBrowserPersistedDocumentRecord>(
+        [
+            DOCUMENTS_STORE,
+            DOCUMENT_CHUNKS_STORE,
+        ],
+        'readwrite',
+        (transaction, setResult) => setResult(queueBrowserDocumentRecordWrite(transaction, record)),
+    );
     assertWriteCommitted(result, 'document write');
+    return result!;
 }
 
 export async function loadRecord(ref: string) {
