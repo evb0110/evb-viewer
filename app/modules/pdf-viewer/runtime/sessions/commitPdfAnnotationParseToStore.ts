@@ -28,13 +28,13 @@ export function applyParsedHighlightTextToStore(options: {
     selectedTextByPdfRef: ReadonlyMap<string, string | null>;
     parsedMarkupGeometryByPdfRef: ReadonlyMap<string, ITextMarkupEntity['quadPoints']>;
 }) {
-    options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
+    options.targetStore.batch(() => options.selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
         const id = options.targetStore.resolveExternal({pdfRef});
         const expectedQuadPoints = options.parsedMarkupGeometryByPdfRef.get(pdfRef);
         if (id && expectedQuadPoints) {
             options.targetStore.updateTextMarkupSelectedText(id, selectedText, expectedQuadPoints);
         }
-    });
+    }));
 }
 
 /**
