@@ -311,35 +311,45 @@ export class BrowserDocumentRecordStore {
         size: number;
         modifiedAt: number
     }> {
-        const entry = await this.requireEntry(ref);
-        if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
-            return this.stat(entry.sourceRef);
-        }
-        if (entry.saveHandle && (entry.sourceWitness || entry.storageMode === 'handle')) {
-            await this.refreshHandleBackedEntry(entry);
-        }
+        const {
+            size,
+            modifiedAt,
+        } = await this.getContentSnapshot(ref);
         return {
-            size: entry.fileSize,
-            modifiedAt: entry.updatedAt,
+            size,
+            modifiedAt,
         };
     }
     public async getContentSignature(ref: string): Promise<string> {
+        return (await this.getContentSnapshot(ref)).contentSignature;
+    }
+
+    /** Refreshes once per call; size and signature describe the same fresh witness. */
+    public async getContentSnapshot(ref: string): Promise<{
+        size: number;
+        modifiedAt: number;
+        contentSignature: string;
+    }> {
         const entry = await this.requireEntry(ref);
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
-            return this.getContentSignature(entry.sourceRef);
+            return this.getContentSnapshot(entry.sourceRef);
         }
         if (entry.saveHandle && (entry.sourceWitness || entry.storageMode === 'handle')) {
             await this.refreshHandleBackedEntry(entry);
         }
 
-        return [
-            entry.storageMode,
-            entry.fileSize,
-            entry.contentToken ?? 'legacy',
-            entry.chunkGeneration ?? '',
-            entry.chunkCount,
-            entry.chunkSize,
-        ].join(':');
+        return {
+            size: entry.fileSize,
+            modifiedAt: entry.updatedAt,
+            contentSignature: [
+                entry.storageMode,
+                entry.fileSize,
+                entry.contentToken ?? 'legacy',
+                entry.chunkGeneration ?? '',
+                entry.chunkCount,
+                entry.chunkSize,
+            ].join(':'),
+        };
     }
 
     public async getDocumentRevision(ref: string): Promise<IDocumentRevisionInfo> {
