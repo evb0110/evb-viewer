@@ -359,18 +359,9 @@ fn prepare_analysis_page_impl(
     render_policy.check_canceled()?;
     let applicable_prior = document_prior
         .filter(|prior| prior.applies_to_dimensions(analysis.full_width, analysis.full_height));
-    let split_key = cache.map(|cache| {
-        StageCacheKey::split(
-            &cache.source,
-            options,
-            prepare_quality_raster,
-            render_policy.recommend_output_mode,
-            render_policy.analyze_layout,
-            render_policy.create_mixed_layers,
-            calibration_config,
-            document_prior,
-        )
-    });
+    let split_key = analysis_key
+        .as_ref()
+        .map(|analysis_key| StageCacheKey::split(options, analysis_key, document_prior));
     render_policy.check_canceled()?;
     let cached_split = cache
         .zip(split_key.as_ref())
@@ -616,7 +607,9 @@ struct LayoutPictureEvidenceInput<'a, 'p> {
 
 struct LayoutPictureEvidenceOutput {
     illumination_preparation: Option<IlluminationPreparation>,
-    layout_normalized: GrayImage,
+    /// None when illumination normalization is off: the layout plane is then
+    /// the rotated analysis plane itself.
+    layout_normalized: Option<GrayImage>,
     calibration: PageCalibration,
     continuous_tone_mask: Option<Arc<BinaryImage>>,
     detected_picture_mask: Option<Arc<BinaryImage>>,
@@ -649,16 +642,17 @@ fn prepare_layout_picture_evidence(
         preparation
     });
     let layout_normalization_started = Instant::now();
-    let layout_normalized = if let Some(preparation) = illumination_preparation.as_ref() {
-        normalize_illumination_for_layout_prepared(rotated, preparation)
-    } else {
-        rotated.clone()
-    };
+    let layout_normalized = illumination_preparation
+        .as_ref()
+        .map(|preparation| normalize_illumination_for_layout_prepared(rotated, preparation));
     timings.layout_normalization_ms +=
         layout_normalization_started.elapsed().as_secs_f64() * 1_000.0;
     let calibration_started = Instant::now();
-    let calibration =
-        PageCalibration::estimate(&layout_normalized, effective_dpi, calibration_config);
+    let calibration = PageCalibration::estimate(
+        layout_normalized.as_ref().unwrap_or(rotated),
+        effective_dpi,
+        calibration_config,
+    );
     timings.calibration_ms += calibration_started.elapsed().as_secs_f64() * 1_000.0;
     let picture_mask_started = Instant::now();
     let continuous_tone_mask = render_policy.analyze_layout.then(|| {
@@ -1288,7 +1282,7 @@ struct ModePreservationOutput {
 struct NormalizationEvidence {
     illumination_preparation: Option<IlluminationPreparation>,
     rotated: GrayImage,
-    layout_normalized: GrayImage,
+    layout_normalized: Option<GrayImage>,
     picture_mask: Option<Arc<BinaryImage>>,
     tonal_protection_mask: Option<Arc<BinaryImage>>,
     semantic_preservation_alpha: Option<Arc<GrayImage>>,
@@ -1390,7 +1384,17 @@ fn normalize_and_assemble_analysis_artifact(
     } = mode;
 
     let quality_normalization_started = Instant::now();
-    let canonical_routing_source = Arc::new(rotate_orthogonal(source, options.rotation));
+    // Planes with the same pixels share one allocation. The analysis level is
+    // an exact copy of the source when nothing downscaled it, so its rotation
+    // is then the canonical routing source too.
+    let rotated = Arc::new(rotated);
+    let layout_normalized = layout_normalized.map_or_else(|| Arc::clone(&rotated), Arc::new);
+    let canonical_routing_source =
+        if (rotated.width(), rotated.height()) == (full_width, full_height) {
+            Arc::clone(&rotated)
+        } else {
+            Arc::new(rotate_orthogonal(source, options.rotation))
+        };
     let normalized = if options.normalize_illumination {
         if prepare_quality_raster {
             let grayscale_normalization_exclusion = if resolved_output_mode
@@ -1429,25 +1433,25 @@ fn normalize_and_assemble_analysis_artifact(
             };
             let preparation = illumination_preparation
                 .expect("illumination preparation exists when normalization is enabled");
-            normalize_illumination_prepared_with_masks(
+            Arc::new(normalize_illumination_prepared_with_masks(
                 &rotated,
                 normalization_model_exclusion,
                 semantic_alpha,
                 photo_alpha,
                 text_vicinity_mask.as_deref(),
                 preparation,
-            )
+            ))
         } else {
-            layout_normalized.clone()
+            Arc::clone(&layout_normalized)
         }
     } else {
-        rotated
+        Arc::clone(&rotated)
     };
     timings.quality_normalization_ms +=
         quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
     let artifact = Arc::new(AnalysisArtifact {
-        normalized: Arc::new(normalized),
-        layout_normalized: Arc::new(layout_normalized),
+        normalized,
+        layout_normalized,
         canonical_routing_source,
         scale_x,
         scale_y,
@@ -1786,11 +1790,12 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         trusted_mrc_background,
         timings,
     });
+    let layout_plane = layout_normalized.as_ref().unwrap_or(&rotated);
     let TextEvidenceOutput {
         analysis_threshold,
         text_axis,
     } = prepare_text_evidence(TextEvidenceInput {
-        layout_normalized: &layout_normalized,
+        layout_normalized: layout_plane,
         render_policy,
         timings,
     });
@@ -1810,7 +1815,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         trusted_mrc_owned_tone_mask,
     } = prepare_content_text_evidence(ContentTextEvidenceInput {
         rotated: &rotated,
-        layout_normalized: &layout_normalized,
+        layout_normalized: layout_plane,
         picture_mask: picture_mask.as_deref(),
         trusted_mrc_tone_mask: trusted_mrc_tone_mask.as_deref(),
         render_policy,
@@ -1854,7 +1859,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         content_picture_mask,
     } = prepare_tonal_evidence(TonalEvidenceInput {
         rotated: &rotated,
-        layout_normalized: &layout_normalized,
+        layout_normalized: layout_plane,
         text_vicinity_mask: text_vicinity_mask.as_deref(),
         picture_mask,
         automatic_picture_mask: automatic_picture_mask.as_deref(),
@@ -1870,7 +1875,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
     });
     let mode = resolve_mode_and_preservation(ModePreservationInput {
         rotated: &rotated,
-        layout_normalized: &layout_normalized,
+        layout_normalized: layout_plane,
         analysis_rgb: analysis_rgb.as_ref(),
         picture_mask: picture_mask.clone(),
         outside_tone,

@@ -103,6 +103,9 @@ fn squared_euclidean_distance_parallel(image: &BinaryImage) -> Vec<u32> {
                 }
             }
         });
+    // The column-major plane is read only by the transpose; free it before
+    // the output plane exists rather than holding both through the row pass.
+    drop(columns);
     let mut output = vec![u32::MAX; width * height];
     output
         .par_chunks_mut(width)

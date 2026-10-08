@@ -169,6 +169,34 @@ fn ppm_gray_only_decoding_never_allocates_the_discarded_colour_plane() {
     assert_colour_plane_is_not_allocated(full, gray);
 }
 
+#[test]
+fn ordinary_png_decoding_streams_rows_instead_of_a_filtered_plane() {
+    // Smooth pixels compress well, so the request is dominated by decode data
+    // rather than by the compressed stream itself.
+    let pixels: Vec<u8> = (0..COLOUR_PLANE_BYTES)
+        .map(|index| (index / 3 % WIDTH) as u8)
+        .collect();
+    let png = encode_png(PixelBuffer::Rgb {
+        width: WIDTH,
+        height: HEIGHT,
+        stride: WIDTH * 3,
+        data: &pixels,
+    })
+    .unwrap();
+    let gray_plane = (WIDTH * HEIGHT) as u64;
+    let filtered_plane = ((WIDTH * 3 + 1) * HEIGHT) as u64;
+
+    let requested = measure(|| {
+        decode_png_gray(png.as_slice(), DECODE).unwrap();
+    });
+
+    assert!(
+        requested < gray_plane + filtered_plane,
+        "the gray decode requested {requested} bytes; the output plane is {gray_plane} \
+         bytes and a whole filtered plane would add {filtered_plane}"
+    );
+}
+
 fn assert_colour_plane_is_not_allocated(full: u64, gray: u64) {
     assert_eq!(
         full,

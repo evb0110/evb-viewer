@@ -2460,9 +2460,21 @@ fn prepare_page<'a>(
 }
 
 fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
-    let gray = artifact.normalized.data().len()
-        + artifact.layout_normalized.data().len()
-        + artifact.canonical_routing_source.data().len();
+    // Planes with identical pixels share one allocation; count it once.
+    let normalized = &artifact.normalized;
+    let layout = &artifact.layout_normalized;
+    let canonical = &artifact.canonical_routing_source;
+    let gray = normalized.data().len()
+        + if Arc::ptr_eq(layout, normalized) {
+            0
+        } else {
+            layout.data().len()
+        }
+        + if Arc::ptr_eq(canonical, normalized) || Arc::ptr_eq(canonical, layout) {
+            0
+        } else {
+            canonical.data().len()
+        };
     let picture_mask = artifact
         .picture_mask
         .as_deref()
