@@ -4,7 +4,6 @@ import type { IDjvuWorker } from '@app/platform/browser-api/djvujsLoader';
 import { getDjvuWorkerPageSizes } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import {
     createDjvuCanvas as createCanvas,
-    createDjvuImageData as createImageDataFromTransfer,
     encodeDjvuCanvas as canvasToImageBytes,
     fetchDjvuObjectUrlBytes as fetchObjectUrlBytes,
     getDjvuCanvas2dContext as getCanvas2dContext,
@@ -165,7 +164,7 @@ async function renderDjvuPageFromImageData(
             throw new Error('Canvas 2D context is unavailable');
         }
 
-        sourceContext.putImageData(createImageDataFromTransfer(imageData), 0, 0);
+        sourceContext.putImageData(imageData, 0, 0);
 
         const targetContext = getCanvas2dContext(targetCanvas);
         if (!targetContext) {
@@ -291,7 +290,7 @@ async function renderDjvuPageAsPpmFromImageData(
         return rgbaToPpmBytes(
             imageData.width,
             imageData.height,
-            new Uint8Array(imageData.buffer),
+            imageData.data,
         );
     }
 
@@ -303,7 +302,7 @@ async function renderDjvuPageAsPpmFromImageData(
         if (!sourceContext || !targetContext) {
             throw new Error('Canvas 2D context is unavailable');
         }
-        sourceContext.putImageData(createImageDataFromTransfer(imageData), 0, 0);
+        sourceContext.putImageData(imageData, 0, 0);
         targetContext.fillStyle = '#ffffff';
         targetContext.fillRect(0, 0, targetWidth, targetHeight);
         targetContext.drawImage(
