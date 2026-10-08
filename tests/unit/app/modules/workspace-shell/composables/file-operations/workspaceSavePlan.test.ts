@@ -264,6 +264,7 @@ describe('workspaceSavePlan', () => {
         recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(4, 5, 6));
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const {deps} = createDeps({
+            persistAllAnnotationNotes: async () => {throw new Error('Sustained note update rejection');},
             annotationDirty: ref(true),
             hasPendingUnsavedChanges: computed(() => true),
             documentRevisionToken,
@@ -310,6 +311,32 @@ describe('workspaceSavePlan', () => {
             pdfViewerRef: ref({runSaveTransaction}),
         });
         await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(9, 8, 7));
+    });
+
+    it.each([
+        {
+            workingCopyRef: RECOVERY_CLONE_REF,
+            workingByteRevision: 'revision-1',
+        },
+        {
+            workingCopyRef: requireDocumentRef('browser://documents/recovery.pdf'),
+            workingByteRevision: 'revision-0',
+        },
+    ])('withholds a draft recovery copy from a different admitted byte base: $workingByteRevision $workingCopyRef', async (base) => {
+        recoveryMocks.readDocumentBytes.mockResolvedValue(Uint8Array.of(4, 5, 6));
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            hasPendingUnsavedChanges: computed(() => true),
+            documentRevisionToken: ref(requireDocumentRevisionToken('revision-1')),
+            workingCopyPath: ref(requireDocumentRef('browser://documents/recovery.pdf')),
+            pdfViewerRef: ref({runSaveTransaction: vi.fn()}),
+        });
+        await expect(useWorkspaceSaveServiceForTest(deps).createRecoverySnapshotBytes({
+            ...base,
+            artifactId: 'draft-capture',
+            documentInstanceId: 'document-1',
+            annotationMutationGeneration: 1,
+        })).resolves.toBeNull();
     });
 
     it('does not serialize a recovery snapshot for a clean document', async () => {
