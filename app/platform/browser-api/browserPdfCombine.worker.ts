@@ -10,6 +10,7 @@ import type {
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {
+    BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
     getBrowserPdfCombineWorkerRequestId,
     parseBrowserPdfCombineWorkerRequest,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
@@ -32,8 +33,8 @@ import {
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import { createBrowserPdfCombineOutputError } from '@app/platform/browser-api/browserPdfCombineLimits';
+import {createPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 
-const MAX_COMBINE_PAGES = 500;
 const MAX_IMAGE_PIXELS = 80_000_000;
 const MAX_INPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 const MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
@@ -218,21 +219,17 @@ async function preparePageSpec(
     return prepared;
 }
 
-function addInputBytes(total: number, input: IBrowserPdfCombineInput) {
-    if (input.data.byteLength > MAX_INPUT_BYTES || total > MAX_INPUT_BYTES - input.data.byteLength) {
+function addInputBytes(total: number, input: IBrowserPdfCombineInput, maxBytes = MAX_INPUT_BYTES) {
+    if (input.data.byteLength > maxBytes || total > maxBytes - input.data.byteLength) {
+        if (maxBytes === BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES) {
+            throw createPdfCombineOutputTooLargeError('Image combine WASM request exceeds the admission ceiling');
+        }
         throw new Error('ERR_BROWSER_PDF_COMBINE_INPUT_TOO_LARGE');
     }
     return total + input.data.byteLength;
 }
 
 async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest) {
-    if (request.payload.inputs.length === 0) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_NO_INPUTS');
-    }
-    if (request.payload.inputs.length > MAX_COMBINE_PAGES) {
-        throw new Error('ERR_BROWSER_PDF_COMBINE_TOO_MANY_PAGES');
-    }
-
     const decodedBudget: IDecodedWorkingSetBudget = {usedBytes: 0};
     let totalInputBytes = 0;
     for (const input of request.payload.inputs) {
@@ -259,7 +256,9 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
                 pageSpec.mask,
             ]) {
                 if (input) {
-                    totalInputBytes = addInputBytes(totalInputBytes, input);
+                    totalInputBytes = addInputBytes(totalInputBytes, input, request.payload.inputs.length === 0
+                        ? BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES
+                        : MAX_INPUT_BYTES);
                 }
             }
         }

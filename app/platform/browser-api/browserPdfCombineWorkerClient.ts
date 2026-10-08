@@ -8,6 +8,7 @@ import type {
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -39,12 +40,15 @@ function getWorkerFailureReceipt(error: unknown) {
     return (error as IBrowserPdfCombineWorkerFailure).failure;
 }
 
-function isExpectedWorkerTermination(error: Error) {
-    return error.name === 'AbortError';
+function isExpectedWorkerFailure(error: Error) {
+    return error.name === 'AbortError'
+        || isPdfCombineOutputTooLargeError(error)
+        || error.message === 'ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE'
+        || error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT';
 }
 
 function reportWorkerFailure(error: Error) {
-    if (isExpectedWorkerTermination(error)) {
+    if (isExpectedWorkerFailure(error)) {
         return error;
     }
     const existingReceipt = getWorkerFailureReceipt(error);

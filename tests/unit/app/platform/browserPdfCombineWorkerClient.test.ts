@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {parseBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
@@ -179,6 +180,59 @@ describe('browserPdfCombineWorkerClient', () => {
         expect(request.payload.inputs[1]?.data.buffer).not.toBe(second.buffer);
     });
 
+    it('admits transferable compact page specs without duplicating them as file inputs', async () => {
+        const data = new TextEncoder().encode('P6\n1 1\n255\nRGB');
+        const payload = {
+            inputs: [],
+            wasmImagePreprocessing: {pageSpecs: [{
+                kind: 'image' as const,
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 36,
+                },
+                jpegQuality: 85,
+                ppiCap: 300,
+                image: {
+                    fileName: 'page.ppm',
+                    data,
+                },
+            }]},
+        };
+        expect(parseBrowserPdfCombineWorkerRequest({
+            id: 1,
+            type: 'combinePdfs',
+            payload,
+        })).toEqual({
+            id: 1,
+            type: 'combinePdfs',
+            payload,
+        });
+        expect(parseBrowserPdfCombineWorkerRequest({
+            id: 1,
+            type: 'combinePdfs',
+            payload: {inputs: []},
+        })).toBeNull();
+
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        await expect(runBrowserPdfCombineWorkerRequest('combinePdfs', payload)).resolves.toMatchObject({data: new TextEncoder().encode('%PDF-1.7')});
+        const posted = FakeWorker.lastInstance?.postMessageCalls[0];
+        if (!posted) {
+            throw new Error('Compact page specs were not sent to the worker');
+        }
+        const received = parseBrowserPdfCombineWorkerRequest(structuredClone(posted.message, {transfer: posted.transfer}));
+        expect(received?.payload).toMatchObject({
+            inputs: [],
+            wasmImagePreprocessing: {pageSpecs: [{
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 36,
+                },
+                image: {data: new TextEncoder().encode('P6\n1 1\n255\nRGB')},
+            }]},
+        });
+        expect(data.byteLength).toBe(0);
+    });
+
     it('rejects a matching-id success response with invalid combined data', async () => {
         FakeWorker.responder = (worker, request) => {
             queueMicrotask(() => {
@@ -229,6 +283,36 @@ describe('browserPdfCombineWorkerClient', () => {
                 message: 'Image combine WASM request exceeds the admission ceiling',
             },
         });
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE',
+        'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT',
+    ])('returns the expected capability refusal %s without a defect receipt', async (error) => {
+        FakeWorker.responder = (worker, request) => {
+            queueMicrotask(() => worker.dispatchMessage({
+                id: request.id,
+                ok: false,
+                error,
+            }));
+        };
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        await expect(runBrowserPdfCombineWorkerRequest('combinePdfs', {
+            inputs: [],
+            wasmImagePreprocessing: {pageSpecs: [{
+                kind: 'image',
+                pageSize: {
+                    widthPoints: 72,
+                    heightPoints: 36,
+                },
+                image: {
+                    fileName: 'page.ppm',
+                    data: new Uint8Array([1]),
+                },
+            }]},
+        })).rejects.toThrow(error);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
     it('rejects malformed worker error envelopes as invalid responses', async () => {
