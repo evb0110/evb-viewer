@@ -83,6 +83,7 @@ interface IScanCleanupPreviewProgress {
 export function scanCleanupPreviewRenderingOwner(
     dependencies: IScanCleanupRenderingDependencies,
     rawRasterRetention: IScanCleanupPreviewOwnerRetention,
+    resolvePreviewRequest?: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewRequest>,
 ): IScanCleanupPreviewRenderingOwner {
     const active = new Map<string, IPreviewEntry>();
     const manuallyCanceled = new WeakSet<IPreviewEntry>();
@@ -498,7 +499,7 @@ export function scanCleanupPreviewRenderingOwner(
                     let materialized;
                     try {
                         materialized = await dependencies.materializeRequest(
-                            request,
+                            await resolvePreviewRequest?.(sender, request) ?? request,
                             sender.id,
                             context.signal,
                             dependencies,

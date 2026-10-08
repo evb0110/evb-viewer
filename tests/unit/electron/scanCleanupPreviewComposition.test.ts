@@ -228,7 +228,7 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
                         inputHeightPx: heightPx,
                     }],
                 }));
-                onProgress({
+                await onProgress({
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: 2,

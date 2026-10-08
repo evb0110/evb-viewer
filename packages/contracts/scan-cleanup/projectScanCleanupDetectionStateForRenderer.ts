@@ -39,6 +39,7 @@ export function projectScanCleanupDetectionStateForRenderer(
         clusterAgreement: result.clusterAgreement,
         documentPrior: result.documentPrior,
         ...(result.textAxis === undefined ? {} : {textAxis: result.textAxis}),
+        ...(result.pagePlanEvidence === undefined ? {} : {pagePlanEvidence: result.pagePlanEvidence}),
         ...(result.recommendedOutputMode === undefined ? {} : {recommendedOutputMode: result.recommendedOutputMode}),
         ...(result.recommendedOutputModeConfidence === undefined
             ? {}

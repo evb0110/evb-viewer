@@ -1005,14 +1005,14 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
             await writeDetectionMetadata(manifestPath);
             for (const page of manifest.pages) {
                 const pageNumber = page.sourcePageIndex + 1;
-                onProgress({
+                await onProgress({
                     stage: 'page-input-required',
                     completedPages: 0,
                     totalPages: pageCount,
                     pageNumber,
                 });
                 await vi.waitFor(() => expect(existsSync(page.inputPath)).toBe(true));
-                onProgress({
+                await onProgress({
                     stage: 'page-analyzed',
                     completedPages: pageNumber,
                     totalPages: pageCount,
@@ -1020,7 +1020,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
                     classification: 'single-uncut-page',
                     confidence: 0.8,
                 });
-                onProgress({
+                await onProgress({
                     stage: 'page-input-released',
                     completedPages: pageNumber,
                     totalPages: pageCount,
@@ -1035,7 +1035,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
                 }
             }
             for (const page of manifest.pages) {
-                onProgress({
+                await onProgress({
                     stage: 'page-complete',
                     completedPages: pageCount,
                     totalPages: pageCount,
@@ -1150,7 +1150,7 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
             1,
             2,
         ]) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
                 totalPages: 2,

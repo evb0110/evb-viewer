@@ -305,11 +305,11 @@ fn analysis_publishes_progress_for_each_page() {
     let manifest = scratch.path("analysis-gated-manifest.json");
     let encoded = encode_gray(&GrayImage::new(320, 240, 245)).unwrap();
     fs::write(&first_input, &encoded).unwrap();
-    fs::write(&second_input, &encoded).unwrap();
     let input_paths = [&first_input, &second_input];
     let payload = serde_json::json!({
         "version": 3,
         "operation": "analyze",
+        "analysisPurpose": "page-plan",
         "renderMode": "preview",
         "canvasScope": "page",
         "stagedInputWindow": 2,
@@ -348,7 +348,27 @@ fn analysis_publishes_progress_for_each_page() {
     let mut events = Vec::new();
     loop {
         match receiver.recv_timeout(Duration::from_secs(20)) {
-            Ok(event) => events.push(event),
+            Ok(event) => {
+                if event["progress"]["stage"] == "page-analyzed"
+                    && event["progress"]["pageNumber"] == 1
+                {
+                    let metadata = scratch.path("analysis-gated-page-0.json");
+                    if !metadata.exists() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        reader.join().unwrap();
+                        panic!("analyzed page must publish its plan before the next input arrives");
+                    }
+                    let plan: Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
+                    assert_eq!(
+                        plan["layoutClassification"],
+                        event["progress"]["classification"]
+                    );
+                    assert!(plan["outputs"].is_array());
+                    fs::write(&second_input, &encoded).unwrap();
+                }
+                events.push(event);
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             Err(error) => {
                 let _ = child.kill();
@@ -2059,11 +2079,13 @@ fn failed_batch_restores_a_preexisting_file_destination() {
     assert!(!bad_output.exists());
     assert!(!bad_metadata.exists());
     assert!(!bad_page_metadata.exists());
-    assert!(fs::read_dir(&scratch.dir).unwrap().all(|entry| !entry
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .contains(".evb-tmp-")));
+    assert!(fs::read_dir(&scratch.dir).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".evb-tmp-")
+    }));
 }
 
 #[test]
@@ -4519,11 +4541,13 @@ fn allowed_path_root_refuses_a_symlinked_output_escape_before_publication() {
     );
     assert_eq!(fs::read(&victim).unwrap(), original);
     assert!(!page_metadata.exists());
-    assert!(fs::read_dir(&outside).unwrap().all(|entry| !entry
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .contains(".evb-tmp-")));
+    assert!(fs::read_dir(&outside).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".evb-tmp-")
+    }));
 
     // The same manifest without a root is still accepted for external CLI
     // users, and it really does publish outside the run root. That is the

@@ -1,6 +1,7 @@
 import {isAbsolute} from 'path';
 import type {
     IScanCleanupDetectionRequest,
+    IScanCleanupPreviewRequest,
     IScanCleanupDetectionResult,
     IScanCleanupOwnerContext,
     IScanCleanupPlacementAnchorCalibration,
@@ -31,6 +32,7 @@ import {
     registerScanCleanupDetectionResultStore,
     retainScanCleanupDetectionResultStoreOwner,
     claimScanCleanupDetectionResultStore,
+    claimCurrentScanCleanupDetectionResultStore,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
     createMainJobRegistry,
@@ -89,6 +91,8 @@ export interface IScanCleanupDetectionLifecycle {
         results: readonly IScanCleanupDetectionResult[],
     ): IScanCleanupDetectionResult[];
     ownResultStore(jobId: string, store: IScanCleanupDetectionResultStore): void;
+    getResultStore(jobId: string): IScanCleanupDetectionResultStore | undefined;
+    takeResultStore(jobId: string): IScanCleanupDetectionResultStore | undefined;
     releaseJob(jobId: string): Promise<void>;
     activeJob(ownerId: string): IScanCleanupActiveDetectionJob | undefined;
     setActiveJob(ownerId: string, job: IScanCleanupActiveDetectionJob): void;
@@ -135,6 +139,14 @@ function createScanCleanupDetectionLifecycle(): IScanCleanupDetectionLifecycle {
         ownResultStore(jobId, store) {
             ownedResultStores.set(jobId, store);
         },
+        getResultStore(jobId) {
+            return ownedResultStores.get(jobId);
+        },
+        takeResultStore(jobId) {
+            const store = ownedResultStores.get(jobId);
+            ownedResultStores.delete(jobId);
+            return store;
+        },
         releaseJob(jobId) {
             const store = ownedResultStores.get(jobId);
             ownedResultStores.delete(jobId);
@@ -161,6 +173,7 @@ function createScanCleanupDetectionLifecycle(): IScanCleanupDetectionLifecycle {
 
 
 export interface IScanCleanupDetectionOwner extends IScanCleanupDetectionLifecycle {
+    resolvePreviewPagePlan(sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest): Promise<IScanCleanupPreviewRequest>;
     detectAll: (
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupDetectionRequest,
@@ -602,7 +615,10 @@ export function scanCleanupDetectionOwner(
                             materializedRequest,
                             job.signal,
                             detectionRetention,
-                            detectionDependencies,
+                            {
+                                ...detectionDependencies,
+                                onResultStoreReady: store => detectionLifecycle.ownResultStore(jobId, store),
+                            },
                             {
                                 rasterConcurrency: rasterPolicy.rasterConcurrency,
                                 ...(rasterPolicy.rasterMaxPixels === undefined
@@ -642,12 +658,12 @@ export function scanCleanupDetectionOwner(
                                 resultStore: detection.resultStore,
                                 sourcePdfPath: request.sourcePdfPath,
                             });
+                            detectionLifecycle.takeResultStore(jobId);
                             return {
                                 ...detection,
                                 resultStoreId,
                             };
                         }
-                        detectionLifecycle.ownResultStore(jobId, detection.resultStore);
                         return detection;
                     } finally {
                         lease?.release();
@@ -723,6 +739,34 @@ export function scanCleanupDetectionOwner(
     };
     return {
         ...detectionLifecycle,
+        async resolvePreviewPagePlan(sender, request) {
+            const ownerKey = brokerOwnerId(sender, request);
+            const detectionSignature = createScanCleanupDetectionSignature(request.options);
+            const active = detectionLifecycle.activeJob(ownerKey);
+            const store = active !== undefined
+                && active.request.sourcePdfPath === request.sourcePdfPath
+                && active.request.documentRevision === request.documentRevision
+                && createScanCleanupDetectionSignature(active.request.options) === detectionSignature
+                ? detectionLifecycle.getResultStore(active.jobId)
+                : undefined;
+            const lease = store === undefined ? claimCurrentScanCleanupDetectionResultStore(ownerKey, {
+                detectionSignature,
+                documentRevision: request.documentRevision,
+                ownerId: request.ownerId,
+                sourcePdfPath: request.sourcePdfPath,
+            }) : null;
+            try {
+                const result = await (store ?? lease?.resultStore)?.getPage(request.pageNumber);
+                return result?.pagePlanEvidence === undefined
+                    ? request
+                    : {
+                        ...request,
+                        pagePlanEvidence: result.pagePlanEvidence,
+                    };
+            } finally {
+                await lease?.release();
+            }
+        },
         ...ownerMethods,
         async dispose() {
             await detectionJobs.dispose();
