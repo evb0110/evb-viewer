@@ -91,7 +91,16 @@ describe('scan cleanup copied spread evidence', () => {
         await writeFile(join(evidenceDir, 'observed-provisional.json'), JSON.stringify(analyzed, null, 2));
         const plan = analyzed!.results.find(result => result.pageNumber === requirePageNumber(1))?.pagePlanEvidence;
         expect(plan).toBeDefined();
-        expect(plan?.outputs.full?.contentBox).toBeDefined();
+        const contentBoxes = Object.fromEntries(Object.entries(plan!.outputs).flatMap(([
+            half,
+            output,
+        ]) => (
+            output.contentBox === undefined ? [] : [[
+                half,
+                output.contentBox,
+            ]]
+        )));
+        expect(Object.keys(contentBoxes).length).toBeGreaterThan(0);
         expect(await app.page.$eval('.scan-cleanup-surface', element => element.getAttribute('data-detection-status'))).toBe('pending');
         await clickAsUser(app.page, '.scan-thumbnail-list [data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="2"])');
         await clickAsUser(app.page, '.scan-thumbnail-list [data-document-thumbnail-item]:has(.scan-thumbnail-overlay[data-page-number="1"])');
@@ -115,7 +124,7 @@ describe('scan cleanup copied spread evidence', () => {
             }));
             const replay = manifests.find(manifest => manifest?.operation === 'render'
                 && manifest.pages?.some(page => page.sourcePageIndex === 0
-                    && JSON.stringify(page.options.automaticContentBoxes) === JSON.stringify({full: plan!.outputs.full!.contentBox})));
+                    && JSON.stringify(page.options.automaticContentBoxes) === JSON.stringify(contentBoxes)));
             expect(replay).toBeDefined();
             await writeFile(join(evidenceDir, 'preview-replay-manifest.json'), JSON.stringify(replay, null, 2));
         }, {timeout: 90_000});
