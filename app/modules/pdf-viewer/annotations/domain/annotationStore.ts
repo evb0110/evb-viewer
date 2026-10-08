@@ -328,9 +328,10 @@ export class AnnotationStore {
         return this.#identities.resolve(bindings);
     }
 
+    /** Publishes one complete clone snapshot, including tombstones; readers must filter deleted records for live UI. */
     subscribe(listener: TListener) {
         this.#listeners.add(listener);
-        listener(this.list());
+        listener(this.list({includeDeleted: true}));
         return () => this.#listeners.delete(listener);
     }
 
@@ -1267,7 +1268,7 @@ export class AnnotationStore {
     }
 
     #emitNow() {
-        const snapshot = this.list();
-        this.#listeners.forEach(listener => listener(snapshot));
+        const snapshotIncludingDeleted = this.list({includeDeleted: true});
+        this.#listeners.forEach(listener => listener(snapshotIncludingDeleted));
     }
 }

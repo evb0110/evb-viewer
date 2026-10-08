@@ -517,7 +517,7 @@ describe('AnnotationStore.replaceFromDocument', () => {
         store.updateNote(dirty.identity.id, {contents: 'unsaved'});
         const parsed = store.createTextBox(textBox('parsed'));
         const notifications: Array<readonly AnnotationEntity[]> = [];
-        store.subscribe(entities => notifications.push(entities));
+        store.subscribe(snapshotIncludingDeleted => notifications.push(snapshotIncludingDeleted));
         const beforeReplacementNotificationCount = notifications.length;
 
         store.replaceFromDocument([textBox('parsed', {identity: {

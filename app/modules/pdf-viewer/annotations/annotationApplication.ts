@@ -184,8 +184,11 @@ export class AnnotationApplication {
         return ids;
     }
 
-    listCommentSummaries(): readonly IAnnotationCommentSummary[] {
-        return this.store.list().flatMap((entity) => {
+    listCommentSummaries(snapshotIncludingDeleted: readonly AnnotationEntity[] = this.store.list()): readonly IAnnotationCommentSummary[] {
+        return snapshotIncludingDeleted.flatMap((entity) => {
+            if (entity.deleted) {
+                return [];
+            }
             const source = entity.kind === 'shape'
                 ? 'shape' as const
                 : entity.persistedRevision >= 0 ? 'pdf' as const : 'editor' as const;

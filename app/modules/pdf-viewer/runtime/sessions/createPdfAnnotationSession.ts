@@ -47,6 +47,7 @@ import type {
 import {
     asAnnotationId,
     normalizeAnnotationText,
+    type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { groupBy } from 'es-toolkit/array';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
@@ -240,11 +241,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentsCache,
         activeCommentStableKey,
     } = annotationCommentModel;
-    function projectCanonicalAnnotations() {
-        const entities = annotationApplication.value.store.list({includeDeleted: true});
+    function projectCanonicalAnnotations(snapshotIncludingDeleted: readonly AnnotationEntity[] = annotationApplication.value.store.list({includeDeleted: true})) {
         const nextStoreOwnedPdfAnnotationIds = new Set<string>();
         const nextRetiredPdfAnnotationIds = new Set(retiredPdfAnnotationIds.value);
-        entities.forEach((entity) => {
+        snapshotIncludingDeleted.forEach((entity) => {
             const pdfJsAnnotationId = normalizePdfJsAnnotationId(entity.identity.pdfRef);
             if (!pdfJsAnnotationId) {
                 return;
@@ -260,14 +260,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!sameStringSet(retiredPdfAnnotationIds.value, nextRetiredPdfAnnotationIds)) {
             retiredPdfAnnotationIds.value = nextRetiredPdfAnnotationIds;
         }
-        const projected = annotationApplication.value.listCommentSummaries().map(comment => ({
+        annotationProjection.value = annotationApplication.value.listCommentSummaries(snapshotIncludingDeleted).map(comment => Object.freeze({
             ...comment,
             text: (comment.annotationKind === 'text-box'
                 ? textBoxDrafts.get(comment.appAnnotationId ?? '')
                 : undefined) ?? comment.text,
         }));
-        annotationProjection.value = projected.map(comment => Object.freeze({...comment}));
-        annotationCommentModel.emitCommentsForSidebar(projected);
+        annotationCommentModel.emitCommentsForSidebar(annotationProjection.value);
     }
     let stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
     const annotationDocumentIdentity = documentAnnotations.documentIdentity;

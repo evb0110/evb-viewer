@@ -42,12 +42,22 @@ describe('AnnotationApplication', () => {
     it('exposes canonical comment read models from the store', () => {
         const application = new AnnotationApplication('document');
         application.store.createNote(note());
+        let comments = application.listCommentSummaries();
+        application.store.subscribe(snapshotIncludingDeleted => comments = application.listCommentSummaries(snapshotIncludingDeleted));
 
         expect(application.listCommentSummaries()).toEqual([expect.objectContaining({
             appAnnotationId: 'note-1',
             text: 'hello',
             pageNumber: 1,
         })]);
+        expect(comments).toEqual(application.listCommentSummaries());
+        comments[0]!.markerRect!.left = 0.9;
+        expect(application.listCommentSummaries()[0]!.markerRect!.left).toBe(0.1);
+        application.store.delete(asAnnotationId('note-1'));
+        expect(comments).toEqual([]);
+        expect(application.store.undo()).toBe(true);
+        expect(comments).toEqual(application.listCommentSummaries());
+        expect(comments[0]!.text).toBe('hello');
     });
 
     it('captures and acknowledges a store save frontier', () => {
