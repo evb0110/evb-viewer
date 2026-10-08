@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type * as AnnotationLayerControllerModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
+import {createEpochMs} from '@contracts/timestamps';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterAll,
@@ -170,7 +171,7 @@ function createHarness() {
         outputScale: ref(1),
         getRenderVersion: () => 1,
         getRenderDocumentToken: () => 'document-a',
-        getCommittedCanvas: () => canvas,
+        getCommittedCanvas: () => pageContainer.querySelector('canvas'),
         onRenderedPageStateChanged,
         requestSearchPageRaster: vi.fn(async () => undefined),
     };
@@ -219,6 +220,12 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             shouldContinue: false,
             annotationLayerInstance: null,
             error: new Error('annotation failure'),
+            failure: {
+                eventId: 'a'.repeat(32),
+                code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+                occurredAt: createEpochMs(0),
+                severity: 'error',
+            },
         });
         rendererFixture.renderTextLayer.mockResolvedValue(undefined);
         const harness = createHarness();
@@ -239,14 +246,15 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
-            await harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 1,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                prioritizeTextLayer: true,
-            });
-            expect(harness.canvas.isConnected).toBe(true);
+            // A quality refinement can replace the raster while this failure
+            // remains current. Retry belongs to the document, not that old canvas.
+            const currentCanvas = document.createElement('canvas');
+            harness.canvas.replaceWith(currentCanvas);
+            const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
+            expect(retry).toBeDefined();
+            retry.onClick();
+            await vi.waitFor(() => expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready'));
+            expect(currentCanvas.isConnected).toBe(true);
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
         } finally {harness.root.remove();}

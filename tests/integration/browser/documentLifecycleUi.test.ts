@@ -248,6 +248,8 @@ describe('browser document lifecycle UI', () => {
         });
         const problems = collectConsoleProblems(page);
         try {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
             // Setup injects a persistent PDF.js render rejection. The document and
             // all Open/Retry/link interactions still use the normal user path.
             await page.route('**/services/pdfjs/pdfViewerFacade.ts*', async route => {
@@ -258,7 +260,7 @@ describe('browser document lifecycle UI', () => {
                 await route.fulfill({
                     response,
                     body: body.replace(marker,
-                        'if (Reflect.get(window, "__annotationLayerFailure")) throw new Error("RUX03 injected annotation stage failure"); ' + marker),
+                        'if (Reflect.get(window, "__annotationLayerFailure") && options.page.pageNumber === 2) throw new Error("RUX03 injected annotation stage failure"); ' + marker),
                 });
             });
             await page.addInitScript(() => {
@@ -312,6 +314,14 @@ describe('browser document lifecycle UI', () => {
             expect(failed.readiness).not.toBe('ready');
             const toast = page.locator('.app-toast-failure:not([data-state="closed"])').first();
             await expect.poll(() => toast.textContent()).toContain('Page 2 links and annotation interactions could not be loaded.');
+            const oldWidth = await canvas.evaluate(element => (element as HTMLCanvasElement).width);
+            await page.getByRole('button', {
+                name: 'Zoom Out',
+                exact: true,
+            }).first().click();
+            await expect.poll(() => canvas.evaluate(element => (element as HTMLCanvasElement).width)).not.toBe(oldWidth);
+            await expect.poll(() => problems.filter(problem => problem.includes('Failed to render annotation layer for page 2')).length).toBe(2);
+            await expect.poll(() => container.getAttribute('data-page-layer-readiness')).toBe('failed');
             await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', false));
             await toast.getByRole('button', {
                 name: 'Retry',
@@ -341,10 +351,15 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
             await page.screenshot({path: resolve(evidenceDir, 'recovered.png')});
             expect(problems.filter(problem => !problem.includes('Failed to render annotation layer for page 2'))).toEqual([]);
-            expect(problems.filter(problem => problem.includes('Failed to render annotation layer for page 2'))).toHaveLength(1);
+            expect(problems.filter(problem => problem.includes('Failed to render annotation layer for page 2'))).toHaveLength(2);
         } finally {
-            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
-            await browser.close();
+            try {
+                writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+                // Finalize the renderer recording before the browser process exits.
+                await page.context().close();
+            } finally {
+                await browser.close();
+            }
         }
     }, 90_000);
 

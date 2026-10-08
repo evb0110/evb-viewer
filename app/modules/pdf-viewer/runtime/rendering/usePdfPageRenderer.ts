@@ -437,7 +437,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                             actions: [{
                                 label: t('common.retry'),
                                 onClick: () => {
-                                    if (!shouldContinue()) return;
+                                    if (!options.document.isCurrent(documentFence)) return;
                                     runGuardedTask(() => renderLayerPromotions({
                                         start: pageNumber,
                                         end: pageNumber,
