@@ -12,6 +12,7 @@ import {
     open,
     rename,
     rm,
+    stat,
 } from 'fs/promises';
 import { spawn } from 'child_process';
 import {
@@ -253,12 +254,11 @@ function runCommand(
     });
 }
 
-async function findCodexInLoginShell() {
+async function findCodexInLoginShell(shellPath: string) {
     if (process.platform === 'win32') {
         return null;
     }
 
-    const shellPath = process.env.SHELL?.length ? process.env.SHELL : '/bin/zsh';
     if (!existsSync(shellPath)) {
         return null;
     }
@@ -274,27 +274,39 @@ async function findCodexInLoginShell() {
     return candidate;
 }
 
-let codexCliPathPromise: Promise<string | null> | null = null;
+let codexCliPathLookup: {
+    identity: string;
+    result: Promise<string | null>;
+} | null = null;
 
 export async function resolveCodexCliPath() {
-    if (codexCliPathPromise) {
-        return codexCliPathPromise;
+    const candidates = buildCodexPathCandidates();
+    const shellPath = process.env.SHELL?.length ? process.env.SHELL : '/bin/zsh';
+    const identity = JSON.stringify([
+        candidates,
+        shellPath,
+    ]);
+    if (codexCliPathLookup?.identity === identity) {
+        return codexCliPathLookup.result;
     }
 
     const lookup = (async () => {
-        for (const candidate of buildCodexPathCandidates()) {
+        for (const candidate of candidates) {
             if (await isExecutable(candidate)) {
                 return candidate;
             }
         }
-        return findCodexInLoginShell();
-    })();
-    codexCliPathPromise = lookup;
-    const resolvedPath = await lookup;
-    if (resolvedPath === null) {
-        codexCliPathPromise = null;
-    }
-    return resolvedPath;
+        return findCodexInLoginShell(shellPath);
+    })().finally(() => {
+        if (codexCliPathLookup?.result === lookup) {
+            codexCliPathLookup = null;
+        }
+    });
+    codexCliPathLookup = {
+        identity,
+        result: lookup,
+    };
+    return lookup;
 }
 
 export function runCodexCli(
@@ -329,9 +341,55 @@ function isCodexVersionSupported(version: string | null) {
     return version !== null && compareVersions(version, MIN_CODEX_APP_SERVER_VERSION) >= 0;
 }
 
+let codexCliVersion: {
+    identity: string;
+    result: Promise<string | null>;
+} | null = null;
+
+async function getCodexVersion(codexPath: string) {
+    // Follow symlinks and include ctime so same-size replacements with preserved
+    // mtime still invalidate successful metadata. Discovery remains fresh.
+    const identity = await (async () => {
+        const launch = resolveCodexProcessLaunch(codexPath, ['--version']);
+        const stats = await stat(launch.sourcePath, {bigint: true});
+        return [
+            codexPath,
+            launch.command,
+            launch.sourcePath,
+            stats.dev,
+            stats.ino,
+            stats.size,
+            stats.mtimeNs,
+            stats.ctimeNs,
+            stats.mode,
+        ].join(':');
+    })().catch(() => null);
+    if (identity && codexCliVersion?.identity === identity) {
+        return codexCliVersion.result;
+    }
+    const result = runCodexCli(codexPath, ['--version']).then(versionResult => {
+        const version = versionResult.ok ? parseCodexVersion(versionResult.stdout || versionResult.stderr) : null;
+        if (version === null && codexCliVersion?.result === result) {
+            codexCliVersion = null;
+        }
+        return version;
+    }).catch((error: unknown) => {
+        if (codexCliVersion?.result === result) {
+            codexCliVersion = null;
+        }
+        throw error;
+    });
+    codexCliVersion = identity ? {
+        identity,
+        result,
+    } : null;
+    return result;
+}
+
 export async function getCodexCliInfo(): Promise<ICodexCliInfo> {
     const codexPath = await resolveCodexCliPath();
     if (!codexPath) {
+        codexCliVersion = null;
         return {
             installed: false,
             path: null,
@@ -342,8 +400,7 @@ export async function getCodexCliInfo(): Promise<ICodexCliInfo> {
         };
     }
 
-    const versionResult = await runCodexCli(codexPath, ['--version']);
-    const version = versionResult.ok ? parseCodexVersion(versionResult.stdout || versionResult.stderr) : null;
+    const version = await getCodexVersion(codexPath);
     return {
         installed: true,
         path: codexPath,
@@ -535,7 +592,8 @@ export function installManagedCodex(options: IInstallCodexOptions = {}) {
         return managedCodexInstallPromise;
     }
     const installPromise = performManagedCodexInstall(options).finally(() => {
-        codexCliPathPromise = null;
+        codexCliPathLookup = null;
+        codexCliVersion = null;
         if (managedCodexInstallPromise === installPromise) {
             managedCodexInstallPromise = null;
         }
