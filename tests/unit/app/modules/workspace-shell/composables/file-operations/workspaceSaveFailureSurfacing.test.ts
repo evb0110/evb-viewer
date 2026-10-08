@@ -792,13 +792,15 @@ describe('workspace save failure surfacing', () => {
             'errors.save.nativeFailure',
         ],
     ] as const)('retains the %s native cause and dirty edits (%s)', async (code, message, expectedDescription) => {
+        const annotationDirty = ref(true);
         const previousNavigator = globalThis.navigator;
         const clipboard = vi.fn(async (_text: string) => undefined);
         vi.stubGlobal('navigator', {clipboard: {writeText: clipboard}});
         try {
             const {deps} = createDeps({
                 totalPages: ref(2),
-                annotationDirty: ref(true),
+                annotationDirty,
+                markAnnotationSaved: vi.fn(() => {annotationDirty.value = false;}),
                 hasShapeChanges: vi.fn(() => true),
                 getAllShapes: vi.fn(() => [createShapeAnnotation()]),
                 trySavePdfNativeMutations: vi.fn(async () => ({
@@ -821,7 +823,7 @@ describe('workspace save failure surfacing', () => {
             });
             const service = useWorkspaceSaveServiceForTest(deps);
             await expect(service.handleSave()).resolves.toBe(false);
-            expectWorkspaceSaveNotMarked(deps);
+            expect(annotationDirty.value).toBe(true);
             expect(service.hasSaveFailure.value).toBe(true);
             expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({description: toastDescriptionContaining(expectedDescription)}));
             const toast = toastAddMock.mock.calls[0]?.[0];
