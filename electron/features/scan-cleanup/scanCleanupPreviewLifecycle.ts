@@ -45,6 +45,7 @@ import {
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {mainJobBroker} from '@electron/resources/jobBroker';
+import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import type {
     IScanCleanupDetectionSubscriber,
@@ -90,10 +91,13 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     open,
     stat,
     getAvailableScratchBytes: readAvailableScratchBytes,
-    resolveRasterAdmissionPolicy: options => resolveScanCleanupPreviewRasterAdmissionPolicy(
-        mainJobBroker.getSnapshot().capacity,
-        options,
-    ),
+    resolveRasterAdmissionPolicy: options => ({
+        ...resolveScanCleanupPreviewRasterAdmissionPolicy(
+            mainJobBroker.getSnapshot().capacity,
+            options,
+        ),
+        totalRamBytes: getHostResourceProfileSnapshot().totalRamBytes,
+    }),
     getPageCount: getPdfPageCount,
     getPageSizeStore: createPdfPageSizeStore,
     publishRaster: atomicReplace,

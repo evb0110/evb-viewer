@@ -316,30 +316,25 @@ describe('runNativeCommand', () => {
         await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
     });
 
-    it('warns once for a process that crosses the watchdog threshold and settles at warn', async () => {
+    it('keeps a long successful process out of the warning log', async () => {
         vi.useFakeTimers();
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
-        const resultPromise = runNativeCommand('/bin/tool', [], {commandLabel: 'watchdog-tool'});
-        await vi.advanceTimersByTimeAsync(5_000);
-
-        expect(mocks.telemetryWarn).toHaveBeenCalledWith('Native process still running', expect.objectContaining({
-            command: 'watchdog-tool',
-            elapsedMs: 5_000,
-            pid: proc.pid,
-        }));
-        expect(mocks.telemetryWarn).toHaveBeenCalledTimes(1);
-
+        const resultPromise = runNativeCommand('/bin/tool', [], {commandLabel: 'slow-tool'});
+        await vi.advanceTimersByTimeAsync(60_000);
         proc.emit('close', 0, null);
         await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
-        expect(mocks.telemetryWarn).toHaveBeenCalledWith('Native process settled', expect.objectContaining({
-            command: 'watchdog-tool',
+
+        // A scanned page takes seconds to render; its age is timing detail.
+        expect(mocks.telemetryWarn).not.toHaveBeenCalled();
+        expect(mocks.telemetryDebug).toHaveBeenCalledWith('Native process settled', expect.objectContaining({
+            command: 'slow-tool',
+            durationMs: 60_000,
             exitCode: 0,
-            watchdogTriggered: true,
+            outcome: 'resolved',
         }));
-        expect(mocks.telemetryDebug).not.toHaveBeenCalledWith('Native process spawned', expect.anything());
     });
 
     it('terminates the process when the spawn callback fails', async () => {

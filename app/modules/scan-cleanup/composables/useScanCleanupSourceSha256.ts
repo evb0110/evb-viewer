@@ -4,7 +4,23 @@ import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSett
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {isDesktopPlatformActive} from '@app/utils/platform';
-import type {Ref} from 'vue';
+import type {
+    InjectionKey,
+    Ref,
+} from 'vue';
+
+/**
+ * Where the authoritative hash stands. Desktop document settings are keyed by
+ * it, so they wait while it is `pending` and report `failed` with a retry.
+ */
+export type TScanCleanupSourceIdentityState = 'unavailable' | 'pending' | 'ready' | 'failed';
+
+export interface IScanCleanupSourceIdentity {
+    state: Readonly<Ref<TScanCleanupSourceIdentityState>>;
+    retry: () => void;
+}
+
+export const scanCleanupSourceIdentityKey: InjectionKey<IScanCleanupSourceIdentity> = Symbol('scan-cleanup-source-identity');
 
 interface IUseScanCleanupSourceSha256Options {
     enabled: Readonly<Ref<boolean>>;
@@ -16,9 +32,11 @@ interface IUseScanCleanupSourceSha256Options {
  * Reads the source hash owned by the desktop document pipeline. The renderer
  * never reads or hashes the document bytes; it only retains the hash returned
  * by the main-process managed-file handle for the current document revision.
+ * The view's Scan cleanup workspace injects the acquisition state.
  */
 export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256Options) => {
     const sourceSha256 = ref<string | null>(null);
+    const state = ref<TScanCleanupSourceIdentityState>('unavailable');
     let generation = 0;
     let acquiredFor: {
         path: TDocumentRef;
@@ -32,11 +50,13 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
         if (!sourcePath || !isDesktopPlatformActive()) {
             acquiredFor = null;
             sourceSha256.value = null;
+            state.value = 'unavailable';
             return;
         }
         if (acquiredFor && (acquiredFor.path !== sourcePath || acquiredFor.revision !== documentRevision)) {
             acquiredFor = null;
             sourceSha256.value = null;
+            state.value = 'unavailable';
         }
         // The hash is a property of the document identity, not of surface
         // visibility: hiding the tab must not demote an acquired identity to
@@ -51,6 +71,7 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             documentFiles = getDocumentFilesCapability();
         } catch (error) {
             sourceSha256.value = null;
+            state.value = 'failed';
             BrowserLogger.warn('scan-cleanup', 'Failed to resolve the authoritative source SHA-256 capability', error);
             return;
         }
@@ -58,9 +79,11 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
         const releaseHandle = documentFiles.releaseManagedTempFileHandle;
         if (!createHandle || !releaseHandle) {
             sourceSha256.value = null;
+            state.value = 'failed';
             BrowserLogger.warn('scan-cleanup', 'Authoritative source SHA-256 capability is unavailable', () => ({reason: 'missing-managed-file-hash-capability'}));
             return;
         }
+        state.value = 'pending';
 
         let leaseId: ReturnType<typeof requireLeaseId> | null = null;
         try {
@@ -78,14 +101,17 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
                         revision: documentRevision,
                     };
                     sourceSha256.value = handle.sha256.toLowerCase();
+                    state.value = 'ready';
                 } else {
                     sourceSha256.value = null;
+                    state.value = 'failed';
                     BrowserLogger.warn('scan-cleanup', 'Authoritative source SHA-256 was unavailable for document preferences', () => ({reason: 'invalid-managed-file-hash'}));
                 }
             }
         } catch (error) {
             if (currentGeneration === generation) {
                 sourceSha256.value = null;
+                state.value = 'failed';
                 BrowserLogger.warn('scan-cleanup', 'Failed to resolve the authoritative source SHA-256', error);
             }
         } finally {
@@ -107,6 +133,10 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
         {immediate: true},
     );
     onBeforeUnmount(() => { generation += 1; });
+    provide(scanCleanupSourceIdentityKey, {
+        state,
+        retry: () => { void refresh(); },
+    });
 
     return computed(() => sourceSha256.value);
 };

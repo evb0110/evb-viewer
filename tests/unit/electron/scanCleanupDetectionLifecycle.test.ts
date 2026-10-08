@@ -510,7 +510,7 @@ export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBuf
 
 }
 
-export async function scenarioAnalyzesEveryPageOnTheSameCanonical150DPIGridAsFinalRendering(): Promise<void> {
+export async function scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingUses(): Promise<void> {
 
     const {deps} = await previewDependencies();
     deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map((page, index) => {
@@ -596,14 +596,16 @@ export async function scenarioAnalyzesEveryPageOnTheSameCanonical150DPIGridAsFin
         detectionRequest,
     )?.status).toBe('completed'));
 
+    // The canonical grid is 150 DPI, never finer than the page's own scan:
+    // the 100-DPI page is analyzed on its own pixels, as final rendering does.
     expect(Object.fromEntries(renderedDpiByPage)).toEqual({
-        1: 150,
+        1: 100,
         2: 150,
         3: 150,
     });
     expect(Object.fromEntries(manifestDpiByPage)).toEqual({
         1: {
-            dpi: 150,
+            dpi: 100,
             sourceDpi: 100,
             hasSeparateCanonicalInput: false,
         },
@@ -1830,7 +1832,7 @@ describe('scanCleanupDetectionLifecycleTest', () => {
         ],
         [
             'use the canonical detection grid',
-            scenarioAnalyzesEveryPageOnTheSameCanonical150DPIGridAsFinalRendering,
+            scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingUses,
         ],
         [
             'reuse a detection raster without a second page count',

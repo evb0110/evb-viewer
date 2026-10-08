@@ -12,6 +12,7 @@ import type {
 import {
     readPngDimensions,
     readPpmDimensions,
+    writePngFromPpm,
 } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
@@ -55,6 +56,11 @@ function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined
     }
 }
 
+/** Where Poppler writes the PPM a PNG render is encoded from. */
+function popplerPpmPath(pngPath: string) {
+    return `${pngPath.replace(/\.png$/u, '')}.ppm`;
+}
+
 function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
     if (crop === undefined) {
         return;
@@ -93,8 +99,10 @@ async function renderPage(
 ) {
     validateCrop(crop);
     validateRenderLimits(limits);
+    // Poppler always writes PPM. Its PNG writer is fixed at maximum zlib
+    // compression, which turns a smooth scanned page into tens of seconds of
+    // deflate; a PNG caller gets the same pixels encoded at the fastest level.
     const commandArgs = [
-        ...(format === 'png' ? ['-png'] : []),
         ...(useMediaBox ? [] : ['-cropbox']),
         ...(limits?.scaleToFitPx === undefined ? [] : [
             '-scale-to',
@@ -132,6 +140,16 @@ async function renderPage(
         log,
         ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
     });
+    if (format === 'png') {
+        // A failed render or encode leaves this file to the renderer's own
+        // failure policy, which retains or removes it with the PNG.
+        await writePngFromPpm(popplerPpmPath(outputPath), outputPath, {
+            maxPixels: limits?.maxPixels ?? DEFAULT_RASTER_LIMITS.maxPixels,
+            maxDimensionPx: limits?.maxDimensionPx ?? DEFAULT_RASTER_LIMITS.maxDimensionPx,
+            ...(signal === undefined ? {} : {signal}),
+        });
+        await rm(popplerPpmPath(outputPath), {force: true}).catch(() => undefined);
+    }
 }
 
 export function createScanCleanupRenderers(
@@ -178,7 +196,10 @@ export function createScanCleanupRenderers(
         renderBox,
     ) => {
         let terminationProof: Promise<boolean> | undefined;
-        const cleanup = () => rm(outputPath, {force: true}).catch(() => undefined);
+        const cleanup = () => Promise.all([
+            outputPath,
+            ...(format === 'png' ? [popplerPpmPath(outputPath)] : []),
+        ].map(path => rm(path, {force: true}).catch(() => undefined)));
         try {
             await renderPage(
                 runCommand,
@@ -208,6 +229,7 @@ export function createScanCleanupRenderers(
                 // Best-effort removal must preserve the useful renderer error.
                 await cleanup();
             }
+
             throw error;
         }
     };
