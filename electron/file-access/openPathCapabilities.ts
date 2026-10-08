@@ -113,62 +113,50 @@ function isDestroyedOwner(owner: number | WebContents) {
         && owner.isDestroyed();
 }
 
-function allowPathForWebContents(
-    allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
-    owner: number | WebContents,
-    filePath: string,
-) {
-    const normalizedPath = normalizeOpenPath(filePath);
-    if (!normalizedPath) {
-        return null;
-    }
-
-    if (isDestroyedOwner(owner)) {
-        removeAllowedPathsForOwner(getOwnerId(owner));
-        return null;
-    }
-
-    const ownerId = getOwnerId(owner);
-    registerOwnerCleanup(owner, ownerId);
-    const allowedOpenPaths = getAllowedPaths(allowedPathsByOwner, ownerId);
-    allowedOpenPaths.delete(normalizedPath);
-    allowedOpenPaths.set(normalizedPath, {expiresAtMs: Date.now() + OPEN_PATH_CAPABILITY_TTL_MS});
-    pruneAllowedPaths();
-    return normalizedPath as TOpenPath;
-}
-
+/** Grants every path that resolves; one expiration sweep covers the whole batch. */
 function allowPathsForWebContents(
     allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
     owner: number | WebContents,
-    filePaths: string[],
+    filePaths: readonly string[],
 ) {
-    for (const filePath of filePaths) {
-        allowPathForWebContents(allowedPathsByOwner, owner, filePath);
+    const normalizedPaths = filePaths.map(filePath => normalizeOpenPath(filePath) as TOpenPath | null);
+    if (normalizedPaths.every(normalizedPath => normalizedPath === null)) {
+        return normalizedPaths;
     }
+
+    const ownerId = getOwnerId(owner);
+    if (isDestroyedOwner(owner)) {
+        removeAllowedPathsForOwner(ownerId);
+        return normalizedPaths.map(() => null);
+    }
+
+    registerOwnerCleanup(owner, ownerId);
+    const allowedOpenPaths = getAllowedPaths(allowedPathsByOwner, ownerId);
+    const expiresAtMs = Date.now() + OPEN_PATH_CAPABILITY_TTL_MS;
+    for (const normalizedPath of normalizedPaths) {
+        if (normalizedPath !== null) {
+            allowedOpenPaths.delete(normalizedPath);
+            allowedOpenPaths.set(normalizedPath, {expiresAtMs});
+        }
+    }
+    pruneAllowedPaths();
+    return normalizedPaths;
 }
 
 export function allowOpenPath(filePath: string, owner?: number | WebContents) {
-    if (owner !== undefined) {
-        return allowPathForWebContents(allowedOpenPathsByOwner, owner, filePath);
-    }
-
-    return allowPathForWebContents(allowedOpenPathsByOwner, 0, filePath);
+    return allowPathsForWebContents(allowedOpenPathsByOwner, owner ?? 0, [filePath])[0] ?? null;
 }
 
-export function allowOpenPaths(filePaths: string[], owner?: number | WebContents) {
-    allowPathsForWebContents(allowedOpenPathsByOwner, owner ?? 0, filePaths);
+export function allowOpenPaths(filePaths: readonly string[], owner?: number | WebContents) {
+    return allowPathsForWebContents(allowedOpenPathsByOwner, owner ?? 0, filePaths);
 }
 
 export function allowRevealPath(filePath: string, owner?: number | WebContents) {
-    if (owner !== undefined) {
-        return allowPathForWebContents(allowedRevealPathsByOwner, owner, filePath);
-    }
-
-    return allowPathForWebContents(allowedRevealPathsByOwner, 0, filePath);
+    return allowPathsForWebContents(allowedRevealPathsByOwner, owner ?? 0, [filePath])[0] ?? null;
 }
 
-export function allowRevealPaths(filePaths: string[], owner?: number | WebContents) {
-    allowPathsForWebContents(allowedRevealPathsByOwner, owner ?? 0, filePaths);
+export function allowRevealPaths(filePaths: readonly string[], owner?: number | WebContents) {
+    return allowPathsForWebContents(allowedRevealPathsByOwner, owner ?? 0, filePaths);
 }
 
 function isAllowedPath(
