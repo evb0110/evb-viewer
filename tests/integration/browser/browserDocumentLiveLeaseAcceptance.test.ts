@@ -146,7 +146,7 @@ describe('browser document live lease acceptance in Chromium', () => {
                 true,
             ]);
             expect(retainedWhileActive.chunkKeyCounts).toEqual([
-                0,
+                1,
                 2,
                 1,
             ]);
@@ -170,7 +170,7 @@ describe('browser document live lease acceptance in Chromium', () => {
                 true,
             ]);
             expect(retainedWhileSuspended.chunkKeyCounts).toEqual([
-                0,
+                1,
                 2,
                 1,
             ]);
@@ -194,7 +194,7 @@ describe('browser document live lease acceptance in Chromium', () => {
                 true,
             ]);
             expect(retainedAfterResume.chunkKeyCounts).toEqual([
-                0,
+                1,
                 2,
                 1,
             ]);
@@ -286,7 +286,7 @@ describe('browser document live lease acceptance in Chromium', () => {
             // them is the staged-generation grace window, a separate timer that
             // the confirmed-release case above skips by advancing the clock.
             expect(afterOwnerDied.chunkKeyCounts).toEqual([
-                0,
+                1,
                 2,
                 1,
             ]);

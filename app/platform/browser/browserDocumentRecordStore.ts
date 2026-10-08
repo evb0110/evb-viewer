@@ -133,6 +133,11 @@ export class BrowserDocumentRecordStore {
     private maintenancePromise: Promise<void> | null = null;
     private maintenanceComplete = false;
 
+    /** Adopt committed storage layout while retaining the existing small in-memory bytes. */
+    protected async persistEntry(entry: IBrowserDocumentEntry, data = entry.data) {
+        Object.assign(entry, await persistRecord(createPersistedBrowserDocumentRecord(entry, data, false)), {data: entry.data});
+    }
+
     protected hasLoadedEntry(ref: string) {
         return this.entries.has(ref);
     }
@@ -552,8 +557,7 @@ export class BrowserDocumentRecordStore {
         const resolvedMetadata = await readFileHandleMetadata(entry.saveHandle);
         const contentToken = await createBrowserFileContentWitness(resolvedMetadata.file);
         if (
-            entry.fileSize === resolvedMetadata.size
-            && entry.fileLastModified === resolvedMetadata.lastModified
+            entry.fileLastModified === resolvedMetadata.lastModified
             && entry.contentToken === contentToken
         ) {
             entry.fileSnapshot = resolvedMetadata.file;
@@ -561,13 +565,14 @@ export class BrowserDocumentRecordStore {
         }
 
         const previousToken = createBrowserDocumentRevisionInfo(entry).token;
-        entry.fileSize = resolvedMetadata.size;
+        // Managed bytes retain their size; only handle storage follows physical bytes.
+        if (entry.storageMode === 'handle') entry.fileSize = resolvedMetadata.size;
         entry.fileLastModified = resolvedMetadata.lastModified;
         entry.updatedAt = Date.now();
         entry.contentToken = contentToken;
         entry.fileSnapshot = resolvedMetadata.file;
         entry.contentRevision = getBrowserDocumentEntryContentRevision(entry) + 1;
-        await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+        await this.persistEntry(entry);
         this.emitRevisionChangeForEntry(entry, previousToken, 'browser-handle-refresh');
     }
 
@@ -599,7 +604,7 @@ export class BrowserDocumentRecordStore {
                 return bytes;
             }
             case 'chunked': {
-                return readBrowserDocumentChunkedEntryBytes(entry);
+                return entry.data.byteLength > 0 ? cloneBytes(entry.data) : readBrowserDocumentChunkedEntryBytes(entry);
             }
             case 'inline':
                 return cloneBytes(entry.data);
@@ -644,7 +649,9 @@ export class BrowserDocumentRecordStore {
                 return bytes;
             }
             case 'chunked': {
-                return readBrowserDocumentChunkedEntryRange(entry, start, rangeLength, end);
+                return entry.data.byteLength > 0
+                    ? entry.data.slice(start, end)
+                    : readBrowserDocumentChunkedEntryRange(entry, start, rangeLength, end);
             }
             case 'inline':
                 return entry.data.slice(start, end);

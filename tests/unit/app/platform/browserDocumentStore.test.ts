@@ -335,8 +335,13 @@ describe('BrowserDocumentStore', () => {
 
         currentFile = new File([Uint8Array.of(5, 4)], currentFile.name, {lastModified: 11});
         const resized = await store.getContentSnapshot(workingRef);
-        expect(resized.size).toBe(2);
+        expect(resized.size).toBe(initial.size);
         expect(resized.contentSignature).not.toBe(changed.contentSignature);
+        const resizedRevision = await store.getDocumentRevision(sourceRef);
+        expect(await store.getContentSnapshot(workingRef)).toEqual(resized);
+        expect(await store.getDocumentRevision(sourceRef)).toEqual(resizedRevision);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
+        await expect(store.readRange(workingRef, 1, 3)).resolves.toEqual(Uint8Array.of(2, 3, 4));
     });
 
     it('refreshes large content snapshots with the existing bounded head, middle and tail witness', async () => {
@@ -1059,7 +1064,7 @@ describe('BrowserDocumentStore', () => {
         });
 
         const entry = await store.requireEntry(ref);
-        expect(entry.storageMode).toBe('inline');
+        expect(entry.storageMode).toBe('chunked');
 
         store.unload(ref);
 
@@ -1087,7 +1092,7 @@ describe('BrowserDocumentStore', () => {
         );
 
         const entry = await store.requireEntry(ref);
-        expect(entry.storageMode).toBe('inline');
+        expect(entry.storageMode).toBe('chunked');
 
         store.unload(ref);
 
@@ -1115,7 +1120,7 @@ describe('BrowserDocumentStore', () => {
 
         await store.ensureByteBackedSource(ref);
         const entry = await store.requireEntry(ref);
-        expect(entry.storageMode).toBe('inline');
+        expect(entry.storageMode).toBe('chunked');
 
         getFile.mockImplementation(async () => {
             throw new DOMException('Not allowed', 'NotAllowedError');

@@ -1,5 +1,6 @@
 import {
     mkdtemp,
+    readFile,
     rm,
 } from 'node:fs/promises';
 import {
@@ -12,6 +13,9 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
+import type * as BrowserDocumentIdb from '../../../app/platform/browser/browserDocumentIdb';
+import type * as BrowserDocumentRepository from '../../../app/platform/browser/browserDocumentRepository';
+import type * as BrowserDocumentMaintenance from '../../../app/platform/browser/browserDocumentMaintenance';
 import {
     chromium,
     type Page,
@@ -26,6 +30,9 @@ import {
 
 let bundlePath = '';
 let recoveryBundlePath = '';
+let documentBundlePath = '';
+let maintenanceBundlePath = '';
+let pdfFixture: number[] = [];
 let temporaryDirectory = '';
 let origin = '';
 let server: Server;
@@ -251,6 +258,9 @@ beforeAll(async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-idb-migration-'));
     bundlePath = join(temporaryDirectory, 'browser-document-idb.js');
     recoveryBundlePath = join(temporaryDirectory, 'browser-workspace-recovery.js');
+    documentBundlePath = join(temporaryDirectory, 'browser-documents.js');
+    maintenanceBundlePath = join(temporaryDirectory, 'browser-maintenance.js');
+    pdfFixture = Array.from(await readFile(resolve('tests/fixtures/electron/generated-text.pdf')));
     await build({
         bundle: true,
         entryPoints: [resolve(process.cwd(), 'app/platform/browser/browserDocumentIdb.ts')],
@@ -271,6 +281,33 @@ beforeAll(async () => {
         sourcemap: false,
         tsconfig: resolve(process.cwd(), 'tsconfig.json'),
     });
+    for (const [
+        entryPoint,
+        globalName,
+        outfile,
+    ] of [
+            [
+                'app/platform/browser/browserDocumentRepository.ts',
+                'EvbBrowserDocuments',
+                documentBundlePath,
+            ],
+            [
+                'app/platform/browser/browserDocumentMaintenance.ts',
+                'EvbBrowserMaintenance',
+                maintenanceBundlePath,
+            ],
+        ]) {
+        await build({
+            bundle: true,
+            entryPoints: [resolve(process.cwd(), entryPoint!)],
+            format: 'iife',
+            globalName: globalName!,
+            outfile: outfile!,
+            platform: 'browser',
+            sourcemap: false,
+            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+        });
+    }
     server = createServer((_request, response) => {
         response.writeHead(200, {'content-type': 'text/html'});
         response.end('<!doctype html><title>IndexedDB migration harness</title>');
@@ -375,6 +412,531 @@ describe('browser document IndexedDB migration in Chromium', () => {
             await browser.close();
         }
     }, 30_000);
+
+    it('migrates inline bytes into compact metadata and preserves document reads through maintenance and reopen', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.evaluate(async fixture => {
+                await new Promise<void>((resolveSeed, rejectSeed) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents', 5);
+                    request.onupgradeneeded = () => {
+                        for (const [
+                            name,
+                            keyPath,
+                        ] of [
+                                [
+                                    'documents',
+                                    'ref',
+                                ],
+                                [
+                                    'document-chunks',
+                                    'key',
+                                ],
+                                [
+                                    'workspace-recovery',
+                                    'id',
+                                ],
+                                [
+                                    'browser-live-leases',
+                                    'id',
+                                ],
+                                [
+                                    'browser-transfer-authority',
+                                    'id',
+                                ],
+                            ]) request.result.createObjectStore(name!, {keyPath: keyPath!});
+                    };
+                    request.onerror = () => rejectSeed(request.error);
+                    request.onsuccess = () => {
+                        const database = request.result;
+                        const transaction = database.transaction([
+                            'documents',
+                            'document-chunks',
+                        ], 'readwrite');
+                        const documents = transaction.objectStore('documents');
+                        for (let index = 0; index < 3; index += 1) {
+                            const backing = new Uint8Array(2 * 1024 * 1024 + 8).fill(index + 1);
+                            const data = backing.subarray(4, backing.length - 4);
+                            documents.put({
+                                ref: `browser://documents/bp03-${index}.pdf`,
+                                fileName: `bp03-${index}.pdf`,
+                                mimeType: 'application/pdf',
+                                kind: 'source',
+                                retention: 'durable',
+                                data: index === 1 ? data.slice().buffer : data,
+                                fileSize: data.byteLength,
+                                fileLastModified: 100 + index,
+                                updatedAt: 100 + index,
+                                contentToken: `bp03-token-${index}`,
+                                contentRevision: 7 + index,
+                                saveName: `saved-${index}.pdf`,
+                                saveKind: 'pdf',
+                                saveHandle: null,
+                                sourceBaseWitness: `bytes:opening-${index}`,
+                                sourceWitness: true,
+                                // Optional legacy values must still be decoded, not rewritten.
+                                legacyExtra: {index},
+                                ...(index === 2 ? {saveKind: 'invalid-legacy-kind'} : {}),
+                                ...(index === 0 ? {
+                                    storageMode: 'inline',
+                                    chunkGeneration: 'legacy-active',
+                                    pendingChunkGeneration: 'legacy-pending',
+                                    pendingChunkCount: 1,
+                                    pendingChunkSize: 4,
+                                    pendingFileSize: 4,
+                                    pendingChunkUpdatedAt: Date.now(),
+                                } : {}),
+                            });
+                        }
+                        documents.put({
+                            ref: 'browser://documents/bp03-legacy-real.pdf',
+                            fileName: 'legacy-real.pdf',
+                            mimeType: 'application/pdf',
+                            kind: 'source',
+                            retention: 'durable',
+                            data: Uint8Array.from(fixture),
+                            fileSize: fixture.length,
+                            updatedAt: 103,
+                            contentToken: 'legacy-pdf-token',
+                            contentRevision: 4,
+                        });
+                        const firstRef = 'browser://documents/bp03-0.pdf';
+                        documents.put({
+                            ref: 'browser://documents/bp03-proxy.pdf',
+                            fileName: 'proxy.pdf',
+                            mimeType: 'application/pdf',
+                            kind: 'output',
+                            retention: 'durable',
+                            data: new Uint8Array(),
+                            fileSize: 0,
+                            updatedAt: 102,
+                            sourceRef: firstRef,
+                            storageMode: 'source-proxy',
+                            contentToken: 'proxy-token',
+                        });
+                        const chunks = transaction.objectStore('document-chunks');
+                        chunks.put({
+                            key: `${firstRef}::legacy-pending::0`,
+                            ref: firstRef,
+                            generation: 'legacy-pending',
+                            index: 0,
+                            data: Uint8Array.of(9, 8, 7, 6),
+                        });
+                        transaction.onabort = () => rejectSeed(transaction.error);
+                        transaction.oncomplete = () => { database.close(); resolveSeed(); };
+                    };
+                });
+            }, pdfFixture);
+            await page.addScriptTag({path: bundlePath});
+            await page.addScriptTag({path: documentBundlePath});
+            await page.addScriptTag({path: maintenanceBundlePath});
+            const result = await page.evaluate(async (fixture) => {
+                const idb = Reflect.get(globalThis, 'EvbBrowserDocumentIdb') as typeof BrowserDocumentIdb;
+                const documents = Reflect.get(globalThis, 'EvbBrowserDocuments') as typeof BrowserDocumentRepository;
+                const maintenance = Reflect.get(globalThis, 'EvbBrowserMaintenance') as typeof BrowserDocumentMaintenance;
+                const first = await idb.loadRecordAvailability('browser://documents/bp03-0.pdf');
+                const originalGet = IDBObjectStore.prototype.get;
+                const originalGetAll = IDBObjectStore.prototype.getAll;
+                let documentPayloadBytes = 0;
+                const observe = (store: IDBObjectStore, request: IDBRequest) => {
+                    if (store.name === 'documents') request.addEventListener('success', () => {
+                        const values = Array.isArray(request.result) ? request.result : [request.result];
+                        for (const value of values) {
+                            if (value?.data instanceof Uint8Array || value?.data instanceof ArrayBuffer) {
+                                documentPayloadBytes += value.data.byteLength;
+                            }
+                        }
+                    });
+                    return request;
+                };
+                IDBObjectStore.prototype.get = function(key) { return observe(this, originalGet.call(this, key)); };
+                IDBObjectStore.prototype.getAll = function(...args: Parameters<IDBObjectStore['getAll']>) {
+                    return observe(this, originalGetAll.apply(this, args));
+                };
+                let records;
+                try {
+                    records = await maintenance.loadBrowserPersistedDocumentRecordsResult();
+                    await maintenance.sweepBrowserDocumentMaintenance(new Map());
+                } finally {
+                    IDBObjectStore.prototype.get = originalGet;
+                    IDBObjectStore.prototype.getAll = originalGetAll;
+                }
+                const store = new documents.BrowserDocumentStore();
+                const equal = (actual: Uint8Array, expected: Uint8Array) => actual.length === expected.length
+                    && actual.every((byte, index) => byte === expected[index]);
+                const byteEquality = [];
+                for (let index = 0; index < 3; index += 1) {
+                    const ref = `browser://documents/bp03-${index}.pdf`;
+                    const expected = new Uint8Array(2 * 1024 * 1024).fill(index + 1);
+                    byteEquality.push(equal(await store.read(ref), expected));
+                    byteEquality.push(equal(await store.readRange(ref, expected.length - 17, 40), expected.slice(-17)));
+                    const revision = await store.getDocumentRevision(ref);
+                    byteEquality.push(revision.token === `drt1:browser:bp03-token-${index}` && revision.contentRevision === 7 + index);
+                }
+                byteEquality.push(equal(await store.readRange('browser://documents/bp03-proxy.pdf', 13, 19), new Uint8Array(19).fill(1)));
+                const rawFirst = (await idb.loadRecordAvailability('browser://documents/bp03-0.pdf')).value;
+                const rawThird = (await idb.loadRecordAvailability('browser://documents/bp03-2.pdf')).value;
+                const pdf = Uint8Array.from(fixture);
+                const migratedPdfEquality = equal(await store.read('browser://documents/bp03-legacy-real.pdf'), pdf)
+                    && equal(await store.readRange('browser://documents/bp03-legacy-real.pdf', 137, 1024), pdf.slice(137, 1161));
+                const ref = await store.registerFile(new File([pdf], 'bp03-real.pdf', {type: 'application/pdf'}));
+                await store.touchRecentFile(ref);
+                const working = await store.cloneAsWorkingCopy(ref);
+                await store.setRetention(working, 'durable');
+                await store.createLiveLease('bp03-controls', [{ref: working}]);
+                const staged = await store.createStoredDocument('bp03-staged.pdf', pdf, {
+                    mimeType: 'application/pdf',
+                    kind: 'output',
+                });
+                await new Promise<void>((resolveRead, rejectRead) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents');
+                    request.onerror = () => rejectRead(request.error);
+                    request.onsuccess = () => {
+                        const database = request.result;
+                        const transaction = database.transaction('documents', 'readonly');
+                        transaction.objectStore('documents').get(ref);
+                        transaction.oncomplete = () => {database.close(); resolveRead();};
+                        transaction.onabort = () => rejectRead(transaction.error);
+                    };
+                });
+                await store.commitStagedDocument(staged, working, pdf, (await store.getDocumentRevision(staged)).token,
+                    (await store.getDocumentRevision(working)).token);
+                const stagedCommitted = !(await store.exists(staged)) && equal(await store.read(working), pdf);
+                // A normal range crosses the shared 4-MiB layout boundary.
+                const large = new Uint8Array(4 * 1024 * 1024 + 19);
+                large.set(pdf);
+                large.fill(0x5a, pdf.length);
+                const largeRef = await store.registerFile(new File([large], 'bp03-large.pdf', {type: 'application/pdf'}));
+                await store.touchRecentFile(largeRef);
+                const crossChunkEquality = equal(await store.readRange(largeRef, 4 * 1024 * 1024 - 7, 26), large.slice(-26));
+                const pdfHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(await store.read(ref)))))
+                    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+                const textEquality = await store.readText(ref) === new TextDecoder().decode(pdf);
+                const reopened = new documents.BrowserDocumentStore();
+                const reopenEquality = equal(await reopened.read(ref), pdf) && equal(await reopened.read(working), pdf)
+                    && equal(await reopened.readRange(largeRef, 4 * 1024 * 1024 - 7, 26), large.slice(-26));
+                const metadataOnly = (await maintenance.loadBrowserPersistedDocumentRecordsResult()).records.every(record => record.data.length === 0);
+                return {
+                    first,
+                    documentPayloadBytes,
+                    records: records.records.length,
+                    byteEquality,
+                    migratedPdfEquality,
+                    rawFirst,
+                    rawThird,
+                    stagedCommitted,
+                    crossChunkEquality,
+                    pdfHash,
+                    textEquality,
+                    reopenEquality,
+                    metadataOnly,
+                };
+            }, pdfFixture);
+            console.log('BP03 Chromium migration/control result', JSON.stringify(result));
+            expect(result.first.available).toBe(true);
+            expect(result.first.value).toEqual(expect.objectContaining({
+                data: new Uint8Array(),
+                storageMode: 'chunked',
+            }));
+            expect(result.documentPayloadBytes).toBe(0);
+            expect(result.records).toBe(5);
+            expect(result.byteEquality.every(Boolean)).toBe(true);
+            expect(result.rawFirst).toEqual(expect.objectContaining({
+                fileSize: 2 * 1024 * 1024,
+                fileLastModified: 100,
+                updatedAt: 100,
+                contentToken: 'bp03-token-0',
+                contentRevision: 7,
+                saveName: 'saved-0.pdf',
+                sourceBaseWitness: 'bytes:opening-0',
+                sourceWitness: true,
+                chunkGeneration: 'legacy-active',
+                pendingChunkGeneration: 'legacy-pending',
+                pendingChunkCount: 1,
+                pendingChunkSize: 4,
+                pendingFileSize: 4,
+                legacyExtra: {index: 0},
+            }));
+            expect(result.rawThird).toEqual(expect.objectContaining({
+                saveKind: 'invalid-legacy-kind',
+                legacyExtra: {index: 2},
+            }));
+            expect(result).toEqual(expect.objectContaining({
+                migratedPdfEquality: true,
+                stagedCommitted: true,
+                crossChunkEquality: true,
+                textEquality: true,
+                reopenEquality: true,
+                metadataOnly: true,
+                pdfHash: '210e73efa60299815141db447fe0a7caf99a205d86a7c514b13a7f7c4b94b955',
+            }));
+        } finally {
+            await browser.close();
+        }
+    });
+
+    it.each([
+        'abort',
+        'collision',
+    ] as const)('rolls back the entire inline migration on %s and succeeds on the next open', async failure => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({path: bundlePath});
+            const result = await page.evaluate(async (failureMode) => {
+                const idb = Reflect.get(globalThis, 'EvbBrowserDocumentIdb') as typeof BrowserDocumentIdb;
+                const ref = 'browser://documents/bp03-abort.pdf';
+                const record = {
+                    ref,
+                    fileName: 'abort.pdf',
+                    mimeType: 'application/pdf',
+                    kind: 'source' as const,
+                    data: Uint8Array.of(1, 2, 3),
+                    fileSize: 3,
+                    updatedAt: 1,
+                    chunkGeneration: 'legacy-generation',
+                };
+                const collision = {
+                    key: `${ref}::legacy-generation::0`,
+                    ref,
+                    index: 0,
+                    generation: 'legacy-generation',
+                    data: Uint8Array.of(9),
+                };
+                await new Promise<void>((resolveSeed, rejectSeed) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents', 5);
+                    request.onupgradeneeded = () => {
+                        request.result.createObjectStore('documents', {keyPath: 'ref'});
+                        request.result.createObjectStore('document-chunks', {keyPath: 'key'});
+                    };
+                    request.onerror = () => rejectSeed(request.error);
+                    request.onsuccess = () => {
+                        const database = request.result;
+                        const transaction = database.transaction([
+                            'documents',
+                            'document-chunks',
+                        ], 'readwrite');
+                        transaction.objectStore('documents').put(record);
+                        if (failureMode === 'collision') transaction.objectStore('document-chunks').put(collision);
+                        transaction.oncomplete = () => { database.close(); resolveSeed(); };
+                        transaction.onabort = () => rejectSeed(transaction.error);
+                    };
+                });
+                const originalAdd = IDBObjectStore.prototype.add;
+                if (failureMode === 'abort') IDBObjectStore.prototype.add = function(value, key) {
+                    const request = originalAdd.call(this, value, key);
+                    if (this.name === 'document-chunks') request.addEventListener('success', () => this.transaction.abort());
+                    return request;
+                };
+                let failedOpen;
+                try {
+                    failedOpen = await idb.loadRecordAvailability(ref);
+                } finally {
+                    IDBObjectStore.prototype.add = originalAdd;
+                }
+                const rollback = await new Promise<{
+                    version: number;
+                    record: unknown;
+                    chunks: unknown[];
+                    stores: string[]
+                }>((resolveRead, rejectRead) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents');
+                    request.onerror = () => rejectRead(request.error);
+                    request.onsuccess = () => {
+                        const database = request.result;
+                        const transaction = database.transaction([
+                            'documents',
+                            'document-chunks',
+                        ], 'readwrite');
+                        const documentRequest = transaction.objectStore('documents').get(ref);
+                        const chunksRequest = transaction.objectStore('document-chunks').getAll();
+                        if (failureMode === 'collision') transaction.objectStore('document-chunks').delete(collision.key);
+                        transaction.oncomplete = () => {
+                            const snapshot = {
+                                version: database.version,
+                                record: documentRequest.result,
+                                chunks: chunksRequest.result,
+                                stores: Array.from(database.objectStoreNames),
+                            };
+                            database.close(); resolveRead(snapshot);
+                        };
+                        transaction.onabort = () => rejectRead(transaction.error);
+                    };
+                });
+                const retry = await idb.loadRecordAvailability(ref);
+                const chunks = await idb.withObjectStoreReadResult<unknown[]>('document-chunks', store => store.getAll());
+                const newRef = 'browser://documents/bp03-uncommitted.pdf';
+                const abortedWrite = await idb.runObjectStoresTransaction([
+                    'documents',
+                    'document-chunks',
+                ], 'readwrite', transaction => {
+                    idb.queueBrowserDocumentRecordWrite(transaction, {
+                        ...record,
+                        ref: newRef,
+                        storageMode: 'inline',
+                    });
+                    throw new Error('Abort after bytes and metadata were queued.');
+                });
+                const uncommittedRecord = await idb.loadRecordAvailability(newRef);
+                const chunksAfterAbort = await idb.withObjectStoreReadResult<unknown[]>('document-chunks', store => store.getAll());
+                return {
+                    failedOpen,
+                    rollback,
+                    retry,
+                    chunks,
+                    abortedWrite,
+                    uncommittedRecord,
+                    chunksAfterAbort,
+                };
+            }, failure);
+            console.log(`BP03 Chromium ${failure} result`, JSON.stringify(result));
+            expect(result.failedOpen).toEqual({
+                available: false,
+                value: null,
+            });
+            expect(result.rollback.version).toBe(5);
+            expect(result.rollback.stores).toEqual([
+                'document-chunks',
+                'documents',
+            ]);
+            expect(result.rollback.record).toEqual(expect.objectContaining({
+                data: Uint8Array.of(1, 2, 3),
+                fileSize: 3,
+                updatedAt: 1,
+            }));
+            expect(result.rollback.chunks).toHaveLength(failure === 'collision' ? 1 : 0);
+            if (failure === 'collision') expect(result.rollback.chunks[0]).toEqual(expect.objectContaining({data: Uint8Array.of(9)}));
+            expect(result.retry.available).toBe(true);
+            expect(result.retry.value).toEqual(expect.objectContaining({
+                data: new Uint8Array(),
+                storageMode: 'chunked',
+                chunkGeneration: 'legacy-generation',
+            }));
+            expect(result.chunks.value).toEqual([expect.objectContaining({data: Uint8Array.of(1, 2, 3)})]);
+            expect(result.abortedWrite).toBeNull();
+            expect(result.uncommittedRecord).toEqual({
+                available: true,
+                value: undefined,
+            });
+            expect(result.chunksAfterAbort).toEqual(result.chunks);
+        } finally {
+            await browser.close();
+        }
+    });
+
+    it('preserves refused legacy rows and inconsistent inline bytes during a v1 upgrade', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.evaluate(async () => {
+                await new Promise<void>((resolveSeed, rejectSeed) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents', 1);
+                    request.onupgradeneeded = () => request.result.createObjectStore('documents', {keyPath: 'ref'});
+                    request.onerror = () => rejectSeed(request.error);
+                    request.onsuccess = () => {
+                        const database = request.result;
+                        const transaction = database.transaction('documents', 'readwrite');
+                        const base = {
+                            fileName: 'legacy.pdf',
+                            mimeType: 'application/pdf',
+                            kind: 'source',
+                            updatedAt: 1,
+                            fileSize: 3,
+                            data: Uint8Array.of(1, 2, 3),
+                        };
+                        for (const record of [
+                            {
+                                ...base,
+                                ref: 'browser://documents/valid.pdf',
+                            },
+                            {
+                                ...base,
+                                ref: 'browser://documents/mismatch.pdf',
+                                fileSize: 2,
+                            },
+                            {
+                                ...base,
+                                ref: 'browser://documents/invalid.pdf',
+                                fileSize: -1,
+                            },
+                            {
+                                ...base,
+                                ref: 'browser://documents/invalid-data.pdf',
+                                data: [
+                                    1,
+                                    2,
+                                    3,
+                                ],
+                            },
+                            {
+                                ref: 'legacy-ref',
+                                name: 'old-name.pdf',
+                                data: Uint8Array.of(9),
+                            },
+                        ]) transaction.objectStore('documents').put(record);
+                        transaction.oncomplete = () => {database.close(); resolveSeed();};
+                        transaction.onabort = () => rejectSeed(transaction.error);
+                    };
+                });
+            });
+            await page.addScriptTag({path: documentBundlePath});
+            await page.addScriptTag({path: bundlePath});
+            const result = await page.evaluate(async () => {
+                const documents = Reflect.get(globalThis, 'EvbBrowserDocuments') as typeof BrowserDocumentRepository;
+                const idb = Reflect.get(globalThis, 'EvbBrowserDocumentIdb') as typeof BrowserDocumentIdb;
+                const invalid = await idb.loadRecordAvailability('browser://documents/invalid.pdf');
+                const invalidData = await idb.loadRecordAvailability('browser://documents/invalid-data.pdf');
+                const old = await idb.loadRecordAvailability('legacy-ref');
+                const mismatch = await idb.loadRecordAvailability('browser://documents/mismatch.pdf');
+                const store = new documents.BrowserDocumentStore();
+                return {
+                    invalid,
+                    invalidData,
+                    old,
+                    mismatch,
+                    validBytes: Array.from(await store.read('browser://documents/valid.pdf')),
+                    mismatchBytes: Array.from(await store.read('browser://documents/mismatch.pdf')),
+                    refused: await store.ensureEntry('browser://documents/invalid.pdf') === null
+                        && await store.ensureEntry('browser://documents/invalid-data.pdf') === null,
+                };
+            });
+            expect(result.invalid.value).toEqual(expect.objectContaining({
+                fileSize: -1,
+                data: Uint8Array.of(1, 2, 3),
+            }));
+            expect(result.invalidData.value).toEqual(expect.objectContaining({data: [
+                1,
+                2,
+                3,
+            ]}));
+            expect(result.old.value).toEqual({
+                ref: 'legacy-ref',
+                name: 'old-name.pdf',
+                data: Uint8Array.of(9),
+            });
+            expect(result.mismatch.value).toEqual(expect.objectContaining({
+                fileSize: 2,
+                data: Uint8Array.of(1, 2, 3),
+            }));
+            expect(result.validBytes).toEqual([
+                1,
+                2,
+                3,
+            ]);
+            expect(result.mismatchBytes).toEqual([
+                1,
+                2,
+                3,
+            ]);
+            expect(result.refused).toBe(true);
+        } finally {
+            await browser.close();
+        }
+    });
 
     it('isolates simultaneous window journals and enforces per-owner generations', async () => {
         const browser = await chromium.launch({headless: true});
@@ -573,7 +1135,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                         [pdfRef],
                     );
                     await new Promise<void>((resolvePut, rejectPut) => {
-                        const request = indexedDB.open(databaseName, 5);
+                        const request = indexedDB.open(databaseName);
                         request.onerror = () => rejectPut(request.error);
                         request.onsuccess = () => {
                             const database = request.result;
@@ -787,7 +1349,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                     fileName?: string;
                     data?: number[]
                 } | null>((resolvePdf, rejectPdf) => {
-                    const request = indexedDB.open(databaseName, 5);
+                    const request = indexedDB.open(databaseName);
                     request.onerror = () => rejectPdf(request.error);
                     request.onsuccess = () => {
                         const database = request.result;
