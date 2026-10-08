@@ -381,23 +381,8 @@ export const useAppShellTabLifecycle = (
         }
     }
 
-    function shouldDeferCloseHandoff(
-        sourcePane: IEditorPaneState | null,
-        closeHandoffTarget: ICloseHandoffTarget | null,
-    ) {
-        return Boolean(
-            sourcePane
-            && closeHandoffTarget
-            && sourcePane.tabIds.length === 1
-            && closeHandoffTarget.paneId !== sourcePane.paneId,
-        );
-    }
-
-    async function activateDeferredCloseHandoff(
-        shouldDeferCrossPaneHandoff: boolean,
-        closeHandoffTarget: ICloseHandoffTarget | null,
-    ) {
-        if (!shouldDeferCrossPaneHandoff || !closeHandoffTarget) {
+    async function activateCloseHandoff(closeHandoffTarget: ICloseHandoffTarget | null) {
+        if (!closeHandoffTarget) {
             return;
         }
 
@@ -412,15 +397,6 @@ export const useAppShellTabLifecycle = (
         activatePane(targetPane.paneId);
         activateTab(targetPane.paneId, targetTab.id);
         await nextTick();
-    }
-
-    function resolveCloseHandoffContext(paneId: string, tabId: string) {
-        const sourcePaneBeforeClose = getPaneById(paneId);
-        const closeHandoffTarget = resolveCloseHandoffTarget(paneId, tabId);
-        return {
-            closeHandoffTarget,
-            shouldDeferCrossPaneHandoff: shouldDeferCloseHandoff(sourcePaneBeforeClose, closeHandoffTarget),
-        };
     }
 
     async function resolveClosePersistence(tabId: string) {
@@ -444,7 +420,7 @@ export const useAppShellTabLifecycle = (
     ) {
         const controller = getDocumentSession(tabId);
         if (!controller || !await controller.close({persist: shouldPersistBeforeClose})) {
-            return;
+            return false;
         }
         const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
         // The final tab is the product's required empty-tab slot. It keeps its
@@ -452,6 +428,7 @@ export const useAppShellTabLifecycle = (
         if (panes.value.length !== 1 || pane?.tabIds.length !== 1 || pane.tabIds[0] !== tabId) {
             closeResolvedTabInState(paneId, tabId);
         }
+        return true;
     }
 
     async function closeTabDuringTransition(paneId: string, tabId: string) {
@@ -460,10 +437,7 @@ export const useAppShellTabLifecycle = (
             return;
         }
 
-        const {
-            closeHandoffTarget,
-            shouldDeferCrossPaneHandoff,
-        } = resolveCloseHandoffContext(paneId, tabId);
+        const closeHandoffTarget = resolveCloseHandoffTarget(paneId, tabId);
 
         // A view of a document that another tab still shows closes alone: the
         // document, its unsaved work and its question stay with the other view.
@@ -472,27 +446,24 @@ export const useAppShellTabLifecycle = (
         if (shouldPersistBeforeClose === null) {
             return;
         }
-        // The place this view was left at is remembered before the view, or a
-        // cold document no workspace will close, goes (the hand-off below can
-        // unmount it). A document saved as it closes stays mounted, and its
-        // close remembers the place against the bytes the save wrote.
+        // Remember this view before closing it. Keep its workspace mounted
+        // through the close commit so its existing file owner cleans up;
+        // a save remembers the place against the bytes it wrote.
         if (!shouldPersistBeforeClose) {
             await rememberReadingView(getDocumentSession(tabId), tabId);
         }
 
-        if (!shouldDeferCrossPaneHandoff) {
-            await handoffActiveTabBeforeClose(paneId, tabId);
-        }
-
         if (closesDocument && tabOccupied(tabId)) {
-            await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose);
+            if (!await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose)) {
+                return;
+            }
         } else {
             closeResolvedTabInState(paneId, tabId);
         }
 
         const paneCountBeforeCleanup = panes.value.length;
         cleanupEmptyPanes();
-        await activateDeferredCloseHandoff(shouldDeferCrossPaneHandoff, closeHandoffTarget);
+        await activateCloseHandoff(closeHandoffTarget);
         if (panes.value.length < paneCountBeforeCleanup) {
             // Closing the last tab in a split changes the track width after the
             // Vue patch. Keep the transition fence open through the same two
