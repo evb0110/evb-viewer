@@ -79,27 +79,24 @@ function estimateSourcePixels(metrics: IDjvuPdfConversionMetrics) {
     return pageCount * dpi * dpi * FALLBACK_BOOK_PAGE_AREA_SQUARE_INCHES;
 }
 
-export function estimateDjvuPdfEffectivePixels(
-    metrics: IDjvuPdfConversionMetrics,
-    subsample: number | undefined,
-) {
-    const normalizedSubsample = normalizeDjvuPdfSubsample(subsample);
-    return Math.ceil(estimateSourcePixels(metrics) / (normalizedSubsample * normalizedSubsample));
+function estimateEffectivePixels(sourcePixels: number, subsample: number) {
+    return Math.ceil(sourcePixels / (subsample * subsample));
 }
 
-export function resolveRecommendedDjvuPdfSubsample(
-    metrics: IDjvuPdfConversionMetrics,
-    allowedSubsamples: readonly number[] = DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
-) {
-    const candidates = allowedSubsamples
-        .map(normalizeDjvuPdfSubsample)
-        .filter((value, index, values) => values.indexOf(value) === index)
-        .sort((left, right) => left - right);
-    const largestSubsample = candidates.at(-1) ?? 1;
+/** The source-pixel aggregate of one metrics snapshot; every subsample decision derives from it. */
+export interface IDjvuPdfConversionSourceEstimate {
+    sourcePixels: number;
+    recommendedSubsample: number;
+}
 
-    return candidates.find(subsample =>
-        estimateDjvuPdfEffectivePixels(metrics, subsample) <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
-    ) ?? largestSubsample;
+export function estimateDjvuPdfConversionSource(metrics: IDjvuPdfConversionMetrics): IDjvuPdfConversionSourceEstimate {
+    const sourcePixels = estimateSourcePixels(metrics);
+    return {
+        sourcePixels,
+        recommendedSubsample: DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.find(subsample =>
+            estimateEffectivePixels(sourcePixels, subsample) <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
+        ) ?? DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.at(-1)!,
+    };
 }
 
 export const BROWSER_DJVU_CONVERSION_MAX_PAGES = 500;
@@ -148,18 +145,17 @@ export function resolveBrowserDjvuConversionPreflight(
 }
 
 export function evaluateDjvuPdfConversionPolicy(
-    metrics: IDjvuPdfConversionMetrics,
+    source: IDjvuPdfConversionSourceEstimate,
     subsample: number | undefined,
 ): IDjvuPdfConversionPolicyDecision {
     const normalizedSubsample = normalizeDjvuPdfSubsample(subsample);
-    const effectivePixels = estimateDjvuPdfEffectivePixels(metrics, normalizedSubsample);
-    const recommendedSubsample = resolveRecommendedDjvuPdfSubsample(metrics);
+    const effectivePixels = estimateEffectivePixels(source.sourcePixels, normalizedSubsample);
 
     return {
         subsample: normalizedSubsample,
-        recommendedSubsample,
+        recommendedSubsample: source.recommendedSubsample,
         effectivePixels,
-        isAllowed: normalizedSubsample >= recommendedSubsample
+        isAllowed: normalizedSubsample >= source.recommendedSubsample
             || effectivePixels <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
     };
 }

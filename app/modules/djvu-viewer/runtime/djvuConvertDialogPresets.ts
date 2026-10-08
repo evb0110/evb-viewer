@@ -1,7 +1,6 @@
 import {
     normalizeDjvuPdfSubsample,
-    resolveRecommendedDjvuPdfSubsample,
-    type IDjvuPdfConversionMetrics,
+    type IDjvuPdfConversionSourceEstimate,
     type TDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 
@@ -72,15 +71,12 @@ function resolvePageCountDefaultDjvuPdfSubsample(pageCount: number) {
     return 1;
 }
 
-function resolveDefaultDirectDjvuPdfSubsample(metrics: IDjvuPdfConversionMetrics) {
-    return Math.max(
-        resolvePageCountDefaultDjvuPdfSubsample(metrics.pageCount),
-        resolveRecommendedDjvuPdfSubsample(metrics),
-    );
-}
-
 export function resolveRecommendedAdvancedDirectPresetValue(
-    metrics: IDjvuPdfConversionMetrics,
+    pageCount: number,
+    source: IDjvuPdfConversionSourceEstimate,
 ): TDjvuConvertDialogDirectPresetValue {
-    return createDirectDjvuConvertDialogPresetValue(resolveDefaultDirectDjvuPdfSubsample(metrics));
+    return createDirectDjvuConvertDialogPresetValue(Math.max(
+        resolvePageCountDefaultDjvuPdfSubsample(pageCount),
+        source.recommendedSubsample,
+    ));
 }
