@@ -1078,6 +1078,7 @@ export default {
         'newTab': 'Neuer Tab',
         'closeTab': 'Tab schließen',
         'editorPanes': 'Editorbereiche',
+        'resizeEditorPanes': 'Editorbereiche in der Größe ändern',
         'splitEditorRight': 'Bereich nach rechts teilen',
         'splitEditorLeft': 'Bereich nach links teilen',
         'splitEditorUp': 'Bereich nach oben teilen',

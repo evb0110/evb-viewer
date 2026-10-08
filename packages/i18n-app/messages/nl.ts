@@ -1078,6 +1078,7 @@ export default {
         'newTab': 'Nieuw tabblad',
         'closeTab': 'Tabblad sluiten',
         'editorPanes': 'Editorpanelen',
+        'resizeEditorPanes': 'Editorpanelen vergroten of verkleinen',
         'splitEditorRight': 'Naar rechts splitsen',
         'splitEditorLeft': 'Naar links splitsen',
         'splitEditorUp': 'Naar boven splitsen',

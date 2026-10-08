@@ -1078,6 +1078,7 @@ export default {
         'newTab': 'New Tab',
         'closeTab': 'Close Tab',
         'editorPanes': 'Editor Panes',
+        'resizeEditorPanes': 'Resize editor panes',
         'splitEditorRight': 'Split Right',
         'splitEditorLeft': 'Split Left',
         'splitEditorUp': 'Split Up',

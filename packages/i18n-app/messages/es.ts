@@ -1078,6 +1078,7 @@ export default {
         'newTab': 'Nueva pestaña',
         'closeTab': 'Cerrar pestaña',
         'editorPanes': 'Paneles del editor',
+        'resizeEditorPanes': 'Cambiar el tamaño de los paneles del editor',
         'splitEditorRight': 'Dividir a la derecha',
         'splitEditorLeft': 'Dividir a la izquierda',
         'splitEditorUp': 'Dividir hacia arriba',

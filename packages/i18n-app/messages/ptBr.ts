@@ -1079,6 +1079,7 @@ export default {
         'newTab': 'Nova Aba',
         'closeTab': 'Fechar Aba',
         'editorPanes': 'Painéis do editor',
+        'resizeEditorPanes': 'Redimensionar os painéis do editor',
         'splitEditorRight': 'Dividir para a direita',
         'splitEditorLeft': 'Dividir para a esquerda',
         'splitEditorUp': 'Dividir para cima',

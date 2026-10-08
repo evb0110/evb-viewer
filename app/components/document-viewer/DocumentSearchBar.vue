@@ -49,6 +49,7 @@
                     size="xs"
                     class="search-toggle"
                     :class="{ 'is-active': options.matchCase }"
+                    :aria-pressed="options.matchCase"
                     :aria-label="t('search.caseSensitive')"
                     @click="toggleOption('matchCase')"
                 />
@@ -59,6 +60,7 @@
                     size="xs"
                     class="search-toggle"
                     :class="{ 'is-active': options.wholeWord }"
+                    :aria-pressed="options.wholeWord"
                     :aria-label="t('search.wholeWord')"
                     @click="toggleOption('wholeWord')"
                 />
@@ -69,6 +71,7 @@
                     size="xs"
                     class="search-toggle"
                     :class="{ 'is-active': options.useRegex }"
+                    :aria-pressed="options.useRegex"
                     :aria-label="t('search.regex')"
                     @click="toggleOption('useRegex')"
                 />
