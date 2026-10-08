@@ -292,14 +292,6 @@ impl Default for PdfBuildOptions {
 
 const JBIG2_SYMBOL_CHUNK_PAGES: usize = 50;
 
-#[must_use]
-pub fn default_worker_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|parallelism| parallelism.get())
-        .unwrap_or(1)
-        .clamp(1, evb_native_support::MAX_WORKER_THREADS)
-}
-
 pub fn write_pdf<'a, W, I, P>(
     output: W,
     page_specs: I,
