@@ -360,12 +360,15 @@ fn analysis_publishes_progress_for_each_page() {
                         panic!("analyzed page must publish its plan before the next input arrives");
                     }
                     let plan: Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
-                    assert_eq!(plan["layoutClassification"], event["progress"]["classification"]);
+                    assert_eq!(
+                        plan["layoutClassification"],
+                        event["progress"]["classification"]
+                    );
                     assert!(plan["outputs"].is_array());
                     fs::write(&second_input, &encoded).unwrap();
                 }
                 events.push(event);
-            },
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             Err(error) => {
                 let _ = child.kill();
@@ -2076,11 +2079,13 @@ fn failed_batch_restores_a_preexisting_file_destination() {
     assert!(!bad_output.exists());
     assert!(!bad_metadata.exists());
     assert!(!bad_page_metadata.exists());
-    assert!(fs::read_dir(&scratch.dir).unwrap().all(|entry| !entry
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .contains(".evb-tmp-")));
+    assert!(fs::read_dir(&scratch.dir).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".evb-tmp-")
+    }));
 }
 
 #[test]
@@ -4536,11 +4541,13 @@ fn allowed_path_root_refuses_a_symlinked_output_escape_before_publication() {
     );
     assert_eq!(fs::read(&victim).unwrap(), original);
     assert!(!page_metadata.exists());
-    assert!(fs::read_dir(&outside).unwrap().all(|entry| !entry
-        .unwrap()
-        .file_name()
-        .to_string_lossy()
-        .contains(".evb-tmp-")));
+    assert!(fs::read_dir(&outside).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains(".evb-tmp-")
+    }));
 
     // The same manifest without a root is still accepted for external CLI
     // users, and it really does publish outside the run root. That is the
