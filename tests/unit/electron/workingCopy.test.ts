@@ -38,6 +38,7 @@ import type * as NodeFs from 'fs';
 import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type * as WorkingCopyMaterialization from '@electron/file-access/workingCopyMaterialization';
 import type * as FsPromises from 'fs/promises';
+import type * as CreateOriginalFileContentFingerprintHash from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import type * as PdfAppendBase from '@electron/pdf/pdfAppendBase';
 
 let tempRoot = '';
@@ -736,6 +737,148 @@ describe('workingCopy', () => {
         }
     });
 
+    it('fingerprints an eager copy\'s original from the copy, reading it once', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        const originalPath = join(tempRoot, 'eager-fingerprint-original.pdf');
+        const originalBytes = Buffer.concat([
+            Buffer.from('%PDF-1.7 /Encrypt\n'),
+            Buffer.alloc(8 * 1024 * 1024, 23),
+        ]);
+        writeFileSync(originalPath, originalBytes);
+        const resolvedOriginalPath = realpathSync.native(originalPath);
+        let originalBytesRead = 0;
+        vi.doMock('fs/promises', async (importOriginal) => {
+            const original = await importOriginal<typeof FsPromises>();
+            return {
+                ...original,
+                open: vi.fn(async (...args: Parameters<typeof original.open>) => {
+                    const handle = await original.open(...args);
+                    if (String(args[0]) !== resolvedOriginalPath) {
+                        return handle;
+                    }
+                    return Object.assign(Object.create(handle), {
+                        close: () => handle.close(),
+                        read: async (buffer: Buffer, offset: number, length: number, position: number | bigint) => {
+                            const result = await handle.read(buffer, offset, length, position);
+                            originalBytesRead += result.bytesRead;
+                            return result;
+                        },
+                        stat: (...statArgs: Parameters<typeof handle.stat>) => handle.stat(...statArgs),
+                    }) as Awaited<ReturnType<typeof original.open>>;
+                }),
+            };
+        });
+        vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
+            decryptWorkingCopyWithWriter: vi.fn(async () => ({
+                outcome: 'decrypted' as const,
+                wasEncrypted: true as const,
+                revision: null,
+            })),
+            PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {},
+        }));
+        vi.resetModules();
+        try {
+            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).toBe(resolvedOriginalPath);
+
+            const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+            await vi.waitFor(() => {
+                expect(getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController).toBeUndefined();
+            });
+            expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
+                backingState: 'eager',
+                originalFileExpectation: {
+                    contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
+                    size: originalBytes.byteLength,
+                },
+            });
+            // The copy and the encryption probe read it; a second full pass
+            // to fingerprint the same bytes would double this.
+            expect(originalBytesRead).toBeGreaterThanOrEqual(originalBytes.byteLength);
+            expect(originalBytesRead).toBeLessThan(2 * originalBytes.byteLength);
+        } finally {
+            vi.doUnmock('fs/promises');
+            vi.doUnmock('@electron/file-access/workingCopyDecryption');
+            vi.resetModules();
+        }
+    });
+
+    it('leaves the fingerprint to the registration scan when the source changes under the eager copy', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        const originalPath = join(tempRoot, 'eager-changing-original.pdf');
+        const originalBytes = Buffer.concat([
+            Buffer.from('%PDF-1.7 /Encrypt\n'),
+            Buffer.alloc(8 * 1024 * 1024, 29),
+        ]);
+        writeFileSync(originalPath, originalBytes);
+        const pinnedMtime = new Date('2026-01-02T03:04:05.000Z');
+        utimesSync(originalPath, pinnedMtime, pinnedMtime);
+        const resolvedOriginalPath = realpathSync.native(originalPath);
+        // Bytes the copy has already read change in place, outside the
+        // witness samples, with size and mtime restored: only ctime moves.
+        const changedBytes = Buffer.from(originalBytes);
+        changedBytes.fill(31, 512 * 1024, 516 * 1024);
+        let changed = false;
+        vi.doMock('fs/promises', async (importOriginal) => {
+            const original = await importOriginal<typeof FsPromises>();
+            return {
+                ...original,
+                open: vi.fn(async (...args: Parameters<typeof original.open>) => {
+                    const handle = await original.open(...args);
+                    if (String(args[0]) !== resolvedOriginalPath) {
+                        return handle;
+                    }
+                    return Object.assign(Object.create(handle), {
+                        close: () => handle.close(),
+                        read: async (buffer: Buffer, offset: number, length: number, position: number | bigint) => {
+                            const result = await handle.read(buffer, offset, length, position);
+                            if (!changed && Number(position) === 1024 * 1024) {
+                                changed = true;
+                                writeFileSync(originalPath, changedBytes);
+                                utimesSync(originalPath, pinnedMtime, pinnedMtime);
+                            }
+                            return result;
+                        },
+                        stat: (...statArgs: Parameters<typeof handle.stat>) => handle.stat(...statArgs),
+                    }) as Awaited<ReturnType<typeof original.open>>;
+                }),
+            };
+        });
+        vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
+            decryptWorkingCopyWithWriter: vi.fn(async () => ({
+                outcome: 'decrypted' as const,
+                wasEncrypted: true as const,
+                revision: null,
+            })),
+            PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {},
+        }));
+        vi.resetModules();
+        try {
+            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+
+            const workingPath = await createWorkingCopy(allowOpenPath(originalPath)!, 7);
+
+            expect(changed).toBe(true);
+            await vi.waitFor(() => {
+                expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
+                    `sha256-full-v1:${createOriginalFileContentFingerprintHash(changedBytes.byteLength).update(changedBytes).digest('hex')}`,
+                );
+            });
+        } finally {
+            vi.doUnmock('fs/promises');
+            vi.doUnmock('@electron/file-access/workingCopyDecryption');
+            vi.resetModules();
+        }
+    });
+
     it('removes a recreated encrypted working copy when the writer still needs a password', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
         const writer = vi.fn()
@@ -793,7 +936,13 @@ describe('workingCopy', () => {
 
     it('does not stack page-count or fingerprint work across repeated read-only opens', async () => {
         const fingerprintHash = vi.fn();
-        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', () => ({createOriginalFileContentFingerprintHash: fingerprintHash}));
+        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', async (importOriginal) => {
+            const original = await importOriginal<typeof CreateOriginalFileContentFingerprintHash>();
+            return {createOriginalFileContentFingerprintHash: (size: number) => {
+                fingerprintHash(size);
+                return original.createOriginalFileContentFingerprintHash(size);
+            }};
+        });
 
         try {
             const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');

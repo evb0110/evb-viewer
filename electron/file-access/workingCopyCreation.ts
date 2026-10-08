@@ -37,6 +37,7 @@ import {
     hasWorkingCopyRecoveryClaim,
     isKnownWorkingCopyOriginalPath,
     setWorkingCopyOriginalPath,
+    type ICopiedSourceFingerprint,
     type TWorkingCopyRole,
     workingCopyAdmissionSnapshotsMatch,
 } from '@electron/file-access/workingCopyStore';
@@ -192,6 +193,7 @@ async function createWorkingCopyWithOutcomeInternal(
             : null;
         let admissionSnapshot: Awaited<ReturnType<typeof captureWorkingCopyAdmissionSnapshot>> | undefined;
         let backingState: 'cloned' | 'eager' | 'lazy-original';
+        let copiedSourceFingerprint: ICopiedSourceFingerprint | null = null;
         let encrypted = false;
 
         const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
@@ -216,8 +218,11 @@ async function createWorkingCopyWithOutcomeInternal(
             if (normalized) {
                 backingState = 'eager';
             } else if (encrypted || !isPdf) {
-                await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
-                    copyFileFromStableSource(originalPath, workingPath));
+                // The copy reads every source byte verbatim, so it fingerprints
+                // the original for the registration; decryption changes only
+                // the copy afterwards.
+                copiedSourceFingerprint = await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
+                    copyFileFromStableSource(originalPath, workingPath, {fingerprintSource: true}));
                 if (isPdf) {
                     const decryption = await decryptPdfWorkingCopy(
                         workingPath,
@@ -253,6 +258,7 @@ async function createWorkingCopyWithOutcomeInternal(
             ownerWebContentsId,
             {
                 ...(admissionSnapshot ? {admissionSnapshot} : {}),
+                ...(copiedSourceFingerprint ? {copiedSourceFingerprint} : {}),
                 ...(sourceWitness ? {originalFileExpectation: sourceWitness.getOriginalFileExpectation()} : {}),
                 backingState,
             },
@@ -338,17 +344,23 @@ export async function createWorkingCopyFromPath(
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(sourcePath), true));
 
-        if (getWorkingCopyBackingEntry(sourcePath, ownerWebContentsId)) {
-            // A lazy working copy has no bytes of its own until background
-            // materialization finishes; clone the original it reads from.
-            await runWithWorkingCopyReadBacking(
+        // A copy that reads the registration's original fingerprints it on the
+        // way; a clone, or a copy of any other file, leaves that to the
+        // registration.
+        const copySource = async (readPath: string) => (
+            await attemptWorkingCopyClone(readPath, workingPath) === 'known-unsupported'
+                ? copyFileFromStableSource(readPath, workingPath, {fingerprintSource: readPath === mappedOriginalPath})
+                : null
+        );
+        // A lazy working copy has no bytes of its own until background
+        // materialization finishes; clone the original it reads from.
+        const copiedSourceFingerprint = getWorkingCopyBackingEntry(sourcePath, ownerWebContentsId)
+            ? await runWithWorkingCopyReadBacking(
                 sourcePath,
-                readPath => copyFileCopyOnWrite(readPath, workingPath),
+                copySource,
                 ownerWebContentsId === undefined ? {} : {ownerWebContentsId},
-            );
-        } else {
-            await copyFileCopyOnWrite(sourcePath, workingPath);
-        }
+            )
+            : await copySource(sourcePath);
         if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
             assertWorkingCopyDecryptionSucceeded(
                 await decryptWorkingCopyWithWriter(workingPath, options.password),
@@ -359,6 +371,7 @@ export async function createWorkingCopyFromPath(
         if (mappedOriginalPath) {
             await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
                 backingState: 'eager',
+                ...(copiedSourceFingerprint ? {copiedSourceFingerprint} : {}),
                 role,
             });
         }
