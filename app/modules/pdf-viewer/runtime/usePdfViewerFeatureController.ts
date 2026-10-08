@@ -222,7 +222,6 @@ export const usePdfViewerFeatureController = (
         viewerContainer,
         isActive,
         isResizing,
-        isAnySaving,
         viewMode,
         viewRotation,
         outputScale,

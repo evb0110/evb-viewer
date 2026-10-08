@@ -1,3 +1,4 @@
+import {getErrorMessage} from '@app/utils/error';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type * as Vue from 'vue';
@@ -65,7 +66,6 @@ export interface ICreatePdfRenderingSessionOptions {
     viewerContainer: Vue.Ref<HTMLElement | null>;
     isActive: Vue.ComputedRef<boolean>;
     isResizing: Vue.ComputedRef<boolean>;
-    isAnySaving: Vue.ComputedRef<boolean>;
     viewMode: Vue.ComputedRef<TPdfViewMode>;
     viewRotation?: Vue.ComputedRef<TPdfViewRotation>;
     outputScale: Vue.Ref<number>;
@@ -334,6 +334,35 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         },
         start: prepared => prepared.render.startRender(),
         onRenderStall: payload => handlePageRenderStall(payload),
+        // A visible page whose raster kept failing is told once, with a Retry
+        // that redraws it; buffer pages stay quiet until they are scrolled to.
+        onRenderFailed(demand, error) {
+            const pageNumber = demand.pageNumber;
+            const job = viewportRasterJobs.get(demand.renderKey);
+            const requestId = pageRenderState.getSlot(pageNumber).requestId;
+            if (
+                !job
+                || requestId === null
+                || !isPageRenderFailed(pageNumber)
+                || demand.lane !== 'navigation-target' && demand.lane !== 'viewport-visible'
+            ) {
+                return;
+            }
+            initialVisual.handlePageRasterFailed({
+                openSurfaceGeneration: job.renderOptions.openSurfaceGeneration ?? 0,
+                documentRevision: job.renderOptions.openSurfaceRevision ?? documentSession.openSurfaceRevision,
+                renderVersion: demand.consumerGeneration,
+                requestId,
+                pageNumber,
+            }, getErrorMessage(error));
+            pageRenderer.presentPageRenderFailure(pageNumber, error, () => renderVisiblePages({
+                start: pageNumber,
+                end: pageNumber,
+            }, {
+                bufferOverride: 0,
+                forceRerender: true,
+            }));
+        },
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand) {
                 return false;
@@ -1074,26 +1103,14 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     const {
         resetRenderStallRecoveryState,
         invalidatePages,
-        consumePendingInvalidation,
         handlePageRenderStall,
     } = usePdfViewerRenderStallRecovery({
         src: computed(() => documentSession.acceptedSource.value),
-        isLoading: documentSession.isLoading,
-        isAnySaving: options.isAnySaving,
         numPages: documentSession.numPages,
         currentPage: viewport.currentPage,
         visibleRange: viewport.visibleRange,
         viewerContainer: options.viewerContainer,
         summarizeViewerMetricsForLog: viewport.summarizeViewerMetricsForLog,
-        cancelInFlightPageRenders: cancelInFlightRenders,
-        renderVisiblePages,
-        scheduleReload: (isReload = false) => {
-            const pages = consumePendingInvalidation();
-            if (pages) {
-                documentSession.invalidatePagesOnNextReload(pages);
-            }
-            documentSession.scheduleLoad(isReload);
-        },
     });
     const {
         nextActivationRestoreRunId,

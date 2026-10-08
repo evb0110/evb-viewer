@@ -130,16 +130,11 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         viewport.singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
         reconcileInitialVisual();
     }
-    function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
-        options.renderedPageStateVersion.value += 1;
-        options.queueFrame();
-        if (!chassisAuthority) {
-            return;
-        }
-        const surface = chassisAuthority.openSurface;
-        const authoritativePageNumber = surface.viewportSession.value.requestedPage;
-        if (commit.pageNumber !== authoritativePageNumber) {
-            return;
+    // The fence a settled render of the requested page reports on.
+    function claimRequestedPageFence(commit: IPdfCanvasDomCommit) {
+        const surface = chassisAuthority?.openSurface;
+        if (!surface || commit.pageNumber !== surface.viewportSession.value.requestedPage) {
+            return null;
         }
         const fence = options.openSurfaceRenderOwner && surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
             generation: commit.openSurfaceGeneration,
@@ -148,7 +143,16 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             rendererRequestId: commit.requestId,
             pageNumber: commit.pageNumber,
         });
-        if (!fence) {
+        return fence ? {
+            surface,
+            fence,
+        } : null;
+    }
+    function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
+        options.renderedPageStateVersion.value += 1;
+        options.queueFrame();
+        const claimed = claimRequestedPageFence(commit);
+        if (!chassisAuthority || !claimed) {
             return;
         }
         commitPdfPageSkeletonGeometry(
@@ -158,22 +162,31 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
             viewport.scale.scaledMargin,
             commit.pageNumber,
             {
-                authoritativePageNumber,
-                expectedGeneration: surface.snapshot.value.generation,
+                authoritativePageNumber: commit.pageNumber,
+                expectedGeneration: claimed.surface.snapshot.value.generation,
                 minimumScrollHeight: viewport.openVirtualSurfaceGeometry.openingVirtualExtentMinimumScrollHeight.value,
                 requireVisibleSkeleton: false,
             },
         );
-        if (surface.commitCanvas(fence)) {
+        if (claimed.surface.commitCanvas(claimed.fence)) {
             viewport.singlePageScroll.commitCurrentViewportIfSettled(commit.pageNumber);
             reconcileInitialVisual();
         }
+    }
+    // The requested page's raster failed for good. Its error is that page's
+    // visual on the open surface, as a DjVu page source reports one, and the
+    // navigation waiting for its pixels ends there instead of placing the page
+    // and rastering it again.
+    function handlePageRasterFailed(commit: IPdfCanvasDomCommit, reason: string) {
+        const claimed = claimRequestedPageFence(commit);
+        claimed?.surface.reject(claimed.fence, reason);
     }
     return {
         readExactInitialCommit,
         reconcileInitialVisual,
         adoptResidentCanvas,
         handlePageCanvasMounted,
+        handlePageRasterFailed,
         setPendingReadyToken: (token: number | null) => {
             pendingReadyToken = token;
         },

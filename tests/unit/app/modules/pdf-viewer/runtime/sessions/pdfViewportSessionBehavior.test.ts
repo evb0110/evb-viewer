@@ -254,7 +254,6 @@ function createViewportFixture(input: {
                     viewerContainer,
                     isActive: computed(() => isActive.value),
                     isResizing: computed(() => false),
-                    isAnySaving: computed(() => false),
                     viewMode: computed(() => viewMode.value),
                     outputScale,
                     rasterDisplayProfile: computed(() => null),

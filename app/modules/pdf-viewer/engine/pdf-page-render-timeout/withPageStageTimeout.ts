@@ -34,12 +34,18 @@ function logPageStageDeadlineCallbackFailure(
     });
 }
 
+/**
+ * A render stage fails when it makes no progress for `payload.timeoutMs`.
+ * `refresh` restarts that window, so a slow page that keeps drawing is not a
+ * stall; a stage that never reports progress still fails once.
+ */
 export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
     let rejectDeadline!: (error: unknown) => void;
     const promise = new Promise<never>((_resolve, reject) => {
         rejectDeadline = reject;
     });
-    const timer = options.renderSupervisor.armTimer({
+    let fired = false;
+    const arm = () => options.renderSupervisor.armTimer({
         cause: 'page-stage-timeout',
         delayMs: options.payload.timeoutMs,
         key: options.key,
@@ -50,6 +56,7 @@ export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
             timeoutMs: options.payload.timeoutMs,
         },
         onFire: () => {
+            fired = true;
             rejectDeadline(createPageRenderTimeoutError(
                 options.payload.pageNumber,
                 options.payload.stage,
@@ -69,8 +76,14 @@ export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
             }
         },
     });
+    let timer = arm();
     return {
         clear: () => timer.clear(),
+        refresh: () => {
+            if (!fired && timer.isCurrent()) {
+                timer = arm();
+            }
+        },
         promise,
     };
 }

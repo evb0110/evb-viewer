@@ -249,6 +249,61 @@ describe('createPdfInitialVisualCommit', () => {
         fixture.viewerContainer.remove();
     });
 
+    it('shows the requested page\'s failed raster as its error and recovers when a retry paints it', () => {
+        const fixture = createResidentCanvasFixture(false);
+        const snapshot = fixture.surface.snapshot.value;
+        const commit = (pageNumber: number, requestId: number) => ({
+            openSurfaceGeneration: snapshot.generation,
+            documentRevision: snapshot.identity!.documentRevision,
+            renderVersion: 1,
+            requestId,
+            pageNumber: requirePageNumber(pageNumber),
+        });
+
+        // A page the open is not waiting for stays that page's own concern.
+        fixture.initialVisual.handlePageRasterFailed(commit(3, 1), 'canvas-render timed out');
+        expect(fixture.surface.viewportSession.value.lifecycle).toBe('opening');
+
+        fixture.initialVisual.handlePageRasterFailed(commit(2, 2), 'canvas-render timed out');
+        expect(fixture.surface.viewportSession.value).toMatchObject({
+            lifecycle: 'failed',
+            visual: {
+                kind: 'page',
+                pageNumber: 2,
+                presentation: 'error',
+            },
+        });
+        // The open's navigation ends with the failure; nothing waits to raster it again.
+        expect(fixture.surface.navigationTicket.value).toBeNull();
+        // The page never painted, so the open has no measured geometry yet.
+        expect(fixture.surface.snapshot.value.geometry).toBeNull();
+
+        const retried = document.createElement('canvas');
+        retried.width = 1023;
+        retried.height = 1510;
+        retried.getBoundingClientRect = vi.fn(() => createDomRect({
+            top: 0,
+            right: 511.459,
+            bottom: 755,
+            left: 0,
+            width: 511.459,
+            height: 755,
+        }));
+        fixture.viewerContainer.querySelector('.page_container[data-page="2"] .page_canvas')!.append(retried);
+        fixture.initialVisual.handlePageCanvasMounted(commit(2, 3));
+        expect(fixture.surface.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            committedPage: 2,
+            visual: {
+                pageNumber: 2,
+                presentation: 'canvas',
+            },
+        });
+        expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 2});
+
+        fixture.viewerContainer.remove();
+    });
+
     it('does not publish ready when the committed page canvas is painted but physically offscreen', () => {
         const fixture = createResidentCanvasFixture(true, {
             top: 1_440_000,

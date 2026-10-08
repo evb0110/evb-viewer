@@ -14,6 +14,7 @@ import {
 import {
     computed,
     ref,
+    render,
 } from 'vue';
 import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { IUsePdfPageRendererOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -257,6 +258,34 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(currentCanvas.isConnected).toBe(true);
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
+        } finally {harness.root.remove();}
+    });
+
+    it('tells a page whose raster failed for good, with a Retry that redraws it', async () => {
+        const harness = createHarness();
+        const isCurrent = vi.fn(() => true);
+        harness.document.isCurrent = isCurrent;
+        const retry = vi.fn(async () => undefined);
+        try {
+            harness.renderer.presentPageRenderFailure(requirePageNumber(1), new Error('canvas render failed'), retry);
+            const cancelled = Object.assign(new Error('cancelled'), {name: 'RenderingCancelledException'});
+            harness.renderer.presentPageRenderFailure(requirePageNumber(1), cancelled, retry);
+
+            expect(toastAdd).toHaveBeenCalledOnce();
+            const toast = toastAdd.mock.calls[0]?.[0];
+            expect(toast.title).toBe('common.pdfPage:{"page":1}');
+            const description = document.createElement('div');
+            render(toast.description(), description);
+            expect(description.textContent).toContain('common.pageRenderFailed');
+            const retryAction = toast.actions.find((action: {label: string}) => action.label === 'common.retry');
+            retryAction.onClick();
+            await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
+
+            // Another document is open now: its pages are not this failure's to redraw.
+            isCurrent.mockReturnValue(false);
+            retryAction.onClick();
+            await Promise.resolve();
+            expect(retry).toHaveBeenCalledOnce();
         } finally {harness.root.remove();}
     });
 

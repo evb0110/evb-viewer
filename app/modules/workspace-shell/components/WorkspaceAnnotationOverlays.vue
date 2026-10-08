@@ -16,7 +16,8 @@
             noteIndex,
             NOTE_WINDOW.ACTIVE_Z_INDEX_SLOTS - 1,
         )"
-        :bounds-root="annotationViewportRoot"
+        :pane-bounds="viewportDomSnapshot?.bounds ?? null"
+        :page-rect="viewportDomSnapshot?.pageContainers.get(note.pageNumber)?.rect ?? null"
         @update:text="updateAnnotationNoteText(note.annotationId, $event)"
         @update:position="handleNotePositionUpdate(note.annotationId, $event)"
         @minimize="handleNoteMinimize(note.annotationId, $event)"
@@ -178,6 +179,7 @@ const annotationViewportRoot = computed(() => view.pdfViewerRef.value?.getViewer
 const { t } = useTypedI18n();
 
 const {
+    viewportDomSnapshot,
     visibleAnnotationNoteWindows,
     anchoredAnnotationNoteWindows,
     openNoteAnchors,

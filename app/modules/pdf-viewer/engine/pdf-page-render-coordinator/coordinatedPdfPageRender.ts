@@ -337,8 +337,10 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
         releaseOwnership();
         throw error;
     }
+    // Each continuation is the task drawing its next slice or resuming after
+    // an image dependency resolved: progress, which restarts the stall window.
     const disposeContinuation = continuation
-        ? bindRenderTaskContinuation(task, continuation, signal)
+        ? bindRenderTaskContinuation(task, continuation, signal, () => watchdogDeadline?.refresh())
         : () => {};
     const settled = task.promise
         .catch(() => {})
@@ -404,10 +406,12 @@ function bindRenderTaskContinuation(
         priority: TPdfRenderContinuationPriority;
     },
     signal?: AbortSignal,
+    onProgress?: () => void,
 ) {
     let disposePending = () => {};
     const previousOnContinue = task.onContinue;
     task.onContinue = (continueRender: () => void) => {
+        onProgress?.();
         disposePending();
         disposePending = pdfRenderContinuationScheduler.schedule({
             ...continuation,

@@ -49,15 +49,10 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     let activeOwnerId: string | null = null;
     let generation: number | null = null;
     let liveLeaseGeneration: number | null = null;
-    const liveDocumentDependencies = () => Object.values(options.documentSessionsByTabId.value).flatMap(({snapshot}) => {
-        const {
-            originalPath, workingCopyPath,
-        } = snapshot.value.identity;
-        return [
-            originalPath,
-            workingCopyPath,
-        ].flatMap(ref => ref ? [{ref}] : []);
-    });
+    const liveDocumentDependencies = () => Object.values(options.documentSessionsByTabId.value).flatMap(({snapshot}) => [
+        snapshot.value.identity.originalPath,
+        snapshot.value.identity.workingCopyPath,
+    ].flatMap(ref => ref ? [{ref}] : []));
     let fenced = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -361,11 +356,13 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         // drafts need the captured payload and unchanged base.
                         if (drafts.length === 0) delete tab.annotationRecovery;
                     } catch (error) {
-                        BrowserLogger.warn(
-                            'workspace-recovery',
-                            `Failed to refresh recovery snapshot for dirty tab ${tab.tabId}`,
-                            error,
-                        );
+                        if (capturedCheckpointRevision === checkpointRevision) {
+                            BrowserLogger.warn(
+                                'workspace-recovery',
+                                `Failed to refresh recovery snapshot for dirty tab ${tab.tabId}`,
+                                error,
+                            );
+                        }
                     }
                 }
                 if (!bytes) {

@@ -150,6 +150,41 @@ describe('useDocumentOpenVisualSettle', () => {
         expect(harness.settle.initialDocumentVisualReady.value).toBe(false);
     });
 
+    it('settles a PDF whose first page shows a render error instead of pixels', () => {
+        const harness = createHarness({
+            pdfSrc: {path: 'fixture.pdf'},
+            pdfDocument: {},
+            totalPages: 1,
+            isLoading: false,
+        });
+        const generation = harness.surfaceSession.begin({
+            documentId: 'fixture.pdf',
+            documentRevision: 'revision-1',
+        });
+        harness.surfaceSession.commitGeometry(generation, {
+            width: 612,
+            height: 792,
+            margin: 20,
+        });
+        const fence = harness.surfaceSession.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        })!;
+        expect(harness.settle.documentOpenSettled.value).toBe(false);
+
+        expect(harness.surfaceSession.reject(fence, 'canvas-render timed out')).toBe(true);
+
+        expect(harness.surfaceSession.viewportSession.value.visual).toMatchObject({
+            kind: 'page',
+            pageNumber: 1,
+            presentation: 'error',
+        });
+        expect(harness.settle.documentOpenSettled.value).toBe(true);
+    });
+
     it('does not accept a PDF that is still loading', () => {
         const harness = createHarness({
             pdfSrc: { path: 'fixture.pdf' },
