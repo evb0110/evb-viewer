@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
     existsSync,
@@ -7,10 +8,12 @@ import {
     mkdtempSync,
     readdirSync,
     readFileSync,
+    readlinkSync,
     realpathSync,
     renameSync,
     rmSync,
     statSync,
+    symlinkSync,
     writeFileSync,
 } from 'node:fs';
 import {
@@ -193,6 +196,43 @@ export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
 
 const UNIX_SOCKET_PATH_MAX_BYTES = 104;
 const NITRO_WORKER_SOCKET_NAME_MAX = 'nitro-worker-9999999-999-999-99999.sock';
+const SHORT_TEMP_ALIAS_ROOT = '/tmp';
+
+// A short name for the caller's temp directory: this user's symlink in /tmp,
+// named after the directory so every launch from it reuses one link. Files
+// created through it land in the caller's directory.
+function aliasShortTempDir(tempDir: string) {
+    mkdirSync(tempDir, {recursive: true});
+    const target = realpathSync(tempDir);
+    const uid = process.getuid?.();
+    const alias = join(SHORT_TEMP_ALIAS_ROOT, `evb-viewer-tmp-${String(uid)}-${createHash('sha256').update(target).digest('hex').slice(0, 12)}`);
+    const reuseExisting = () => {
+        const existing = lstatSync(alias, {throwIfNoEntry: false});
+        if (!existing) {
+            return false;
+        }
+        if (existing.uid !== uid) {
+            throw new Error(`${alias} belongs to another user; set a shorter TMPDIR`);
+        }
+        if (existing.isSymbolicLink() && readlinkSync(alias) === target) {
+            return true;
+        }
+        rmSync(alias);
+        return false;
+    };
+    if (reuseExisting()) {
+        return alias;
+    }
+    try {
+        symlinkSync(target, alias);
+    } catch (error) {
+        // A concurrent launch from the same directory made the same link.
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || !reuseExisting()) {
+            throw error;
+        }
+    }
+    return alias;
+}
 
 export function buildNuxtDevServerEnv(
     env: NodeJS.ProcessEnv,
@@ -213,11 +253,18 @@ export function buildNuxtDevServerEnv(
 
     // Outside Linux and Windows, Nitro's dev worker listens on a Unix socket
     // named nitro-worker-<pid>-<thread>-<id>-<rand>.sock inside os.tmpdir().
-    // A task TMPDIR deep in a worktree overflows the 104-byte sun_path limit
-    // and the server dies with listen EINVAL, so Nuxt keeps the system temp.
-    if (platform !== 'linux' && platform !== 'win32' && launchEnv.TMPDIR
-        && join(launchEnv.TMPDIR, NITRO_WORKER_SOCKET_NAME_MAX).length >= UNIX_SOCKET_PATH_MAX_BYTES) {
-        delete launchEnv.TMPDIR;
+    // A task temp directory deep in a worktree overflows the 104-byte
+    // sun_path limit and the server dies with listen EINVAL, so Nuxt gets a
+    // short alias of the same directory. os.tmpdir() takes the first
+    // non-empty of TMPDIR, TMP and TEMP.
+    const tempDir = [
+        launchEnv.TMPDIR,
+        launchEnv.TMP,
+        launchEnv.TEMP,
+    ].find(Boolean);
+    if (platform !== 'linux' && platform !== 'win32' && tempDir
+        && Buffer.byteLength(join(tempDir, NITRO_WORKER_SOCKET_NAME_MAX)) >= UNIX_SOCKET_PATH_MAX_BYTES) {
+        launchEnv.TMPDIR = aliasShortTempDir(tempDir);
     }
 
     const artifactDirs = resolveNuxtDevServerArtifactDirs(env, sessionName);
