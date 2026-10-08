@@ -306,7 +306,44 @@ describe('browser document lifecycle UI', () => {
                             name: 'Minimize note',
                             exact: true,
                         }).click();
-                        await expect.poll(async () => (await readCheckpoint()).some(record => record.checkpoint.tabs.some(tab => tab.isDirty && tab.workingCopyRef)), {timeout: 15_000}).toBe(true);
+                        await expect.poll(async () => {
+                            const refs = (await readCheckpoint()).flatMap(record => record.checkpoint.tabs
+                                .filter(tab => tab.isDirty && tab.workingCopyRef)
+                                .map(tab => tab.workingCopyRef!));
+                            const copies = await page.evaluate(async refs => {
+                                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                                    const request = indexedDB.open('evb-viewer-browser-documents');
+                                    request.onsuccess = () => resolveDb(request.result);
+                                    request.onerror = () => rejectDb(request.error);
+                                });
+                                try {
+                                    return await Promise.all(refs.map(ref => new Promise<number[]>((resolveBytes, rejectBytes) => {
+                                        const request = db.transaction('documents', 'readonly').objectStore('documents').get(ref);
+                                        request.onsuccess = () => resolveBytes(Array.from(request.result?.data ?? []));
+                                        request.onerror = () => rejectBytes(request.error);
+                                    })));
+                                } finally {db.close();}
+                            }, refs);
+                            for (const copy of copies) {
+                                if (!copy.length) continue;
+                                const saved = await PDFDocument.load(Uint8Array.from(copy));
+                                const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                                for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
+                                    const annotation = annots!.lookup(index, PDFDict);
+                                    if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                                    const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText();
+                                    if (text === 'Previously accepted text') {
+                                        observations.push({
+                                            retained,
+                                            retainedSavedText: text,
+                                        });
+                                        writeFileSync(resolve(evidenceDir, 'retained-before-failure.pdf'), Uint8Array.from(copy));
+                                        return true;
+                                    }
+                                }
+                            }
+                            return false;
+                        }, {timeout: 15_000}).toBe(true);
                         await page.getByRole('button', {
                             name: 'Open Note',
                             exact: true,
