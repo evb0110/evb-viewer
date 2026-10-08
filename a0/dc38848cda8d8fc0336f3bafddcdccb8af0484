@@ -1,0 +1,24 @@
+electron/features/djvu/main/textSearch.ts
+  s_14a8e623d27ee8::t_6fda9dd9202857 35-38,96,358,360,377,380,382
+  s_14a8e623d27ee8::t_9b58308d23bbf6 345-346,350-352,354-357,359,361-362,364,368-372,376,385,388-391,396
+  s_14a8e623d27ee8::t_34ccf886fc5ee9 86-95,97-98,100-102
+tests/unit/electron/djvuTextSearch.test.ts
+  s_14a8e623d27ee8::t_8cad1db738157b 128-147,156-161
+  s_14a8e623d27ee8::t_2d7a2ae7dc553d 148-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a0dc38848cda8d8fc0336f3bafddcdccb8af0484",
+  "prompts": {},
+  "sessions": {
+    "s_14a8e623d27ee8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9efb816c-fde3-4991-90c7-9313ed7d9894",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
