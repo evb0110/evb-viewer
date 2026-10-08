@@ -1,6 +1,7 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import puppeteer, {
     type Browser,
+    type ConsoleMessage,
     type HTTPResponse,
     type Page,
 } from 'puppeteer-core';
@@ -669,6 +670,48 @@ async function waitForReadyRenderer(
     return currentPage;
 }
 
+export async function waitForRendererPaint(page: Pick<Page, 'evaluate'> & {
+    on: (event: 'console', listener: (message: ConsoleMessage) => void) => unknown;
+    off: (event: 'console', listener: (message: ConsoleMessage) => void) => unknown;
+}) {
+    let lastRendererState = 'rAFCallbacks=unavailable visibilityState=unavailable hidden=unavailable';
+    const capturePaintState = (message: ConsoleMessage) => {
+        if (message.text().startsWith('[automation-first-paint] ')) {
+            lastRendererState = message.text();
+        }
+    };
+    page.on('console', capturePaintState);
+    try {
+        await Promise.race([
+            page.evaluate(() => new Promise<void>(resolve => {
+                const paintState = {
+                    rAFCallbacks: 0,
+                    report() {
+                        console.debug(`[automation-first-paint] rAFCallbacks=${paintState.rAFCallbacks} visibilityState=${document.visibilityState} hidden=${document.hidden}`);
+                    },
+                };
+                document.addEventListener('visibilitychange', paintState.report);
+                paintState.report();
+                requestAnimationFrame(() => {
+                    paintState.rAFCallbacks = 1;
+                    paintState.report();
+                    requestAnimationFrame(() => {
+                        paintState.rAFCallbacks = 2;
+                        paintState.report();
+                        document.removeEventListener('visibilitychange', paintState.report);
+                        resolve();
+                    });
+                });
+            })),
+            delay(WINDOW_PAINT_TIMEOUT_MS).then(() => {
+                throw createRendererReadinessError(`Renderer startup timed out: the window did not paint within ${String(WINDOW_PAINT_TIMEOUT_MS / 1000)} s after its bindings were ready (${lastRendererState}; main-window state, when available, is in the automation-first-paint log)`);
+            }),
+        ]);
+    } finally {
+        page.off('console', capturePaintState);
+    }
+}
+
 export async function connectToBrowser(cdpPort: number): Promise<{
     browser: Browser;
     page: Page
@@ -715,14 +758,7 @@ export async function connectToBrowser(cdpPort: number): Promise<{
         // from the frame the renderer reports and the renderer stops taking
         // size changes, so a window resize would settle short. Animation
         // frames run only once the window paints.
-        await Promise.race([
-            page.evaluate(() => new Promise<void>(resolve => {
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            })),
-            delay(WINDOW_PAINT_TIMEOUT_MS).then(() => {
-                throw createRendererReadinessError(`Renderer startup timed out: the window did not paint within ${String(WINDOW_PAINT_TIMEOUT_MS / 1000)} s after its bindings were ready`);
-            }),
-        ]);
+        await waitForRendererPaint(page);
         logLauncher('debug', 'cdp', 'Connected to app');
         logTiming('Renderer painted');
         return {

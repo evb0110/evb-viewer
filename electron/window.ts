@@ -517,11 +517,37 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         },
     });
     const windowWebContents = window.webContents;
+    let lastFrameSubscriptionAtMs: number | null = null;
+    if (keepAutomationRendererActive) {
+        const logPaintState = (renderer: string) => logger.info('Automation first-paint window state', {
+            renderer,
+            windowId: window.id,
+            visible: window.isVisible(),
+            minimized: window.isMinimized(),
+            nativeFrameVisibility: windowWebContents.mainFrame.visibilityState,
+            // Electron exposes no window occlusion query or presentation timestamp.
+            occluded: null,
+            lastPresentedFrameAtMs: null,
+            lastFrameSubscriptionAtMs,
+        });
+        windowWebContents.on('console-message', event => {
+            if (event.message.startsWith('[automation-first-paint] ')) {
+                logPaintState(event.message);
+            }
+        });
+        window.on('show', () => logPaintState('window:show'));
+        window.on('hide', () => logPaintState('window:hide'));
+        window.on('minimize', () => logPaintState('window:minimize'));
+        window.on('restore', () => logPaintState('window:restore'));
+        window.on('close', () => logPaintState('window:close'));
+    }
     if (config.automation.hideWindow && process.platform !== 'darwin') {
         // On Windows and X11 a never-shown window draws only for a pending
         // copy, so CDP screenshots hang. A frame subscription keeps one
         // pending; it follows each main-frame navigation to the new widget.
-        windowWebContents.on('did-navigate', () => windowWebContents.beginFrameSubscription(() => undefined));
+        windowWebContents.on('did-navigate', () => windowWebContents.beginFrameSubscription(() => {
+            lastFrameSubscriptionAtMs = Date.now();
+        }));
     }
 
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});

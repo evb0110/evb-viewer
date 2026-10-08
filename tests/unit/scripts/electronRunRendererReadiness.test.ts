@@ -1,5 +1,6 @@
 import type {
     Browser,
+    ConsoleMessage,
     Page,
 } from 'puppeteer-core';
 import {
@@ -11,6 +12,7 @@ import {
 import {
     findAppPage,
     probeRendererBody,
+    waitForRendererPaint,
 } from '@scripts/electron-run/rendererReadiness';
 
 describe('Electron renderer readiness', () => {
@@ -60,4 +62,62 @@ describe('Electron renderer readiness', () => {
             vi.useRealTimers();
         }
     });
+
+    it.each([
+        0,
+        1,
+        2,
+    ])('keeps the paint outcome and diagnostic state after %s callbacks', async (callbacks) => {
+        vi.useFakeTimers();
+        let listener: ((message: ConsoleMessage) => void) | undefined;
+        const frames: FrameRequestCallback[] = [];
+        const evaluationPage = {evaluate: vi.fn(async (probe: () => Promise<void>) => probe())} as Pick<Page, 'evaluate'>;
+        const page = {
+            ...evaluationPage,
+            on: vi.fn((_event: string, callback: (message: ConsoleMessage) => void) => {
+                listener = callback;
+            }),
+            off: vi.fn(() => {
+                listener = undefined;
+            }),
+        };
+        vi.stubGlobal('document', {
+            visibilityState: 'hidden',
+            hidden: true,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+        });
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+        vi.spyOn(console, 'debug').mockImplementation(message => {
+            listener?.({text: () => String(message)} as ConsoleMessage);
+        });
+        try {
+            let settled = false;
+            const result = waitForRendererPaint(page).catch(error => {
+                settled = true;
+                return error;
+            });
+            if (callbacks >= 1) {
+                frames.shift()?.(16);
+            }
+            if (callbacks === 2) {
+                frames.shift()?.(32);
+                await expect(result).resolves.toBeUndefined();
+                await vi.advanceTimersByTimeAsync(30_000);
+                return;
+            }
+            await vi.advanceTimersByTimeAsync(29_999);
+            expect(settled).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await result).toMatchObject({
+                name: 'RendererReadinessError',
+                message: expect.stringContaining(`rAFCallbacks=${callbacks} visibilityState=hidden hidden=true`),
+            });
+        } finally {
+            vi.restoreAllMocks();
+            vi.unstubAllGlobals();
+            vi.useRealTimers();
+        }
+    });
+
 });
