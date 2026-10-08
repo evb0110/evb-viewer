@@ -60,6 +60,7 @@ import {
 } from '@electron/features/documents/main/docxExportStream';
 import {
     allowOpenPath,
+    allowOpenPaths,
     requireOpenPath,
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
@@ -717,7 +718,8 @@ export function registerDocumentsDirectIpc(
         for (const request of requests) {
             consumeRendererFileOpenToken(senderId, request.token);
         }
-        return requests.every(request => allowOpenPath(request.filePath, event.sender) !== null);
+        return allowOpenPaths(requests.map(request => request.filePath), event.sender)
+            .every(openPath => openPath !== null);
     });
     eventRegistrar.on(DOCUMENTS_CHANNELS.fileSavePdfDataPort, (event: IpcMainEvent, sessionId: unknown) => {
         try {
