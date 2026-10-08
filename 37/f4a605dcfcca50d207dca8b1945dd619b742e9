@@ -1,0 +1,27 @@
+app/modules/agent-panel/composables/useAssistantPanelClipboard.ts
+  s_0dbaeaa78acb44::t_06d715f5b1c8af 19,23,32-50,53-54
+app/modules/agent-panel/utils/formatAssistantMessage.ts
+  s_0dbaeaa78acb44::t_06d715f5b1c8af 441-445,447-453,459-467,488-502,505
+  s_0dbaeaa78acb44::t_bd9b1ca1e326ad 446,454-458
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_0dbaeaa78acb44::t_06d715f5b1c8af 695-698
+tests/unit/app/modules/agent-panel/assistantMessageFormatting.test.ts
+  s_0dbaeaa78acb44::t_bd9b1ca1e326ad 17-23,224-226
+  s_0dbaeaa78acb44::t_06d715f5b1c8af 207,222-223,227-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "37f4a605dcfcca50d207dca8b1945dd619b742e9",
+  "prompts": {},
+  "sessions": {
+    "s_0dbaeaa78acb44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a118f2-48d1-7271-87f6-897fc13ee038",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
