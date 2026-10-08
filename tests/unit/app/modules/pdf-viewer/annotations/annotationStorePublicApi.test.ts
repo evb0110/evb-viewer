@@ -162,6 +162,7 @@ describe('AnnotationStore public API', () => {
         source.markPersisted(save);
         source.updateNote(original.identity.id, {contents: 'changed'});
         source.delete(deleted.identity.id);
+        const pendingShape = source.createShape(shape('recovery-shape'));
         const recovery = captureCanonicalAnnotationRecovery(source, [{
             annotationId: original.identity.id,
             kind: 'note',
@@ -203,6 +204,8 @@ describe('AnnotationStore public API', () => {
             text: 'typed but not committed',
             generation: 4,
         });
+        expect(restored.get(pendingShape.identity.id)).toEqual(pendingShape);
+        expect(restored.hasChangesSinceSavedBaseline('shape')).toBe(true);
         expect(restored.foreign).toEqual([foreign]);
     });
 

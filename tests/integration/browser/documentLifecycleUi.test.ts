@@ -194,6 +194,227 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    it('recovers the current note draft while document note updates keep rejecting', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Sustained note failure recovery', {
+            x: 40,
+            y: 740,
+            font,
+            size: 16,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1108/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const observations: unknown[] = [];
+        try {
+            for (const retained of [
+                false,
+                true,
+            ]) {
+                const context = await browser.newContext({
+                    viewport: {
+                        width: 1280,
+                        height: 800,
+                    },
+                    recordVideo: {
+                        dir: evidenceDir,
+                        size: {
+                            width: 1280,
+                            height: 800,
+                        },
+                    },
+                });
+                let problems: string[] = [];
+                try {
+                    const page = await context.newPage();
+                    problems = collectConsoleProblems(page);
+                    // Fault setup only; note input and restored Save As remain trusted.
+                    await page.route('**/composables/useWorkspaceAnnotationSession.ts*', async route => {
+                        const response = await route.fetch();
+                        const body = await response.text();
+                        const marker = 'const comment = resolveNoteComment(annotationId);';
+                        if (!body.includes(marker)) throw new Error('Document note update fault seam was not found');
+                        await route.fulfill({
+                            response,
+                            body: body.replace(marker,
+                                'if (Reflect.get(window, "__noteRecoveryFailure")) throw new Error("1108 sustained note update rejection"); ' + marker),
+                        });
+                    });
+                    await page.addInitScript(() => {
+                        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                        Reflect.set(window, '__noteRecoveryFailure', true);
+                        Reflect.set(window, 'showSaveFilePicker', undefined);
+                        sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                    });
+                    await page.goto(origin, {waitUntil: 'domcontentloaded'});
+                    await waitForOpenFileReady(page);
+                    await page.evaluate(() => Reflect.set(window, '__noteRecoveryFailure', false));
+                    keepFileChooserInterceptionEnabled(page);
+                    const chooser = page.waitForEvent('filechooser');
+                    await page.getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    }).first().click();
+                    await (await chooser).setFiles({
+                        name: 'sustained-note.pdf',
+                        mimeType: 'application/pdf',
+                        buffer: bytes,
+                    });
+                    await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+                    await page.getByRole('button', {
+                        name: 'Place a sticky note on the page.',
+                        exact: true,
+                    }).click();
+                    const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+                    if (!bounds) throw new Error('The first PDF page is not visible');
+                    await page.mouse.click(bounds.x + 200, bounds.y + 200);
+                    const input = page.getByRole('textbox', {
+                        name: 'Write annotation note',
+                        exact: true,
+                    });
+                    async function readCheckpoint() {
+                        return page.evaluate(async () => {
+                            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                                const request = indexedDB.open('evb-viewer-browser-documents');
+                                request.onsuccess = () => resolveDb(request.result);
+                                request.onerror = () => rejectDb(request.error);
+                            });
+                            try {
+                                return await new Promise<Array<{checkpoint: {tabs: Array<{
+                                    isDirty: boolean;
+                                    workingCopyRef: string | null;
+                                    annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
+                                }>}}>>((resolveRows, rejectRows) => {
+                                    const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
+                                    request.onsuccess = () => resolveRows(request.result);
+                                    request.onerror = () => rejectRows(request.error);
+                                });
+                            } finally {db.close();}
+                        });
+                    }
+                    if (retained) {
+                        await input.fill('Previously accepted text');
+                        await page.getByRole('button', {
+                            name: 'Minimize note',
+                            exact: true,
+                        }).click();
+                        await expect.poll(async () => {
+                            const refs = (await readCheckpoint()).flatMap(record => record.checkpoint.tabs
+                                .filter(tab => tab.isDirty && tab.workingCopyRef)
+                                .map(tab => tab.workingCopyRef!));
+                            const copies = await page.evaluate(async refs => {
+                                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                                    const request = indexedDB.open('evb-viewer-browser-documents');
+                                    request.onsuccess = () => resolveDb(request.result);
+                                    request.onerror = () => rejectDb(request.error);
+                                });
+                                try {
+                                    return await Promise.all(refs.map(ref => new Promise<number[]>((resolveBytes, rejectBytes) => {
+                                        const request = db.transaction('documents', 'readonly').objectStore('documents').get(ref);
+                                        request.onsuccess = () => resolveBytes(Array.from(request.result?.data ?? []));
+                                        request.onerror = () => rejectBytes(request.error);
+                                    })));
+                                } finally {db.close();}
+                            }, refs);
+                            for (const copy of copies) {
+                                if (!copy.length) continue;
+                                const saved = await PDFDocument.load(Uint8Array.from(copy));
+                                const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                                for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
+                                    const annotation = annots!.lookup(index, PDFDict);
+                                    if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                                    const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText();
+                                    if (text === 'Previously accepted text') {
+                                        observations.push({
+                                            retained,
+                                            retainedSavedText: text,
+                                        });
+                                        writeFileSync(resolve(evidenceDir, 'retained-before-failure.pdf'), Uint8Array.from(copy));
+                                        return true;
+                                    }
+                                }
+                            }
+                            return false;
+                        }, {timeout: 15_000}).toBe(true);
+                        await page.getByRole('button', {
+                            name: 'Open Note',
+                            exact: true,
+                        }).click();
+                    }
+                    const draft = retained ? 'Protected newer draft over an older snapshot' : 'Protected draft without a previous snapshot';
+                    await page.evaluate(() => Reflect.set(window, '__noteRecoveryFailure', true));
+                    await input.fill(draft);
+                    await page.waitForFunction(() => document.querySelector('.app-toast-failure')?.textContent?.includes('1108 sustained note update rejection'));
+                    await page.screenshot({path: resolve(evidenceDir, `failure-${String(retained)}.png`)});
+                    await expect.poll(async () => {
+                        const records = await readCheckpoint();
+                        observations.push({
+                            retained,
+                            records,
+                        });
+                        return records.some(record => record.checkpoint.tabs.some(tab => tab.isDirty && tab.workingCopyRef
+                            && tab.annotationRecovery?.payload?.drafts.some(value => value.text === draft)));
+                    }, {timeout: 15_000}).toBe(true);
+                    await page.screenshot({path: resolve(evidenceDir, `protected-${String(retained)}.png`)});
+                    // Renderer restart retains the durable browser owner and database.
+                    // The fault remains active in the restarted renderer.
+                    await page.reload({waitUntil: 'domcontentloaded'});
+                    await waitForOpenFileReady(page);
+                    await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+                    await expect.poll(() => input.inputValue()).toBe(draft);
+                    await page.screenshot({path: resolve(evidenceDir, `restored-${String(retained)}.png`)});
+                    await page.evaluate(() => Reflect.set(window, '__noteRecoveryFailure', false));
+                    await page.getByRole('button', {
+                        name: 'Minimize note',
+                        exact: true,
+                    }).click();
+                    const download = page.waitForEvent('download');
+                    await page.getByRole('button', {
+                        name: 'Save options',
+                        exact: true,
+                    }).click();
+                    await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                    const savedPath = resolve(evidenceDir, `restored-${String(retained)}.pdf`);
+                    await (await download).saveAs(savedPath);
+                    const saved = await PDFDocument.load(readFileSync(savedPath));
+                    const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                    const texts: string[] = [];
+                    for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
+                        const annotation = annots!.lookup(index, PDFDict);
+                        if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                        const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
+                        if (text) texts.push(text.decodeText());
+                    }
+                    expect(texts).toEqual([draft]);
+                    expect(problems.filter(problem => !problem.includes('1108 sustained note update rejection'))).toEqual([]);
+                    observations.push({
+                        retained,
+                        restoredDraft: draft,
+                        savedTexts: texts,
+                        problems,
+                    });
+                } finally {
+                    observations.push({
+                        retained,
+                        problems,
+                    });
+                    await context.close();
+                }
+            }
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
+            await browser.close();
+        }
+    }, 120_000);
+
     it('retains the note draft and actionable cause when a note update rejects', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));

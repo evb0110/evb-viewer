@@ -340,7 +340,11 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                             ]
                                 .find(view => view?.mountedWorkspace.value)
                             : null;
-                        bytes = await mountedView?.mountedWorkspace.value?.createRecoverySnapshotBytes();
+                        const drafts = tab.annotationRecovery?.payload.drafts ?? [];
+                        bytes = await mountedView?.mountedWorkspace.value?.createRecoverySnapshotBytes(drafts.length > 0 ? tab.annotationRecovery : undefined);
+                        // Native snapshots already contain canonical edits. Only
+                        // drafts need the captured payload and unchanged base.
+                        if (drafts.length === 0) delete tab.annotationRecovery;
                     } catch (error) {
                         BrowserLogger.warn(
                             'workspace-recovery',
@@ -390,6 +394,13 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     },
                 );
                 createdRefs.push(snapshotRef);
+                if (tab.annotationRecovery) {
+                    tab.annotationRecovery = {
+                        ...tab.annotationRecovery,
+                        workingCopyRef: snapshotRef,
+                        workingByteRevision: (await browserDocumentStore.getDocumentRevision(snapshotRef)).token,
+                    };
+                }
                 replacements.set(tab.tabId, snapshotRef);
                 refreshedTabIds.add(tab.tabId);
                 if (session) documentCopies.set(session, {

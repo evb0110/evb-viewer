@@ -311,7 +311,7 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         uri: string,
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    createRecoverySnapshotBytes: () => Promise<Uint8Array | null>;
+    createRecoverySnapshotBytes: (recovery?: IWorkspaceCheckpointTab['annotationRecovery']) => Promise<Uint8Array | null>;
     commentAtPoint?: (
         pageNumber: number,
         pageX: number,
