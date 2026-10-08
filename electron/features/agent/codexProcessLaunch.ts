@@ -41,6 +41,7 @@ function resolveWindowsScriptLaunch(codexPath: string, args: string[]) {
             'powershell.exe',
         ),
         shell: false,
+        sourcePath: powershellShim,
     };
 }
 
@@ -57,5 +58,6 @@ export function resolveCodexProcessLaunch(
         args,
         command: codexPath,
         shell: false,
+        sourcePath: codexPath,
     };
 }
