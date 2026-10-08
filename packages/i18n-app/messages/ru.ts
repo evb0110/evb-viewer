@@ -1036,6 +1036,7 @@ export default {
         'unitMegabyte': 'МБ',
         'pdfPage': 'Страница PDF {page}',
         'pageRenderFailed': 'Не удалось отобразить эту страницу',
+        'pageInteractionFailed': 'Не удалось загрузить ссылки и взаимодействие с аннотациями на странице {page}.',
     },
     'print': {
         'title': 'Печать',

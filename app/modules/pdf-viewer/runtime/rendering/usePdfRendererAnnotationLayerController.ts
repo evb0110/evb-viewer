@@ -1,3 +1,4 @@
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
@@ -8,6 +9,18 @@ import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-re
 type TAnnotationLayerInstance = Awaited<
     ReturnType<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>
 > | null;
+
+interface IAnnotationLayerRenderOutcome {
+    shouldContinue: boolean;
+    annotationLayerInstance: TAnnotationLayerInstance;
+    error?: unknown;
+    failure?: FailureReceipt;
+}
+
+export function isRenderCancellation(error: unknown) {
+    const name = error && typeof error === 'object' ? (error as {name?: unknown}).name : undefined;
+    return name === 'AbortError' || name === 'RenderingCancelledException';
+}
 
 interface IAnnotationRenderContext {
     container: HTMLElement;
@@ -23,7 +36,7 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     annotationLayerRenderer: ReturnType<typeof usePdfAnnotationLayerRenderer>;
     getRenderVersion: () => number;
     cleanupPageIfCurrentRender: (pageNumber: TPageNumber, version: number, requestId?: number) => void;
-    logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => void;
+    logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => FailureReceipt | undefined;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
@@ -89,7 +102,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         requestId: number,
         context: IAnnotationRenderContext,
         shouldContinue: () => boolean,
-    ) {
+    ): Promise<IAnnotationLayerRenderOutcome> {
         const {
             container,
             pdfPage,
@@ -149,11 +162,15 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                         annotationAbortController.signal,
                     );
             } catch (annotationError) {
-                logNonCriticalStageError(
-                    pageNumber,
-                    'annotation layer',
-                    annotationError,
-                );
+                if (getRenderVersion() === version && shouldContinue() && !isRenderCancellation(annotationError)) {
+                    const failure = logNonCriticalStageError(pageNumber, 'annotation layer', annotationError);
+                    return {
+                        shouldContinue: false,
+                        annotationLayerInstance: null,
+                        error: annotationError,
+                        ...(failure ? {failure} : {}),
+                    };
+                }
             } finally {
                 releaseAnnotationAbortController();
             }

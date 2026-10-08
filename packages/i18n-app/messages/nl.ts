@@ -1024,6 +1024,7 @@ export default {
         'unitMegabyte': 'MB',
         'pdfPage': 'PDF-pagina {page}',
         'pageRenderFailed': 'Deze pagina kan niet worden weergegeven',
+        'pageInteractionFailed': 'Links en interacties met annotaties op pagina {page} konden niet worden geladen.',
     },
     'print': {
         'title': 'Afdrukken',

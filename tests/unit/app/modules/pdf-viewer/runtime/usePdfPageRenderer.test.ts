@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
+import type * as AnnotationLayerControllerModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
+    afterAll,
     beforeEach,
     describe,
     expect,
@@ -35,20 +37,28 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer
     hideHiddenManagedEditors: vi.fn(),
     renderAnnotationEditorLayer: vi.fn(async () => undefined),
 })}));
-vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController', () => ({usePdfRendererAnnotationLayerController: () => Object.assign(
-    annotationControllerFixture.render,
-    {
-        cancel: vi.fn(),
-        cancelAll: vi.fn(),
-        dispose: vi.fn(),
-        register: vi.fn(() => vi.fn()),
-    },
-)}));
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController', async importOriginal => ({
+    ...await importOriginal<typeof AnnotationLayerControllerModule>(),
+    usePdfRendererAnnotationLayerController: () => Object.assign(
+        annotationControllerFixture.render,
+        {
+            cancel: vi.fn(),
+            cancelAll: vi.fn(),
+            dispose: vi.fn(),
+            register: vi.fn(() => vi.fn()),
+        },
+    ),
+}));
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController', () => ({usePdfRendererSearchController: () => ({
     applySearchHighlights: vi.fn(),
     invalidatePendingRequests: vi.fn(),
     requestScrollToCurrentResult: vi.fn(),
 })}));
+
+const toastAdd = vi.fn();
+vi.stubGlobal('useToast', () => ({add: toastAdd}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+afterAll(() => vi.unstubAllGlobals());
 
 const { usePdfPageRenderer } = await import(
     '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer'
@@ -201,6 +211,47 @@ beforeEach(() => {
 });
 
 describe('usePdfPageRenderer layer hydration ownership', () => {
+    it.each([
+        false,
+        true,
+    ])('keeps failed annotation interaction readable and out of automatic promotion (text-first=%s)', async (textFirst) => {
+        annotationControllerFixture.render.mockResolvedValueOnce({
+            shouldContinue: false,
+            annotationLayerInstance: null,
+            error: new Error('annotation failure'),
+        });
+        rendererFixture.renderTextLayer.mockResolvedValue(undefined);
+        const harness = createHarness();
+        try {
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+            await harness.renderer.renderCommittedPageLayers({
+                pageNumber: requirePageNumber(1),
+                version: 1,
+                requestId: 11,
+                scale: 1,
+                container: harness.pageContainer,
+                renderResult: harness.renderResult,
+                renderOptions: {prioritizeTextLayer: textFirst},
+            });
+            expect(harness.canvas.isConnected).toBe(true);
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('failed');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
+            expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
+            await harness.renderer.renderLayerPromotions({
+                start: 1,
+                end: 1,
+            }, {
+                contentIntent: 'layers-only-promotion',
+                prioritizeTextLayer: true,
+            });
+            expect(harness.canvas.isConnected).toBe(true);
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
+            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
+        } finally {harness.root.remove();}
+    });
+
     it('does not promote or cancel an annotations-first text layer already in flight', async () => {
         const deferred = createDeferred();
         let activeSignal: AbortSignal | undefined;

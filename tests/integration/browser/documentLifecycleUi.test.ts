@@ -192,6 +192,162 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    it('retains the readable page and retries failed annotation interaction', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const firstPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        firstPage.drawText('First page for annotation recovery proof', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        pdfPage.drawText('Readable page with an interactive link', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [
+                72,
+                690,
+                390,
+                720,
+            ],
+            Dest: [
+                firstPage.ref,
+                PDFName.of('XYZ'),
+                null,
+                null,
+                null,
+            ],
+        }))]));
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-rux3/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const page = await browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 800,
+            },
+            recordVideo: {dir: evidenceDir},
+        });
+        const problems = collectConsoleProblems(page);
+        try {
+            // Setup injects a persistent PDF.js render rejection. The document and
+            // all Open/Retry/link interactions still use the normal user path.
+            await page.route('**/services/pdfjs/pdfViewerFacade.ts*', async route => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'return layer.render({';
+                if (!body.includes(marker)) throw new Error('PDF.js annotation render fault seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker,
+                        'if (Reflect.get(window, "__annotationLayerFailure")) throw new Error("RUX03 injected annotation stage failure"); ' + marker),
+                });
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, '__annotationLayerFailure', false);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'annotation-interaction.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state: 'visible'});
+            await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', true));
+            await page.getByRole('button', {
+                name: 'Next Page',
+                exact: true,
+            }).first().click();
+            const container = page.locator('.page_container[data-page="2"]').first();
+            const canvas = container.locator('.page_canvas canvas').first();
+            await canvas.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await expect.poll(() => problems.some(problem => problem.includes('Failed to render annotation layer for page 2'))).toBe(true);
+            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+            await page.screenshot({path: resolve(evidenceDir, 'failed.png')});
+            const failed = await container.evaluate(element => ({
+                readiness: (element as HTMLElement).dataset.pageLayerReadiness,
+                canvases: Array.from(element.querySelectorAll('canvas')).map(item => ({
+                    width: item.width,
+                    height: item.height,
+                })),
+                links: element.querySelectorAll('.annotation-layer a').length,
+            }));
+            writeFileSync(resolve(evidenceDir, 'failed.json'), JSON.stringify({
+                failed,
+                problems,
+            }, null, 2));
+            expect(failed.canvases.some(item => item.width > 0 && item.height > 0)).toBe(true);
+            expect(failed.links).toBe(0);
+            expect(failed.readiness).not.toBe('ready');
+            const toast = page.locator('.app-toast-failure:not([data-state="closed"])').first();
+            await expect.poll(() => toast.textContent()).toContain('Page 2 links and annotation interactions could not be loaded.');
+            await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', false));
+            await toast.getByRole('button', {
+                name: 'Retry',
+                exact: true,
+            }).click();
+            const link = container.locator('.pdf-link-overlay[role="link"]').first();
+            await link.waitFor({
+                state: 'visible',
+                timeout: 15_000,
+            });
+            await expect.poll(() => container.getAttribute('data-page-layer-readiness')).toBe('ready');
+            writeFileSync(resolve(evidenceDir, 'recovered-dom.json'), JSON.stringify(await container.evaluate(element => ({
+                readiness: (element as HTMLElement).dataset.pageLayerReadiness,
+                links: Array.from(element.querySelectorAll('a')).map(item => item.outerHTML),
+            })), null, 2));
+            await page.screenshot({path: resolve(evidenceDir, 'layer-recovered.png')});
+            await link.click();
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.getByRole('button', {
+                name: 'Next Page',
+                exact: true,
+            }).first().click();
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('2');
+            await link.waitFor({state: 'visible'});
+            await link.focus();
+            await page.keyboard.press('Enter');
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.screenshot({path: resolve(evidenceDir, 'recovered.png')});
+            expect(problems.filter(problem => !problem.includes('Failed to render annotation layer for page 2'))).toEqual([]);
+            expect(problems.filter(problem => problem.includes('Failed to render annotation layer for page 2'))).toHaveLength(1);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+            await browser.close();
+        }
+    }, 90_000);
+
     // C2/L2/A1: foreign icons paint beside the app's single canonical note marker.
     it('loads a foreign attachment icon from the packaged PDF.js image directory', async () => {
         const pdf = await PDFDocument.create();
