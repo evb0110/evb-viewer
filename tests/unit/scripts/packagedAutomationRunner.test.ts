@@ -1,4 +1,7 @@
-import {spawn} from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
 import {
     mkdirSync,
     writeFileSync,
@@ -136,7 +139,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         workDirectoryOverride?: string,
         options: {
             mode?: number;
-            script?: string;
+            script?: string | ((root: string) => string);
             scriptArguments?: (root: string) => string[]
         } = {},
     ) {
@@ -160,7 +163,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         const child = spawn(process.execPath, [
             '--import',
             'tsx',
-            resolve(options.script ?? 'scripts/release/runPackagedAutomation.ts'),
+            resolve(typeof options.script === 'function' ? options.script(root) : options.script ?? 'scripts/release/runPackagedAutomation.ts'),
             '--executable',
             executable,
             ...options.scriptArguments?.(root) ?? [
@@ -369,8 +372,41 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         }
     }, 30_000);
 
-    it('waits for its owned child to exit before removing the bundle on interruption', async () => {
-        const run = await launch('trap "exit 0" TERM INT\nwhile :; do sleep 1; done\n');
+    it.each([
+        'running',
+        'starting',
+    ])('waits for its owned child to exit before removing the bundle on interruption while %s', async (phase) => {
+        // The payload can run before startup returns to the CLI. An early
+        // signal must enter the same owned stop as one sent after startup.
+        const run = await launch('trap "exit 0" TERM INT\n'
+            + (phase === 'starting' ? 'printf ready > "$(dirname "$EVB_AUTOMATION_USER_DATA_DIR")/../spawn-ready"\n' : '')
+            + 'while :; do sleep 1; done\n', {}, undefined, phase === 'starting' ? {script: root => {
+            const gate = join(root, 'spawn-ready');
+            execFileSync('mkfifo', [gate]);
+            const script = join(root, 'interrupt-start.mjs');
+            const runner = resolve('scripts/release/runPackagedAutomation.ts');
+            // Keep the real spawn and process tree. Block its startup
+            // notification until the shell records its PID, then send
+            // a real OS signal before the launch promise can settle.
+            writeFileSync(script, `
+                        import childProcess from 'node:child_process';
+                        import {readFileSync} from 'node:fs';
+                        import {syncBuiltinESMExports} from 'node:module';
+                        const spawn = childProcess.spawn;
+                        childProcess.spawn = (...args) => {
+                            const child = spawn(...args);
+                            child.once('spawn', () => {
+                                readFileSync(${JSON.stringify(gate)});
+                                process.kill(process.pid, 'SIGTERM');
+                            });
+                            return child;
+                        };
+                        syncBuiltinESMExports();
+                        process.argv[1] = ${JSON.stringify(runner)};
+                        await import(${JSON.stringify(runner)});
+                    `);
+            return script;
+        }} : {});
         let childPid: number | undefined;
         const deadline = Date.now() + 10_000;
         while (Date.now() < deadline) {
@@ -380,9 +416,12 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         }
         if (!childPid) throw new Error(`Fixture did not write user-data.env within 10 seconds. Runner output: ${run.output()}`);
         expect(childPid).toBeGreaterThan(0);
-        run.child.kill('SIGTERM');
+        if (phase === 'running') run.child.kill('SIGTERM');
         await run.exited;
         expect(isProcessAlive(childPid!)).toBe(false);
+        expect(run.child.signalCode).toBeNull();
+        expect(run.child.exitCode).toBe(0);
+        expect(run.output()).toContain('Packaged automation exited:');
         expect((await readdir(run.workDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     }, 20_000);
 
