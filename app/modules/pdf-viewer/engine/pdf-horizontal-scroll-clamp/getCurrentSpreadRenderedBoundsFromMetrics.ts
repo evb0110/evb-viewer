@@ -1,16 +1,8 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
-import {
-    getPageRowBoundsForViewMode,
-    normalizePageMetrics,
-    resolveCurrentSpreadBaseWidth,
-} from '@app/modules/document-viewer/public';
-import type {
-    TPdfViewMode,
-    TPdfViewRotation,
-} from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
+import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/public';
+import type { TPdfViewMode } from '@app/types/pdfContracts';
 import type { IRenderedSpreadHorizontalBounds } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
 export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
@@ -18,10 +10,9 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
     basePageWidth: number | null;
     basePageHeight: number | null;
     numPages: number;
-    pageMetrics: IPdfPageMetric[];
+    pageWidths: readonly number[];
     currentPage: number;
     viewMode: TPdfViewMode;
-    viewRotation: TPdfViewRotation;
     effectiveScale: number;
     getScaleForPage?: ((pageNumber: TPageNumber) => number) | undefined;
     scaledMargin: number;
@@ -30,13 +21,6 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
         return null;
     }
 
-    const normalizedMetrics = normalizePageMetrics({
-        pageMetrics: options.pageMetrics,
-        totalPages: options.numPages,
-        fallbackWidth: options.basePageWidth,
-        fallbackHeight: options.basePageHeight,
-        viewRotation: options.viewRotation,
-    });
     const currentPage = requirePageNumber(options.currentPage, options.numPages);
     const rowBounds = getPageRowBoundsForViewMode({
         pageNumber: currentPage,
@@ -44,16 +28,7 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
         totalPages: options.numPages,
     });
     const rowPageCount = Math.max(1, rowBounds.end - rowBounds.start + 1);
-    const baseSpreadWidth = resolveCurrentSpreadBaseWidth(
-        normalizedMetrics,
-        options.viewMode,
-        options.numPages,
-        currentPage,
-    );
-    if (!baseSpreadWidth) {
-        return null;
-    }
-
+    let baseSpreadWidth = 0;
     let renderedSpreadWidth = 0;
     for (
         let pageNumber = Number(rowBounds.start);
@@ -61,11 +36,15 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
         pageNumber += 1
     ) {
         const normalizedPageNumber = requirePageNumber(pageNumber, options.numPages);
-        const pageMetric = normalizedMetrics[pageNumber - 1];
+        const pageWidth = options.pageWidths[pageNumber - 1];
+        baseSpreadWidth += pageWidth ?? 0;
         const pageScale = options.getScaleForPage?.(normalizedPageNumber) ?? options.effectiveScale;
-        if (pageMetric && Number.isFinite(pageScale) && pageScale > 0) {
-            renderedSpreadWidth += pageMetric.width * pageScale;
+        if (pageWidth && Number.isFinite(pageScale) && pageScale > 0) {
+            renderedSpreadWidth += pageWidth * pageScale;
         }
+    }
+    if (!baseSpreadWidth) {
+        return null;
     }
     if (renderedSpreadWidth <= 0) {
         renderedSpreadWidth = baseSpreadWidth * options.effectiveScale;
