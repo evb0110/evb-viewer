@@ -3,6 +3,15 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    readFile,
+    writeFile,
+} from 'node:fs/promises';
+import {
+    PDFDocument,
+    PDFName,
+    PDFString,
+} from 'pdf-lib';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -86,6 +95,107 @@ async function clickFirstTabOnScreen(page: Parameters<typeof evaluateInPage>[0])
 }
 
 describe('viewer invariant journey', () => {
+    it('keeps zoom responsive and note drafts anchored with 200 open notes', async () => {
+        const { page } = sessionFixture.getSession();
+        const pdfPath = await createMultiPageTextFixturePdf('many-open-notes.pdf', JOURNEY_PAGE_COUNT);
+        const pdf = await PDFDocument.load(await readFile(pdfPath));
+        const firstPage = pdf.getPages()[0]!;
+        const annotations = pdf.context.obj([]);
+        firstPage.node.set(PDFName.of('Annots'), annotations);
+        for (let index = 0; index < 200; index += 1) {
+            const x = 50 + (index % 10) * 48;
+            const y = 700 - Math.floor(index / 10) * 27;
+            const note = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'Text',
+                Rect: [
+                    x,
+                    y,
+                    x + 20,
+                    y + 20,
+                ],
+                Contents: PDFString.of(`Review note ${index}: retain this draft.`),
+                NM: PDFString.of(`review-note-${index}`),
+                Name: 'Comment',
+                F: 4,
+                P: firstPage.ref,
+            }));
+            annotations.push(note);
+        }
+        await writeFile(pdfPath, await pdf.save());
+        await openPdfInApp(page, pdfPath, OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(page, OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(page, () => (
+            window.__evbTestApi?.getActiveWorkspaceHandle()?.getAutomationStateSnapshot().annotationComments.length === 200
+        ), { timeout: OPEN_TIMEOUT_MS });
+        // Open accepted notes as setup; the measured wheel and toolbar actions
+        // below use trusted input and read rendered drafts and real layout.
+        await evaluateInPage(page, async () => {
+            const workspace = window.__evbTestApi?.getActiveWorkspaceHandle();
+            if (!workspace) throw new Error('The document workspace is unavailable');
+            for (const comment of workspace.getAutomationStateSnapshot().annotationComments) {
+                await workspace.runAgentAction('annotation.update_note', {
+                    stableKey: comment.stableKey,
+                    text: comment.text,
+                });
+            }
+        });
+        await waitForFunctionInPage(page, () => document.querySelectorAll('.note-window').length === 200, { timeout: OPEN_TIMEOUT_MS });
+        const readDrafts = () => evaluateInPage(page, () => [...document.querySelectorAll<HTMLTextAreaElement>(
+            '.note-window textarea',
+        )].map(input => input.value));
+        const drafts = await readDrafts();
+        const wheelPoint = await evaluateInPage(page, () => {
+            const viewport = document.querySelector('#pdf-viewer');
+            if (!viewport) throw new Error('The PDF viewport is unavailable');
+            const rect = viewport.getBoundingClientRect();
+            const x = rect.right - 30;
+            const y = rect.top + rect.height / 2;
+            if (!viewport.contains(document.elementFromPoint(x, y))) {
+                throw new Error('The wheel target is covered by a note');
+            }
+            return {
+                x,
+                y,
+            };
+        });
+        for (let index = 0; index < 12; index += 1) {
+            await page.mouse.move(wheelPoint.x, wheelPoint.y);
+            await page.mouse.wheel({ deltaY: index % 2 === 0 ? 120 : -120 });
+            await evaluateInPage(page, () => new Promise<void>(resolve => (
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            )));
+        }
+        for (const label of [
+            'Zoom In',
+            'Zoom Out',
+        ]) {
+            const previous = await readZoomTextFromScreen(page);
+            const startedAt = performance.now();
+            await clickVisibleToolbarButton(page, label);
+            await waitForFunctionInPage(page, old => {
+                const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
+                return Boolean(zoom && zoom !== old);
+            }, { timeout: 1_000 }, previous);
+            await evaluateInPage(page, () => new Promise<void>(resolve => (
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+            )));
+            expect(performance.now() - startedAt).toBeLessThan(1_000);
+        }
+        expect(await readDrafts()).toEqual(drafts);
+        const noteIds = await evaluateInPage(page, () => [...document.querySelectorAll<HTMLElement>('.note-window')]
+            .map(note => note.dataset.annotationId!));
+        await assertViewerInvariants(page, {
+            checkpoint: '200 open notes after trusted wheel and zoom',
+            documentWellFormed: true,
+            requirePresent: {
+                noteWindowFor: noteIds,
+                pageIndicator: true,
+            },
+            requireRan: ['A2-note-window-over-chrome'],
+        });
+    });
+
     it('holds the user-level viewer invariants through a composed reading session', async () => {
         const session = sessionFixture.getSession();
         const { page } = session;

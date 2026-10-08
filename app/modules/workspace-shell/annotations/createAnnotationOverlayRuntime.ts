@@ -2,6 +2,7 @@ import { clamp } from 'es-toolkit/math';
 import {
     useEventListener,
     useMutationObserver,
+    useResizeObserver,
 } from '@vueuse/core';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
@@ -37,7 +38,13 @@ interface IInlineTriggerIdentity {
     }>;
 }
 
-interface IViewportDomSnapshot { pageContainers: Map<number, HTMLElement> }
+interface IViewportDomSnapshot {
+    bounds: DOMRect;
+    pageContainers: Map<number, {
+        element: HTMLElement;
+        rect: DOMRect | null;
+    }>;
+}
 
 interface IConnectorLine {
     annotationId: string;
@@ -101,16 +108,30 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewport
         return null;
     }
 
-    const pageContainers = new Map<number, HTMLElement>();
+    const pageContainers = new Map<number, {
+        element: HTMLElement;
+        rect: DOMRect | null;
+    }>();
     viewportRoot.querySelectorAll<HTMLElement>('.page_container').forEach((pageContainer) => {
         const pageNumberRaw = Number(pageContainer.dataset.page ?? '');
         if (!Number.isFinite(pageNumberRaw) || pageNumberRaw <= 0) {
             return;
         }
-        pageContainers.set(pageNumberRaw, pageContainer);
+        const rect = pageContainer.getBoundingClientRect();
+        pageContainers.set(pageNumberRaw, {
+            element: pageContainer,
+            rect: rect.width > 0 && rect.height > 0 ? rect : null,
+        });
     });
 
-    return { pageContainers };
+    const bounds = viewportRoot.getBoundingClientRect();
+    const viewportWindow = viewportRoot.ownerDocument.defaultView;
+    return {
+        bounds: bounds.width > 0 && bounds.height > 0
+            ? bounds
+            : new DOMRect(0, 0, viewportWindow?.innerWidth ?? 0, viewportWindow?.innerHeight ?? 0),
+        pageContainers,
+    };
 }
 
 function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | null): IInlineTriggerIdentity {
@@ -122,8 +143,10 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
         return identity;
     }
 
-    snapshot.pageContainers.forEach((pageContainer, pageNumber) => {
-        const pageRect = pageContainer.getBoundingClientRect();
+    snapshot.pageContainers.forEach(({
+        element: pageContainer,
+        rect: pageRect,
+    }, pageNumber) => {
         pageContainer
             .querySelectorAll<HTMLElement>('.pdf-annotation-editor-note[data-annotation-id]')
             .forEach((noteElement) => {
@@ -134,7 +157,8 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
 
                 const noteRect = noteElement.getBoundingClientRect();
                 if (
-                    pageRect.width <= 0
+                    !pageRect
+                    || pageRect.width <= 0
                     || pageRect.height <= 0
                     || noteRect.width <= 0
                     || noteRect.height <= 0
@@ -224,7 +248,7 @@ function getRenderedNoteCenter(
 }
 
 function getMarkerAnchorInPage(
-    pageContainer: HTMLElement,
+    pageRect: DOMRect | null,
     note: IAnnotationNoteWindowEntry,
     viewportBounds: TViewportBounds,
 ) {
@@ -232,8 +256,7 @@ function getMarkerAnchorInPage(
     if (!markerRect) {
         return null;
     }
-    const pageRect = pageContainer.getBoundingClientRect();
-    if (pageRect.width <= 0 || pageRect.height <= 0 || !rectsIntersect(pageRect, viewportBounds)) {
+    if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0 || !rectsIntersect(pageRect, viewportBounds)) {
         return null;
     }
     const cx = pageRect.left + (clamp(markerRect.left + markerRect.width, 0, 1) * pageRect.width);
@@ -361,7 +384,7 @@ function mapNotesToPageTargets(
     }
     const targets: Record<string, HTMLElement> = {};
     notes.forEach((note) => {
-        const pageContainer = snapshot.pageContainers.get(note.pageNumber);
+        const pageContainer = snapshot.pageContainers.get(note.pageNumber)?.element;
         if (pageContainer) {
             targets[note.annotationId] = pageContainer;
         }
@@ -412,34 +435,21 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
     const openNoteAnchorTargets = computed(() =>
         mapNotesToPageTargets(openNoteAnchors.value, viewportDomSnapshot.value));
 
-    function getConnectorViewportBounds(): TViewportBounds {
-        const rootRect = options.getViewportRoot()?.getBoundingClientRect() ?? null;
-        if (rootRect && rootRect.width > 0 && rootRect.height > 0) {
-            return rootRect;
-        }
-        return {
-            left: 0,
-            top: 0,
-            right: typeof window === 'undefined' ? 0 : window.innerWidth,
-            bottom: typeof window === 'undefined' ? 0 : window.innerHeight,
-        };
-    }
-
     function computeConnectorLines(): IConnectorLine[] {
         const snapshot = viewportDomSnapshot.value;
         if (!snapshot) {
             return [];
         }
         const positions = options.getNotePositions();
-        const viewportBounds = getConnectorViewportBounds();
+        const viewportBounds = snapshot.bounds;
         return openNoteAnchors.value.flatMap((note) => {
             const position = positions[note.annotationId];
-            const pageContainer = snapshot.pageContainers.get(note.pageNumber) ?? null;
-            if (!position || !pageContainer) {
+            const page = snapshot.pageContainers.get(note.pageNumber);
+            if (!position || !page) {
                 return [];
             }
-            const marker = getRenderedNoteCenter(pageContainer, note.annotationId, viewportBounds)
-                ?? getMarkerAnchorInPage(pageContainer, note, viewportBounds);
+            const marker = getRenderedNoteCenter(page.element, note.annotationId, viewportBounds)
+                ?? getMarkerAnchorInPage(page.rect, note, viewportBounds);
             if (!marker) {
                 return [];
             }
@@ -458,18 +468,18 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
 
     const indicatorDomRefreshScheduler = createRafBurstScheduler(() => {
         indicatorDomTick.value += 1;
-        connectorLines.value = computeConnectorLines();
     });
-    const connectorRefreshScheduler = createRafBurstScheduler(() => {
+    // Note followers apply the shared geometry before connector DOM readings.
+    watch(viewportDomSnapshot, () => {
         connectorLines.value = computeConnectorLines();
-    });
+    }, { flush: 'post' });
 
     function scheduleOverlayRefreshBurst(frames = 6) {
         indicatorDomRefreshScheduler.request(frames);
     }
 
     function scheduleConnectorRefreshBurst(frames = 2) {
-        connectorRefreshScheduler.request(frames);
+        indicatorDomRefreshScheduler.request(frames);
     }
 
     function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
@@ -507,7 +517,6 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
     onMounted(() => scheduleOverlayRefreshBurst(10));
     onBeforeUnmount(() => {
         indicatorDomRefreshScheduler.cancel();
-        connectorRefreshScheduler.cancel();
         connectorLines.value = [];
     });
 
@@ -518,6 +527,20 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         () => scheduleConnectorRefreshBurst(1),
         { passive: true },
     );
+    const resizeTargets = computed<HTMLElement[]>((previous) => {
+        const root = viewportRootElement.value;
+        const targets = root
+            ? [
+                root.ownerDocument.documentElement,
+                root,
+                ...Array.from(viewportDomSnapshot.value?.pageContainers.values() ?? [], page => page.element),
+            ]
+            : [];
+        return previous && targets.length === previous.length && targets.every((target, index) => target === previous[index])
+            ? previous
+            : targets;
+    });
+    useResizeObserver(resizeTargets, () => scheduleOverlayRefreshBurst(1));
     useMutationObserver(viewportRootElement, () => scheduleOverlayRefreshBurst(4), {
         childList: true,
         subtree: true,
@@ -550,6 +573,7 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
     );
 
     return {
+        viewportDomSnapshot,
         visibleAnnotationNoteWindows,
         anchoredAnnotationNoteWindows,
         openNoteAnchors,
