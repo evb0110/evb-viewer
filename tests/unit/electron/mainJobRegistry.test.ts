@@ -142,6 +142,19 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         expect(ownerSender.send).not.toHaveBeenCalled(); expect(jobs.get('replay', actor)?.status).toBe('completed');
         expect(jobs.subscribe('replay', actor, vi.fn())).not.toBeNull();
     });
+    it('sends a job progress only to the window that owns it', async () => {
+        const jobs = registry(); const ownerSender = sender(21); const otherSender = sender(22); const runner = deferred<IResult>(); let publish!: TContext['publish'];
+        jobs.subscribeOwner({sender: ownerSender}); jobs.subscribeOwner({sender: otherSender});
+        const handle = start(jobs, {sender: ownerSender}, 'routed', context => { publish = context.publish; return runner.promise; });
+        await vi.waitFor(() => expect(publish).toBeTypeOf('function'));
+        publish({requestId: 'routed', value: 1, status: 'running'});
+        runner.resolve({value: 'done'}); await handle.settled;
+        expect(ownerSender.send).toHaveBeenCalledWith('test:progress', expect.objectContaining({value: 1}));
+        expect(ownerSender.send).toHaveBeenLastCalledWith('test:progress', expect.objectContaining({status: 'completed'}));
+        expect(otherSender.send).not.toHaveBeenCalled();
+        otherSender.send.mockClear(); jobs.subscribeOwner({sender: otherSender});
+        expect(otherSender.send).not.toHaveBeenCalled();
+    });
     it('closes subscriptions through owner loss and record disposal', async () => {
         const jobs = registry(); const ownerSender = sender(11); const actor = {sender: ownerSender}; const closedOnOwnerLoss = vi.fn();
         const active = start(jobs, actor, 'owner-loss', context => new Promise<IResult>((_resolve, reject) => {
