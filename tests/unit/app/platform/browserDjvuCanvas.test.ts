@@ -5,10 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IDjvuImageData } from '@app/platform/browser-api/djvujsLoader';
 import {
     createDjvuCanvas,
-    createDjvuImageData,
     encodeDjvuCanvas,
     fetchDjvuObjectUrlBytes,
     getDjvuCanvas2dContext,
@@ -109,38 +107,6 @@ describe('getDjvuCanvas2dContext', () => {
         const htmlCanvas = new FakeHtmlCanvasElement();
         expect(getDjvuCanvas2dContext(asDjvuCanvas(htmlCanvas))).toBe(context);
         expect(htmlCanvas.getContext).toHaveBeenCalledWith('2d');
-    });
-});
-
-describe('createDjvuImageData', () => {
-    it('wraps the raw DjVu buffer in ImageData', () => {
-        class FakeImageData {
-            constructor(
-                public data: Uint8ClampedArray,
-                public width: number,
-                public height: number,
-            ) {}
-        }
-        vi.stubGlobal('ImageData', FakeImageData);
-        const raw: IDjvuImageData = {
-            buffer: new Uint8Array([
-                1,
-                2,
-                3,
-                4,
-            ]).buffer,
-            width: 1,
-            height: 1,
-        };
-        const imageData = createDjvuImageData(raw);
-        expect(imageData.width).toBe(1);
-        expect(imageData.height).toBe(1);
-        expect([...imageData.data]).toEqual([
-            1,
-            2,
-            3,
-            4,
-        ]);
     });
 });
 
