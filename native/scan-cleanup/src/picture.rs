@@ -114,7 +114,7 @@ pub(crate) fn detect_picture_mask_with_continuous_tone(
     // only the candidate would split a photograph at the detector boundary.
     let corroborated =
         corroborate_picture_components(candidate, continuous_tone, source, raster_dpi, calibration);
-    qualify_picture_owner(source, &corroborated, None, raster_dpi)
+    qualify_picture_owner(source, &corroborated, None)
 }
 
 /// Finds source regions with a genuinely distributed local tone histogram.
@@ -977,8 +977,7 @@ fn corroborate_picture_components(
 pub(crate) fn qualify_picture_owner(
     source: &GrayImage,
     candidate: &BinaryImage,
-    text_evidence: Option<(&BinaryImage, &BinaryImage)>,
-    raster_dpi: f64,
+    text_evidence: Option<(&BinaryImage, &BinaryImage, &BinaryImage)>,
 ) -> BinaryImage {
     debug_assert_eq!(
         (source.width(), source.height()),
@@ -991,7 +990,7 @@ pub(crate) fn qualify_picture_owner(
     let border_artifacts = crate::edge_artifacts::border_artifact_mask(source);
     let measured_gutter = gutter_shadow(source);
     let picture_map = ComponentMap::from_binary(candidate);
-    let text_evidence = text_evidence.and_then(|(text, vicinity)| {
+    let text_evidence = text_evidence.and_then(|(text, vicinity, tone)| {
         let text_counts = picture_map.mask_counts_by_component(&text.or(vicinity));
         picture_map
             .components()
@@ -1002,9 +1001,7 @@ pub(crate) fn qualify_picture_owner(
             .then(|| {
                 (
                     text_counts,
-                    picture_map.mask_counts_by_component(
-                        &detect_continuous_tone_mask(source, raster_dpi).subtract(text),
-                    ),
+                    picture_map.mask_counts_by_component(&tone.subtract(text)),
                 )
             })
     });
@@ -1835,10 +1832,11 @@ mod tests {
                 || ((185..250).contains(&x) && (35..155).contains(&y))
         });
         let ink = threshold_global(&mixed, 50);
+        let tone = detect_continuous_tone_mask(&mixed, 300.0);
         for edge in [225, 245] {
             let vicinity =
                 BinaryImage::from_fn_parallel(mixed.width(), mixed.height(), |x, _| x < edge);
-            let owner = qualify_picture_owner(&mixed, &candidate, Some((&ink, &vicinity)), 300.0);
+            let owner = qualify_picture_owner(&mixed, &candidate, Some((&ink, &vicinity, &tone)));
             assert!(
                 !owner.get(40, 40),
                 "text enclosure retained a picture owner"
@@ -1848,10 +1846,7 @@ mod tests {
                 "plate lost its continuous-tone interior"
             );
         }
-        assert_eq!(
-            qualify_picture_owner(&mixed, &candidate, None, 150.0),
-            candidate
-        );
+        assert_eq!(qualify_picture_owner(&mixed, &candidate, None), candidate);
         let text_pixels = (0..160)
             .flat_map(|x| (0..150).map(move |y| (x, y)))
             .filter(|&(x, y)| mask.get(x, y))
@@ -1895,7 +1890,7 @@ mod tests {
             }
         }
         assert!(candidate.count_black() > 1_000);
-        let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             0,
@@ -1914,7 +1909,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             0,
@@ -1963,7 +1958,7 @@ mod tests {
                 "fixture must be large enough to reach the shadow vetoes"
             );
 
-            let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+            let owner = qualify_picture_owner(&page, &candidate, None);
             assert_eq!(
                 owner.count_black(),
                 0,
@@ -1997,7 +1992,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         let surviving = ComponentMap::from_binary(&owner);
         let plate = surviving
             .components()
@@ -2037,7 +2032,7 @@ mod tests {
             "fixture must exercise the old one-percent edge veto"
         );
 
-        let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             candidate.count_black(),
@@ -2084,7 +2079,7 @@ mod tests {
             grown.get(220, 110),
             "tone growth stopped at the dark-lobe detector boundary"
         );
-        let owner = qualify_picture_owner(&source, &grown, None, 150.0);
+        let owner = qualify_picture_owner(&source, &grown, None);
         assert!(
             owner.get(220, 110),
             "the vetted union still lost the smooth photo lobe"
@@ -2106,7 +2101,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             candidate.count_black(),
@@ -2144,7 +2139,7 @@ mod tests {
             }
         }
 
-        let owner = qualify_picture_owner(&page, &candidate, None, 150.0);
+        let owner = qualify_picture_owner(&page, &candidate, None);
         assert_eq!(
             owner.count_black(),
             candidate.count_black(),
