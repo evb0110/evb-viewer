@@ -373,6 +373,8 @@ export const useOcr = () => {
                 return t('ocr.diagnostic.existingTextSkipped', params);
             case 'OCR_ENGINE_OPTION_UNSUPPORTED':
                 return t('ocr.diagnostic.engineOptionUnsupported', params);
+            case 'OCR_LONG_S_UNAVAILABLE':
+                return t('ocr.diagnostic.longSUnavailable', params);
         }
     }
 
