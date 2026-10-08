@@ -59,10 +59,7 @@ describe('Electron E2E - assistant model discovery', () => {
             'Opus',
             'Fable',
         ]) {
-            const versions = claude.flatMap(label => {
-                const match = new RegExp(`^${family} (\\d+(?:\\.\\d+)?)`).exec(label);
-                return match ? [match[1]] : [];
-            });
+            const versions = claude.flatMap(label => new RegExp(`^${family} (\\d+(?:\\.\\d+)?)`).exec(label)?.slice(1) ?? []);
             expect(versions.length).toBeGreaterThan(0);
             expect(new Set(versions).size, `${family} has stale versions: ${versions.join(', ')}`).toBe(1);
         }
@@ -95,11 +92,13 @@ describe('Electron E2E - assistant model discovery', () => {
         expect(await page.$eval('.agent-assistant-message-image', image => (image as HTMLImageElement).naturalWidth)).toBe(1200);
     }, 60_000);
 
-    it('restores a document conversation after loaded chat eviction and restart', async () => {
+    it('projects live tool activity and restores its conversation after eviction and restart', async () => {
         let page = await openAssistantDocument();
-        await page.keyboard.type('Remember this document conversation.');
+        await page.keyboard.type('AP-B02 tool activity');
         await page.keyboard.press('Enter');
-        await page.waitForFunction(() => document.querySelector('.agent-assistant-message.is-assistant')?.textContent?.includes('Image received.'));
+        await page.waitForFunction(() => document.querySelector('.agent-assistant-turn-progress')?.textContent?.includes('Tool search_document running'));
+        expect(await page.$$eval('.agent-assistant-tool-activity', rows => rows.map(row => row.textContent?.trim()).join('\n'))).toBe('read_document — Running\nsearch_document — Running');
+        await page.waitForFunction(() => document.querySelector('.agent-assistant-message.is-assistant:last-of-type')?.textContent?.includes('Local tool fixture finished.'));
 
         // Populate the production cache through ordinary state requests. This is
         // setup for returning to the real open document, not a second chat store.
@@ -117,7 +116,7 @@ describe('Electron E2E - assistant model discovery', () => {
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
         await page.waitForSelector('.agent-assistant-message.is-user');
-        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Remember this document conversation.');
+        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('AP-B02 tool activity');
 
         ({page} = await fixture.restart({
             hard: true,
@@ -126,7 +125,7 @@ describe('Electron E2E - assistant model discovery', () => {
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.agent-assistant-message.is-user');
-        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Remember this document conversation.');
+        expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('AP-B02 tool activity');
     }, 120_000);
     it('preserves every table-like line inside assistant fenced code', async () => {
         const page = await openAssistantDocument();

@@ -554,13 +554,12 @@ export function createAssistantAppServerNotificationController(options: IAssista
                 }
                 session.turnPresentation.phase = 'finalizing';
                 recordTurnEvent(session);
-                const progress = getSafeAssistantTurnProgress(method, params);
-                if (progress) {
-                    options.publishAssistantEvent({
-                        type: 'turn-progress',
-                        progress,
-                    }, session.scope, session);
-                }
+                options.publishAssistantEvent({
+                    type: 'turn-progress',
+                    phase: session.turnPresentation.phase,
+                    toolActivity: existing,
+                    progress: getSafeAssistantTurnProgress(method, params) ?? undefined,
+                }, session.scope, session);
             }
             return;
         }

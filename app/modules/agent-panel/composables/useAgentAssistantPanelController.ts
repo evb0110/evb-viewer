@@ -673,19 +673,17 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             };
             setTurnActivity('Thinking');
         }
-        if (event.type === 'heartbeat' && event.phase && state.value) {
-            state.value = {
-                ...state.value,
-                status: {
-                    ...state.value.status,
-                    turn: {
-                        ...state.value.status.turn,
-                        phase: event.phase,
-                        lastEventAtMs: event.lastEventAtMs ?? state.value.status.turn.lastEventAtMs,
-                    },
-                },
-            };
-            syncTurnActivityWithPhase(event.phase);
+        if ((event.type === 'heartbeat' || event.type === 'turn-progress') && state.value) {
+            const turn = state.value.status.turn;
+            if (event.phase) {
+                turn.phase = event.phase;
+                syncTurnActivityWithPhase(event.phase);
+            }
+            turn.lastEventAtMs = event.lastEventAtMs ?? turn.lastEventAtMs;
+            if (event.toolActivity) {
+                const index = turn.toolActivity.findIndex(tool => tool.toolId === event.toolActivity?.toolId);
+                turn.toolActivity.splice(index < 0 ? turn.toolActivity.length : index, index < 0 ? 0 : 1, event.toolActivity);
+            }
         }
         if (event.type === 'turn-progress' && event.progress) {
             setTurnActivity(event.progress);
