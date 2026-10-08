@@ -23,6 +23,7 @@ import { getBrowserWindowRecoveryOwnerId } from '@app/platform/browserWindowTabs
 import type { TDocumentRef } from '@contracts/documentRef';
 import { createEpochMs } from '@contracts/timestamps';
 import type { TTabId } from '@contracts/windowTabs';
+import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
 import {
     createBrowserDocumentLiveLease,
     releaseBrowserDocumentLiveLease,
@@ -58,7 +59,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     let persistedCheckpointRevision = -1;
     let attemptedCheckpointRevision = -1;
     let retryNotBefore = 0;
-    let previousTabSignatures = new Map<string, string>();
+    let previousContentSignatures = new Map<string, string>();
     let observedSignature: IWorkspaceCheckpointChangeSignature | null = null;
     const tabMutationRevisions = new Map<string, number>();
     const persistedTabMutationRevisions = new Map<string, number>();
@@ -152,10 +153,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         }
     }
 
-    function hasDirtyTabs() {
-        return dirtyTabIds().size > 0;
-    }
-
     async function cleanupSnapshots(refs: Iterable<string>, retainedRefs = new Set<string>()) {
         await Promise.allSettled(Array.from(refs, async (ref) => {
             if (!retainedRefs.has(ref)) {
@@ -180,14 +177,31 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function recordCheckpointMutation(signature: IWorkspaceCheckpointChangeSignature) {
+        const contentSignatures = new Map([...signature.tabSignatures.keys()].map((tabId) => {
+            const session = options.documentSessionsByTabId.value[tabId];
+            let recoverySignature: readonly unknown[] | null = null;
+            try {
+                recoverySignature = session?.getView(tabId)?.mountedWorkspace.value?.getWorkspaceDocumentRecoveryChangeSignature?.() ?? null;
+            } catch {
+                // The checkpoint builder reports rejected document captures.
+            }
+            return [
+                tabId,
+                JSON.stringify([
+                    session?.snapshot.value.identity ?? null,
+                    session?.snapshot.value.dirty ?? false,
+                    recoverySignature,
+                ]),
+            ] as const;
+        }));
         const dirtyIds = dirtyTabIds();
-        const changedDirtyTabs = [...signature.tabSignatures]
+        const changedDirtyTabs = [...contentSignatures]
             .filter(([
                 tabId,
                 tabSignature,
-            ]) => dirtyIds.has(tabId) && previousTabSignatures.get(tabId) !== tabSignature)
+            ]) => dirtyIds.has(tabId) && previousContentSignatures.get(tabId) !== tabSignature)
             .map(([tabId]) => tabId);
-        previousTabSignatures = new Map(signature.tabSignatures);
+        previousContentSignatures = contentSignatures;
         markMutation(changedDirtyTabs);
     }
 
@@ -409,12 +423,12 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 });
             }
 
-            const recoveryTabs = checkpoint.tabs.flatMap((tab) => {
+            const recoveryTabs = checkpoint.tabs.flatMap<IWorkspaceCheckpointTab>((tab) => {
                 if (unavailableRecoveryTabIds.has(tab.tabId)) {
                     return [];
                 }
                 const snapshotRef = replacements.get(tab.tabId);
-                if (snapshotRef) {
+                if (snapshotRef && refreshedTabIds.has(tab.tabId)) {
                     return [{
                         ...tab,
                         sourceRef: tab.sourceRef ?? snapshotRef,
@@ -425,11 +439,20 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         requiresSaveAsOnFirstSave: true,
                     }];
                 }
-                const retained = retainedRecoveryTabs.get(tab.tabId);
+                const retained = retainedRecoveryTabs.get(tab.tabId)
+                    ?? [...retainedRecoveryTabs.values()].find(candidate => candidate.workingCopyRef === snapshotRef);
                 if (tab.isDirty && retained?.workingCopyRef) {
+                    // Keep document identity and drafts bound to the retained
+                    // bytes, including when a newer content capture failed.
                     return [{
                         ...retained,
                         paneId: tab.paneId,
+                        currentPage: tab.currentPage,
+                        zoom: tab.zoom,
+                        zoomMode: tab.zoomMode,
+                        continuousScroll: tab.continuousScroll,
+                        viewMode: tab.viewMode,
+                        viewRotation: tab.viewRotation,
                     }];
                 }
                 return [{
@@ -589,28 +612,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     const targetWindow = typeof window === 'undefined' ? undefined : window;
     const targetDocument = typeof document === 'undefined' ? undefined : document;
     useEventListener(targetWindow, 'pagehide', drain);
-    for (const eventName of [
-        'change',
-        'input',
-        'keyup',
-        'pointerup',
-    ] as const) {
-        useEventListener(targetWindow, eventName, () => {
-            if (!options.enabled.value) {
-                return;
-            }
-            if (!hasDirtyTabs()) {
-                return;
-            }
-            const activeTabId = options.activeTabId.value;
-            const dirtyIds = dirtyTabIds();
-            if (activeTabId && !dirtyIds.has(activeTabId)) {
-                return;
-            }
-            markMutation(activeTabId ? [activeTabId] : dirtyIds);
-            schedule();
-        });
-    }
     useEventListener(targetDocument, 'visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             drain();
