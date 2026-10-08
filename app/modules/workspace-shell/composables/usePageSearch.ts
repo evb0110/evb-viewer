@@ -24,7 +24,7 @@ interface IPageSearchDeps {
         options?: ISearchMatchOptions,
         documentRevisionToken?: TDocumentRevisionToken | null,
     ) => Promise<boolean>;
-    goToResult: (direction: 'next' | 'previous') => void;
+    goToResult: (direction: 'next' | 'previous') => void | Promise<void>;
     setResultIndex: (index: number) => void;
     clearSearch: () => void;
 }
@@ -121,11 +121,11 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
     }
 
     function handleSearchNext() {
-        goToResult('next');
+        void goToResult('next');
     }
 
     function handleSearchPrevious() {
-        goToResult('previous');
+        void goToResult('previous');
     }
 
     function handleGoToResult(index: number) {
