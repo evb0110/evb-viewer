@@ -887,6 +887,74 @@ fn split_text_filter_tracks_consecutive_shows_and_splits_strings_and_tj_arrays_a
 }
 
 #[test]
+fn split_text_filter_measures_each_source_page_with_its_own_font_of_a_shared_name() {
+    let source = path("split-shared-name-source", "pdf");
+    let input = path("split-shared-name-input", "pdf");
+    let output = path("split-shared-name-output", "pdf");
+    let instructions = path("split-shared-name-instructions", "json");
+
+    // Both source pages call their font /F1; the second one is half as wide,
+    // so its glyphs all start before the seam at x=100.
+    let shows = b"BT /F1 10 Tf 3 Tr 1 0 0 1 80 90 Tm (ABCD) Tj ET".to_vec();
+    let mut source_document = save_two_pages(
+        &source,
+        [shows.clone(), shows],
+        dictionary! { "Font" => dictionary! { "F1" => measurable_helvetica_font() } },
+    );
+    let mut narrow = measurable_helvetica_font();
+    narrow.set(
+        "Widths",
+        (0..256).map(|_| Object::Integer(500)).collect::<Vec<_>>(),
+    );
+    let second_page = *source_document.get_pages().get(&2).unwrap();
+    source_document
+        .get_dictionary_mut(second_page)
+        .unwrap()
+        .set(
+            "Resources",
+            dictionary! { "Font" => dictionary! { "F1" => narrow } },
+        );
+    source_document.save(&source).unwrap();
+    let mut target = save_pages(&input, (0..4).map(|_| Some(Vec::new())), Dictionary::new());
+    for page_id in target.get_pages().into_values() {
+        target
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true},{"sourcePageIndex":1,"outputPageIndex":2,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":1,"outputPageIndex":3,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text =
+        |page| String::from_utf8_lossy(&pdftotext_page(&output, page, &[]).stdout).into_owned();
+    let (wide_left, wide_right, narrow_left, narrow_right) = (text(1), text(2), text(3), text(4));
+    assert!(
+        wide_left.contains("AB") && !wide_left.contains('C'),
+        "{wide_left}"
+    );
+    assert!(
+        wide_right.contains("CD") && !wide_right.contains('B'),
+        "{wide_right}"
+    );
+    assert!(narrow_left.contains("ABCD"), "{narrow_left}");
+    assert!(!narrow_right.contains('D'), "{narrow_right}");
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
 fn split_text_filter_skips_an_unbalanced_graphics_state_without_aborting_cleanup() {
     let source = path("split-malformed-source", "pdf");
     let input = path("split-malformed-input", "pdf");
