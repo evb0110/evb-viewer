@@ -191,8 +191,8 @@ describe('PDF annotation session behavior', () => {
         }
         store.replaceFromDocument(imported, []);
         const publishedPreviews: Array<Array<string | null>> = [];
-        store.subscribe(entities => publishedPreviews.push(entities.flatMap(entity => (
-            entity.kind === 'text-markup' ? [entity.selectedText ?? null] : []
+        store.subscribe(snapshotIncludingDeleted => publishedPreviews.push(snapshotIncludingDeleted.flatMap(entity => (
+            entity.kind === 'text-markup' && !entity.deleted ? [entity.selectedText ?? null] : []
         ))));
         const options = {
             targetStore: store,
