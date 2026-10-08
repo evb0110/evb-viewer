@@ -25,6 +25,11 @@ const MIN_UNPADDED_CROSS_AXIS_OVERLAP_RATIO = 0.5;
 
 const TEXT_RANGE_EPSILON = 1e-6;
 
+interface ITextPreviewItemGeometry {
+    readonly text: string;
+    readonly rect: Readonly<IAnnotationMarkerRect>;
+}
+
 interface ITextRange {
     end: number;
     start: number;
@@ -325,20 +330,11 @@ function mergeTextRanges(ranges: ITextRange[]) {
 }
 
 function extractTextItemSegments(
-    item: IPdfTextPreviewItem,
-    viewport: IPdfTextPreviewViewport,
+    {
+        text, rect,
+    }: ITextPreviewItemGeometry,
     targets: readonly IAnnotationMarkerRect[],
 ) {
-    const text = item.str ?? '';
-    if (!text.trim()) {
-        return [];
-    }
-
-    const rect = toTextItemMarkerRect(item, viewport);
-    if (!rect) {
-        return [];
-    }
-
     const ranges = mergeTextRanges(
         targets.flatMap((target) => {
             const range = toTextRangeForTarget(text, rect, target);
@@ -354,20 +350,43 @@ function extractTextItemSegments(
 function resolvePreviewTextForTargets(
     subtype: string | null | undefined,
     targets: readonly IAnnotationMarkerRect[],
-    textItems: readonly IPdfTextPreviewItem[],
-    viewport: IPdfTextPreviewViewport | null | undefined,
+    textItems: readonly ITextPreviewItemGeometry[],
 ) {
-    if (!isTextMarkupSubtype(subtype) || textItems.length === 0 || !hasUsableViewport(viewport) || targets.length === 0) {
+    if (!isTextMarkupSubtype(subtype) || textItems.length === 0 || targets.length === 0) {
         return null;
     }
 
     const segments: string[] = [];
     for (const item of textItems) {
-        segments.push(...extractTextItemSegments(item, viewport, targets));
+        segments.push(...extractTextItemSegments(item, targets));
     }
 
     const previewText = joinPreviewSegments(segments);
     return previewText || null;
+}
+
+/** Prepares ordered text geometry for one page extraction, shared by its highlights. */
+export function createPdfAnnotationPreviewTextResolver(
+    textItems: readonly IPdfTextPreviewItem[],
+    viewport: IPdfTextPreviewViewport | null | undefined,
+) {
+    const geometry: readonly ITextPreviewItemGeometry[] = textItems.length > 0 && hasUsableViewport(viewport)
+        ? textItems.flatMap((item) => {
+            const text = item.str ?? '';
+            if (!text.trim()) {
+                return [];
+            }
+            const rect = toTextItemMarkerRect(item, viewport);
+            return rect ? [{
+                text,
+                rect,
+            }] : [];
+        })
+        : [];
+
+    return (subtype: string | null | undefined, targets: readonly IAnnotationMarkerRect[]) => (
+        resolvePreviewTextForTargets(subtype, targets, geometry)
+    );
 }
 
 /** Extracts derived text when the caller already has canonical marker rects. */
@@ -377,7 +396,10 @@ export function resolvePdfAnnotationPreviewTextFromMarkerRects(
     textItems: readonly IPdfTextPreviewItem[],
     viewport: IPdfTextPreviewViewport | null | undefined,
 ) {
-    return resolvePreviewTextForTargets(subtype, targetRects, textItems, viewport);
+    if (!isTextMarkupSubtype(subtype) || targetRects.length === 0) {
+        return null;
+    }
+    return createPdfAnnotationPreviewTextResolver(textItems, viewport)(subtype, targetRects);
 }
 
 export function resolvePdfAnnotationPreviewText(
@@ -388,5 +410,5 @@ export function resolvePdfAnnotationPreviewText(
     viewport: IPdfTextPreviewViewport | null | undefined,
 ) {
     const targets = resolveAnnotationTargetRects(annotation, pageView, pageRotation);
-    return resolvePreviewTextForTargets(annotation.subtype, targets, textItems, viewport);
+    return resolvePdfAnnotationPreviewTextFromMarkerRects(annotation.subtype, targets, textItems, viewport);
 }
