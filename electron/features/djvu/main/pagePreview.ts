@@ -28,8 +28,8 @@ import {
     isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
+import { readPpmDimensions } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     clearDjvuPageSourceInfoCacheForTests,
     getCachedDjvuPageSizes,
@@ -537,26 +537,31 @@ export async function renderDjvuPagePreview(
         await assertPreviewNetpbmReadSafe(ppmPath);
         throwIfAborted(lifecycleOptions.signal);
         const nativeEncoderPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
-        const nativeProbe = await probeNativeNetpbm(nativeEncoderPath, ppmPath);
-        if (nativeEncoderPath && nativeProbe) {
-            await runNativeToolCommand(nativeEncoderPath, [
-                '--output',
-                pngPath,
-                '--format',
-                'png',
-                '--',
-                ppmPath,
-            ], {
-                commandLabel: 'evb-pdf-image-combine(djvu-preview)',
-                ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
-                timeoutMs: 60_000,
-            });
-            return {
-                bytes: await readFile(pngPath),
-                height: nativeProbe.height,
-                width: nativeProbe.width,
-            };
+        if (!nativeEncoderPath) {
+            throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
         }
-        throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
+        // The encoder writes the raster at its own size, so the bounded header
+        // read gives the preview dimensions without a full-raster probe.
+        const {
+            height,
+            width,
+        } = await readPpmDimensions(ppmPath);
+        await runNativeToolCommand(nativeEncoderPath, [
+            '--output',
+            pngPath,
+            '--format',
+            'png',
+            '--',
+            ppmPath,
+        ], {
+            commandLabel: 'evb-pdf-image-combine(djvu-preview)',
+            ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
+            timeoutMs: 60_000,
+        });
+        return {
+            bytes: await readFile(pngPath),
+            height,
+            width,
+        };
     });
 }
