@@ -1,0 +1,37 @@
+app/platform/browser/browserDocumentTypes.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 3,185-315
+app/platform/browser/browserDocumentChunks.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 9-10,12,44
+app/platform/browser/browserDocumentRecordStore.ts
+  s_1be6682b7b776b::t_1daccd22885ce5 136-140,550,558-559,565
+app/platform/browser/browserDocumentRecords.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 54
+app/platform/browser/browserDocumentRepository.ts
+  s_1be6682b7b776b::t_1daccd22885ce5 204,313,720-723,849,890,902,948,971,980,1063,1079,1104,1149,1190,1205,1238,1251
+tests/unit/app/platform/browserDocumentStore.test.ts
+  s_1be6682b7b776b::t_cacb4aaff6ac43 999,1027,1055
+app/platform/browser/browserDocumentConstants.ts
+  s_1be6682b7b776b::t_7d3b1ab6716eac 4
+app/platform/browser/browserDocumentIdb.ts
+  s_1be6682b7b776b::t_cacb4aaff6ac43 260,262,266,268
+tests/integration/browser/realIndexedDbMigration.test.ts
+  s_1be6682b7b776b::t_2dcbee0eb84dc2 678-828,939
+  s_1be6682b7b776b::t_23dee8d4dacb9b 830-848,850-853,855-858,860-863,865-871,874-877,879-903,905-908,910-913,915-918,920-922,924-927,929-932,934-938,940
+  s_1be6682b7b776b::t_cacb4aaff6ac43 3,16-18,33-35,261-263,284-286,288-291,293-296,298-310,1138,1352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "45b0bc0206fe7b35caae1b973226bb0421a54202",
+  "prompts": {},
+  "sessions": {
+    "s_1be6682b7b776b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11b0c-6bfd-7ad1-978e-1cf64000ef9c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
