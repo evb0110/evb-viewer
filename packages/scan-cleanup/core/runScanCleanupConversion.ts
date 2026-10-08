@@ -7,6 +7,7 @@ import {
 import {
     access,
     copyFile,
+    link,
     open,
     readFile,
     rename,
@@ -2783,19 +2784,6 @@ export async function runScanCleanupConversion(
                         log,
                         plan.pageNumber,
                         prepared.pdfPath,
-                        page.analysisInputPath,
-                        analysisDpi,
-                        undefined,
-                        operationSignal,
-                        undefined,
-                        analysisLimits,
-                        pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
-                    );
-                    await renderer(
-                        paths,
-                        log,
-                        plan.pageNumber,
-                        prepared.pdfPath,
                         page.inputPath,
                         plan.dpi,
                         undefined,
@@ -2815,6 +2803,34 @@ export async function runScanCleanupConversion(
                         throw new Error(
                             `Scan cleanup page ${String(plan.pageNumber)} raster dimensions `
                         + `${String(dimensions.width)}x${String(dimensions.height)} exceed limits`,
+                        );
+                    }
+                    // At the same DPI the canonical analysis raster is the same
+                    // render of the same page box, byte for byte. Link it
+                    // instead of rendering the page again; the analysis entry
+                    // is released at page completion, which leaves the working
+                    // input's own entry in place.
+                    if (
+                        analysisDpi === plan.dpi
+                        && dimensions.width <= analysisLimits.maxDimensionPx
+                        && dimensions.height <= analysisLimits.maxDimensionPx
+                        && dimensions.width * dimensions.height <= analysisLimits.maxPixels
+                    ) {
+                        await link(page.inputPath, page.analysisInputPath)
+                            .catch(() => copyFile(page.inputPath, page.analysisInputPath));
+                    } else {
+                        await renderer(
+                            paths,
+                            log,
+                            plan.pageNumber,
+                            prepared.pdfPath,
+                            page.analysisInputPath,
+                            analysisDpi,
+                            undefined,
+                            operationSignal,
+                            undefined,
+                            analysisLimits,
+                            pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                         );
                     }
                     rasterizedCount += 1;
