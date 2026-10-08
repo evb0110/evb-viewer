@@ -1,3 +1,11 @@
+import {
+    addScanCleanupPaperCohortRect,
+    createScanCleanupPaperCohortTally,
+    type IScanCleanupPaperCohortTally,
+    isLargerScanCleanupPaperRect,
+    mergeScanCleanupPaperCohortTallies,
+    resolveScanCleanupDominantPaperRect,
+} from '@contracts/scan-cleanup/scanCleanupPaperCohort';
 import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupOptions,
@@ -182,6 +190,7 @@ export interface IScanCleanupCanvasSummaryBucket {
     count: number;
     hasContinuousTone: boolean;
     largestOutputRect: IScanCleanupOrientedRect | null;
+    paperCohorts: IScanCleanupPaperCohortTally;
 }
 
 /**
@@ -204,6 +213,7 @@ function createScanCleanupCanvasSummaryBucket(): IScanCleanupCanvasSummaryBucket
         count: 0,
         hasContinuousTone: false,
         largestOutputRect: null,
+        paperCohorts: createScanCleanupPaperCohortTally(),
     };
 }
 
@@ -217,22 +227,6 @@ export function createScanCleanupDocumentCanvasAccumulator(): IScanCleanupDocume
         automaticUnclassified: createScanCleanupCanvasSummaryBucket(),
         firstObservedAutomaticShare: null,
     };
-}
-
-function isLargerOutputRect(
-    candidate: IScanCleanupOrientedRect,
-    current: IScanCleanupOrientedRect | null,
-) {
-    if (current === null) {
-        return true;
-    }
-    const area = candidate.widthPoints * candidate.heightPoints;
-    const currentArea = current.widthPoints * current.heightPoints;
-    return area > currentArea
-        || (area === currentArea && candidate.widthPoints > current.widthPoints)
-        || (area === currentArea
-            && candidate.widthPoints === current.widthPoints
-            && candidate.heightPoints > current.heightPoints);
 }
 
 function addScanCleanupCanvasSummaryPage(
@@ -251,7 +245,8 @@ function addScanCleanupCanvasSummaryPage(
         ?? options.outputMode;
     bucket.hasContinuousTone ||= outputMode !== 'bw';
     const outputRect = resolveScanCleanupOutputPageRect(pageSize, shares);
-    if (isLargerOutputRect(outputRect, bucket.largestOutputRect)) {
+    addScanCleanupPaperCohortRect(bucket.paperCohorts, outputRect);
+    if (isLargerScanCleanupPaperRect(outputRect, bucket.largestOutputRect)) {
         bucket.largestOutputRect = outputRect;
     }
 }
@@ -324,19 +319,30 @@ export function addScanCleanupDocumentCanvasObservedPage(
     addScanCleanupCanvasSummaryPage(bucket, pageSize, options, shares);
 }
 
+/**
+ * `voteOnPaper` is false only while unknown automatic pages are summarized as
+ * whole sheets beside their observed layout bucket: a page can sit in both,
+ * so a vote would count it twice. Those interim answers keep the largest.
+ */
 function resolveScanCleanupCanvasSummaryRect(
     buckets: readonly IScanCleanupCanvasSummaryBucket[],
+    voteOnPaper: boolean,
 ) {
     let largest: IScanCleanupOrientedRect | null = null;
     let hasContinuousTone = false;
     for (const bucket of buckets) {
         hasContinuousTone ||= bucket.hasContinuousTone;
-        if (bucket.largestOutputRect !== null && isLargerOutputRect(bucket.largestOutputRect, largest)) {
+        if (bucket.largestOutputRect !== null && isLargerScanCleanupPaperRect(bucket.largestOutputRect, largest)) {
             largest = bucket.largestOutputRect;
         }
     }
+    const dominant = voteOnPaper
+        ? resolveScanCleanupDominantPaperRect(
+            mergeScanCleanupPaperCohortTallies(buckets.map(bucket => bucket.paperCohorts)),
+        )
+        : null;
     return {
-        largest,
+        canvas: dominant ?? largest,
         hasContinuousTone,
     };
 }
@@ -394,6 +400,7 @@ export function resolveScanCleanupDocumentCanvasFromAccumulator(
     return resolveScanCleanupDocumentCanvasPlanFromBuckets(
         buckets,
         renderDpi,
+        layoutEvidenceComplete,
         dominantCandidates,
         rasterMaxPixels,
     );
@@ -437,6 +444,7 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
     return resolveScanCleanupDocumentCanvasPlanFromBuckets(
         buckets,
         renderDpi,
+        true,
         dominantCandidates,
         rasterMaxPixels,
     );
@@ -445,6 +453,7 @@ export function resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(
 function resolveScanCleanupDocumentCanvasPlanFromBuckets(
     buckets: readonly IScanCleanupCanvasSummaryBucket[],
     renderDpi: number,
+    voteOnPaper: boolean,
     dominantCandidates: readonly IScanCleanupCanvasSummaryBucket[] = [],
     rasterMaxPixels?: number,
 ): IScanCleanupDocumentCanvasPlan | null {
@@ -464,21 +473,21 @@ function resolveScanCleanupDocumentCanvasPlanFromBuckets(
             dominant,
         ];
     const {
-        largest,
+        canvas,
         hasContinuousTone,
-    } = resolveScanCleanupCanvasSummaryRect(selectedBuckets);
-    if (largest === null) {
+    } = resolveScanCleanupCanvasSummaryRect(selectedBuckets, voteOnPaper);
+    if (canvas === null) {
         return null;
     }
     const maxPixels = resolveCanvasMaxPixels(
         resolveScanCleanupMatchedCanvasMaxPixels([hasContinuousTone ? 'color' : 'bw']),
         rasterMaxPixels,
     );
-    const dpi = resolveCanvasDpi(largest, renderDpi, maxPixels);
+    const dpi = resolveCanvasDpi(canvas, renderDpi, maxPixels);
     const plan = {
-        widthPoints: largest.widthPoints,
-        heightPoints: largest.heightPoints,
-        ...resolveCanvasGrid(largest, dpi, maxPixels),
+        widthPoints: canvas.widthPoints,
+        heightPoints: canvas.heightPoints,
+        ...resolveCanvasGrid(canvas, dpi, maxPixels),
     };
     return Object.values(plan).every(value => Number.isFinite(value) && value > 0)
         ? plan
@@ -693,17 +702,20 @@ export function resolveScanCleanupDocumentCanvasRenderDpi(
  * The one rectangle and pixel grid every matched output of a document is
  * normalized onto, or null when the document carries no readable geometry.
  *
- * The rectangle is an *actual* output page rectangle — the largest the document
- * produces, chosen by area and then by width and height so the same document
- * always answers the same rectangle — rather than independent maxima, which
- * would invent a rectangle no page has. Nothing grows it: margins are laid out
- * inside it and a rotation override turns that page's content within it, so
- * neither a 5 mm margin nor a quarter turn can resize a Letter document.
+ * The rectangle is an *actual* output page rectangle — the paper at least
+ * three quarters of the produced pages share, or, for a genuinely mixed
+ * document, the largest the document produces — chosen by area and then by width and height
+ * so the same document always answers the same rectangle. A book's leaves set
+ * the paper; its larger cover or fold-out is fitted down onto it instead of
+ * every leaf being blown up to the cover. Independent maxima would invent a
+ * rectangle no page has. Nothing grows it: margins are laid out inside it and a
+ * rotation override turns that page's content within it, so neither a 5 mm
+ * margin nor a quarter turn can resize a Letter document.
  *
  * The pixel grid is that rectangle at the resolution the run renders with, so
  * every page carries identical pixel dimensions at an identical DPI, and a page
- * whose paper is smaller is resampled up to the document's visual scale instead
- * of being padded into a corner of the sheet.
+ * whose paper differs is resampled to the document's visual scale instead of
+ * being padded into a corner of the sheet or cropped by it.
  *
  * It is measured over the whole document rather than over the pages one run was
  * asked to clean: cleaning a selection has to produce pages that belong to the
@@ -733,22 +745,19 @@ export function resolveScanCleanupDocumentCanvas(
     if (produced.length === 0 || !Number.isFinite(renderDpi) || renderDpi <= 0) {
         return null;
     }
-    const outputRects = produced.map(pageSize => resolveScanCleanupOutputPageRect(
-        pageSize,
-        resolveSheetShares(options, pageSize.pageNumber, layoutByPage),
-    ));
-    let canvas = outputRects[0]!;
-    for (const rect of outputRects.slice(1)) {
-        const area = rect.widthPoints * rect.heightPoints;
-        const bestArea = canvas.widthPoints * canvas.heightPoints;
-        if (
-            area > bestArea
-            || (area === bestArea && rect.widthPoints > canvas.widthPoints)
-            || (area === bestArea && rect.widthPoints === canvas.widthPoints && rect.heightPoints > canvas.heightPoints)
-        ) {
-            canvas = rect;
+    const paperCohorts = createScanCleanupPaperCohortTally();
+    let largest: IScanCleanupOrientedRect | null = null;
+    for (const pageSize of produced) {
+        const rect = resolveScanCleanupOutputPageRect(
+            pageSize,
+            resolveSheetShares(options, pageSize.pageNumber, layoutByPage),
+        );
+        addScanCleanupPaperCohortRect(paperCohorts, rect);
+        if (isLargerScanCleanupPaperRect(rect, largest)) {
+            largest = rect;
         }
     }
+    const canvas = resolveScanCleanupDominantPaperRect(paperCohorts) ?? largest!;
     const maxPixels = resolveCanvasMaxPixels(
         resolveScanCleanupMatchedCanvasMaxPixels(produced.map(
             pageSize => getScanCleanupPageOverride(

@@ -236,6 +236,95 @@ describe('scan cleanup document canvas', () => {
         });
     });
 
+    describe('a book with a larger cover', () => {
+        // A scanned book: 252 leaves of one paper, a larger cover and an
+        // endpaper of its own size, as a scanner at 72 ppi declares them.
+        const book = Array.from({length: 254}, (_, index) => {
+            const pageNumber = index + 1;
+            if (pageNumber === 1) {
+                return page({
+                    pageNumber,
+                    widthPoints: 2_912,
+                    heightPoints: 4_368,
+                });
+            }
+            if (pageNumber === 2) {
+                return page({
+                    pageNumber,
+                    widthPoints: 2_200,
+                    heightPoints: 3_400,
+                });
+            }
+            return page({
+                pageNumber,
+                widthPoints: 2_060,
+                heightPoints: 3_235,
+            });
+        });
+        const leafCanvas = {
+            widthPoints: 2_060,
+            heightPoints: 3_235,
+            widthPx: 2_060,
+            heightPx: 3_235,
+        };
+        const singles: TScanCleanupLayoutByPage = Object.fromEntries(
+            book.map(pageSize => [
+                String(pageSize.pageNumber),
+                'single-uncut-page',
+            ] as const),
+        );
+
+        it('normalizes onto the leaves, fitting the cover down instead of blowing every leaf up', () => {
+            const canvas = resolveScanCleanupDocumentCanvas(book, 72, options, singles);
+
+            expect(canvas).toEqual(leafCanvas);
+            expect(resolveScanCleanupCanvasFitScale(canvas!, book[10]!)).toBe(1);
+            expect(resolveScanCleanupCanvasFitScale(canvas!, book[0]!)).toBeCloseTo(2_060 / 2_912, 6);
+        });
+
+        it('answers the same leaves from the bounded summary and the preview, in any order', () => {
+            const accumulator = createScanCleanupDocumentCanvasAccumulator();
+            for (const pageSize of [...book].reverse()) {
+                addScanCleanupDocumentCanvasPage(accumulator, pageSize, options, 'single-uncut-page');
+            }
+
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 72, options, true))
+                .toEqual(leafCanvas);
+            expect(resolveScanCleanupProvisionalDocumentCanvas(book, 72, options, singles))
+                .toEqual(leafCanvas);
+        });
+
+        it('keeps a scanner\'s per-leaf crop jitter one paper, sized to its largest leaf', () => {
+            const jittered = book.map(pageSize => pageSize.pageNumber > 2
+                ? {
+                    ...pageSize,
+                    widthPoints: 2_060 + (pageSize.pageNumber % 5) * 2,
+                    heightPoints: 3_235 - (pageSize.pageNumber % 3) * 3,
+                }
+                : pageSize);
+
+            expect(resolveScanCleanupDocumentCanvas(jittered, 72, options, singles)).toMatchObject({
+                widthPoints: 2_068,
+                heightPoints: 3_235,
+            });
+        });
+
+        it('keeps the largest sheet for a document with no paper three quarters of it share', () => {
+            const mixed = book.slice(0, 4).map((pageSize, index) => index < 2
+                ? {
+                    ...pageSize,
+                    widthPoints: 2_912,
+                    heightPoints: 4_368,
+                }
+                : pageSize);
+
+            expect(resolveScanCleanupDocumentCanvas(mixed, 72, options, singles)).toMatchObject({
+                widthPoints: 2_912,
+                heightPoints: 4_368,
+            });
+        });
+    });
+
     it('answers the same rectangle whatever order the pages arrive in', () => {
         const pages = [
             page({
