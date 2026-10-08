@@ -764,6 +764,40 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
 }
 
 #[test]
+fn text_box_saves_through_the_structural_loader_share_one_embedded_font() {
+    let pdf = temp_path("structural-text-box-font", "pdf");
+    let mutations = temp_path("structural-text-box-font-mutations", "json");
+    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    write_sparse_structural_loader_pdf(&pdf);
+
+    for index in 0..2 {
+        fs::write(
+            &mutations,
+            format!(
+                r#"{{"textBoxes":[{{"pageIndex":0,"stableKey":"structural-font-{index}","text":"text box {index}","rect":[10,10,180,90],"rotation":0,"fontSize":12,"color":[17,24,39]}}]}}"#
+            ),
+        )
+        .unwrap();
+        let output = append_mutations(&pdf, &mutations);
+        assert!(
+            output.status.success(),
+            "text box append {index} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // The second save must read the first save's font streams to reuse them.
+    assert_eq!(
+        qpdf_objects_json(&pdf)
+            .matches("\"/EVBTextFontVersion\"")
+            .count(),
+        1
+    );
+    assert!(qpdf_contains_pdf_text(&pdf, "text box 1"));
+    assert_qpdf_check(&pdf);
+}
+
+#[test]
 fn preserves_hash_named_resources_through_two_large_annotation_appends() {
     let pdf = temp_path("structural-hash-resources", "pdf");
     let first_mutations = temp_path("structural-hash-first", "json");

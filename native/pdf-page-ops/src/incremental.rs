@@ -549,12 +549,7 @@ pub(crate) fn append_native_mutations_with_qpdf(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    materialize_stamp_recovery_sources(
-        &mut incremental,
-        input_path,
-        qpdf_path,
-        &mutations.placed_image_geometry_updates,
-    )?;
+    materialize_reused_base_streams(&mut incremental, input_path, qpdf_path, mutations)?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -635,12 +630,7 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    materialize_stamp_recovery_sources(
-        &mut incremental,
-        input_path,
-        qpdf_path,
-        &mutations.placed_image_geometry_updates,
-    )?;
+    materialize_reused_base_streams(&mut incremental, input_path, qpdf_path, mutations)?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -665,6 +655,27 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         None,
         identity_bindings_path,
     )
+}
+
+/// Reads the base streams a save reuses that a structural load left unread:
+/// stamp sources, and the embedded text-box font when the save writes text
+/// boxes. Other saves never look at those bytes.
+fn materialize_reused_base_streams(
+    incremental: &mut IncrementalDocument,
+    input_path: &Path,
+    qpdf_path: Option<&Path>,
+    mutations: &NativeMutationsFile,
+) -> Result<()> {
+    materialize_stamp_recovery_sources(
+        incremental,
+        input_path,
+        qpdf_path,
+        &mutations.placed_image_geometry_updates,
+    )?;
+    if let Some(qpdf_path) = qpdf_path.filter(|_| !mutations.text_boxes.is_empty()) {
+        incremental.materialize_text_box_font_streams(input_path, qpdf_path);
+    }
+    Ok(())
 }
 
 fn is_rotation_only_mutation(mutations: &NativeMutationsFile) -> bool {
@@ -882,12 +893,7 @@ pub(crate) fn write_native_mutations_path(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    materialize_stamp_recovery_sources(
-        &mut incremental,
-        input_path,
-        qpdf_path,
-        &mutations.placed_image_geometry_updates,
-    )?;
+    materialize_reused_base_streams(&mut incremental, input_path, qpdf_path, mutations)?;
     with_staged_incremental_output_for_revision(
         input_path,
         output_path,
