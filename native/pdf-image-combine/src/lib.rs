@@ -35,10 +35,6 @@ use evb_native_support::{
     NativeError, NativeErrorCode,
 };
 use evb_raster_io::{decode_png_gray, write_png, write_png_with_dpi, DecodeLimits, PixelBuffer};
-use tiff::{
-    encoder::{colortype, Rational, TiffEncoder},
-    tags::ResolutionUnit,
-};
 
 use crate::{
     image::{
@@ -1088,41 +1084,6 @@ pub fn encode_netpbm_path_as_jpeg(
     encoder.encode(&pixels, width, height, color_type)?;
     let mut output = AtomicOutput::create(output_path)?;
     output.file_mut()?.write_all(&bytes)?;
-    output.publish()?;
-    Ok(())
-}
-
-pub fn encode_netpbm_path_as_tiff_with_dpi(
-    input_path: &Path,
-    output_path: &Path,
-    max_pixels: u64,
-    dpi: Option<u32>,
-) -> Result<()> {
-    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
-    let mut output = AtomicOutput::create(output_path)?;
-    {
-        let mut encoder = TiffEncoder::new(output.file_mut()?)?;
-        let resolution = Rational {
-            n: dpi.unwrap_or(DEFAULT_DPI),
-            d: 1,
-        };
-        match netpbm.channels {
-            1 => {
-                let mut image =
-                    encoder.new_image::<colortype::Gray8>(netpbm.width, netpbm.height)?;
-                image.resolution(ResolutionUnit::Inch, resolution);
-                image.write_data(&netpbm.pixels)?;
-            }
-            3 => {
-                let mut image =
-                    encoder.new_image::<colortype::RGB8>(netpbm.width, netpbm.height)?;
-                image.resolution(ResolutionUnit::Inch, resolution);
-                image.write_data(&netpbm.pixels)?;
-            }
-            _ => unreachable!("the Netpbm parser only returns gray or RGB pixels"),
-        }
-    }
     output.publish()?;
     Ok(())
 }

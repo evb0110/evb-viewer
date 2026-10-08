@@ -28,8 +28,8 @@ import {
     isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
+import { readPpmDimensions } from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {
     clearDjvuPageSourceInfoCacheForTests,
     getCachedDjvuPageSizes,
@@ -272,10 +272,9 @@ function* iterateRequestedPageRanges(pageNumbers: readonly number[]) {
 async function probeDjvuPageSize(
     djvuPath: string,
     pageNumber: number,
+    dpi: number,
     options: IDjvuPagePreviewLifecycleOptions,
 ) {
-    throwIfAborted(options.signal);
-    const dpi = await getDjvuResolution(djvuPath, options.signal ? { signal: options.signal } : {});
     throwIfAborted(options.signal);
     const { djvused } = getDjvuNativeToolPaths();
     const result = await runDjvuSourceCommand(djvused, [
@@ -311,22 +310,26 @@ export async function getDjvuPageSourceInfoForViewing(
         djvuPath,
         sourceRevision.revision,
         pageNumber,
-        async () => {
+        async (documentInfo) => {
+            const metadataOptions = options.signal ? {signal: options.signal} : {};
             const [
                 pageCount,
-                requestedPageSize,
-            ] = await Promise.all([
-                getDjvuPageCount(djvuPath, options.signal ? {signal: options.signal} : {}),
-                probeDjvuPageSize(djvuPath, pageNumber, options).catch(() => null),
-            ]);
+                dpi,
+            ] = documentInfo
+                ? [
+                    documentInfo.pageCount,
+                    documentInfo.dpi,
+                ]
+                : await Promise.all([
+                    getDjvuPageCount(djvuPath, metadataOptions),
+                    getDjvuResolution(djvuPath, metadataOptions),
+                ]);
             throwIfAborted(options.signal);
             if (pageCount < 1) {
                 throw new Error('DjVu document has no pages');
             }
             const effectivePageNumber = Math.min(pageNumber, pageCount);
-            const pageSize = effectivePageNumber === pageNumber && requestedPageSize
-                ? requestedPageSize
-                : await probeDjvuPageSize(djvuPath, effectivePageNumber, options);
+            const pageSize = await probeDjvuPageSize(djvuPath, effectivePageNumber, dpi, options);
             throwIfAborted(options.signal);
             if (!pageSize) {
                 throw new Error(`DjVu page size probe returned no size for page ${effectivePageNumber}`);
@@ -534,26 +537,31 @@ export async function renderDjvuPagePreview(
         await assertPreviewNetpbmReadSafe(ppmPath);
         throwIfAborted(lifecycleOptions.signal);
         const nativeEncoderPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
-        const nativeProbe = await probeNativeNetpbm(nativeEncoderPath, ppmPath);
-        if (nativeEncoderPath && nativeProbe) {
-            await runNativeToolCommand(nativeEncoderPath, [
-                '--output',
-                pngPath,
-                '--format',
-                'png',
-                '--',
-                ppmPath,
-            ], {
-                commandLabel: 'evb-pdf-image-combine(djvu-preview)',
-                ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
-                timeoutMs: 60_000,
-            });
-            return {
-                bytes: await readFile(pngPath),
-                height: nativeProbe.height,
-                width: nativeProbe.width,
-            };
+        if (!nativeEncoderPath) {
+            throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
         }
-        throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
+        // The encoder writes the raster at its own size, so the bounded header
+        // read gives the preview dimensions without a full-raster probe.
+        const {
+            height,
+            width,
+        } = await readPpmDimensions(ppmPath);
+        await runNativeToolCommand(nativeEncoderPath, [
+            '--output',
+            pngPath,
+            '--format',
+            'png',
+            '--',
+            ppmPath,
+        ], {
+            commandLabel: 'evb-pdf-image-combine(djvu-preview)',
+            ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
+            timeoutMs: 60_000,
+        });
+        return {
+            bytes: await readFile(pngPath),
+            height,
+            width,
+        };
     });
 }

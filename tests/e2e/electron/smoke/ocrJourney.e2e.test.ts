@@ -179,6 +179,40 @@ async function createExistingTextVisibilityFixturePdf(filename: string) {
     return filePath;
 }
 
+/** A 1677 Latin page set at 72 ppi, as the user's scan of it was. */
+async function createEarlyPrintFixturePdf(filename: string) {
+    const doc = await PDFDocument.create();
+    const scan = await doc.embedJpg(await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg')));
+    doc.addPage([
+        scan.width,
+        scan.height,
+    ]).drawImage(scan, {
+        x: 0,
+        y: 0,
+        width: scan.width,
+        height: scan.height,
+    });
+    const filePath = createFixturePath(filename);
+    await writeFile(filePath, await doc.save());
+    return filePath;
+}
+
+/** Picks a recognition language by clicking its chip in the OCR dialog. */
+async function chooseOcrLanguage(page: Page, code: string) {
+    const chip = await page.waitForFunction((languageCode: string) => (
+        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] [data-slot="item"]')).find(item => (
+            item.querySelector('.chip-code')?.textContent?.trim() === languageCode && item.checkVisibility()
+        ))
+    ), {timeout: 30_000}, code);
+    await clickAsUser(page, chip.asElement() as ElementHandle<HTMLElement>);
+    await waitForFunctionInPage(page, (languageCode: string) => (
+        Array.from(document.querySelectorAll('[role="dialog"] [data-slot="item"]')).some(item => (
+            item.querySelector('.chip-code')?.textContent?.trim() === languageCode
+            && item.querySelector('[role="radio"]')?.getAttribute('aria-checked') === 'true'
+        ))
+    ), {timeout: 10_000}, code);
+}
+
 function countWord(text: string, word: string) {
     return text.toLocaleLowerCase().split(word).length - 1;
 }
@@ -792,6 +826,53 @@ describe('Electron E2E - OCR journey', () => {
     }, 300_000);
 
     // The OCR dialog belongs to the view that opened it (T4); only the run is shared.
+    it('reads the long s of an early printed page as ſ when the user picks Latin', async () => {
+        const session = sessionFixture.getSession();
+        const {page} = session;
+        const sourcePath = await createEarlyPrintFixturePdf('ocr-journey-early-print.pdf');
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await chooseOcrLanguage(page, 'lat');
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+        ), {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await waitForFunctionInPage(page, (host: string) => (
+            (document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                ?.textContent?.length ?? 0) > 200
+        ), {timeout: 30_000}, ACTIVE_HOST);
+        const text = await page.$eval(
+            `${ACTIVE_HOST} .page_container[data-page="1"] .text-layer`,
+            layer => layer.textContent ?? '',
+        );
+        console.log('ocr-early-print-text-layer', JSON.stringify(text));
+
+        // Every modern Latin-script model reads this page's long s as f.
+        const longSWords = [
+            'uſque',
+            'ſequentibus',
+            'feſto',
+            'Chriſti',
+            'Feſtis',
+            'quaſdam',
+            'ſolemniter',
+            'Feſtum',
+        ];
+        const read = longSWords.filter(word => text.includes(word));
+        const misread = longSWords.map(word => word.replaceAll('ſ', 'f')).filter(word => text.includes(word));
+        expect(read.length, `long-s words read: ${read.join(', ')}`).toBeGreaterThanOrEqual(6);
+        expect(misread).toEqual([]);
+    }, 300_000);
+
     it('opens the OCR dialog only in the view that opened it', async () => {
         const session = await sessionFixture.restart({
             clean: true,

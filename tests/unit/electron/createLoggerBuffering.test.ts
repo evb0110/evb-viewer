@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import {
     afterEach,
     beforeEach,
@@ -6,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const mocks = vi.hoisted(() => ({
     appended: [] as string[],
@@ -221,6 +223,76 @@ describe('file logger write buffering', () => {
         });
         expect(mocks.appended.join('')).not.toContain('someone');
         expect(mocks.appended.join('')).not.toContain('abc.def');
+    });
+
+    it('writes renderer bridge records with the bridge bounds and no unredacted value', async () => {
+        const {flushPendingLogWrites} = await import('@electron/utils/createLogger');
+        const {registerRendererLogBridge} = await import('@electron/platform-ipc/rendererLogBridge');
+        let handleRendererLog: TRegisteredHandler | undefined;
+        registerRendererLogBridge({
+            isTrustedSender: () => true,
+            registerListener: (_channel, handler) => {
+                handleRendererLog = handler as TRegisteredHandler;
+            },
+        });
+        const event = {
+            sender: Object.assign(new EventEmitter(), {id: 7}),
+            senderFrame: null,
+        };
+        const words = (count: number) => Array.from({length: count}, (_, index) => `word${index % 97}`).join(' ');
+
+        handleRendererLog?.(event, {
+            level: 'warn',
+            section: 'annotations',
+            message: 'Annotation payload rejected for /Users/someone/private.pdf',
+            data: {
+                payload: 'x'.repeat(6_000),
+                password: 'hunter2',
+            },
+        });
+        handleRendererLog?.(event, {
+            level: 'warn',
+            section: 'ocr',
+            message: 'OCR page diagnostics',
+            data: Object.fromEntries(Array.from({length: 16}, (_, index) => [
+                `page${index}`,
+                {
+                    words: words(150),
+                    path: `/Users/someone/scan-${index}.pdf`,
+                    token: `secret-${index}`,
+                },
+            ])),
+        });
+        // The 2,000-character message cut lands inside the redacted secret.
+        handleRendererLog?.(event, {
+            level: 'warn',
+            section: 'updates',
+            message: `${'x'.repeat(1_980)} authorization: supersecretvalue`,
+        });
+        await flushPendingLogWrites();
+
+        const [
+            longString,
+            oversized,
+            clippedMessage,
+        ] = readRecords();
+        expect(clippedMessage?.msg).toHaveLength(2_001);
+        expect(clippedMessage?.msg.startsWith(`${'x'.repeat(1_980)} authorization: `)).toBe(true);
+        expect(longString).toMatchObject({
+            msg: 'Annotation payload rejected for /Users/[redacted]',
+            data: {
+                payload: `${'x'.repeat(4_000)}…(+2000 chars)`,
+                password: '[redacted-secret]',
+            },
+        });
+        const truncated = oversized?.data?.truncated;
+        expect(typeof truncated === 'string' ? truncated.length : 0).toBe(8_001);
+        expect(oversized?.data?.originalChars).toBeGreaterThan(8_000);
+        const written = mocks.appended.join('');
+        expect(written).not.toContain('someone');
+        expect(written).not.toContain('hunter2');
+        expect(written).not.toMatch(/secret-\d/u);
+        expect(written).not.toContain('supe');
     });
 
     it('keeps redacted data in renderer broadcasts when the file sink skips the level', async () => {

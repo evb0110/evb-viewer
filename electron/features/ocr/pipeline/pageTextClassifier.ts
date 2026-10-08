@@ -29,7 +29,6 @@ const OCR_LANGUAGE_SCRIPTS: Record<string, readonly TOcrTextScript[]> = {
     hun: ['latin'],
     ind: ['latin'],
     ita: ['latin'],
-    ita_old: ['latin'],
     jpn: [
         'han',
         'kana',
@@ -37,7 +36,6 @@ const OCR_LANGUAGE_SCRIPTS: Record<string, readonly TOcrTextScript[]> = {
     kmr: ['latin'],
     kor: ['hangul'],
     lat: ['latin'],
-    lat_early: ['latin'],
     nld: ['latin'],
     nor: ['latin'],
     pol: ['latin'],
@@ -46,7 +44,6 @@ const OCR_LANGUAGE_SCRIPTS: Record<string, readonly TOcrTextScript[]> = {
     rus: ['cyrillic'],
     slk: ['latin'],
     spa: ['latin'],
-    spa_old: ['latin'],
     srp: ['cyrillic'],
     swe: ['latin'],
     syr: ['rtl'],
