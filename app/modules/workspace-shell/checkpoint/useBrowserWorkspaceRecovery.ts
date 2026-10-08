@@ -49,7 +49,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     let activeOwnerId: string | null = null;
     let generation: number | null = null;
     let liveLeaseGeneration: number | null = null;
-    let liveLeaseDependencies: Array<{ref: TDocumentRef}> = [];
+    const liveDocumentDependencies = () => Object.values(options.documentSessionsByTabId.value).flatMap(({snapshot}) => {
+        const {
+            originalPath, workingCopyPath,
+        } = snapshot.value.identity;
+        return [
+            originalPath,
+            workingCopyPath,
+        ].flatMap(ref => ref ? [{ref}] : []);
+    });
     let fenced = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -107,27 +115,20 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
             if (outcome.saved) {
                 generation = outcome.generation;
-                if (liveLeaseGeneration !== null || liveLeaseDependencies.length > 0) {
+                if (liveLeaseGeneration !== null || liveDocumentDependencies().length > 0) {
                     try {
-                        // A null generation means the lease was reclaimed or
-                        // never published. Re-acquiring is what keeps a
-                        // quiescent window protected, since nothing else
-                        // publishes a lease until the next recovery save.
+                        // Acquire missing leases from the current document identities.
                         const liveLease = liveLeaseGeneration === null
-                            ? await createBrowserDocumentLiveLease(ownerId, liveLeaseDependencies)
+                            ? await createBrowserDocumentLiveLease(ownerId, liveDocumentDependencies())
                             : await saveBrowserDocumentLiveLease(
                                 ownerId,
                                 liveLeaseGeneration,
                                 'active',
-                                liveLeaseDependencies,
+                                liveDocumentDependencies(),
                             );
                         liveLeaseGeneration = liveLease.generation;
                     } catch (error) {
-                        // Maintenance reclaims the lease of an owner that looks
-                        // abandoned. Forget the generation so the next attempt
-                        // re-acquires; keeping the stale one would fail every
-                        // future write and leave this window's documents
-                        // unprotected without ever saying so.
+                        // Forget the failed generation so the next heartbeat can reacquire the lease.
                         liveLeaseGeneration = null;
                         BrowserLogger.warn('workspace-recovery', 'Browser document live lease was reclaimed; re-acquiring', error);
                     }
@@ -154,6 +155,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     async function cleanupSnapshots(refs: Iterable<string>, retainedRefs = new Set<string>()) {
+        liveDocumentDependencies().forEach(({ref}) => retainedRefs.add(ref));
         await Promise.allSettled(Array.from(refs, async (ref) => {
             if (!retainedRefs.has(ref)) {
                 await browserDocumentStore.cleanupDetachedDocument(ref);
@@ -286,7 +288,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     // Keep the generation so the next drain can retry release.
                 }
             }
-            liveLeaseDependencies = [];
             persistedCheckpointRevision = Math.max(
                 persistedCheckpointRevision,
                 capturedCheckpointRevision,
@@ -503,11 +504,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 await cleanupSnapshots(createdRefs);
                 return;
             }
-            const liveDependencies = recoveryCheckpoint.tabs.flatMap(tab => [
-                ...(tab.workingCopyRef ? [{ref: tab.workingCopyRef}] : []),
-                ...(tab.sourceRef ? [{ref: tab.sourceRef}] : []),
-            ]);
-            liveLeaseDependencies = liveDependencies;
+            const liveDependencies = liveDocumentDependencies();
             try {
                 const liveLease = liveLeaseGeneration === null
                     ? await createBrowserDocumentLiveLease(ownerId, liveDependencies)
