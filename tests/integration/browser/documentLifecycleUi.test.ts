@@ -2298,6 +2298,7 @@ describe('optional search-cache mutation completion proof', () => {
             const saved = await PDFDocument.load(readFileSync(savedPath));
             expect(saved.getPage(0).getRotation().angle).toBe(90);
             expect(saved.getPageCount()).toBe(1);
+            if (fault === 'denied') expect(problems.length).toBeGreaterThan(0);
             expect(problems.every(problem => problem.includes('[search] Optional search-cache invalidation failed'))).toBe(true);
             writeFileSync(resolve(evidenceDir, `${fault}-result.json`), JSON.stringify({
                 workingPath,
