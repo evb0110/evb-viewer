@@ -28,6 +28,7 @@ import {
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
 import type { IBrowserPdfCombineWasmPageSpec } from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import type {
     IDjvuContentsItem,
     IDjvuWorker,
@@ -48,11 +49,10 @@ import {
     type ExpectedOutcomeCode,
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
-import { tryCombineImageInputsWithWasm } from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
+import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
 import { toOwnedArrayBuffer } from '@app/platform/browser-api/browserDjvuCanvas';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
-import {SerializableError} from '@contracts/serializableError';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {
     DjvuCanceledError,
@@ -65,7 +65,6 @@ import {
     type IRenderedDjvuPage,
 } from '@app/platform/browser-api/browserDjvuRasterizer';
 
-const DJVU_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
 const DJVU_PAGE_SPEC_OVERHEAD_BYTES = 256;
 const DJVU_DIRECT_PDF_JPEG_QUALITY = 0.92;
 const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
@@ -271,7 +270,7 @@ function estimatePageSpecBytes(pageSizes: readonly IDjvuPageMetrics[]) {
 
 export function resolveBrowserDjvuCompactExportPlan(
     pageSizes: readonly IDjvuPageMetrics[],
-    maxPageSpecBytes = DJVU_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES,
+    maxPageSpecBytes = BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
     preserveBookmarks = false,
 ): IBrowserDjvuCompactExportPlan {
     const estimatedPageSpecBytes = estimatePageSpecBytes(pageSizes);
@@ -780,26 +779,28 @@ async function buildCompactPhotoPdfWithWasm(options: {
     }
 
     throwIfCanceled(options.signal);
-    const outcome = await tryCombineImageInputsWithWasm([], {pageSpecs}, options.signal);
-    throwIfCanceled(options.signal);
-    if (outcome.status === 'fatal') {
-        // Compact DjVu export returns one complete PDF byte value from WASM.
-        // Preserve the shared browser output-cap envelope instead of turning
-        // an over-cap result into the generic "WASM unavailable" error.
-        throw new SerializableError(outcome.error);
+    try {
+        const {data} = await runBrowserPdfCombineWorkerRequest('combinePdfs', {
+            inputs: [],
+            wasmImagePreprocessing: {pageSpecs},
+        }, options.signal);
+        throwIfCanceled(options.signal);
+        return await writePdfBytesToOutput(options.outputPath, data, options.signal);
+    } catch (error) {
+        const message = getErrorMessage(error);
+        const isUnsupported = message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT';
+        if (isUnsupported || message === 'ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE') {
+            throw new BrowserDjvuExpectedOutcomeError(
+                isUnsupported
+                    ? 'Browser compact DjVu export does not support this page data'
+                    : 'Browser compact DjVu export is temporarily unavailable',
+                createBrowserDjvuExpectedOutcome(isUnsupported
+                    ? 'unsupported-input'
+                    : 'temporarily-unavailable'),
+            );
+        }
+        throw error;
     }
-    if (outcome.status !== 'success') {
-        const isUnsupported = outcome.status === 'unsupported';
-        throw new BrowserDjvuExpectedOutcomeError(
-            isUnsupported
-                ? 'Browser compact DjVu export does not support this page data'
-                : 'Browser compact DjVu export is temporarily unavailable',
-            createBrowserDjvuExpectedOutcome(isUnsupported
-                ? 'unsupported-input'
-                : 'temporarily-unavailable'),
-        );
-    }
-    return writePdfBytesToOutput(options.outputPath, outcome.data, options.signal);
 }
 
 function pickSamplePageNumbers(pageCount: number, maxSamples: number) {
@@ -990,7 +991,7 @@ export async function runBrowserDjvuConversion(
         const compactExportPlan = renderSettings.strategy === 'compact-djvu-aware'
             ? resolveBrowserDjvuCompactExportPlan(
                 pageSizes,
-                DJVU_COMPACT_PHOTO_PAGE_SPEC_MAX_BYTES,
+                BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES,
                 options.preserveBookmarks !== false,
             )
             : null;
