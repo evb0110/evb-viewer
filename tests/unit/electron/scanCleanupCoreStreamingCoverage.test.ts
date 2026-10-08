@@ -1323,6 +1323,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             _pageNumber: number,
             _source: string,
             outputPath: string,
+            _dpi: number,
         ) => {
             await writeFile(outputPath, PPM);
         });
@@ -1415,7 +1416,25 @@ describe('scan-cleanup-core conversion coverage', () => {
             excludedPages: 0,
         });
         expect(await readFile(outputPdfPath, 'utf8')).toContain('%PDF-1.7');
-        expect(renderPagePpm).toHaveBeenCalledTimes(4);
+        // Page 2 renders at its analysis DPI already, so its canonical
+        // analysis raster is the same render; only page 1 renders twice.
+        expect(renderPagePpm.mock.calls.map(call => [
+            call[2],
+            call[5],
+        ]).sort()).toEqual([
+            [
+                1,
+                150,
+            ],
+            [
+                1,
+                300,
+            ],
+            [
+                2,
+                150,
+            ],
+        ]);
         expect(dependencies.runSidecar).toHaveBeenCalledOnce();
         expect(progress.at(-1)).toMatchObject({
             stage: 'handoff',
