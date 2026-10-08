@@ -1,0 +1,25 @@
+native/pdf-image-combine/src/main.rs
+  s_9246268e97c55d::t_12aa64cc606ae6 302-304,307,494-513
+native/pdf-image-combine/src/lib.rs
+  s_9246268e97c55d::t_12aa64cc606ae6 1059-1067,1082,1127
+native/pdf-image-combine/src/tiff_io.rs
+  s_9246268e97c55d::t_12aa64cc606ae6 334,341,353-354
+native/evb-native-support/src/output.rs
+  s_9246268e97c55d::t_12aa64cc606ae6 414-416,480-484,872
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8b4bac2352dee02758f43a08985dc412da426a7b",
+  "prompts": {},
+  "sessions": {
+    "s_9246268e97c55d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4114c64a-e9b1-4d4f-9985-ff838cb41126",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
