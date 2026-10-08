@@ -835,6 +835,22 @@ pub(crate) struct OcrTextLayerPage {
     pub(crate) preprocess_inverse: Option<OcrPreprocessInverse>,
     #[serde(default)]
     pub(crate) normalize_greek_micro_sign: bool,
+    /// Words whose recognized text changed after Tesseract wrote its PDF,
+    /// in ascending order of `word`.
+    #[serde(default)]
+    pub(crate) word_edits: Vec<OcrWordEdit>,
+}
+
+/// Replaces one word of Tesseract's page with text of the same UTF-16
+/// length, so the glyph count behind its horizontal scaling stays valid.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrWordEdit {
+    /// Position among the page's text-show operators, which Tesseract
+    /// writes one per non-empty word in its TSV order.
+    pub(crate) word: usize,
+    pub(crate) from: String,
+    pub(crate) to: String,
 }
 
 #[derive(Clone, Copy, Deserialize)]

@@ -2,10 +2,6 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { uniq } from 'es-toolkit/array';
 import {
-    isAvailableOcrLanguageCode,
-    resolveOcrLanguageModels,
-} from '@contracts/ocrLanguages';
-import {
     ensureRuntimeTessdataSeeded,
     ensureTessdataLanguages,
 } from '@electron/features/ocr/languageModels';
@@ -25,8 +21,9 @@ function getOcrJobLanguages(pages: TOcrPdfPageSelection) {
 
 function logMissingLanguageModels(languages: string[]) {
     const tessdataDir = getOcrToolPaths().tessdata;
-    const missingLanguages = languages.filter(languageCode => !isAvailableOcrLanguageCode(languageCode)
-        || resolveOcrLanguageModels(languageCode).some(modelCode => !existsSync(join(tessdataDir, `${modelCode}.traineddata`))));
+    const missingLanguages = languages.filter(languageCode =>
+        !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
+    );
     if (missingLanguages.length > 0) {
         log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
     }
