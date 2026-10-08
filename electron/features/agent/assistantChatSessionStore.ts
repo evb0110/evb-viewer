@@ -310,7 +310,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
 
     function setActiveSession(session: IAssistantChatSession) {
         activeChatKey = keyForSession(session);
-        persistence?.recordSessionSnapshot(activeChatKey, session);
+        persistence?.recordAssistantDelta(activeChatKey, session);
     }
 
     function deleteSession(key: string, reason: string) {
@@ -365,13 +365,9 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         getOptions: { create?: boolean } = {},
     ) {
         const now = Date.now();
-        if (!scope) {
-            pruneSessions(now);
-            return null;
-        }
-
         const normalizedScope = normalizeAssistantScope(scope);
         if (!normalizedScope) {
+            if (!scope) pruneSessions(now);
             return null;
         }
 
@@ -384,7 +380,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             existing.speedMode = selection.speedMode;
             touchSession(existing, now);
             pruneSessions(now);
-            persistence?.recordSessionSnapshot(sessionKey, existing);
+            persistence?.recordAssistantDelta(sessionKey, existing);
             return existing;
         }
 

@@ -105,7 +105,7 @@ export function markAssistantTurnRunning(
         return owner;
     }
 
-    if (owner.phase === 'running' && owner.providerTurnId !== providerTurnId) {
+    if (owner.phase === 'running') {
         return owner;
     }
 
@@ -118,10 +118,7 @@ export function markAssistantTurnRunning(
         generation,
         localTurnId: owner.localTurnId,
         providerTurnId,
-        scope: {
-            ...owner.scope,
-            turnGeneration: generation,
-        },
+        scope: owner.scope,
     };
 }
 
