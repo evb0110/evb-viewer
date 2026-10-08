@@ -710,7 +710,8 @@ pub(crate) enum Operation {
         instructions_file: PathBuf,
     },
     OcrTextVisibility {
-        pages_file: PathBuf,
+        /// None selects bounded newline-delimited page requests on stdin.
+        pages_file: Option<PathBuf>,
         /// Also report the text of each page's EVB OCR layer.
         with_evb_ocr_text: bool,
     },

@@ -35,15 +35,55 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             pages_file,
             with_evb_ocr_text,
         } => {
-            let pages = read_pages_file(pages_file)
-                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
-            return write_ocr_text_visibility(
+            let mut input = std::io::stdin().lock();
+            let requests: Box<dyn Iterator<Item = Result<Vec<u32>>> + '_> = match pages_file {
+                Some(path) => Box::new(std::iter::once(Ok(read_pages_file(path).map_err(
+                    |error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest),
+                )?))),
+                None => {
+                    Box::new(std::iter::from_fn(|| {
+                        use std::io::BufRead;
+                        let mut bytes = Vec::new();
+                        match (&mut input).take(4097).read_until(b'\n', &mut bytes) {
+                        Ok(0) => None,
+                        Ok(_) => Some((|| {
+                            if bytes.len() > 4096 || bytes.last() != Some(&b'\n') {
+                                return Err(domain_error(NativeErrorCode::TooLarge, "Visibility request exceeds 4096 bytes or is unterminated"));
+                            }
+                            let pages: Vec<u32> = serde_json::from_slice(&bytes)?;
+                            if pages.is_empty() || pages.len() > 256 || pages.contains(&0) {
+                                return Err("Visibility request must select 1 to 256 positive pages".into());
+                            }
+                            Ok(pages)
+                        })().map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))),
+                        Err(error) => Some(Err(error.into())),
+                    }
+                    }))
+                }
+            };
+            let mut output = std::io::stdout().lock();
+            inspect_ocr_text_visibility(
                 &config.input_path,
-                &pages,
+                requests,
                 *with_evb_ocr_text,
                 config.qpdf_path.as_deref(),
-                &mut std::io::stdout().lock(),
-            );
+                |report| {
+                    let bytes = serde_json::to_vec(report)?;
+                    if pages_file.is_none() && bytes.len() > MAX_AGGREGATE_TEXT_BYTES {
+                        return Err(domain_error(
+                            NativeErrorCode::TooLarge,
+                            "Visibility report exceeds its byte ceiling",
+                        ));
+                    }
+                    output.write_all(&bytes)?;
+                    if pages_file.is_none() {
+                        output.write_all(b"\n")?;
+                    }
+                    output.flush()?;
+                    Ok(())
+                },
+            )?;
+            return Ok(());
         }
         _ => {}
     }

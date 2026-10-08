@@ -287,20 +287,14 @@ fn read_content_stream(
     object_id: ObjectId,
 ) -> Result<Option<Vec<u8>>> {
     if !incremental.new_document.has_object(object_id) {
-        if let Some(qpdf_path) = qpdf_path {
-            incremental.materialize_base_stream(
-                input_path,
-                qpdf_path,
-                object_id,
-                MAX_OCR_CONTENT_STREAM_BYTES,
-            )?;
-        }
+        return incremental.read_base_stream_bounded(
+            input_path,
+            qpdf_path,
+            object_id,
+            MAX_OCR_CONTENT_STREAM_BYTES,
+        );
     }
-    let document = if incremental.new_document.has_object(object_id) {
-        &incremental.new_document
-    } else {
-        &incremental.previous_document
-    };
+    let document = &incremental.new_document;
     let Ok(Object::Stream(stream)) = document.get_object(object_id) else {
         return Ok(None);
     };
@@ -568,11 +562,9 @@ fn inspect_page_text_visibility(
 }
 
 /// The text of an inline EVB OCR layer in content order. Tesseract writes one
-/// text object per block and a `Td` one line height down for each next line;
-/// words on a line step by their width and a fraction of a point of baseline.
-/// The writer keeps those operators and positions each glyph with a `Tm`. Poppler's layout analysis cannot follow those lines
-/// on a skewed scan because each carries its rotation, and its content-order
-/// mode follows them only in recent releases, so the writer reads its own layer.
+/// text object per block and steps `Td` down each line. The writer keeps those
+/// operators and places every glyph with `Tm`; Poppler layout breaks skewed
+/// baselines, so the writer reads recognition order from its own layer.
 /// A layer drawn as a Form XObject by earlier versions has no inline text.
 fn evb_ocr_layer_text(bytes: &[u8]) -> Option<String> {
     let content = Content::decode(bytes).ok()?;
@@ -580,11 +572,10 @@ fn evb_ocr_layer_text(bytes: &[u8]) -> Option<String> {
     let mut line = String::new();
     let mut font_size = 1.0f64;
     let break_line = |line: &mut String, lines: &mut Vec<String>| {
-        let trimmed = line.trim_end();
-        if !trimmed.is_empty() {
-            lines.push(trimmed.to_string());
+        line.truncate(line.trim_end().len());
+        if !line.is_empty() {
+            lines.push(std::mem::take(line));
         }
-        line.clear();
     };
     // Tesseract shows Unicode through Identity-H, so every string is UTF-16BE.
     let push_utf16 = |bytes: &[u8], line: &mut String| {
@@ -597,40 +588,33 @@ fn evb_ocr_layer_text(bytes: &[u8]) -> Option<String> {
             .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER)),
         );
     };
-    let shown = |object: &Object, line: &mut String| match object {
-        Object::String(bytes, _) => push_utf16(bytes, line),
-        Object::Array(items) => {
-            for item in items {
-                if let Object::String(bytes, _) = item {
-                    push_utf16(bytes, line);
-                }
+    let shown = |object: &Object, line: &mut String| {
+        for item in object
+            .as_array()
+            .map_or(std::slice::from_ref(object), Vec::as_slice)
+        {
+            if let Object::String(bytes, _) = item {
+                push_utf16(bytes, line);
             }
         }
-        _ => {}
     };
     for operation in &content.operations {
+        let number = operation
+            .operands
+            .get(1)
+            .and_then(|operand| operand.as_float().ok())
+            .map(f64::from);
         match operation.operator.as_str() {
             // The writer positions every glyph with its own `Tm`, so only
             // Tesseract's text objects and line steps separate lines.
             "BT" | "T*" => break_line(&mut line, &mut lines),
             "Tf" => {
-                if let Some(size) = operation
-                    .operands
-                    .get(1)
-                    .and_then(|size| size.as_float().ok())
-                {
-                    font_size = f64::from(size).abs().max(f64::EPSILON);
+                if let Some(size) = number {
+                    font_size = size.abs().max(f64::EPSILON);
                 }
             }
-            "Td" | "TD" => {
-                let step = operation
-                    .operands
-                    .get(1)
-                    .and_then(|step| step.as_float().ok())
-                    .map_or(0.0, f64::from);
-                if step.abs() > font_size * 0.5 {
-                    break_line(&mut line, &mut lines);
-                }
+            "Td" | "TD" if number.is_some_and(|step| step.abs() > font_size * 0.5) => {
+                break_line(&mut line, &mut lines);
             }
             "Tj" | "TJ" => {
                 if let Some(text) = operation.operands.first() {
@@ -650,14 +634,13 @@ fn evb_ocr_layer_text(bytes: &[u8]) -> Option<String> {
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-/// Reports, per requested page, the evidence OCR page selection needs about
-/// existing text, read with the scan the writer replaces text through.
-pub(crate) fn write_ocr_text_visibility(
+/// One admitted document serves all extraction windows, released at request EOF.
+pub(crate) fn inspect_ocr_text_visibility(
     input_path: &Path,
-    page_numbers: &[u32],
+    requests: impl Iterator<Item = Result<Vec<u32>>>,
     with_evb_ocr_text: bool,
     qpdf_path: Option<&Path>,
-    output: &mut impl Write,
+    mut emit: impl FnMut(&OcrTextVisibilityReport) -> Result<()>,
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
@@ -666,33 +649,42 @@ pub(crate) fn write_ocr_text_visibility(
         "Encrypted PDFs are not supported by native page ops",
     )?;
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
-    let mut pages = Vec::with_capacity(page_numbers.len());
-    for &page_number in page_numbers {
-        let page_id = resolver.page_id(&incremental.previous_document, page_number)?;
-        let mut inspection = PageTextInspection {
-            input_path,
-            qpdf_path,
-            visited: HashSet::new(),
-            decoded_bytes: 0,
-            painted: false,
-            uncertain: None,
-        };
-        pages.push(inspect_page_text_visibility(
-            &mut incremental,
-            &mut inspection,
-            page_number,
-            page_id,
-            with_evb_ocr_text,
-        )?);
+    let mut report = OcrTextVisibilityReport {
+        format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
+        schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
+        pages: Vec::new(),
+    };
+    for request in requests {
+        report.pages.clear();
+        let mut text_bytes = 0;
+        for page_number in request? {
+            let page_id = resolver.page_id(&incremental.previous_document, page_number)?;
+            let mut inspection = PageTextInspection {
+                input_path,
+                qpdf_path,
+                visited: HashSet::new(),
+                decoded_bytes: 0,
+                painted: false,
+                uncertain: None,
+            };
+            let page = inspect_page_text_visibility(
+                &mut incremental,
+                &mut inspection,
+                page_number,
+                page_id,
+                with_evb_ocr_text,
+            )?;
+            text_bytes += page.evb_ocr_text.as_ref().map_or(0, String::len);
+            if text_bytes > MAX_AGGREGATE_TEXT_BYTES {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "Visibility window text exceeds its byte ceiling",
+                ));
+            }
+            report.pages.push(page);
+        }
+        emit(&report)?;
     }
-    serde_json::to_writer(
-        output,
-        &OcrTextVisibilityReport {
-            format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
-            schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
-            pages,
-        },
-    )?;
     Ok(())
 }
 
