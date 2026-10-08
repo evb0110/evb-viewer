@@ -197,15 +197,8 @@ fn detect_content_at_analysis_scale(
         },
     );
     let borders = border_artifact_mask_from_binary(working, &binary);
-    // Side edge rails steer only the crop. Semantic evidence keeps them: mode
-    // selection's text and chroma evidence is calibrated on it as it is.
-    let (borders, rail_reach) = match purpose {
-        ContentAnalysisPurpose::Semantic => (borders, [None; 2]),
-        ContentAnalysisPurpose::Crop { .. } => {
-            let (rails, reach) = side_edge_rails(&binary);
-            (borders.or(&rails), reach)
-        }
-    };
+    let (rails, rail_reach) = side_edge_rails(&binary);
+    let borders = borders.or(&rails);
     // Picture ownership is semantic/render state, but content bounds need a
     // stricter authority. Qualify it after the spread has been split into
     // local pages: a central gutter is not an outer-sheet rail, while each
