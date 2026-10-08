@@ -6,6 +6,7 @@ import {
 import {
     decodeWorkspaceCheckpoint, readWorkspaceRecoveryMetadata,
 } from '@contracts/workspaceCheckpoint';
+import {createTabId} from '@contracts/windowTabs';
 
 function createCheckpoint() {
     return {
@@ -74,6 +75,20 @@ describe('decodeWorkspaceCheckpoint', () => {
                 startNumber: 1,
             }],
         }}})).toThrow();
+    });
+
+    it('preserves the complete live tab list beyond 128 tabs', () => {
+        const checkpoint = createCheckpoint();
+        const template = checkpoint.tabs[0]!;
+        checkpoint.tabs = Array.from({length: 129}, () => ({
+            ...template,
+            tabId: createTabId(),
+        }));
+        const tabIds = checkpoint.tabs.map(tab => tab.tabId);
+        checkpoint.panes[0]!.tabIds = tabIds;
+        checkpoint.panes[0]!.activeTabId = tabIds[0]!;
+        checkpoint.activeTabId = tabIds[0]!;
+        expect(decodeWorkspaceCheckpoint(checkpoint)).toEqual(checkpoint);
     });
 
     it('decodes a versioned pane, tab, document, and view-state snapshot', () => {
