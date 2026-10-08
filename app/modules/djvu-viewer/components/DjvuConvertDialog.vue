@@ -237,7 +237,9 @@ interface IResolvedPreset {
     disabled?: boolean;
 }
 
-const info = ref<IInfo | null>(null);
+// Each load replaces the snapshot whole, so its up to 10,000 page sizes need no
+// per-object reactive proxies.
+const info = shallowRef<IInfo | null>(null);
 const infoLoading = ref(false);
 const estimates = ref<IDjvuSizeEstimate[]>([]);
 const estimatesLoading = ref(false);
