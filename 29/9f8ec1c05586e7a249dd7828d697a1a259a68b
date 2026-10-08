@@ -1,0 +1,28 @@
+app/platform/browser-api/createDjvuWorkerFromPath.ts
+  s_c09879e323da87::t_3306c678eac8af 545-549
+  s_c09879e323da87::t_e049998faa8abf 2,75-84,256-281,380,386,388,390,392-395,403-414,426-427,503-517,520,536-544,550-567,600,648
+  s_c09879e323da87::t_022279e23d87d6 415-425
+  s_c09879e323da87::t_10a9435857c513 518-519,521-535
+app/platform/browser-api/browserDjvuTextSearchCapability.ts
+  s_c09879e323da87::t_6309c91c1d3c11 74
+  s_c09879e323da87::t_e049998faa8abf 2,33
+tests/unit/app/platform/browserDjvuTextSearchCapability.test.ts
+  s_c09879e323da87::t_fc29d0364c9fa4 70
+  s_c09879e323da87::t_e7db7731b621d9 204-232
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "299f8ec1c05586e7a249dd7828d697a1a259a68b",
+  "prompts": {},
+  "sessions": {
+    "s_c09879e323da87": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11a6f-0869-7672-8a1c-69030b012255",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
