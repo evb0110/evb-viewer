@@ -155,6 +155,96 @@ describe('PDF annotation session behavior', () => {
         expect(store.get(created.identity.id)).toMatchObject({selectedText: null});
     });
 
+    it('publishes the complete imported preview result without partial enrichment', () => {
+        const store = new AnnotationStore();
+        const quadPoints = [{
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.04,
+        }];
+        const imported: ITextMarkupEntity[] = [];
+        for (const pdfRef of [
+            '12 0 R',
+            '13 0 R',
+        ]) {
+            imported.push({
+                kind: 'text-markup',
+                identity: {
+                    id: asAnnotationId(pdfRef),
+                    pdfRef,
+                },
+                pageIndex: requirePageIndex(0),
+                revision: 0,
+                persistedRevision: 0,
+                deleted: false,
+                createdAt: null,
+                modifiedAt: null,
+                author: null,
+                subtype: 'Highlight',
+                contents: '',
+                quadPoints,
+                color: '#ffff00',
+                opacity: 1,
+                selectedText: null,
+            });
+        }
+        store.replaceFromDocument(imported, []);
+        const publishedPreviews: Array<Array<string | null>> = [];
+        store.subscribe(entities => publishedPreviews.push(entities.flatMap(entity => (
+            entity.kind === 'text-markup' ? [entity.selectedText ?? null] : []
+        ))));
+        const options = {
+            targetStore: store,
+            selectedTextByPdfRef: new Map([
+                [
+                    '12 0 R',
+                    'first preview',
+                ],
+                [
+                    '13 0 R',
+                    'second preview',
+                ],
+            ]),
+            parsedMarkupGeometryByPdfRef: new Map([
+                [
+                    '12 0 R',
+                    quadPoints,
+                ],
+                [
+                    '13 0 R',
+                    quadPoints,
+                ],
+            ]),
+        };
+
+        applyParsedHighlightTextToStore(options);
+        applyParsedHighlightTextToStore(options);
+        expect(publishedPreviews).toEqual([
+            [
+                null,
+                null,
+            ],
+            [
+                'first preview',
+                'second preview',
+            ],
+        ]);
+        expect(store.list().map(entity => ({
+            revision: entity.revision,
+            persistedRevision: entity.persistedRevision,
+        }))).toEqual([
+            {
+                revision: 0,
+                persistedRevision: 0,
+            },
+            {
+                revision: 0,
+                persistedRevision: 0,
+            },
+        ]);
+    });
+
     it('commits current writer results and ignores stale store mutations', () => {
         const store = new AnnotationStore();
         const replaceFromDocument = vi.spyOn(store, 'replaceFromDocument');
