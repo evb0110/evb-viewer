@@ -327,7 +327,6 @@ function addUserMessageAndPublish(
         text,
         ...(attachments.length > 0 ? {attachments} : {}),
     });
-    publishState(session.scope, session);
     return message;
 }
 

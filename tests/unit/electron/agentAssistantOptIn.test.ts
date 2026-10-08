@@ -1992,18 +1992,26 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps streaming assistant deltas lean while boundary events carry state', async () => {
-        enableAssistantRuntime();
+        const process = enableAssistantRuntime();
+        mocks.turnStartGate = createInitializeGate();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
         vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('stream.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        const result = await sendAgentAssistantMessage({
+        const sending = sendAgentAssistantMessage({
             text: 'please stream',
             scope: documentScope,
         });
+        await waitForCodexRequest(process, 'turn/start');
+        const accepted = send.mock.calls.map(call => call[1]).filter(event =>
+            event.state?.messages.some(message => message.role === 'user' && message.text === 'please stream'));
+        mocks.turnStartGate.resolve();
+        const result = await sending;
 
         expect(result.ok).toBe(true);
+        expect(accepted).toHaveLength(1);
+        expect(accepted[0]?.type).toBe('message');
         let deltaEvents: IAgentAssistantEvent[] = [];
         await vi.waitFor(() => {
             const events = send.mock.calls.map((call) => call[1]);
