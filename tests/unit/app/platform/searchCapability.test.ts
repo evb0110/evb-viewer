@@ -158,46 +158,41 @@ describe('createBrowserSearchCapability', () => {
         await expect(clearSearchCaches()).resolves.toBeUndefined();
     });
 
-    it('does not reuse persisted browser page text for geometry-required search runs', async () => {
-        const pageTexts = Array.from(
-            { length: 30 },
-            (_value, index) => `page ${index + 1} foo`,
-        );
-        const cleanup = vi.fn(async () => {});
-        const getPage = vi.fn(async (pageNumber: number) => ({
-            getTextContent: vi.fn(async () => ({items: [{str: pageTexts[pageNumber - 1] ?? ''}]})),
-            cleanup,
-        }));
-        const destroy = vi.fn(async () => {});
-        const fakePdfDocument = {
-            numPages: pageTexts.length,
-            getPage,
-            loadingTask: {destroy},
-        };
-
-        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+    it.each([
+        24,
+        25,
+        1_000,
+    ])('matches complete cached text for a %i-page PDF without requiring geometry', async (pageCount) => {
+        browserDocumentStoreMock.stat.mockResolvedValue({size: 3});
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
             1,
             2,
             3,
         ]));
-        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
-
-        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
-        const firstCapability = createBrowserSearchCapability().capability;
-        const firstRun = await firstCapability.run('/tmp/test.pdf', 'foo');
-        const secondCapability = createBrowserSearchCapability().capability;
-        const secondRun = await secondCapability.run('/tmp/test.pdf', 'foo');
-
-        expect(firstRun.results).toHaveLength(30);
-        expect(secondRun.results).toHaveLength(30);
-        expect(browserDocumentStoreMock.stat).toHaveBeenCalledTimes(6);
-        expect(browserDocumentStoreMock.readRange).toHaveBeenCalledTimes(2);
-        expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
-        expect(yieldToBrowserMock.mock.calls.length).toBeGreaterThanOrEqual(2);
-        expect(getPage).toHaveBeenCalledTimes(60);
-        expect(destroy).toHaveBeenCalledTimes(2);
-        expect(cleanup).toHaveBeenCalledTimes(60);
+        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({
+            numPages: pageCount,
+            getPage: async (pageNumber: number) => ({getTextContent: async () => ({items: [{str: pageNumber === 12 ? '' : `page ${pageNumber} foo`}]})}),
+            loadingTask: {destroy: async () => {}},
+        })});
+        const {createBrowserSearchCapability} = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const {capability} = createBrowserSearchCapability();
+        await expect(capability.run('/tmp/cached.pdf', 'absent-first')).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        // Complete text is sufficient to answer a no-hit query even when
+        // page geometry cannot be read. Both live and persisted reuse must
+        // return the public result without reopening the PDF source.
+        pdfjsModule.getDocument.mockImplementation(() => {throw new Error('PDF source unavailable');});
+        await expect(capability.run('/tmp/cached.pdf', 'absent-repeat')).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        await expect(createBrowserSearchCapability().capability.run('/tmp/cached.pdf', 'absent-persisted'))
+            .resolves.toEqual({
+                results: [],
+                truncated: false,
+            });
     });
 
     it('extracts browser search text from the current PDF bytes without OCR sidecars', async () => {
@@ -438,6 +433,8 @@ describe('createBrowserSearchCapability', () => {
         const { capability } = createBrowserSearchCapability();
         const result = await capability.run(pdfPath, fixture.query, fixture.options);
 
+        await expect(capability.run(pdfPath, fixture.query, fixture.options)).resolves.toEqual(result);
+        await expect(createBrowserSearchCapability().capability.run(pdfPath, fixture.query, fixture.options)).resolves.toEqual(result);
         expect(result.results.map(match => ({
             startOffset: match.startOffset,
             endOffset: match.endOffset,
@@ -527,6 +524,76 @@ describe('createBrowserSearchCapability', () => {
         expect(word?.x).toBeCloseTo(12, 5);
         expect(word?.width).toBeCloseTo(42, 5);
         expect(getTextContent).not.toHaveBeenCalled();
+    });
+
+    it('keeps Unicode excerpts and word rectangles when complete cached text needs evicted geometry', async () => {
+        browserDocumentStoreMock.stat.mockResolvedValue({size: 3});
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({
+            numPages: 30,
+            getPage: async () => ({
+                view: [
+                    0,
+                    0,
+                    200,
+                    200,
+                ],
+                getOperatorList: async () => ({
+                    fnArray: [
+                        pdfjsModule.OPS.beginText,
+                        pdfjsModule.OPS.setFont,
+                        pdfjsModule.OPS.setTextMatrix,
+                        pdfjsModule.OPS.showText,
+                        pdfjsModule.OPS.endText,
+                    ],
+                    argsArray: [
+                        [],
+                        [
+                            'f1',
+                            10,
+                        ],
+                        [new Float32Array([
+                            1,
+                            0,
+                            0,
+                            1,
+                            10,
+                            50,
+                        ])],
+                        [Array.from('«История»', unicode => ({
+                            unicode,
+                            width: 600,
+                        }))],
+                        [],
+                    ],
+                }),
+            }),
+            loadingTask: {destroy: async () => {}},
+        })});
+        const {createBrowserSearchCapability} = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const {capability} = createBrowserSearchCapability();
+        const cold = await capability.run('/tmp/geometry.pdf', 'история');
+        expect(cold.results).toHaveLength(30);
+        expect(cold.results[0]).toMatchObject({
+            startOffset: 1,
+            endOffset: 8,
+            excerpt: expect.objectContaining({match: 'История'}),
+            words: [expect.objectContaining({
+                text: 'История',
+                x: 16,
+                y: 140,
+                width: 42,
+                height: 10,
+            })],
+            pageWidth: 200,
+            pageHeight: 200,
+        });
+        await expect(capability.run('/tmp/geometry.pdf', 'история')).resolves.toEqual(cold);
+        await expect(createBrowserSearchCapability().capability.run('/tmp/geometry.pdf', 'история')).resolves.toEqual(cold);
     });
 
     it('invalidates browser page text caches when same-size document content changes', async () => {
@@ -1233,7 +1300,10 @@ describe('createBrowserSearchCapability', () => {
         expect(pdfjsModule.GlobalWorkerOptions.workerSrc).toBeTruthy();
     });
 
-    it('cancels active direct browser extraction when search is canceled', async () => {
+    it.each([
+        'cold',
+        'cached',
+    ])('cancels %s browser page extraction without publishing partial results', async (mode) => {
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
             1,
@@ -1241,13 +1311,14 @@ describe('createBrowserSearchCapability', () => {
             3,
         ]));
         let firstPageRead = false;
+        let holdPageRead = false;
         let releaseFirstPageRead: () => void = () => {};
         const firstPageReadGate = new Promise<void>((resolve) => {
             releaseFirstPageRead = resolve;
         });
         const getPage = vi.fn(async (pageNumber: number) => ({
             getTextContent: vi.fn(async () => {
-                if (pageNumber === 1) {
+                if (holdPageRead && pageNumber === 1) {
                     firstPageRead = true;
                     await firstPageReadGate;
                 }
@@ -1263,6 +1334,10 @@ describe('createBrowserSearchCapability', () => {
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
+        if (mode === 'cached') {
+            await capability.warmIndex('/tmp/test.pdf');
+        }
+        holdPageRead = true;
         const runPromise = capability.run('/tmp/test.pdf', 'foo', {requestId: requireRequestId('cancel-me')});
 
         await vi.waitFor(() => {
@@ -1275,7 +1350,6 @@ describe('createBrowserSearchCapability', () => {
             results: [],
             truncated: false,
         });
-        expect(getPage.mock.calls.length).toBeLessThan(3);
 
         const nextRun = await capability.run('/tmp/test.pdf', 'foo', {requestId: requireRequestId('cancel-me')});
 
