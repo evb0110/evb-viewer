@@ -83,7 +83,8 @@ fn is_side_edge_rail(
     row_thickness * 40 <= width && length >= row_thickness.saturating_mul(8)
 }
 
-/// Side edge rails, and whether the left and right edges carry one. Besides
+/// Side edge rails, and the innermost column the left and right edge rails
+/// reach. Besides
 /// single bands (`is_side_edge_rail`), edge shading breaks into dashes where it
 /// crosses the threshold intermittently, each too short to judge alone; a
 /// fore-edge often leaves two parallel strands of them. Dashes count only as
@@ -92,7 +93,7 @@ fn is_side_edge_rail(
 /// the page, that together with the bands along that edge cover a fortieth of
 /// it. A glyph cut by the edge always has the rest of its word closer than
 /// that.
-pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) {
+pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usize>; 2]) {
     let (width, height) = (binary.width(), binary.height());
     let components = ComponentMap::from_binary(binary);
     let mut rail = vec![false; components.components().len() + 1];
@@ -105,7 +106,7 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) 
     // be the word a cut glyph belongs to.
     let owner_area = (width / 50).max(4);
     let band = width.div_ceil(20);
-    let mut sides = [false; 2];
+    let mut reach = [None; 2];
     for (index, right_side) in [false, true].into_iter().enumerate() {
         // Distance from this edge to a component's inner side.
         let depth = |component: &Component| {
@@ -144,7 +145,7 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) 
                 })
             })
             .collect::<Vec<_>>();
-        let side_rails = components
+        let mut side_rails = components
             .components()
             .iter()
             .filter(|component| rail[component.label as usize] && depth(component) < band)
@@ -153,18 +154,22 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) 
         for component in side_rails.iter().chain(isolated.iter()) {
             covered[component.top..=component.bottom].fill(true);
         }
-        if covered.iter().filter(|&&covered| covered).count() * 40 >= height {
-            for component in isolated {
+        let run = covered.iter().filter(|&&covered| covered).count() * 40 >= height;
+        if run {
+            for component in &isolated {
                 rail[component.label as usize] = true;
             }
-            sides[index] = true;
-        } else {
-            sides[index] = !side_rails.is_empty();
+            side_rails.extend(isolated);
         }
+        reach[index] = side_rails
+            .iter()
+            .map(|component| depth(component))
+            .max()
+            .map(column);
     }
     (
         components.retain(|component| rail[component.label as usize]),
-        sides,
+        reach,
     )
 }
 
@@ -297,4 +302,38 @@ fn scanner_bed_depth(
         .find(|&depth| along(depth, span.clone()) < 0.2)
         .unwrap_or(limit);
     zone.max(fringe_end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fore_edge_rail_reports_the_column_its_inner_edge_reaches() {
+        let mut page = BinaryImage::new(800, 1000);
+        let mut fill = |x: Range<usize>, y: Range<usize>| {
+            for row in y {
+                for column in x.clone() {
+                    page.set(column, row, true);
+                }
+            }
+        };
+        // Lines of glyphs, and a fore-edge strip a few pixels inside the
+        // right edge of the raster.
+        for line in 0..20 {
+            for glyph in 0..30 {
+                fill(
+                    100 + glyph * 20..112 + glyph * 20,
+                    100 + line * 40..116 + line * 40,
+                );
+            }
+        }
+        fill(785..790, 100..900);
+
+        let (rails, reach) = side_edge_rails(&page);
+
+        assert_eq!(reach, [None, Some(785)]);
+        assert!(rails.get(787, 500), "the strip is not a rail");
+        assert!(!rails.get(105, 105), "a glyph became a rail");
+    }
 }

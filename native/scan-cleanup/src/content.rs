@@ -199,11 +199,11 @@ fn detect_content_at_analysis_scale(
     let borders = border_artifact_mask_from_binary(working, &binary);
     // Side edge rails steer only the crop. Semantic evidence keeps them: mode
     // selection's text and chroma evidence is calibrated on it as it is.
-    let (borders, rail_sides) = match purpose {
-        ContentAnalysisPurpose::Semantic => (borders, [false; 2]),
+    let (borders, rail_reach) = match purpose {
+        ContentAnalysisPurpose::Semantic => (borders, [None; 2]),
         ContentAnalysisPurpose::Crop { .. } => {
-            let (rails, sides) = side_edge_rails(&binary);
-            (borders.or(&rails), sides)
+            let (rails, reach) = side_edge_rails(&binary);
+            (borders.or(&rails), reach)
         }
     };
     // Picture ownership is semantic/render state, but content bounds need a
@@ -405,7 +405,7 @@ fn detect_content_at_analysis_scale(
     // A side accepted by the trim loop owns its outer bound. Later evidence
     // may still expand untrimmed sides, but it cannot silently reverse an
     // accepted decision on the same side.
-    let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims, rail_sides);
+    let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims, rail_reach);
     if let Some(qualification) = early_picture_qualification.as_ref() {
         expand_bounds_for_structured_edge_text(
             &mut bounds,
@@ -1766,22 +1766,22 @@ fn diagnostic_rect(bounds: PixelBounds) -> ContentDiagnosticRect {
 
 /// Final authority for the four content-box sides. Every side retracted by an
 /// accepted trim owns its new outer limit, including extrema that moved as
-/// collateral when the accepted proposal removed a corner-spanning block.
+/// collateral when the accepted proposal removed a corner-spanning block. A
+/// side whose edge rail was removed before trimming is owned the same way,
+/// and no crop covers the rail, even where trimming left no bounds.
 #[derive(Clone, Copy, Debug, Default)]
 struct AcceptedTrimAuthority {
-    trimmed_bounds: Option<PixelBounds>,
-    accepted_sides: [bool; 4],
+    /// Left, top, right and bottom: the outermost pixel the crop may reach.
+    limits: [Option<usize>; 4],
 }
 
 impl AcceptedTrimAuthority {
-    /// `rail_sides` are the left and right edges whose rails were removed
-    /// before trimming: that removal owns the side just as an accepted trim
-    /// does, so a later picture union cannot pull the crop back over it.
     fn new(
         trimmed_bounds: Option<PixelBounds>,
         accepted_trims: &[ContentAcceptedTrim],
-        rail_sides: [bool; 2],
+        rail_reach: [Option<usize>; 2],
     ) -> Self {
+        let rail_sides = rail_reach.map(|rail| rail.is_some());
         let mut accepted_sides = [rail_sides[0], false, rail_sides[1], false];
         for trim in accepted_trims {
             let index = match trim.side {
@@ -1792,6 +1792,7 @@ impl AcceptedTrimAuthority {
             };
             accepted_sides[index] = true;
         }
+        let mut limits = [None; 4];
         if let Some(trimmed) = trimmed_bounds {
             let before_trims = accepted_trims
                 .iter()
@@ -1820,30 +1821,27 @@ impl AcceptedTrimAuthority {
             accepted_sides[1] |= trimmed.top > before_trims.top;
             accepted_sides[2] |= trimmed.right < before_trims.right;
             accepted_sides[3] |= trimmed.bottom < before_trims.bottom;
+            let edges = [trimmed.left, trimmed.top, trimmed.right, trimmed.bottom];
+            for ((limit, accepted), edge) in limits.iter_mut().zip(accepted_sides).zip(edges) {
+                if accepted {
+                    *limit = Some(edge);
+                }
+            }
         }
-        Self {
-            trimmed_bounds,
-            accepted_sides,
-        }
+        limits[0] = limits[0].max(rail_reach[0].map(|rail| rail + 1));
+        limits[2] = rail_reach[1]
+            .map(|rail| limits[2].unwrap_or(rail).min(rail.saturating_sub(1)))
+            .or(limits[2]);
+        Self { limits }
     }
 
     fn clamp(self, bounds: Option<PixelBounds>) -> Option<PixelBounds> {
         let mut bounds = bounds?;
-        let Some(trimmed) = self.trimmed_bounds else {
-            return Some(bounds);
-        };
-        if self.accepted_sides[0] {
-            bounds.left = bounds.left.max(trimmed.left);
-        }
-        if self.accepted_sides[1] {
-            bounds.top = bounds.top.max(trimmed.top);
-        }
-        if self.accepted_sides[2] {
-            bounds.right = bounds.right.min(trimmed.right);
-        }
-        if self.accepted_sides[3] {
-            bounds.bottom = bounds.bottom.min(trimmed.bottom);
-        }
+        let [left, top, right, bottom] = self.limits;
+        bounds.left = bounds.left.max(left.unwrap_or(0));
+        bounds.top = bounds.top.max(top.unwrap_or(0));
+        bounds.right = bounds.right.min(right.unwrap_or(usize::MAX));
+        bounds.bottom = bounds.bottom.min(bottom.unwrap_or(usize::MAX));
         (bounds.left <= bounds.right && bounds.top <= bounds.bottom).then_some(bounds)
     }
 }

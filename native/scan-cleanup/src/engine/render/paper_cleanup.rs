@@ -6,11 +6,10 @@
 //! paper beside it, however faint or small: a rule, small capitals, pencil and
 //! show-through all keep every pixel and a halo around it. Paper away from
 //! every mark becomes white, and so does a speck too small to be a glyph with
-//! no other mark near it. Side edge rails are acquisition artifacts, not
-//! marks. The picture owner is never touched.
+//! no other mark near it. The picture owner is never touched.
 
 use super::*;
-use crate::{bw::paper_reference, edge_artifacts::side_edge_rails};
+use crate::bw::paper_reference;
 use scan_primitives::{
     morphology::{dilate, erode_gray},
     Component,
@@ -59,7 +58,6 @@ pub(crate) fn whiten_unmarked_paper(
         paper.get(x, y).saturating_sub(value) >= MARK_CONTRAST
             || page_paper.saturating_sub(value) >= SOLID_MARK_CONTRAST
     });
-    let marks = marks.subtract(&side_edge_rails(&marks).0);
     let speck_area = (stroke * stroke).round().max(4.0) as usize;
     let reach = ((2.0 * x_height).round() as usize).max(4);
     let components = ComponentMap::from_binary(&marks);
@@ -145,8 +143,10 @@ mod tests {
         fill(&mut page, 40..120, 70..72, 208);
         fill(&mut page, 190..196, 370..384, 40);
         fill(&mut page, 340..342, 120..122, 60);
-        // A solid bar far wider than the paper neighbourhood.
+        // A solid bar far wider than the paper neighbourhood, and a thin rule
+        // along the raster edge, as a table border cut by the scan leaves.
         fill(&mut page, 200..380, 20..90, 20);
+        fill(&mut page, 0..2, 10..390, 40);
         // A picture owner with its own tone.
         let mut picture = BinaryImage::new(400, 400);
         for y in 150..220 {
