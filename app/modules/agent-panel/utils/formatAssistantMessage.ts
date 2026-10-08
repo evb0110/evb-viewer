@@ -302,21 +302,6 @@ export function formatAssistantMessage(text: string) {
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index] ?? '';
 
-        if (line.includes('|') && TABLE_SEPARATOR_PATTERN.test(lines[index + 1] ?? '')) {
-            pushTextBlock(blocks, textLines);
-            const rows = [parseTableRow(line)];
-            index += 2;
-            while (index < lines.length && (lines[index] ?? '').includes('|')) {
-                rows.push(parseTableRow(lines[index] ?? ''));
-                index += 1;
-            }
-            index -= 1;
-            blocks.push({
-                kind: 'table',
-                rows,
-            });
-            continue;
-        }
         const fenceMatch = line.match(FENCE_PATTERN);
         if (codeLines) {
             if (fenceMatch) {
@@ -337,6 +322,22 @@ export function formatAssistantMessage(text: string) {
             pushTextBlock(blocks, textLines);
             codeLanguage = normalizeFenceLanguage(fenceMatch[1]);
             codeLines = [];
+            continue;
+        }
+
+        if (line.includes('|') && TABLE_SEPARATOR_PATTERN.test(lines[index + 1] ?? '')) {
+            pushTextBlock(blocks, textLines);
+            const rows = [parseTableRow(line)];
+            index += 2;
+            while (index < lines.length && (lines[index] ?? '').includes('|')) {
+                rows.push(parseTableRow(lines[index] ?? ''));
+                index += 1;
+            }
+            index -= 1;
+            blocks.push({
+                kind: 'table',
+                rows,
+            });
             continue;
         }
 

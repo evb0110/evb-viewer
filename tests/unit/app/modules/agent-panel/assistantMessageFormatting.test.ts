@@ -155,6 +155,18 @@ describe('assistantMessageFormatting', () => {
         ]);
     });
 
+    it.each([
+        false,
+        true,
+    ])('keeps table-looking rows owned by a code fence, closed=%s', (closed) => {
+        const code = 'const value = 1;\n| a | b |\n| --- | --- |\n| c | d |';
+        expect(formatAssistantMessage('```js\n' + code + (closed ? '\n```' : ''))).toEqual([{
+            kind: 'code',
+            language: 'js',
+            code,
+        }]);
+    });
+
     it('renders an unfinished fenced block as code for streaming messages', () => {
         expect(formatAssistantMessage('```json\n{"ok": true}')).toEqual([{
             kind: 'code',

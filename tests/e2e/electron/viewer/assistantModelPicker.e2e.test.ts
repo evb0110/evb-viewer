@@ -18,18 +18,22 @@ describe('Electron E2E - assistant model discovery', () => {
         extraEnv: { CODEX_CLI_PATH: resolve(`tests/fixtures/electron/codex-model-picker.${process.platform === 'win32' ? 'cmd' : 'mjs'}`) },
     });
 
-    it('shows the newest model in each family with Sol and Opus first', async () => {
-        const { page } = fixture.getSession();
+    async function openAssistantDocument() {
+        const {page} = fixture.getSession();
         await page.evaluate(async () => {
-            await (window as IE2EWindow).electronAPI?.settings.save({ assistantPanelEnabled: true });
+            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
         });
         await page.reload();
         await openPdfInApp(page, resolve('tests/fixtures/release/packaged-core-smoke.pdf'));
         await waitForPdfLoaded(page);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.assistant-switcher-trigger');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', { visible: true });
-        await clickAsUser(page, '.agent-assistant-input:not(:disabled)');
+        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        await clickAsUser(page, '.agent-assistant-input');
+        return page;
+    }
+
+    it('shows the newest model in each family with Sol and Opus first', async () => {
+        const page = await openAssistantDocument();
         const inputInset = await page.$eval('.agent-assistant-input', input => {
             const style = getComputedStyle(input);
             return input.clientLeft + Number.parseFloat(style.paddingLeft);
@@ -66,18 +70,9 @@ describe('Electron E2E - assistant model discovery', () => {
     }, 60_000);
 
     it('keeps the accepted image prompt visible when the local provider answers', async () => {
-        const {page} = fixture.getSession();
-        await page.evaluate(async () => {
-            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
-        });
-        await page.reload();
-        await openPdfInApp(page, resolve('tests/fixtures/release/packaged-core-smoke.pdf'));
-        await waitForPdfLoaded(page);
-        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
+        const page = await openAssistantDocument();
         const png = createLargeAssistantImage();
         expect(png.length).toBeGreaterThan(2 * 1024 * 1024);
-        await clickAsUser(page, '.agent-assistant-input');
         await page.evaluate(async (base64) => {
             const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
             await navigator.clipboard.write([new ClipboardItem({'image/png': new Blob([bytes], {type: 'image/png'})})]);
@@ -101,16 +96,7 @@ describe('Electron E2E - assistant model discovery', () => {
     }, 60_000);
 
     it('restores a document conversation after loaded chat eviction and restart', async () => {
-        let {page} = fixture.getSession();
-        await page.evaluate(async () => {
-            await (window as IE2EWindow).electronAPI?.settings.save({assistantPanelEnabled: true});
-        });
-        await page.reload();
-        await openPdfInApp(page, resolve('tests/fixtures/release/packaged-core-smoke.pdf'));
-        await waitForPdfLoaded(page);
-        await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
-        await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
-        await clickAsUser(page, '.agent-assistant-input');
+        let page = await openAssistantDocument();
         await page.keyboard.type('Remember this document conversation.');
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => document.querySelector('.agent-assistant-message.is-assistant')?.textContent?.includes('Image received.'));
@@ -142,4 +128,17 @@ describe('Electron E2E - assistant model discovery', () => {
         await page.waitForSelector('.agent-assistant-message.is-user');
         expect(await page.$eval('.agent-assistant-messages', element => element.textContent)).toContain('Remember this document conversation.');
     }, 120_000);
+    it('preserves every table-like line inside assistant fenced code', async () => {
+        const page = await openAssistantDocument();
+        await page.keyboard.type('AP-B01 fenced table');
+        await page.keyboard.press('Enter');
+        const message = '.agent-assistant-message.is-assistant:last-child';
+        await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('After'), {}, message);
+        expect(await page.$eval(message + ' pre', element => element.textContent)).toBe(
+            'const value = 1;\n| a | b |\n| --- | --- |\n| c | d |',
+        );
+        expect(await page.$(message + ' table')).toBeNull();
+        await fixture.getSession().command('screenshot', ['ap-b01-fenced-table']);
+    }, 60_000);
+
 });
