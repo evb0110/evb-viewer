@@ -3267,6 +3267,101 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
     }, 90_000);
 
+    it('bounds painted search matches when native text offsets drift', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-search-drift-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-r08', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const page = pdf.addPage([
+            612,
+            792,
+        ]);
+        const lines = ['PLANT MAINTENANCE MANUAL'];
+        for (let row = 1; row <= 70; row++) lines.push(`Inspection ${row}: valve valve valve valve valve valve valve valve`);
+        lines.forEach((line, index) => page.drawText(line, {
+            x: 40,
+            y: 752 - index * 9.7,
+            size: 8,
+            font,
+        }));
+        const fixturePath = createFixturePath('drifted-search-window.pdf');
+        await writeFile(fixturePath, await pdf.save());
+        await copyFile(fixturePath, join(evidence, 'fixture.pdf'));
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        const search = async (query: string) => {
+            await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
+            await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.press('A');
+            await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await session.page.keyboard.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string, query: string) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                return Boolean(panel && !panel.querySelector('.document-search-results-spinner')
+                    && panel.querySelector('.document-search-results-header-summary')?.textContent?.includes(query));
+            }, {timeout: 15_000}, sidebar, query);
+        };
+        await search('MAINTENANCE');
+        const indexPath = getWorkingCopyDerivedPath(await getActiveWorkspaceWorkingCopyPath(session.page), 'search-index');
+        const index = await readFile(indexPath);
+        const revision = index.subarray(32, 32 + index.readUInt32LE(20)).toString('utf8');
+        const binary = resolveNativeToolPath({
+            binaryName: process.platform === 'win32' ? 'evb-pdf-search.exe' : 'evb-pdf-search',
+            crateName: 'pdf-search',
+            currentDir: process.cwd(),
+            isPackaged: false,
+        });
+        if (!binary) throw new Error('Native PDF search is unavailable');
+        // Controlled extraction drift, using the existing native index boundary.
+        await runNativeToolCommand(binary, [
+            'index',
+            '--out',
+            indexPath,
+            '--document-revision',
+            revision,
+            '--page-count',
+            '1',
+        ], {stdin: (async function* () {yield `${JSON.stringify({
+            pageNumber: 1,
+            text: 'X' + lines.join('\n'),
+        })}\n`;})()});
+        await search('valve');
+        await waitForFunctionInPage(session.page, () => document.querySelectorAll('.editor-pane.is-active .pdf-search-highlight').length >= 500, {timeout: 15_000});
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const painted = await session.page.$$eval('.editor-pane.is-active .pdf-search-highlight', nodes => nodes.map(node => ({
+            text: node.textContent,
+            current: node.classList.contains('pdf-search-highlight--current'),
+        })));
+        const summary = await session.page.$eval(`${sidebar} .document-search-results-header-summary`, node => node.textContent);
+        await session.page.screenshot({path: join(evidence, 'bounded-search.png')});
+        await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+            painted,
+            summary,
+            problems,
+        }, null, 2));
+        expect(summary).toContain('500');
+        expect(painted).toHaveLength(500);
+        expect(painted.every(match => match.text === 'valve')).toBe(true);
+        expect(painted.filter(match => match.current)).toHaveLength(1);
+        expect(problems).toEqual([]);
+    }, 90_000);
+
     it('keeps CSS search highlight pixels when focus clears the other linked view', async () => {
         const session = await sessionFixture.restart({
             clean: true,

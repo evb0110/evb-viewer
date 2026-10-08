@@ -328,11 +328,13 @@ describe('usePdfSearch', () => {
         expect(matchesForPage?.matches).toEqual([
             {
                 matchIndex: 11,
+                pageMatchIndex: 1,
                 start: 20,
                 end: 24,
             },
             {
                 matchIndex: 12,
+                pageMatchIndex: 2,
                 start: 30,
                 end: 35,
             },
@@ -602,11 +604,13 @@ describe('usePdfSearch', () => {
             }),
         ]);
         expect(search.getMatchesForPage(1)?.matches).toEqual([{
+            pageMatchIndex: 0,
             matchIndex: 0,
             start: 10,
             end: 15,
         }]);
         expect(search.getMatchesForPage(4)?.matches).toEqual([{
+            pageMatchIndex: 0,
             matchIndex: 1,
             start: 30,
             end: 35,
