@@ -1771,6 +1771,8 @@ export default {
             'selectionSpansPages': 'Select text on a single page to add this annotation.',
             'delete': 'Unable to delete this annotation from the current document.',
             'updateNote': 'Unable to update this note.',
+            'noteUpdateRejected': 'The viewer did not accept the note update.',
+            'noteDraftRetained': 'Your note draft is kept. {reason}',
         },
         'djvu': {
             'open': 'DjVu conversion failed',

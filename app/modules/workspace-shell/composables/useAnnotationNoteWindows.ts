@@ -1,4 +1,6 @@
 import type {Ref} from 'vue';
+import type {FailurePresentation} from '@app/composables/useFailureToast';
+import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {tryOnScopeDispose} from '@vueuse/core';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {
@@ -31,7 +33,7 @@ interface IAnnotationNoteWindowRuntime {
     hasNote: boolean;
     dirty: boolean;
     saving: boolean;
-    error: string | null;
+    error: string | FailurePresentation | null;
     order: number;
     pendingEmbeddedSave: boolean;
     createdAtMs: number;
@@ -44,6 +46,7 @@ const ANNOTATION_NOTE_DISAPPEARANCE_GRACE_MS = 5_000;
 export interface IAnnotationNoteWindowDeps {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     markAnnotationDirty: () => void;
+    reportNoteFailure?: TWorkspaceFailureSurface['reportNoteFailure'];
     updateAnnotationCommentInViewer: (
         annotationId: AnnotationId,
         text: string,
@@ -160,7 +163,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             },
             error: {
                 enumerable: true,
-                get: () => metadata.error,
+                get: () => typeof metadata.error === 'string' ? metadata.error : metadata.error?.description ?? null,
             },
             order: {
                 enumerable: true,
@@ -504,7 +507,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         }
         const saveGeneration = ++metadata.saveGeneration;
         metadata.saving = true;
-        metadata.error = null;
         const submittedText = state.draftText;
         // This attempt owns exactly the window it started on: that runtime
         // record, that state object, and its own generation. Teardown, a
@@ -517,26 +519,30 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             && runtime.get(id) === metadata
             && stateById(id) === state
         );
+        const fail = (cause?: unknown) => {
+            metadata.error = deps.reportNoteFailure?.({
+                cause,
+                ...(typeof metadata.error === 'object' && metadata.error ? {previous: metadata.error} : {}),
+                retry: () => { if (ownsAttempt()) void persistAnnotationNote(id); },
+            }) ?? t('errors.annotation.updateNote');
+            return false;
+        };
         const applyFulfilled = (updated: boolean) => {
             if (!updated) {
                 if (metadata.requiresEmbeddedSave) {
                     metadata.pendingEmbeddedSave = true;
                 }
-                metadata.error = t('errors.annotation.updateNote');
-                return false;
+                return fail();
             }
             if (metadata.requiresEmbeddedSave) {
                 metadata.pendingEmbeddedSave = true;
             }
+            metadata.error = null;
             metadata.canonicalText = submittedText;
             if (state.draftText === submittedText) {
                 metadata.dirty = false;
                 return true;
             }
-            return false;
-        };
-        const applyRejected = () => {
-            metadata.error = t('errors.annotation.updateNote');
             return false;
         };
         const conclude = (apply: () => boolean) => {
@@ -568,13 +574,20 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             if (updated instanceof Promise) {
                 return updated.then(
                     settled => conclude(() => applyFulfilled(settled)),
-                    () => conclude(applyRejected),
+                    cause => conclude(() => fail(cause)),
                 );
             }
             return conclude(() => applyFulfilled(updated));
-        } catch {
-            return conclude(applyRejected);
+        } catch (cause) {
+            return conclude(() => fail(cause));
         }
+    }
+
+    function getAnnotationNoteFailurePresentation() {
+        for (const metadata of runtime.values()) {
+            if (metadata.dirty && metadata.error && typeof metadata.error === 'object') return metadata.error;
+        }
+        return undefined;
     }
 
     async function persistAllAnnotationNotes() {
@@ -669,7 +682,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function setAnnotationNoteWindowError(value: string, message: string | null) {
         const id = resolveId(value);
         const metadata = id ? runtime.get(id) : null;
-        if (metadata) metadata.error = message;
+        if (metadata) metadata.error = message === null ? null
+            : deps.reportNoteFailure?.({message}) ?? message;
     }
 
     const stopAnnotationCommentsWatch = watch(deps.annotationComments, (comments) => {
@@ -741,6 +755,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         captureAnnotationNoteDrafts,
         restoreAnnotationNoteDraft,
         updateAnnotationNotePosition,
+        getAnnotationNoteFailurePresentation,
         persistAnnotationNote,
         persistAllAnnotationNotes,
         closeAnnotationNote,

@@ -245,6 +245,7 @@ export interface IWorkspaceSaveDependencies {
         hasPendingDeletes?: () => boolean;
         openNoteCount: Ref<number>;
         persistOpenNotes: () => Promise<boolean>;
+        getNoteFailurePresentation?: () => Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
     };
     metadata: {
         totalPages: Ref<number>;

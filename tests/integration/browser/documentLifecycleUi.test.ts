@@ -18,7 +18,9 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 import {chromium} from 'playwright';
-import type {Page} from 'playwright';
+import type {
+    BrowserContext, Page,
+} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -192,6 +194,262 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    it('retains the note draft and actionable cause when a note update rejects', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Note update failure fixture', {
+            x: 40,
+            y: 740,
+            font,
+            size: 16,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-rux6/app-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        let context: BrowserContext | undefined;
+        let problems: string[] = [];
+        const observations: unknown[] = [];
+        const reason = 'RUX06 note write rejected by document policy';
+        try {
+            context = await browser.newContext({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                permissions: [
+                    'clipboard-read',
+                    'clipboard-write',
+                ],
+                recordVideo: {
+                    dir: evidenceDir,
+                    size: {
+                        width: 1280,
+                        height: 800,
+                    },
+                },
+            });
+            const page = await context.newPage();
+            problems = collectConsoleProblems(page);
+            // Setup rejects the document update boundary before it mutates. All
+            // editing, Retry, minimize/reopen and Save As use trusted user input.
+            await page.route('**/composables/useWorkspaceAnnotationSession.ts*', async route => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'const comment = resolveNoteComment(annotationId);';
+                if (!body.includes(marker)) throw new Error('Document note update fault seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, 'if (Reflect.get(window, "__noteUpdateFailure")) throw new Error("RUX06 note write rejected by document policy"); ' + marker),
+                });
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, '__noteUpdateFailure', false);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'note-update.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state:'visible'});
+            await page.getByRole('button', {
+                name:'Place a sticky note on the page.',
+                exact:true,
+            }).click();
+            const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
+            if (!bounds) throw new Error('The first PDF page is not visible');
+            await page.mouse.click(bounds.x + 200, bounds.y + 200);
+            const note = page.locator('.note-window').first();
+            const input = page.getByRole('textbox', {
+                name:'Write annotation note',
+                exact:true,
+            });
+            await input.pressSequentially('Initial accepted note');
+            await page.getByRole('button',{
+                name:'Minimize note',
+                exact:true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Open Note',
+                exact:true,
+            }).click();
+            await expect.poll(() => input.inputValue()).toBe('Initial accepted note');
+            const initialRect = await note.boundingBox();
+            const initialInputRect = await input.boundingBox();
+            await page.evaluate(() => Reflect.set(window,'__noteUpdateFailure',true));
+            await input.fill('Retained RUX06 draft');
+            // Either baseline's inline row or the operation toast acknowledges
+            // completion, so a missing fault cannot masquerade as a red proof.
+            await page.waitForFunction(() => Boolean(document.querySelector('.note-window__error') || Array.from(document.querySelectorAll('[role="alert"]')).some(element => element.textContent?.includes('Unable to update this note.'))));
+            observations.push({
+                step:'failure',
+                text:await input.inputValue(),
+                rect:await note.boundingBox(),
+                inline:await note.locator('[role="alert"]').count(),
+                alerts:await page.locator('[role="alert"]').allTextContents(),
+            });
+            await page.screenshot({path:resolve(evidenceDir,'failure.png')});
+            expect(await input.inputValue()).toBe('Retained RUX06 draft');
+            expect(await note.boundingBox()).toEqual(initialRect);
+            expect(await input.boundingBox()).toEqual(initialInputRect);
+            expect(await note.locator('[role="alert"]').count()).toBe(0);
+            const toast = page.locator('.app-toast-failure:not([data-state="closed"])');
+            await expect.poll(() => toast.count()).toBe(1);
+            await expect.poll(() => toast.innerText()).toContain(reason);
+            await expect.poll(() => toast.innerText()).toContain('Error ID');
+            const originalErrorId = /Error ID: ([a-f0-9]{8})/u.exec(await toast.innerText())?.[1];
+            expect(originalErrorId).toBeTruthy();
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).first().click();
+            await expect.poll(() => toast.count()).toBe(1);
+            await expect.poll(() => toast.innerText()).toContain(`Error ID: ${originalErrorId}`);
+            observations.push({
+                step: 'save-blocked',
+                toast: await toast.innerText(),
+                text: await input.inputValue(),
+            });
+            await toast.getByRole('button', {
+                name: 'Copy details',
+                exact: true,
+            }).click();
+            const copied = await page.evaluate(() => navigator.clipboard.readText());
+            expect(copied).toContain(reason);
+            expect(copied).toContain(`Error ID: ${originalErrorId}`);
+            writeFileSync(resolve(evidenceDir, 'copied.txt'), copied);
+
+            await input.fill('Retained RUX06 draft plus newer typing');
+            await page.waitForFunction(previousId => {
+                const failure = document.querySelector('.app-toast-failure:not([data-state="closed"])');
+                return failure?.textContent?.includes('RUX06 note write rejected by document policy')
+                    && !failure.textContent.includes(`Error ID: ${previousId}`);
+            }, originalErrorId);
+            await expect.poll(() => toast.count()).toBe(1);
+            await page.evaluate(() => Reflect.set(window, '__noteUpdateFailure', false));
+            await toast.getByRole('button', {
+                name: 'Retry',
+                exact: true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Minimize note',
+                exact:true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Open Note',
+                exact:true,
+            }).click();
+            await expect.poll(() => input.inputValue()).toBe('Retained RUX06 draft plus newer typing');
+            expect(await note.locator('[role="alert"]').count()).toBe(0);
+            const download = page.waitForEvent('download');
+            await page.getByRole('button',{
+                name:'Save options',
+                exact:true,
+            }).click();
+            await page.getByRole('menuitem',{name:/^Save As/u}).click();
+            const savedPath=resolve(evidenceDir,'saved.pdf');
+            await (await download).saveAs(savedPath);
+            const saved=await PDFDocument.load(readFileSync(savedPath));
+            const annots=saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'),PDFArray);
+            const contents: string[]=[];
+            for(let i=0;i<(annots?.size()??0);i++) {
+                const annotation=annots!.lookup(i,PDFDict);
+                if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                const text=annotation.lookupMaybe(PDFName.of('Contents'),PDFString,PDFHexString);
+                if(text) contents.push(text.decodeText());
+            }
+            expect(contents.filter(text=>text==='Retained RUX06 draft plus newer typing')).toHaveLength(1);
+            observations.push({
+                step:'retry-saved',
+                contents,
+            });
+            const reopenedContext = await browser.newContext({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                recordVideo: {
+                    dir: evidenceDir,
+                    size: {
+                        width: 1280,
+                        height: 800,
+                    },
+                },
+            });
+            try {
+                const reopened = await reopenedContext.newPage();
+                const reopenedProblems = collectConsoleProblems(reopened);
+                await reopened.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await reopened.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(reopened);
+                keepFileChooserInterceptionEnabled(reopened);
+                const reopenedChooser = reopened.waitForEvent('filechooser');
+                await reopened.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
+                await (await reopenedChooser).setFiles(savedPath);
+                await reopened.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+                await expect.poll(() => reopened.getByRole('button', {
+                    name: 'Open Note',
+                    exact: true,
+                }).count()).toBe(1);
+                await reopened.getByRole('button', {
+                    name: 'Open Note',
+                    exact: true,
+                }).click();
+                const reopenedInput = reopened.getByRole('textbox', {
+                    name: 'Write annotation note',
+                    exact: true,
+                });
+                await expect.poll(() => reopenedInput.inputValue()).toBe('Retained RUX06 draft plus newer typing');
+                observations.push({
+                    step: 'saved-reopened',
+                    text: await reopenedInput.inputValue(),
+                });
+                expect(reopenedProblems).toEqual([]);
+                await reopened.screenshot({path: resolve(evidenceDir, 'recovered.png')});
+            } finally {
+                await reopenedContext.close();
+            }
+            // The injected writer fault is the expected operation failure. Its
+            // existing recovery preparation gate is tracked separately in #1108;
+            // preserve those exact diagnostics in evidence rather than hiding them.
+            const injectedDiagnostics = [
+                reason,
+                'Open annotation notes could not be prepared for crash recovery.',
+                'did not produce a recovery snapshot; retrying without it',
+                'Workspace save did not commit {planKind: null, status: not-saved, reason: note-persistence-failed, phase: pre-write}',
+            ];
+            expect(problems.filter(problem => !injectedDiagnostics.some(diagnostic => problem.includes(diagnostic)))).toEqual([]);
+
+        } finally {
+            writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
+            writeFileSync(resolve(evidenceDir,'console.json'),JSON.stringify(problems,null,2));
+            try {await context?.close();} finally {await browser.close();}
+        }
+    }, 90_000);
+
     it('retains a fully visible short indicator page while the center enters a tall page', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));

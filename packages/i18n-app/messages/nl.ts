@@ -1771,6 +1771,8 @@ export default {
             'selectionSpansPages': 'Selecteer tekst op één pagina om deze annotatie toe te voegen.',
             'delete': 'Kan deze annotatie niet uit het huidige document verwijderen.',
             'updateNote': 'Kan deze notitie niet bijwerken.',
+            'noteUpdateRejected': 'De viewer heeft de wijziging van de notitie niet geaccepteerd.',
+            'noteDraftRetained': 'Je notitieconcept blijft bewaard. {reason}',
         },
         'djvu': {
             'open': 'DjVu-conversie mislukt',

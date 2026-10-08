@@ -196,6 +196,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const annotations = useWorkspaceAnnotationSession({
         views,
         pdfDocument,
+        reportNoteFailure: failure.reportNoteFailure,
     });
     const hasPendingUnsavedChanges = computed(() => (
         annotations.hasUnsavedAnnotationChanges.value
@@ -235,12 +236,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         bookmarkItems: bookmarkState.bookmarkItems,
         isSaving,
         isSavingAs,
-        annotationDirty: annotations.annotationDirty,
-        annotationNoteWindowsCount: computed(() => annotations.annotationNoteWindows.value.length),
-        pendingEmbeddedAnnotationDeleteCount: annotations.pendingEmbeddedAnnotationDeleteCount,
-        hasAnnotationChanges: annotations.hasAnnotationChanges,
-        markAnnotationSaved: annotations.markAnnotationSaved,
-        getAnnotationSaveStateToken: annotations.getAnnotationSaveStateToken,
+        annotations,
         markPageLabelsSaved: pageLabelState.markPageLabelsSaved,
         getPageLabelsSaveStateToken: pageLabelState.getPageLabelsRevision,
         markBookmarksSaved: bookmarkState.markBookmarksSaved,
@@ -257,7 +253,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         trySaveEmbeddedNoteTextUpdates: file.trySaveEmbeddedNoteTextUpdates,
         saveWorkingCopyAs: file.saveWorkingCopyAs,
         optimizePdfOnSaveAs: computed(() => appSettings.value.optimizePdfOnSaveAs),
-        persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
         loadRecentFiles,
         currentPage,
         resetSearchCache: resetSearchCaches,

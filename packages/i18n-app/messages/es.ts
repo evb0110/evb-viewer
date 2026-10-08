@@ -1771,6 +1771,8 @@ export default {
             'selectionSpansPages': 'Selecciona texto de una sola página para añadir esta anotación.',
             'delete': 'No se pudo eliminar esta anotación del documento actual.',
             'updateNote': 'No se pudo actualizar esta nota.',
+            'noteUpdateRejected': 'El visor no aceptó la actualización de la nota.',
+            'noteDraftRetained': 'Se conserva el borrador de la nota. {reason}',
         },
         'djvu': {
             'open': 'La conversión de DjVu falló',

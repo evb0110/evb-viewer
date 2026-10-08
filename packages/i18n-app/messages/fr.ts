@@ -1782,6 +1782,8 @@ export default {
             'selectionSpansPages': 'Sélectionnez du texte sur une seule page pour ajouter cette annotation.',
             'delete': 'Impossible de supprimer cette annotation du document actuel.',
             'updateNote': 'Impossible de mettre à jour cette note.',
+            'noteUpdateRejected': 'La visionneuse n’a pas accepté la modification de la note.',
+            'noteDraftRetained': 'Votre brouillon de note est conservé. {reason}',
         },
         'djvu': {
             'open': 'Échec de la conversion DjVu',

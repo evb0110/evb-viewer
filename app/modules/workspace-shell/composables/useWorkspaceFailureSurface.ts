@@ -15,6 +15,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
 import { classifyDocumentOpenError } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {
+    isFailurePresentation,
     copyTextToClipboard,
     getNonEmptyDetails,
     useFailureToast,
@@ -29,10 +30,8 @@ import {
  * owns the localized copy and the toast. An open's failure is told by the
  * tab's document session instead.
  *
- * Only saves keep durable state. A failed save outlives its toast because the
- * status bar has to keep presenting the document as unwritten; a rejected
- * annotation leaves nothing behind to present, so it is told once and dropped
- * rather than parked in a container nothing reads.
+ * Saves keep durable status; rejected note drafts retain their presentation
+ * in the existing note owner so Retry and Save preserve the same receipt.
  */
 type TWorkspaceFailureDomain = 'save' | 'annotation';
 
@@ -136,7 +135,7 @@ export const useWorkspaceFailureSurface = () => {
         operationId: string,
         reason: TWorkspaceSaveFailureReason,
         detail?: string | null,
-        existingReceipt?: FailureReceipt,
+        existingReceipt?: FailureReceipt | FailurePresentation,
         diagnostics?: IPdfPersistFailure,
     ) {
         if (isDuplicateFailure({
@@ -145,8 +144,9 @@ export const useWorkspaceFailureSurface = () => {
         })) {
             return false;
         }
-        const description = detail ?? describeSaveFailure(reason, diagnostics);
-        const receipt = existingReceipt ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
+        const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
+        const description = detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
+        const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
             'workspace',
             'Workspace save failed',
             {
@@ -158,6 +158,7 @@ export const useWorkspaceFailureSurface = () => {
             {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         const presentation: FailurePresentation = {
+            ...priorPresentation,
             failure: receipt,
             title: t('errors.file.save'),
             description,
@@ -235,6 +236,30 @@ export const useWorkspaceFailureSurface = () => {
         return true;
     }
 
+    function reportNoteFailure(input: {
+        cause?: unknown;
+        message?: string;
+        retry?: () => void;
+        previous?: FailurePresentation;
+    }): FailurePresentation {
+        const reason = (input.cause === undefined ? input.message ?? '' : getErrorMessage(input.cause)).trim() || t('errors.annotation.noteUpdateRejected');
+        const presentation: FailurePresentation = {
+            failure: getFailureReceipt(input.cause) ?? input.previous?.failure ?? BrowserLogger.error(
+                'annotations', 'Annotation note operation failed', input.cause ?? reason,
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            ),
+            title: (input.message ?? '').trim() || t('errors.annotation.updateNote'),
+            description: t('errors.annotation.noteDraftRetained', {reason}),
+            technicalDetails: reason,
+            ...(input.retry ? {actions: [{
+                label: t('common.retry'),
+                onClick: input.retry,
+            }]} : {}),
+        };
+        presentFailureToast(presentation);
+        return presentation;
+    }
+
     function presentCopyFeedback(copied: boolean) {
         toast.add({
             color: copied ? 'success' : 'error',
@@ -268,6 +293,7 @@ export const useWorkspaceFailureSurface = () => {
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,
+        reportNoteFailure,
         describeOpenFailure,
     };
 };

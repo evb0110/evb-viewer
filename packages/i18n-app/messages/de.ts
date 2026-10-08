@@ -1771,6 +1771,8 @@ export default {
             'selectionSpansPages': 'Markieren Sie Text auf einer einzelnen Seite, um diese Anmerkung hinzuzufügen.',
             'delete': 'Diese Anmerkung konnte nicht aus dem aktuellen Dokument gelöscht werden.',
             'updateNote': 'Diese Notiz konnte nicht aktualisiert werden.',
+            'noteUpdateRejected': 'Der Viewer hat die Änderung der Notiz nicht angenommen.',
+            'noteDraftRetained': 'Ihr Notizentwurf bleibt erhalten. {reason}',
         },
         'djvu': {
             'open': 'DjVu-Konvertierung fehlgeschlagen',
