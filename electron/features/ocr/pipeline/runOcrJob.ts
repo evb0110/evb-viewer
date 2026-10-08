@@ -121,6 +121,8 @@ export interface IOcrJob {
     signal: AbortSignal;
     publish: (progress: IOcrJobProgress) => void;
     log: TWorkerLog;
+    /** Installs the long-s models into `paths.tessdataPath`; called once, when a page first needs them. */
+    prepareLongSModels?: (signal: AbortSignal) => Promise<void>;
 }
 
 function throwIfAborted(signal: AbortSignal) {
@@ -252,6 +254,7 @@ export interface IOcrPageProcessingContext {
     signal: AbortSignal;
     storageBudget: TOcrJobStorageBudget;
     trackTempFile: (path: string) => string;
+    prepareLongSModels?: () => Promise<void>;
 }
 
 async function readPageCheckpoint(
@@ -417,6 +420,7 @@ async function processOcrPage(
             getTesseractThreadLimit(lease.resources.cpuTokens),
             context.signal,
             context.options,
+            context.prepareLongSModels,
         );
 
         if (!ocrResult.success || !ocrResult.pageData || !ocrResult.pdfPath) {
@@ -441,6 +445,19 @@ async function processOcrPage(
             });
         }
 
+        if (ocrResult.longSUnavailable !== undefined) {
+            log('warn', 'Long-s recognition unavailable for OCR page', {
+                pageNumber: page.pageNumber,
+                error: ocrResult.longSUnavailable,
+            });
+            diagnostics.push({
+                code: 'OCR_LONG_S_UNAVAILABLE',
+                severity: 'warning',
+                pageNumber: requirePageNumber(page.pageNumber),
+                message: `The page is printed with the long s, but the long-s models could not run: ${ocrResult.longSUnavailable}`,
+            });
+        }
+
         const pageData: IOcrPageWithWords = {
             pageNumber: page.pageNumber,
             words: mapOcrWordsThroughInverseTransform(ocrResult.pageData.words, preprocessInverse),
@@ -454,6 +471,7 @@ async function processOcrPage(
             checkpointData: {
                 pageData,
                 ...(preprocessInverse === undefined ? {} : {preprocessInverse}),
+                ...(ocrResult.wordEdits === undefined ? {} : {wordEdits: ocrResult.wordEdits}),
                 effectiveDpi,
                 diagnostics,
             },
@@ -673,6 +691,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         documentRevision,
         options,
         log,
+        prepareLongSModels,
     } = job;
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
@@ -786,6 +805,9 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         logPopplerEnvironment(log, popplerEnv);
 
         let firstCheckpointMarked = false;
+        // One preparation per job, failed or not: the download already retries
+        // with backoff, and later pages must not wait out a dead network again.
+        let longSModels: Promise<void> | undefined;
         const manifest = durableManifest;
         const planContext: TOcrPlanContext = {
             jobId: job.jobId,
@@ -810,6 +832,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             storageBudget,
             trackTempFile,
             ...(popplerEnv === undefined ? {} : {popplerEnv}),
+            ...(prepareLongSModels === undefined ? {} : {prepareLongSModels: () => longSModels ??= prepareLongSModels(jobSignal)}),
         };
         await durableManifest.markNode('page-raster', 'running');
         await durableManifest.markNode('preprocessed', 'running');
