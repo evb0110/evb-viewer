@@ -5,7 +5,6 @@ import {
     deleteChunkRecord,
     loadChunkRecord,
     persistChunkRecord,
-    toPersistedChunkRecord,
 } from '@app/platform/browser/browserDocumentChunks';
 import type { IBrowserDocumentEntry } from '@app/platform/browser/browserDocumentTypes';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
@@ -70,9 +69,7 @@ async function loadBrowserDocumentChunk(
     index: number,
     generation?: string,
 ) {
-    const rawChunk = await loadChunkRecord(ref, index, generation);
-    const normalizedChunk = toPersistedChunkRecord(rawChunk);
-    return normalizedChunk ? cloneBytes(normalizedChunk.data) : null;
+    return (await loadChunkRecord(ref, index, generation))?.data ?? null;
 }
 
 export async function assertBrowserDocumentChunkGenerationComplete(
@@ -186,7 +183,7 @@ export async function readBrowserDocumentChunkedEntryRange(
         const chunkStart = chunkIndex * chunkSize;
         const sliceStart = Math.max(0, start - chunkStart);
         const sliceEnd = Math.min(chunk.byteLength, boundedEnd - chunkStart);
-        const slice = chunk.slice(sliceStart, sliceEnd);
+        const slice = chunk.subarray(sliceStart, sliceEnd);
         output.set(slice, outputOffset);
         outputOffset += slice.byteLength;
     }
