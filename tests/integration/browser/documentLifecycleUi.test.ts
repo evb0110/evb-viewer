@@ -2318,4 +2318,183 @@ describe('optional search-cache mutation completion proof', () => {
             await browser.close();
         }
     }, 90000);
+    it('keeps rotated search boxes on their words without coordinate warnings', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const pdfPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdfPage.drawText('Optional cache rotation proof', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1094/browser-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        let page: Page | undefined;
+        try {
+            page = await browser.newPage({
+                viewport: {
+                    width: 1280,
+                    height: 900,
+                },
+                recordVideo: {dir: evidenceDir},
+            });
+            const problems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'rotated-search.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30_000});
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+            });
+            if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
+                await page.getByRole('button', {
+                    name: 'Toggle Sidebar',
+                    exact: true,
+                }).click();
+                await page.getByRole('tab', {
+                    name: 'Pages',
+                    exact: true,
+                }).click();
+            }
+            await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
+            await page.getByRole('menuitem', {
+                name: 'Rotate Clockwise',
+                exact: true,
+            }).click();
+            await expect.poll(() => page!.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > rect.height;
+            }), {timeout: 15_000}).toBe(true);
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Rotated PDF did not settle');
+            });
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{isPageOperationInProgress?: boolean}>(['isPageOperationInProgress'])?.isPageOperationInProgress === false;
+            }, undefined, {timeout: 30_000});
+            await page.waitForFunction(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.getActiveToolbarSnapshot?.()?.initialVisualReady === true;
+            }, undefined, {timeout: 30_000});
+            await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            const input = page.locator('.document-search-bar input:visible').first();
+            await input.pressSequentially('proof');
+            expect(await input.inputValue()).toBe('proof');
+            writeFileSync(resolve(evidenceDir, 'before-enter.json'), JSON.stringify(await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return {
+                    toolbar: api.getActiveToolbarSnapshot?.(),
+                    state: api.readActiveWorkspaceStateValues?.([
+                        'searchQuery',
+                        'isPageOperationInProgress',
+                    ]),
+                    input: document.querySelector<HTMLInputElement>('.document-search-bar input')?.value,
+                };
+            }), null, 2));
+            await input.press('Enter');
+            await expect.poll(() => page!.locator('.document-search-results-header-summary').textContent(), {timeout: 30_000}).toMatch(/^1 result\b/u);
+            await page.locator('.document-search-result:visible').first().click();
+            const box = page.locator('.page_container[data-page="1"] .pdf-word-box[data-word="proof"]').first();
+            await box.waitFor({state: 'visible'});
+            const alignment = await box.evaluate(element => {
+                const container = element.closest('.page_container')!;
+                const canvas = container.querySelector('canvas')!;
+                const textLayer = container.querySelector('.textLayer')!;
+                const walker = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+                let node: Node | null;
+                let wordRange: Range | null = null;
+                while ((node = walker.nextNode())) {
+                    const at = node.textContent?.indexOf('proof') ?? -1;
+                    if (at < 0) continue;
+                    wordRange = document.createRange();
+                    wordRange.setStart(node, at);
+                    wordRange.setEnd(node, at + 5);
+                    break;
+                }
+                if (!wordRange) throw new Error('Rendered proof word is absent');
+                const word = wordRange.getBoundingClientRect();
+                const highlight = element.getBoundingClientRect();
+                const renderedCanvas = canvas.getBoundingClientRect();
+                const sx = canvas.width / renderedCanvas.width;
+                const sy = canvas.height / renderedCanvas.height;
+                const x = Math.floor((word.left - renderedCanvas.left) * sx);
+                const y = Math.floor((word.top - renderedCanvas.top) * sy);
+                const width = Math.ceil(word.width * sx);
+                const height = Math.ceil(word.height * sy);
+                const pixels = canvas.getContext('2d')!.getImageData(x, y, width, height).data;
+                let darkPixels = 0;
+                let paintedPixelsInBox = 0;
+                for (let py = 0; py < height; py += 1) {
+                    for (let px = 0; px < width; px += 1) {
+                        const offset = (py * width + px) * 4;
+                        if (pixels[offset]! >= 128 || pixels[offset + 1]! >= 128 || pixels[offset + 2]! >= 128) continue;
+                        darkPixels += 1;
+                        const clientX = renderedCanvas.left + (x + px + 0.5) / sx;
+                        const clientY = renderedCanvas.top + (y + py + 0.5) / sy;
+                        if (clientX >= highlight.left && clientX <= highlight.right && clientY >= highlight.top && clientY <= highlight.bottom) paintedPixelsInBox += 1;
+                    }
+                }
+                return {
+                    word: word.toJSON(),
+                    highlight: highlight.toJSON(),
+                    darkPixels,
+                    paintedPixelsInBox,
+                    wordCenterInsideBox: (word.left + word.right) / 2 >= highlight.left
+                        && (word.left + word.right) / 2 <= highlight.right
+                        && (word.top + word.bottom) / 2 >= highlight.top
+                        && (word.top + word.bottom) / 2 <= highlight.bottom,
+                    boxCenterInsideWord: (highlight.left + highlight.right) / 2 >= word.left
+                        && (highlight.left + highlight.right) / 2 <= word.right
+                        && (highlight.top + highlight.bottom) / 2 >= word.top
+                        && (highlight.top + highlight.bottom) / 2 <= word.bottom,
+                    canvas: {
+                        width: canvas.width,
+                        height: canvas.height,
+                    },
+                };
+            });
+            writeFileSync(resolve(evidenceDir, 'alignment.json'), JSON.stringify(alignment, null, 2));
+            writeFileSync(resolve(evidenceDir, 'console-problems.json'), JSON.stringify(problems, null, 2));
+            expect(alignment.darkPixels).toBeGreaterThan(0);
+            expect(alignment.paintedPixelsInBox).toBeGreaterThan(0);
+            expect(alignment.wordCenterInsideBox).toBe(true);
+            expect(alignment.boxCenterInsideWord).toBe(true);
+            expect(problems).toEqual([]);
+        } finally {
+            if (page) {
+                await page.screenshot({path: resolve(evidenceDir, 'final.png')}).catch(() => {});
+                const video = page.video();
+                await page.close();
+                await video?.saveAs(resolve(evidenceDir, 'proof.webm'));
+            }
+            await browser.close();
+        }
+    }, 120_000);
+
 });
