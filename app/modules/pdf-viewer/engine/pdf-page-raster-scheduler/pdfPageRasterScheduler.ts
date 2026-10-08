@@ -23,6 +23,8 @@ import type {
 } from '@app/modules/document-viewer/public';
 import {workspaceSurfaceBudgetController} from '@app/modules/document-viewer/public';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
+import { getErrorMessage } from '@app/utils/error';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
 export type TPdfRasterLane =
@@ -67,6 +69,8 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
+    /** A current demand whose render kept throwing until its retries ran out. */
+    onRenderFailed?: ((demand: IPdfRasterDemand, error: unknown) => void) | undefined;
     release(pageNumber: TPageNumber, reason: string): void;
 }
 
@@ -473,6 +477,18 @@ export function createPdfPageRasterScheduler(
     function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
         if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
             settleWork(work, exhausted);
+            if (exhausted.status === 'failed' && isDemandCurrent(work)) {
+                // The target's report must not reject this unawaited execution.
+                try {
+                    work.target.onRenderFailed?.(work.demand, exhausted.error);
+                } catch (error) {
+                    logPdfRenderTrace('pdf-raster-render-failed-callback-failed', {
+                        error: getErrorMessage(error),
+                        pageNumber: work.demand.pageNumber,
+                        targetId: work.target.id,
+                    });
+                }
+            }
             return;
         }
         work.retryCount += 1;

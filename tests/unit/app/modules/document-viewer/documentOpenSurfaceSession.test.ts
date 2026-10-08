@@ -1455,6 +1455,27 @@ describe('document open surface session', () => {
         expect(shouldPresentDocumentOpenEmptyPlaceholder(failedSession.snapshot.value)).toBe(true);
     });
 
+    it('takes a first page geometry after its page failed to render, not after the open failed', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session);
+        const failedRender = createRenderFence(session, generation);
+        expect(session.reject(failedRender, 'canvas-render timed out')).toBe(true);
+        expect(session.snapshot.value).toMatchObject({
+            phase: 'failed',
+            geometry: null,
+        });
+
+        // A retry painting that page measures it then.
+        expect(commitDefaultGeometry(session, generation)).toBe(true);
+        expect(commitDefaultGeometry(session, generation)).toBe(false);
+        expect(session.commitCanvas(createRenderFence(session, generation, 'rev-a', {requestId: 2}))).toBe(true);
+
+        const failedOpen = createDocumentOpenSurfaceSession();
+        const failedOpenGeneration = beginSurface(failedOpen);
+        expect(failedOpen.fail(failedOpenGeneration, 'load failed')).toBe(true);
+        expect(commitDefaultGeometry(failedOpen, failedOpenGeneration)).toBe(false);
+    });
+
     it('owns and generation-fences the exact opening page frame', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.pdf', 'open-intent:1');

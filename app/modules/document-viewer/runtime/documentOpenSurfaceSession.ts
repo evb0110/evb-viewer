@@ -855,9 +855,13 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             return true;
         },
         commitGeometry(generation, geometry) {
+            // The first page measurement belongs to a pending open, or to one
+            // that failed on its page and is painting that page on retry.
+            const current = snapshot.value;
             if (
-                snapshot.value.generation !== generation
-                || snapshot.value.phase !== 'pending'
+                current.generation !== generation
+                || current.phase !== 'pending' && (current.phase !== 'failed' || current.geometry !== null
+                    || sessionState.value.viewport.visual.kind !== 'page')
                 || !isFinitePositive(geometry.width)
                 || !isFinitePositive(geometry.height)
                 || !Number.isFinite(geometry.margin)
