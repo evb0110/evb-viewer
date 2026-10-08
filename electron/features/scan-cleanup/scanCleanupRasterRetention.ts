@@ -445,7 +445,10 @@ export function scanCleanupRasterRetention(
                         const probedIndex = missingPageNumbers.indexOf(pageNumber);
                         waiter.resolve(observeRaster(rasters[index] ?? probedRasters[probedIndex]));
                     }
-                }, error => {
+                }).catch((error: unknown) => {
+                    // These waiters already left the pending map, so whatever
+                    // fails, the geometry read or the probe after it, must
+                    // settle them here; resolved waiters ignore the rejection.
                     for (const [
                         ,
                         waiter,

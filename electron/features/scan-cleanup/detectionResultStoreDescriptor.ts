@@ -15,6 +15,7 @@ import {isRecord} from '@contracts/runtimeGuards';
 import {
     openFileBackedScanCleanupResultStore,
     RESULT_STORE_INDEX_BYTES,
+    writeFully,
 } from '@evb/scan-cleanup/core/fileBackedResultStore';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
@@ -44,28 +45,6 @@ function serialize(result: IScanCleanupDetectionResult) {
         throw new RangeError('Scan cleanup detection result exceeds the handoff record limit');
     }
     return line;
-}
-
-type TScanCleanupFileHandle = Awaited<ReturnType<typeof open>>;
-
-async function writeFully(
-    handle: TScanCleanupFileHandle,
-    data: Buffer,
-    position?: number,
-) {
-    let offset = 0;
-    while (offset < data.byteLength) {
-        const {bytesWritten} = await handle.write(
-            data,
-            offset,
-            data.byteLength - offset,
-            position === undefined ? undefined : position + offset,
-        );
-        if (bytesWritten <= 0) {
-            throw new Error('Scan cleanup detection result handoff made no write progress');
-        }
-        offset += bytesWritten;
-    }
 }
 
 function assertDescriptor(descriptor: unknown): asserts descriptor is IScanCleanupDetectionResultStoreDescriptor {

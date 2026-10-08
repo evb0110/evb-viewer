@@ -110,9 +110,41 @@ function checkedOffset(value: bigint) {
     return Number(value);
 }
 
+/**
+ * A file write may store fewer bytes than it was given. Publishing an offset
+ * or a count before every byte is down would point at a torn record.
+ */
+export async function writeFully(
+    handle: Pick<FileHandle, 'write'>,
+    data: Buffer,
+    position?: number,
+) {
+    let offset = 0;
+    while (offset < data.byteLength) {
+        const {bytesWritten} = await handle.write(
+            data,
+            offset,
+            data.byteLength - offset,
+            position === undefined ? undefined : position + offset,
+        );
+        if (bytesWritten <= 0) {
+            throw new Error('Scan cleanup result store made no write progress');
+        }
+        offset += bytesWritten;
+    }
+}
+
+function parseRecordLine<TRecord>(line: Buffer) {
+    try {
+        return JSON.parse(line.toString('utf8')) as TRecord;
+    } catch (error) {
+        throw new Error(`Scan cleanup result store contains invalid JSON: ${String(error)}`);
+    }
+}
+
 function serializeRecord<TRecord>(record: TRecord) {
-    const line = `${JSON.stringify(record)}\n`;
-    const bytes = Buffer.byteLength(line, 'utf8');
+    const line = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
+    const bytes = line.byteLength;
     if (bytes > RESULT_STORE_MAX_LINE_BYTES) {
         throw new RangeError(
             `Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_LINE_BYTES)} bytes`,
@@ -214,12 +246,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         const encoded = BigInt(offset + 1);
         const bytes = Buffer.alloc(RESULT_STORE_INDEX_BYTES);
         bytes.writeBigUInt64LE(encoded, 0);
-        await this.indexFile.write(
-            bytes,
-            0,
-            bytes.byteLength,
-            checkedIndexPosition(pageNumber),
-        );
+        await writeFully(this.indexFile, bytes, checkedIndexPosition(pageNumber));
     }
 
     private async readRecordAt(offset: number) {
@@ -242,12 +269,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
             const newline = part.indexOf(0x0a);
             if (newline >= 0) {
                 chunks.push(part.subarray(0, newline));
-                const payload = Buffer.concat(chunks).toString('utf8');
-                try {
-                    return JSON.parse(payload) as TRecord;
-                } catch (error) {
-                    throw new Error(`Scan cleanup result store contains invalid JSON: ${String(error)}`);
-                }
+                return parseRecordLine<TRecord>(Buffer.concat(chunks));
             }
             chunks.push(part);
             totalBytes += bytesRead;
@@ -291,7 +313,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         if (nextOffset > BigInt(Number.MAX_SAFE_INTEGER)) {
             throw new RangeError('Scan cleanup result store record offset exceeds the safe integer range');
         }
-        await this.recordsFile.write(serialized.line, offset, 'utf8');
+        await writeFully(this.recordsFile, serialized.line, offset);
         this.nextOffset = Number(nextOffset);
         await this.writeOffset(pageNumber, offset);
         if (existingOffset === undefined) this._resultCount += 1;

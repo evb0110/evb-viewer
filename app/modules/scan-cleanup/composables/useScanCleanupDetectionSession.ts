@@ -359,7 +359,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // publishes its own.
     const analyzedPages = computed(() => Math.min(resolveDetectionDocumentPageCount(), detectionResultCount.value));
     const blankPageCount = computed(() => jobState.value?.status === 'completed'
-        ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
+        ? jobState.value.blankPageCount
+            ?? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
         : 0);
     const outputEstimate = computed(() => {
         const estimate = estimateScanCleanupOutputPages(

@@ -466,6 +466,7 @@ export async function hasBoundedMatchedRasterResample(input: {
 }
 
 export interface IDetectionResult {
+    blankPageCount: number;
     results: TScanCleanupDetectionJobState['results'];
     resultStore: IScanCleanupDetectionResultStore;
     resultStoreId?: string;
