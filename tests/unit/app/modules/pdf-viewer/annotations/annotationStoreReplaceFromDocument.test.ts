@@ -329,6 +329,182 @@ describe('AnnotationStore.replaceFromDocument', () => {
         expect(store.list().map(entity => entity.identity.id)).toEqual(ids);
     });
 
+    it('keeps fingerprint collisions ambiguous until earlier parsed ids consume candidates', () => {
+        const store = new AnnotationStore();
+        const first = textMarkup('first', {persistedRevision: 0});
+        const second = textMarkup('second', {persistedRevision: 0});
+        store.replaceFromDocument([
+            first,
+            second,
+        ], []);
+
+        store.replaceFromDocument([
+            textMarkup('ambiguous'),
+            first,
+            textMarkup('unique-after-first'),
+        ], []);
+
+        expect(store.list().map(entity => entity.identity.id)).toEqual([
+            first.identity.id,
+            second.identity.id,
+            asAnnotationId('ambiguous'),
+        ]);
+        expect(store.get(asAnnotationId('unique-after-first'))).toBeNull();
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('excludes consumed reference candidates after an ambiguous fingerprint lookup', () => {
+        const store = new AnnotationStore();
+        const first = textMarkup('first', {identity: {
+            id: asAnnotationId('first'),
+            pdfRef: '1R',
+        }});
+        const second = textMarkup('second');
+        store.replaceFromDocument([
+            first,
+            second,
+        ], []);
+
+        store.replaceFromDocument([
+            textMarkup('ambiguous'),
+            textMarkup('first', {identity: {
+                id: first.identity.id,
+                pdfRef: '2R',
+            }}),
+            textMarkup('renamed-second', {identity: {
+                id: asAnnotationId('renamed-second'),
+                pdfRef: '1R',
+            }}),
+        ], []);
+
+        expect(store.list().map(entity => entity.identity.id)).toEqual([
+            first.identity.id,
+            second.identity.id,
+            asAnnotationId('ambiguous'),
+        ]);
+        expect(store.resolveExternal({pdfRef: '1R'})).toBe(second.identity.id);
+        expect(store.resolveExternal({pdfRef: '2R'})).toBe(first.identity.id);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('does not widen exact reference matches through external-index normalization', () => {
+        const store = new AnnotationStore();
+        const original = textMarkup('original', {identity: {
+            id: asAnnotationId('original'),
+            pdfRef: ' 1R ',
+        }});
+        store.replaceFromDocument([original], []);
+        store.updateTextMarkup(original.identity.id, {contents: 'dirty local text'});
+        const before = store.list({includeDeleted: true});
+
+        // The raw references differ and the dirty fingerprint differs. A
+        // normalized reference match would incorrectly merge the two records.
+        expect(() => store.replaceFromDocument([textMarkup('parsed', {identity: {
+            id: asAnnotationId('parsed'),
+            pdfRef: '1R',
+        }})], [])).toThrow('already bound');
+        expect(store.list({includeDeleted: true})).toEqual(before);
+    });
+
+    it.each([
+        {
+            label: 'matches exact empty references',
+            currentRef: '',
+            parsedRef: '',
+            matched: true,
+        },
+        {
+            label: 'matches exact whitespace-only references',
+            currentRef: ' ',
+            parsedRef: ' ',
+            matched: true,
+        },
+        {
+            label: 'does not match an empty reference to an undefined reference',
+            currentRef: '',
+            parsedRef: undefined,
+            matched: false,
+        },
+        {
+            label: 'does not match a whitespace-only reference to an empty reference',
+            currentRef: ' ',
+            parsedRef: '',
+            matched: false,
+        },
+        {
+            label: 'does not match distinct whitespace-only references',
+            currentRef: ' ',
+            parsedRef: '\t',
+            matched: false,
+        },
+    ])('$label', ({
+        currentRef, parsedRef, matched,
+    }) => {
+        const store = new AnnotationStore();
+        const original = textMarkup('original', {identity: {
+            id: asAnnotationId('original'),
+            pdfRef: currentRef,
+        }});
+        store.replaceFromDocument([original], []);
+        store.updateTextMarkup(original.identity.id, {contents: 'dirty local text'});
+        store.replaceFromDocument([textMarkup('parsed', {identity: {
+            id: asAnnotationId('parsed'),
+            ...(parsedRef === undefined ? {} : {pdfRef: parsedRef}),
+        }})], []);
+
+        expect(store.list()).toHaveLength(matched ? 1 : 2);
+        expect(store.get(original.identity.id)).toMatchObject({
+            identity: {pdfRef: currentRef},
+            contents: 'dirty local text',
+        });
+        expect(store.get(asAnnotationId('parsed')) === null).toBe(matched);
+        expect(store.undo()).toBe(true);
+        expect(store.get(original.identity.id)).toMatchObject({contents: ''});
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
+    it('rejects a duplicate caused by remapping without changing state, epoch, or external resolution', () => {
+        const store = new AnnotationStore();
+        const original = textMarkup('original', {identity: {
+            id: asAnnotationId('original'),
+            pdfRef: '1R',
+        }});
+        store.replaceFromDocument([original], [foreign()]);
+        const before = store.list({includeDeleted: true});
+        const epoch = store.mutationEpoch;
+        const canUndo = store.canUndo;
+        const canRedo = store.canRedo;
+
+        expect(() => store.replaceFromDocument([
+            textMarkup('renamed', {identity: {
+                id: asAnnotationId('renamed'),
+                pdfRef: '1R',
+            }}),
+            original,
+        ], [])).toThrow('Duplicate parsed AnnotationId original');
+
+        expect(store.list({includeDeleted: true})).toEqual(before);
+        expect(store.foreign).toEqual([foreign()]);
+        expect(store.mutationEpoch).toBe(epoch);
+        expect(store.resolveExternal({pdfRef: '1R'})).toBe(original.identity.id);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(store.canUndo).toBe(canUndo);
+        expect(store.canRedo).toBe(canRedo);
+    });
+
+    it('does not match fingerprints across pages or adopt unsaved non-shape candidates', () => {
+        const store = new AnnotationStore();
+        const onOtherPage = textMarkup('other-page', {pageIndex: requirePageIndex(1)});
+        store.replaceFromDocument([onOtherPage], []);
+        const unsaved = store.createTextMarkup(textMarkup('unsaved'));
+        store.replaceFromDocument([textMarkup('parsed')], []);
+
+        expect(store.get(onOtherPage.identity.id)).toBeNull();
+        expect(store.get(unsaved.identity.id)).not.toBeNull();
+        expect(store.get(asAnnotationId('parsed'))).not.toBeNull();
+        expect(store.list()).toHaveLength(2);
+    });
+
     it('retains omitted dirty entities, including tombstones', () => {
         const store = new AnnotationStore();
         const deleted = store.createNote(note('deleted'));
