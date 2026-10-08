@@ -49,7 +49,7 @@ export function createMcpToolResult(data: unknown) {
     const structuredContent = createToolStructuredContent(data);
     const content: TMcpToolContent[] = [{
         type: 'text',
-        text: JSON.stringify(structuredContent, null, 2),
+        text: JSON.stringify(structuredContent),
     }];
     const image = getMcpImagePayload(data);
     if (image) {
@@ -79,7 +79,7 @@ function createMcpToolErrorResult(
     return {
         content: [{
             type: 'text' as const,
-            text: JSON.stringify(structuredContent, null, 2),
+            text: JSON.stringify(structuredContent),
         }],
         isError: true,
         structuredContent,
