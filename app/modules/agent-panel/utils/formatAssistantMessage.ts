@@ -438,6 +438,33 @@ export function createStreamingAssistantMessageFormatter() {
     let committedLength = 0;
     let committedBlocks: TAssistantMessageBlock[] = [];
     return {format(nextText: string) {
+        const paragraph = committedLength === text.length && !text.endsWith('\n')
+            ? committedBlocks.at(-1)
+            : undefined;
+        if (nextText.startsWith(text) && paragraph?.kind === 'text') {
+            const delta = nextText.slice(text.length);
+            if (!/[`[*_)\r\n|]/u.test(delta)) {
+                const segments = [
+                    ...paragraph.segments.slice(0, -1),
+                    {
+                        kind: 'text' as const,
+                        text: (paragraph.segments.at(-1)?.text ?? '') + delta,
+                    },
+                ];
+                committedBlocks = committedBlocks.slice();
+                committedBlocks[committedBlocks.length - 1] = {
+                    kind: 'text',
+                    segments,
+                };
+                text = nextText;
+                committedLength = text.length;
+                return committedBlocks;
+            }
+            // New syntax can change the active line. Only that cached paragraph
+            // returns to the parser; earlier blocks keep their owner and identity.
+            committedLength = text.lastIndexOf('\n') + 1;
+            committedBlocks = committedBlocks.slice(0, -1);
+        }
         if (!nextText.startsWith(text)) {
             text = nextText;
             committedLength = 0;
@@ -458,9 +485,24 @@ export function createStreamingAssistantMessageFormatter() {
                 committedLength += stable.length;
             }
         }
+        const tailText = text.slice(committedLength);
+        const tail = formatAssistantMessage(tailText);
+        const block = tail[0];
+        const lastSegment = block?.kind === 'text' ? block.segments.at(-1) : undefined;
+        if (tail.length === 1 && block?.kind === 'text'
+            && !/[\r\n|]/u.test(tailText)
+            && (/^\p{L}/u.test(tailText) || block.segments.some(segment => segment.kind !== 'text'))
+            && lastSegment?.kind === 'text' && !/[`[*_]/u.test(lastSegment.text)) {
+            committedBlocks = [
+                ...committedBlocks,
+                block,
+            ];
+            committedLength = text.length;
+            return committedBlocks;
+        }
         return [
             ...committedBlocks,
-            ...formatAssistantMessage(text.slice(committedLength)),
+            ...tail,
         ];
     }};
 }
