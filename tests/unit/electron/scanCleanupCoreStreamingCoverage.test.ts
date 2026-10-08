@@ -1166,6 +1166,38 @@ describe('scan-cleanup-core conversion coverage', () => {
             // order; each probe covers a window of pages, not one page.
             expect(vi.mocked(dependencies.detectSourceDpi).mock.calls.length)
                 .toBeLessThanOrEqual(2 * Math.ceil(documentPageCount / 256) + 2);
+            // Canceling while a window is probed rejects every page the window
+            // cached, not only the one the caller awaits; none of them may
+            // surface as an unhandled rejection.
+            const cancel = new AbortController();
+            const probeSourceDpi = dependencies.detectSourceDpi;
+            dependencies.evidenceDirectory = join(root, 'canceled-evidence');
+            dependencies.detectSourceDpi = vi.fn(async () => {
+                cancel.abort(new Error('conversion canceled during the raster probe'));
+                throw cancel.signal.reason;
+            });
+            await expect(runScanCleanupConversion(
+                {
+                    sourcePdfPath,
+                    outputPdfPath: join(root, 'canceled-output.pdf'),
+                    options: {
+                        ...options,
+                        outputMode: 'auto',
+                    },
+                    detectionResultStore,
+                },
+                {
+                    ...paths(root),
+                    pdfimagesBinary: '/pdfimages',
+                },
+                cancel.signal,
+                vi.fn(),
+                policy,
+                log,
+                dependencies,
+            )).rejects.toThrow('conversion canceled during the raster probe');
+            dependencies.detectSourceDpi = probeSourceDpi;
+            dependencies.evidenceDirectory = evidenceDir;
 
             const rasterByPage = new Map([[
                 1,

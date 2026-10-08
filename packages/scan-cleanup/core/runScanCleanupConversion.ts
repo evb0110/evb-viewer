@@ -1182,7 +1182,11 @@ function createLazyPageRasterSource({
         // pages the traversal has passed rather than the ones it reads next.
         for (const pageNumber of pageNumbers) {
             cache.delete(pageNumber);
-            cache.set(pageNumber, probed.then(rasters => rasters.get(pageNumber)));
+            const pageRaster = probed.then(rasters => rasters.get(pageNumber));
+            // A cancel rejects every page of the window; callers await only
+            // the pages they read, so the rest must not go unhandled.
+            pageRaster.catch(() => undefined);
+            cache.set(pageNumber, pageRaster);
         }
         while (cache.size > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
             cache.delete(cache.keys().next().value!);
