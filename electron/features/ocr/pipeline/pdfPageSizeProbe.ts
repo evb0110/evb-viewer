@@ -87,11 +87,21 @@ export function createOcrPageSizeSource(input: IOcrPageSizeSourceInput): IOcrPag
         pdfPath: string;
         store: IPdfPageSizeStore
     } | null = null;
+    // Closing never rejects: the sidecar lives in the job's temp directory,
+    // which the job cleans anyway, and a failed close must neither leave a
+    // closed store cached nor replace the job's result in its cleanup.
+    const closeOpened = async () => {
+        const store = opened?.store;
+        opened = null;
+        await store?.close().catch((error: unknown) => {
+            input.log?.('warn', `OCR page-size source did not close cleanly: ${getErrorMessage(error)}`);
+        });
+    };
     const openStore = async (pdfPath: string, pdfPageOpsBinary: string) => {
         if (opened?.pdfPath === pdfPath) {
             return opened.store;
         }
-        await opened?.store.close();
+        await closeOpened();
         opened = {
             pdfPath,
             store: createPdfPageSizeStore(pdfPath, {
@@ -137,10 +147,6 @@ export function createOcrPageSizeSource(input: IOcrPageSizeSourceInput): IOcrPag
                 };
             }
         },
-        async close() {
-            const store = opened?.store;
-            opened = null;
-            await store?.close();
-        },
+        close: closeOpened,
     };
 }
