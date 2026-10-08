@@ -30,10 +30,8 @@ import {
  * owns the localized copy and the toast. An open's failure is told by the
  * tab's document session instead.
  *
- * Only saves keep durable state. A failed save outlives its toast because the
- * status bar has to keep presenting the document as unwritten; a rejected
- * annotation leaves nothing behind to present, so it is told once and dropped
- * rather than parked in a container nothing reads.
+ * Saves keep durable status; rejected note drafts retain their presentation
+ * in the existing note owner so Retry and Save preserve the same receipt.
  */
 type TWorkspaceFailureDomain = 'save' | 'annotation';
 
@@ -244,13 +242,13 @@ export const useWorkspaceFailureSurface = () => {
         retry?: () => void;
         previous?: FailurePresentation;
     }): FailurePresentation {
-        const reason = input.cause === undefined ? input.message ?? t('errors.annotation.noteUpdateRejected') : getErrorMessage(input.cause);
+        const reason = (input.cause === undefined ? input.message ?? '' : getErrorMessage(input.cause)).trim() || t('errors.annotation.noteUpdateRejected');
         const presentation: FailurePresentation = {
             failure: getFailureReceipt(input.cause) ?? input.previous?.failure ?? BrowserLogger.error(
                 'annotations', 'Annotation note operation failed', input.cause ?? reason,
                 {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
             ),
-            title: input.message ?? t('errors.annotation.updateNote'),
+            title: (input.message ?? '').trim() || t('errors.annotation.updateNote'),
             description: t('errors.annotation.noteDraftRetained', {reason}),
             technicalDetails: reason,
             ...(input.retry ? {actions: [{

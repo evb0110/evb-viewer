@@ -96,6 +96,29 @@ describe('useWorkspaceFailureSurface', () => {
         expect(new Set(toastAddMock.mock.calls.map(([toast]) => toast.id)).size).toBe(1);
     });
 
+    it.each([
+        '',
+        '   ',
+        new Error(''),
+    ])('provides a truthful reason for an empty note failure cause %s', cause => {
+        const note = useWorkspaceFailureSurface().reportNoteFailure({cause});
+        expect(formatFailurePresentationCopy(note)).toContain('errors.annotation.noteUpdateRejected');
+    });
+
+    it('keeps the known deletion reason when its caller has no exception', () => {
+        const note = useWorkspaceFailureSurface().reportNoteFailure({message: 'Unable to delete this note.'});
+        expect(formatFailurePresentationCopy(note)).toContain('Unable to delete this note.');
+        expect(formatFailurePresentationCopy(note)).not.toContain('errors.annotation.noteUpdateRejected');
+    });
+
+    it.each([
+        '',
+        '   ',
+    ])('provides a visible title for an empty note operation message %s', message => {
+        const note = useWorkspaceFailureSurface().reportNoteFailure({message});
+        expect(note.title).toBe('errors.annotation.updateNote');
+    });
+
     it('shows one toast when a low-level failure and a service result share an operation', () => {
         const surface = useWorkspaceFailureSurface();
 

@@ -18,7 +18,9 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 import {chromium} from 'playwright';
-import type {Page} from 'playwright';
+import type {
+    BrowserContext, Page,
+} from 'playwright';
 import {
     afterAll,
     beforeAll,
@@ -211,28 +213,30 @@ describe('browser document lifecycle UI', () => {
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
         const browser = await chromium.launch({headless: true});
-        const context = await browser.newContext({
-            viewport: {
-                width: 1280,
-                height: 800,
-            },
-            permissions: [
-                'clipboard-read',
-                'clipboard-write',
-            ],
-            recordVideo: {
-                dir: evidenceDir,
-                size: {
-                    width: 1280,
-                    height: 800,
-                },
-            },
-        });
-        const page = await context.newPage();
-        const problems = collectConsoleProblems(page);
+        let context: BrowserContext | undefined;
+        let problems: string[] = [];
         const observations: unknown[] = [];
         const reason = 'RUX06 note write rejected by document policy';
         try {
+            context = await browser.newContext({
+                viewport: {
+                    width: 1280,
+                    height: 800,
+                },
+                permissions: [
+                    'clipboard-read',
+                    'clipboard-write',
+                ],
+                recordVideo: {
+                    dir: evidenceDir,
+                    size: {
+                        width: 1280,
+                        height: 800,
+                    },
+                },
+            });
+            const page = await context.newPage();
+            problems = collectConsoleProblems(page);
             // Setup rejects the document update boundary before it mutates. All
             // editing, Retry, minimize/reopen and Save As use trusted user input.
             await page.route('**/composables/useWorkspaceAnnotationSession.ts*', async route => {
@@ -443,7 +447,7 @@ describe('browser document lifecycle UI', () => {
         } finally {
             writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
             writeFileSync(resolve(evidenceDir,'console.json'),JSON.stringify(problems,null,2));
-            try {await context.close();} finally {await browser.close();}
+            try {await context?.close();} finally {await browser.close();}
         }
     }, 90_000);
 
