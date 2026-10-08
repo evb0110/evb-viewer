@@ -328,6 +328,7 @@ export const usePdfViewerPublicApiController = (
         getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
         updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,
+        getCanonicalAnnotationRecoveryChangeSignature: annotationRuntime.getCanonicalAnnotationRecoveryChangeSignature,
         restoreCanonicalAnnotationRecovery: annotationRuntime.restoreCanonicalAnnotationRecovery,
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,

@@ -105,8 +105,8 @@ import {createAnnotationSelectionInteractionController} from '@app/modules/pdf-v
 import {
     captureCanonicalAnnotationRecovery,
     restoreCanonicalAnnotationRecovery,
-    type IAnnotationRecoveryDraft,
     type ICanonicalAnnotationRecovery,
+    type TAnnotationRecoveryDraftInput,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentView;
@@ -1182,7 +1182,21 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotations,
         annotationMutationService,
         annotationApplication,
-        captureCanonicalAnnotationRecovery: (additionalDrafts: readonly IAnnotationRecoveryDraft[] = []): ICanonicalAnnotationRecovery => {
+        getCanonicalAnnotationRecoveryChangeSignature: () => {
+            void annotationProjection.value;
+            return [
+                annotationApplication.value.store.mutationEpoch,
+                Array.from(textBoxDrafts, ([
+                    id,
+                    text,
+                ]) => [
+                    id,
+                    textBoxDraftGenerations.get(id) ?? 0,
+                    text,
+                ] as const),
+            ] as const;
+        },
+        captureCanonicalAnnotationRecovery: (additionalDrafts: TAnnotationRecoveryDraftInput = []): ICanonicalAnnotationRecovery => {
             const drafts = Array.from(
                 textBoxDrafts,
                 ([
@@ -1207,9 +1221,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             ).filter((draft): draft is NonNullable<typeof draft> => draft !== null);
             return captureCanonicalAnnotationRecovery(
                 annotationApplication.value.store,
-                [
+                entities => [
                     ...drafts,
-                    ...additionalDrafts,
+                    ...(typeof additionalDrafts === 'function' ? additionalDrafts(entities) : additionalDrafts),
                 ],
             );
         },
