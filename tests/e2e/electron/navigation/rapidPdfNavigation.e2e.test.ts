@@ -3223,6 +3223,9 @@ interface IPageRenderGateWindow extends Window {
 // continuation, so it stalls exactly like a stuck render until the viewer's
 // own stage watchdog cancels it. Renders started after the gate opens run.
 async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.waitForFunction(() => (
+        typeof (window as IPageRenderGateWindow).pdfjsLib?.getDocument === 'function'
+    ));
     await session.page.evaluate(async (targetPage: number) => {
         const gateWindow = window as IPageRenderGateWindow;
         const pdfjs = gateWindow.pdfjsLib;

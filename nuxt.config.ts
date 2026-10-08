@@ -574,6 +574,7 @@ export default defineNuxtConfig({
                         {
                             name: 'vendor-pdfjs',
                             test: isPdfjsPackageId,
+                            includeDependenciesRecursively: false,
                         },
                         {
                             name: 'vendor-pdf-lib',

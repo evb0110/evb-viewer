@@ -34,10 +34,7 @@ import {
     cancelBrowserSearchWorkerRequest,
     createBrowserSearchWorkerRequest,
 } from '@app/platform/browser-api/browserSearchWorkerClient';
-import {
-    iterateBrowserSearchDocumentPages,
-    loadBrowserSearchDocument,
-} from '@app/platform/browser-api/browserSearchCore';
+import type {loadBrowserSearchDocument} from '@app/platform/browser-api/browserSearchCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
@@ -795,7 +792,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 const outcome = await deliverPage(cachedPage, pageCount, options, hasSearchPageGeometry(cachedPage)
                     ? undefined
                     : async () => {
-                        document ??= await loadBrowserSearchDocument(pdfPath);
+                        document ??= await (await import('@app/platform/browser-api/browserSearchCore')).loadBrowserSearchDocument(pdfPath);
                         const page = await document.extractPage(pageNumber, {shouldContinue: () => (
                             !isExtractionCanceled(options.requestId, options.requestGeneration)
                         )});
@@ -878,6 +875,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         let stopped = false as boolean;
         let pageCount = 0;
         try {
+            const {iterateBrowserSearchDocumentPages} = await import('@app/platform/browser-api/browserSearchCore');
             pageCount = await iterateBrowserSearchDocumentPages(
                 pdfPath,
                 async (page, totalPages) => {
