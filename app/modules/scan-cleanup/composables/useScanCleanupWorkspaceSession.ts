@@ -1,4 +1,10 @@
 import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    addScanCleanupPaperCohortRect,
+    createScanCleanupPaperCohortTally,
+    resolveScanCleanupInkReferenceHeightPoints,
+    resolveScanCleanupSheetRect,
+} from '@contracts/scan-cleanup/scanCleanupPaperCohort';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import type {
@@ -35,38 +41,29 @@ const SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS = 10_000;
 const POINTS_PER_MM = 72 / 25.4;
 
 /**
- * The rotated height of a source sheet, in points; 0 when the paper cannot be
- * measured.
- */
-function resolveScanCleanupSheetHeightPoints(metadata: IScanCleanupSourcePageMetadata | undefined) {
-    if (metadata === undefined) {
-        return 0;
-    }
-    const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
-    return swapsAxes ? metadata.widthPoints : metadata.heightPoints;
-}
-
-/**
  * The height every ink sample and the snapping tolerance are measured against:
- * the tallest sheet the document produces, which is the rectangle the matched
+ * the dominant sheet the document produces, which is the rectangle the matched
  * canvas settles on. Content boxes come normalized against their own sheet, so
- * a shorter sheet's box is rescaled onto this reference before it is compared,
+ * another sheet's box is rescaled onto this reference before it is compared,
  * and a millimetre tolerance becomes comparable once divided by it. Paper that
  * cannot be measured leaves the tolerance at zero, which still keeps every
  * output on its own ink and only stops pages from snapping together.
  */
-function resolveScanCleanupInkReferenceHeightPoints(
-    pageNumbers: Iterable<number>,
+function resolveInkReferenceHeightPoints(
+    pages: Iterable<readonly [number, {layoutClassification: string}]>,
     metadataByPage: ReadonlyMap<number, IScanCleanupSourcePageMetadata>,
 ) {
-    let heightPoints = 0;
-    for (const pageNumber of pageNumbers) {
-        heightPoints = Math.max(
-            heightPoints,
-            resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber)),
-        );
+    const sheets = createScanCleanupPaperCohortTally();
+    for (const [
+        pageNumber,
+        evidence,
+    ] of pages) {
+        const sheet = resolveScanCleanupSheetRect(metadataByPage.get(pageNumber));
+        if (sheet !== null) {
+            addScanCleanupPaperCohortRect(sheets, sheet, evidence.layoutClassification === 'two-page-spread' ? 2 : 1);
+        }
     }
-    return heightPoints;
+    return resolveScanCleanupInkReferenceHeightPoints(sheets);
 }
 
 interface IUseScanCleanupWorkspaceSessionOptions {
@@ -169,10 +166,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                 requirePageNumber(pageNumber),
             ).excluded,
         );
-        const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(
-            included.map(([pageNumber]) => pageNumber),
-            metadataByPage,
-        );
+        const referenceHeightPoints = resolveInkReferenceHeightPoints(included, metadataByPage);
         const samples: IScanCleanupPlacementAnchorSample[] = [];
         // A sheet that cannot be measured keeps its own-sheet fraction, which
         // is not comparable with the others; snapping is only meaningful when
@@ -187,7 +181,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                 cleanupOptions.pageOverrides,
                 brandedPageNumber,
             );
-            const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
+            const sheetHeightPoints = resolveScanCleanupSheetRect(metadataByPage.get(pageNumber))?.heightPoints ?? 0;
             const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
             everySheetMeasured &&= measured;
             const scale = measured ? sheetHeightPoints / referenceHeightPoints : 1;

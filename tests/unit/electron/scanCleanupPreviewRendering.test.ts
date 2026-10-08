@@ -1460,10 +1460,12 @@ export async function scenarioMatchesProvisionalPreviewsFromKnownPagesWithoutGue
             widthPx: 1_275,
             heightPx: 1_650,
         },
+        // Settled: the two spreads give four leaves beside one single sheet,
+        // so the leaves hold the paper and the single is fitted onto it.
         {
-            widthPoints: 1_224,
+            widthPoints: 612,
             heightPoints: 792,
-            widthPx: 2_550,
+            widthPx: 1_275,
             heightPx: 1_650,
         },
     ]);

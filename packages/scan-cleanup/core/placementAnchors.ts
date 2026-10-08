@@ -18,6 +18,12 @@ import {
     SCAN_CLEANUP_OUTPUT_HALVES,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS} from '@contracts/scan-cleanup/inputLimits';
+import {
+    addScanCleanupPaperCohortRect,
+    createScanCleanupPaperCohortTally,
+    resolveScanCleanupInkReferenceHeightPoints,
+    resolveScanCleanupSheetRect,
+} from '@contracts/scan-cleanup/scanCleanupPaperCohort';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
 const POINTS_PER_MM = 72 / 25.4;
@@ -25,11 +31,7 @@ const POINTS_PER_MM = 72 / 25.4;
 export const SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SAMPLE_LIMIT = SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS;
 
 export function resolveScanCleanupSheetHeightPoints(metadata: IScanCleanupSourcePageMetadata | undefined) {
-    if (metadata === undefined) {
-        return 0;
-    }
-    const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
-    return swapsAxes ? metadata.widthPoints : metadata.heightPoints;
+    return resolveScanCleanupSheetRect(metadata)?.heightPoints ?? 0;
 }
 
 function resolveInkSample(
@@ -108,7 +110,8 @@ export function resolveScanCleanupPlacementAnchorsFromResult(
 
 /**
  * Build document-wide `ink` calibration without materializing the detection
- * store. The first pass finds the reference sheet height and sample count.
+ * store. The first pass finds the reference sheet height (the dominant paper's,
+ * which the matched canvas also uses) and the sample count.
  * The second pass takes an evenly spaced calibration window, then keeps only
  * its bounded clusters plus early, middle, and late evidence samples.
  */
@@ -123,7 +126,7 @@ export async function buildScanCleanupPlacementAnchorSummary({
     signal: AbortSignal;
     identity: IScanCleanupPlacementAnchorSummaryIdentity;
 }): Promise<IScanCleanupPlacementAnchorSummary> {
-    let referenceHeightPoints = 0;
+    const sheets = createScanCleanupPaperCohortTally();
     let sampleCount = 0;
     await resultStore.forEachChunk(results => {
         signal.throwIfAborted();
@@ -135,10 +138,10 @@ export async function buildScanCleanupPlacementAnchorSummary({
                 options.marginsMm,
             );
             if (pageOverride.excluded) continue;
-            referenceHeightPoints = Math.max(
-                referenceHeightPoints,
-                resolveScanCleanupSheetHeightPoints(result.sourcePageMetadata),
-            );
+            const sheet = resolveScanCleanupSheetRect(result.sourcePageMetadata);
+            if (sheet !== null) {
+                addScanCleanupPaperCohortRect(sheets, sheet, result.classification === 'two-page-spread' ? 2 : 1);
+            }
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 if (resolveInkSample(result, options, half, 0) !== undefined) {
                     sampleCount += 1;
@@ -147,6 +150,7 @@ export async function buildScanCleanupPlacementAnchorSummary({
         }
     });
 
+    const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(sheets);
     const candidateCount = Math.min(
         SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SAMPLE_LIMIT,
         sampleCount,
