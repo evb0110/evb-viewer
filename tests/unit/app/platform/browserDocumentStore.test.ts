@@ -1081,6 +1081,49 @@ describe('BrowserDocumentStore', () => {
         await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(9));
     });
 
+    it('reads adjacent and simultaneous ranges without rereading their immutable chunk', async () => {
+        const chunkSize = 4 * 1024 * 1024;
+        const rangeSize = 1024 * 1024;
+        const bytes = new Uint8Array(5 * chunkSize);
+        for (let offset = 0; offset < bytes.byteLength; offset += 1) {
+            bytes[offset] = offset % 251;
+        }
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'chunk-ranges.pdf', bytes);
+        expect((await store.requireEntry(ref)).storageMode).toBe('chunked');
+        const chunks = indexedDbFactory.getDatabase('evb-viewer-browser-documents')?.getStoreRecords('document-chunks');
+        if (!chunks) {
+            throw new Error('Chunked document database is missing');
+        }
+        const gets = vi.spyOn(chunks, 'get');
+        for (let offset = 0; offset < chunkSize; offset += rangeSize) {
+            expect(Buffer.compare(await store.readRange(ref, offset, rangeSize), bytes.subarray(offset, offset + rangeSize))).toBe(0);
+        }
+        expect(gets).toHaveBeenCalledTimes(1);
+        const ranges = await Promise.all(Array.from({length: 4}, (_, index) => store.readRange(ref, chunkSize + index * rangeSize, rangeSize)));
+        for (const [
+            index,
+            range,
+        ] of ranges.entries()) {
+            const offset = chunkSize + index * rangeSize;
+            expect(Buffer.compare(range, bytes.subarray(offset, offset + rangeSize))).toBe(0);
+        }
+        expect(gets).toHaveBeenCalledTimes(2);
+        ranges[0]!.fill(0);
+        expect(Buffer.compare(await store.readRange(ref, chunkSize, rangeSize), bytes.subarray(chunkSize, chunkSize + rangeSize))).toBe(0);
+        expect(gets).toHaveBeenCalledTimes(2);
+        expect(Buffer.compare(await store.readRange(ref, 0, rangeSize), bytes.subarray(0, rangeSize))).toBe(0);
+        expect(gets).toHaveBeenCalledTimes(3);
+        const revision = await store.getDocumentRevision(ref);
+        const replacement = bytes.map(value => 255 - value);
+        await store.write(ref, replacement, {expectedDocumentRevisionToken: revision.token});
+        gets.mockClear();
+        expect(Buffer.compare(await store.readRange(ref, 0, rangeSize), replacement.subarray(0, rangeSize))).toBe(0);
+        expect(gets).toHaveBeenCalledTimes(1);
+        await store.remove(ref);
+        await expect(store.readRange(ref, 0, rangeSize)).rejects.toThrow('Browser document not found');
+    });
+
     it('keeps large writes chunked instead of collapsing back to inline storage', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
