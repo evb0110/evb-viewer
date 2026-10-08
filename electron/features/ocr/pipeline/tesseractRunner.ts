@@ -9,8 +9,20 @@ import {
     AGENT_OCR_PAGE_SEGMENTATION_MODES,
     isSupportedPageSegmentationMode,
 } from '@contracts/agentOcr';
-import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
-import type { IOcrFileResult } from '@electron/features/ocr/pipeline/types';
+import {
+    isGreekOcrLanguage,
+    LONG_S_MODEL_CODES,
+} from '@contracts/ocrLanguages';
+import type {
+    IOcrFileResult,
+    IOcrWordEdit,
+    ITesseractWord,
+} from '@electron/features/ocr/pipeline/types';
+import {
+    canRecognizeLongS,
+    hasLongSSignature,
+    planLongSWordEdits,
+} from '@electron/features/ocr/pipeline/longSRecognition';
 import {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
 import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
@@ -131,6 +143,99 @@ async function safeUnlink(path: string) {
     }
 }
 
+interface ITesseractRun {
+    imagePath: string;
+    extractionDpi: number;
+    tesseractBinary: string;
+    tessdataPath: string;
+    threads?: number;
+    signal?: AbortSignal;
+    options?: IOcrSearchablePdfOptions;
+}
+
+/** Runs Tesseract on the page raster and returns its stderr; outputs land beside `outputBase`. */
+async function runTesseract(
+    run: ITesseractRun,
+    outputBase: string,
+    languages: readonly string[],
+    outputs: {pdf: boolean},
+) {
+    const languageConfig = resolveTesseractLanguageConfig([...languages], {preserveDictionaries: shouldPreserveDictionaries(run.options)});
+    const args = [
+        run.imagePath,
+        outputBase,
+        '-l',
+        languageConfig.orderedLanguages.join('+'),
+        '--tessdata-dir',
+        run.tessdataPath,
+        '--dpi',
+        String(run.extractionDpi),
+        ...languageConfig.extraConfigArgs,
+        ...buildTesseractProfileArgs(run.options),
+        '-c',
+        'tessedit_create_tsv=1',
+        ...(outputs.pdf ? [
+            '-c',
+            'tessedit_create_pdf=1',
+            '-c',
+            'textonly_pdf=1',
+        ] : []),
+    ];
+    return (await runNativeToolCommand(run.tesseractBinary, args, {
+        env: buildTesseractEnv(run.tessdataPath, run.threads),
+        timeoutMs: FILE_BASED_OCR_TIMEOUT_MS,
+        maxStderrBytes: FILE_BASED_OCR_MAX_STDERR_BYTES,
+        commandLabel: 'tesseract',
+        ...(run.signal === undefined ? {} : {signal: run.signal}),
+    })).stderr;
+}
+
+/**
+ * On a page that a modern model read with the long-s signature, reads the
+ * raster again with the long-s models and takes their ſ for that model's f.
+ * The page keeps the modern reading when those models cannot run.
+ */
+async function recognizeLongS(
+    run: ITesseractRun,
+    outputBase: string,
+    tsvContent: string,
+    prepareLongSModels: () => Promise<void>,
+): Promise<{
+    wordEdits: IOcrWordEdit[];
+    unavailable?: string
+}> {
+    // A TSV that cannot be read fails the page when it is parsed for its words.
+    const words = (() => {
+        try {
+            return readTesseractWords(tsvContent);
+        } catch {
+            return [];
+        }
+    })();
+    if (!hasLongSSignature(words)) {
+        return {wordEdits: []};
+    }
+    const longSOutputBase = `${outputBase}-long-s`;
+    try {
+        await prepareLongSModels();
+        await runTesseract(run, longSOutputBase, LONG_S_MODEL_CODES, {pdf: false});
+        const historicalWords = readTesseractWords(
+            (await readUtf8FileBounded(`${longSOutputBase}.tsv`, FILE_BASED_OCR_MAX_TSV_BYTES)).trim(),
+        );
+        return {wordEdits: planLongSWordEdits(words, historicalWords)};
+    } catch (error) {
+        if (isAbortError(error) || run.signal?.aborted) {
+            throw error;
+        }
+        return {
+            wordEdits: [],
+            unavailable: getErrorMessage(error),
+        };
+    } finally {
+        await safeUnlink(`${longSOutputBase}.tsv`);
+    }
+}
+
 export async function runOcrFileBased(
     imagePath: string,
     languages: string[],
@@ -142,29 +247,20 @@ export async function runOcrFileBased(
     threads?: number,
     signal?: AbortSignal,
     options?: IOcrSearchablePdfOptions,
+    prepareLongSModels?: () => Promise<void>,
 ): Promise<IOcrFileResult> {
     const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
-    const languageConfig = resolveTesseractLanguageConfig(languages, {preserveDictionaries: shouldPreserveDictionaries(options)});
     const tsvPath = `${outputBase}.tsv`;
     const pdfPath = `${outputBase}.pdf`;
-    const args = [
+    const run: ITesseractRun = {
         imagePath,
-        outputBase,
-        '-l',
-        languageConfig.orderedLanguages.join('+'),
-        '--tessdata-dir',
+        extractionDpi,
+        tesseractBinary,
         tessdataPath,
-        '--dpi',
-        String(extractionDpi),
-        ...languageConfig.extraConfigArgs,
-        ...buildTesseractProfileArgs(options),
-        '-c',
-        'tessedit_create_tsv=1',
-        '-c',
-        'tessedit_create_pdf=1',
-        '-c',
-        'textonly_pdf=1',
-    ];
+        ...(threads === undefined ? {} : {threads}),
+        ...(signal === undefined ? {} : {signal}),
+        ...(options === undefined ? {} : {options}),
+    };
     const failure = async (error: string): Promise<IOcrFileResult> => {
         await Promise.all([
             safeUnlink(tsvPath),
@@ -179,14 +275,10 @@ export async function runOcrFileBased(
     };
 
     let stderrText: string;
+    let tsvContent: string;
     try {
-        stderrText = (await runNativeToolCommand(tesseractBinary, args, {
-            env: buildTesseractEnv(tessdataPath, threads),
-            timeoutMs: FILE_BASED_OCR_TIMEOUT_MS,
-            maxStderrBytes: FILE_BASED_OCR_MAX_STDERR_BYTES,
-            commandLabel: 'tesseract',
-            ...(signal === undefined ? {} : {signal}),
-        })).stderr;
+        stderrText = await runTesseract(run, outputBase, languages, {pdf: true});
+        tsvContent = (await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES)).trim();
     } catch (error) {
         const result = await failure(getErrorMessage(error));
         if (isAbortError(error) || signal?.aborted) {
@@ -195,8 +287,11 @@ export async function runOcrFileBased(
         return result;
     }
 
+    const longS = prepareLongSModels === undefined || !canRecognizeLongS(languages)
+        ? {wordEdits: []}
+        : await recognizeLongS(run, outputBase, tsvContent, prepareLongSModels);
     try {
-        const parsedTsv = parseTsvOcrData((await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES)).trim());
+        const parsedTsv = parseTsvOcrData(tsvContent, {}, longS.wordEdits);
         const {words} = parsedTsv;
         let pageText = parsedTsv.text;
         if (shouldNormalizeGreekMicroSign(languages)) {
@@ -213,6 +308,8 @@ export async function runOcrFileBased(
         return {
             success: true,
             ...(unsupportedOptions.length > 0 ? {unsupportedOptions} : {}),
+            ...(longS.wordEdits.length > 0 ? {wordEdits: longS.wordEdits} : {}),
+            ...(longS.unavailable === undefined ? {} : {longSUnavailable: longS.unavailable}),
             pageData: {
                 pageNumber: 0,
                 words,
@@ -271,7 +368,7 @@ export function parseTsvOcrData(tsvContent: string, limits: {
     maxWords?: number;
     maxTextCharacters?: number;
     maxInputCharacters?: number;
-} = {}): {
+} = {}, wordEdits: readonly IOcrWordEdit[] = []): {
     words: IOcrWord[];
     text: string;
 } {
@@ -290,7 +387,16 @@ export function parseTsvOcrData(tsvContent: string, limits: {
         throw new Error('Tesseract TSV output exceeds the parser input limit');
     }
 
-    for (const row of iterateTsvRows(tsvContent, maxRows)) {
+    const editedText = new Map(wordEdits.map(edit => [
+        edit.word,
+        edit.to,
+    ]));
+    for (const tsvRow of iterateTsvRows(tsvContent, maxRows)) {
+        const edited = tsvRow.wordOrdinal === undefined ? undefined : editedText.get(tsvRow.wordOrdinal);
+        const row = edited === undefined ? tsvRow : {
+            ...tsvRow,
+            text: edited,
+        };
         const level = parseInt(row.parts[0]!, 10);
         if (level === 4) {
             const top = parseNonNegativeTsvInt(row.parts[7]);
@@ -400,6 +506,8 @@ function appendTsvTextRow(
 function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
     parts: string[];
     text: string;
+    /** Set on non-empty word rows: the word's place in Tesseract's PDF text. */
+    wordOrdinal?: number;
 }> {
     const trimmed = tsvContent.trim();
     const firstLineEnd = trimmed.indexOf('\n');
@@ -414,6 +522,7 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
     }
 
     let rowCount = 0;
+    let wordCount = 0;
     let cursor = firstLineEnd + 1;
     while (cursor <= trimmed.length) {
         const nextLineEnd = trimmed.indexOf('\n', cursor);
@@ -429,9 +538,24 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
         const parts = line.split('\t');
         if (parts.length < 12) continue;
 
+        const text = (parts[11] ?? '').trim();
         yield {
             parts,
-            text: (parts[11] ?? '').trim(),
+            text,
+            ...(parseInt(parts[0]!, 10) === 5 && text ? {wordOrdinal: wordCount++} : {}),
         };
     }
+}
+
+export function readTesseractWords(tsvContent: string): ITesseractWord[] {
+    const words: ITesseractWord[] = [];
+    for (const row of iterateTsvRows(tsvContent, OCR_TSV_MAX_ROWS)) {
+        if (row.wordOrdinal === undefined) continue;
+        words.push({
+            ordinal: row.wordOrdinal,
+            lineKey: getTsvLineKey(row.parts),
+            text: row.text,
+        });
+    }
+    return words;
 }

@@ -30,17 +30,35 @@ implicitly, so EVB explicitly excludes that unselected Latin recognizer. Four
 clean Serbian pages had zero faithful character error with or without the Latin
 model.
 
-A registry entry names the models it recognizes with; by default that is the
-model of its own code. Latin (early print) runs `ita_old+spa_old`: on early
-modern Latin those two read the long s that `lat`, `eng` and every other modern
-Latin-script model read as f. Adding `lat` to them brings the f back, because
-Tesseract keeps the more confident reading. Digests, downloads and installed
-state are per model, and an entry is installed when all its models are.
-
 Model changes must update the registry, pinned digests, development resources
 and packaging selection together. The resource generator checks those inputs.
 Portuguese uses the upstream shared Portuguese model, including Brazilian
 Portuguese.
+
+### Long s
+
+Every modern Latin-script model reads the long s (ſ) of books printed before
+about 1800 as f. The early-print models `ita_old` and `spa_old` read it, but are
+worse at the other letters, cannot write æ or œ, and adding a modern model to
+them brings the f back, because Tesseract keeps the more confident reading. So
+they are not offered as languages. A page whose languages are all Latin-script
+is read with the selected models first. When at least 45% of its in-word f and
+s are f (61% to 99% on the breviary, 8% to 27% on modern German and English
+scans), `tesseractRunner` reads the raster again with `ita_old+spa_old`, aligns each
+line with the first reading, and turns an f into ſ where the second reading has
+ſ. The page keeps the first reading unless that changes at least a fifth of its
+in-word f, so a misjudged modern page is left alone. On the 1677 breviary that
+prompted it, Latin went from 6.4% character error and no long s to 4.1% with 38
+of 43, against 5.8% for `ita_old+spa_old` alone.
+
+An edit swaps one UTF-16 unit for another, so word boxes do not move. The page
+data carries the edited words, and `ocr-text-layer` applies the same edits to
+Tesseract's PDF before copying its text: Tesseract writes one `TJ` per
+non-empty TSV word in order, except a word whose baseline has no length, so an
+edit falls back to the nearest earlier word with its text. Edits persist in the
+page checkpoint. The models download the first time a page needs them; when
+they cannot, the page keeps its first reading and reports
+`OCR_LONG_S_UNAVAILABLE`. Digests, downloads and installed state are per model.
 
 ## Recognition options
 

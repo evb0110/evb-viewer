@@ -50,7 +50,8 @@ import {
     isAvailableOcrLanguageCode,
     OCR_LANGUAGE_MODEL_SHA256,
     OCR_MODEL_CODES,
-    resolveOcrLanguageModels,
+    type TOcrLanguageCode,
+    type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 
 const log = createLogger('ocr-languageModels');
@@ -1103,17 +1104,22 @@ export async function ensureTessdataLanguages(
         return;
     }
     throwIfAborted(options.signal);
-    const requiredModels = uniq(requiredCodes.flatMap((languageCode) => {
+    for (const languageCode of requiredCodes) {
         if (!isAvailableOcrLanguageCode(languageCode)) {
             throw new Error(`Unsupported OCR language: ${languageCode}`);
         }
-        return resolveOcrLanguageModels(languageCode);
-    }));
+    }
+    await ensureTessdataModels(requiredCodes as TOcrLanguageCode[], options);
+}
 
+export async function ensureTessdataModels(
+    modelCodes: readonly TOcrModelCode[],
+    options: IEnsureTessdataLanguagesOptions = {},
+) {
     const runtimeDir = getRuntimeTessdataDir();
     await ensureRuntimeTessdataSeeded(options);
     // Bound parallel model downloads so OCR requests cannot flood network/disk resources.
-    await forEachConcurrent(requiredModels, getModelDownloadConcurrency(), async (modelCode) => {
+    await forEachConcurrent(uniq(modelCodes), getModelDownloadConcurrency(), async (modelCode) => {
         await ensureLanguageModel(modelCode, runtimeDir, options);
     });
 }
@@ -1130,15 +1136,8 @@ export async function getOcrLanguageModelStates() {
                 ? 'installed' as const
                 : 'missing' as const,
     ] as const)));
-    return AVAILABLE_OCR_LANGUAGES.map(({code}) => {
-        const states = resolveOcrLanguageModels(code).map(modelCode => modelStates.get(modelCode));
-        return {
-            code,
-            state: states.includes('downloading')
-                ? 'downloading' as const
-                : states.every(state => state === 'installed')
-                    ? 'installed' as const
-                    : 'missing' as const,
-        };
-    });
+    return AVAILABLE_OCR_LANGUAGES.map(({code}) => ({
+        code,
+        state: modelStates.get(code) ?? 'missing' as const,
+    }));
 }

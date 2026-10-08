@@ -79,8 +79,84 @@ pub(crate) fn read_ocr_text_layer_file(path: &Path) -> Result<OcrTextLayerFile> 
                 );
             }
         }
+        let mut previous_word = None;
+        for edit in &page.word_edits {
+            if previous_word.is_some_and(|previous| edit.word <= previous) {
+                return Err("ocr-text-layer word edits must be in ascending word order".into());
+            }
+            previous_word = Some(edit.word);
+            if edit.from.is_empty()
+                || edit.from.encode_utf16().count() != edit.to.encode_utf16().count()
+            {
+                return Err(
+                    "ocr-text-layer word edits must replace a word with text of the same length"
+                        .into(),
+                );
+            }
+        }
     }
     Ok(instructions)
+}
+
+fn utf16be(text: &str) -> Vec<u8> {
+    text.encode_utf16().flat_map(u16::to_be_bytes).collect()
+}
+
+/// Tesseract writes each word as `[<UTF-16BE text>] TJ`, followed by a space
+/// unless the word ends its line.
+fn word_text(bytes: &[u8]) -> &[u8] {
+    bytes.strip_suffix(&[0x00, 0x20]).unwrap_or(bytes)
+}
+
+/// Applies word edits to the text of Tesseract's one-page PDF. An edit names
+/// the word's text-show operator. Tesseract leaves out a word whose baseline
+/// has no length, so when that operator holds other text the edit goes to the
+/// nearest earlier unedited word with its text, and is dropped without one.
+fn apply_ocr_word_edits(
+    source: &mut Document,
+    page_id: ObjectId,
+    edits: &[OcrWordEdit],
+) -> Result<()> {
+    if edits.is_empty() {
+        return Ok(());
+    }
+    let bytes = source.get_page_content_with_limit(page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
+    let mut content = Content::decode(&bytes)?;
+    {
+        let mut words: Vec<Option<&mut Vec<u8>>> = content
+            .operations
+            .iter_mut()
+            .filter(|operation| operation.operator == "TJ")
+            .map(|operation| match operation.operands.as_mut_slice() {
+                [Object::Array(values)] => match values.as_mut_slice() {
+                    [Object::String(text, _)] => Some(text),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        let mut next = 0;
+        for edit in edits {
+            let from = utf16be(&edit.from);
+            let last = edit.word.min(words.len().saturating_sub(1));
+            let found = (next..=last).rev().find(|&index| {
+                words[index]
+                    .as_deref()
+                    .is_some_and(|text| word_text(text) == from.as_slice())
+            });
+            let Some(index) = found else {
+                continue;
+            };
+            if let Some(text) = words[index].as_deref_mut() {
+                let mut replaced = utf16be(&edit.to);
+                replaced.extend_from_slice(&text[from.len()..]);
+                *text = replaced;
+            }
+            next = index + 1;
+        }
+    }
+    source.change_page_content(page_id, content.encode()?)?;
+    Ok(())
 }
 
 /// Map Tesseract page space into the target page's user space. Tesseract saw
@@ -721,12 +797,13 @@ pub(crate) fn write_ocr_text_layer_path(
     )?;
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
     for page in &instructions.pages {
-        let source = load_ocr_source(&page.source_path)?;
+        let mut source = load_ocr_source(&page.source_path)?;
         let source_resolver = PageTreeResolver::new(&source)?;
         if source_resolver.page_count() != 1 {
             return Err("OCR page PDF must contain exactly one page".into());
         }
         let source_page_id = source_resolver.page_id(&source, 1)?;
+        apply_ocr_word_edits(&mut source, source_page_id, &page.word_edits)?;
         let page_id = resolver.page_id(&incremental.previous_document, page.page_number)?;
         let view = resolve_page_view(&incremental.previous_document, page_id)?;
         let rotation = resolve_page_rotation(&incremental.previous_document, page_id)?;
@@ -771,6 +848,98 @@ mod tests {
 
     fn rect(x1: f64, y1: f64, x2: f64, y2: f64) -> PdfRect {
         PdfRect { x1, y1, x2, y2 }
+    }
+
+    /// A page shaped as Tesseract writes it: one `[<UTF-16BE>] TJ` per word.
+    fn tesseract_page(words: &[&str]) -> (Document, ObjectId) {
+        let mut document = Document::with_version("1.5");
+        let operations: Vec<ContentOperation> = words
+            .iter()
+            .map(|word| {
+                ContentOperation::new(
+                    "TJ",
+                    vec![Object::Array(vec![Object::String(
+                        utf16be(&format!("{word} ")),
+                        StringFormat::Hexadecimal,
+                    )])],
+                )
+            })
+            .collect();
+        let content = Content { operations }.encode().unwrap();
+        let content_id = document.add_object(Stream::new(dictionary! {}, content));
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Contents" => content_id,
+        });
+        (document, page_id)
+    }
+
+    fn page_words(document: &Document, page_id: ObjectId) -> Vec<String> {
+        let content = Content::decode(&document.get_page_content(page_id)).unwrap();
+        content
+            .operations
+            .iter()
+            .filter(|operation| operation.operator == "TJ")
+            .map(|operation| match operation.operands.as_slice() {
+                [Object::Array(values)] => match values.as_slice() {
+                    [Object::String(bytes, _)] => String::from_utf16(
+                        &bytes
+                            .chunks_exact(2)
+                            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap(),
+                    _ => panic!("unexpected TJ operand"),
+                },
+                _ => panic!("unexpected TJ operands"),
+            })
+            .collect()
+    }
+
+    fn edit(word: usize, from: &str, to: &str) -> OcrWordEdit {
+        OcrWordEdit {
+            word,
+            from: from.into(),
+            to: to.into(),
+        }
+    }
+
+    #[test]
+    fn word_edits_rewrite_the_named_word_and_keep_its_space() {
+        let (mut document, page_id) = tesseract_page(&["fit", "in", "fefto", "fit"]);
+        apply_ocr_word_edits(
+            &mut document,
+            page_id,
+            &[edit(2, "fefto", "feſto"), edit(3, "fit", "ſit")],
+        )
+        .unwrap();
+        assert_eq!(
+            page_words(&document, page_id),
+            ["fit ", "in ", "feſto ", "ſit "]
+        );
+    }
+
+    #[test]
+    fn word_edits_find_their_word_when_tesseract_left_out_an_earlier_one() {
+        // The TSV listed a word before "fefto" that the PDF does not draw.
+        let (mut document, page_id) = tesseract_page(&["in", "fefto", "Chrifti"]);
+        apply_ocr_word_edits(
+            &mut document,
+            page_id,
+            &[edit(2, "fefto", "feſto"), edit(3, "Chrifti", "Chriſti")],
+        )
+        .unwrap();
+        assert_eq!(
+            page_words(&document, page_id),
+            ["in ", "feſto ", "Chriſti "]
+        );
+    }
+
+    #[test]
+    fn word_edits_without_their_word_change_nothing() {
+        let (mut document, page_id) = tesseract_page(&["in", "fefto"]);
+        apply_ocr_word_edits(&mut document, page_id, &[edit(1, "ufque", "uſque")]).unwrap();
+        assert_eq!(page_words(&document, page_id), ["in ", "fefto "]);
     }
 
     fn apply(matrix: [f64; 6], x: f64, y: f64) -> (f64, f64) {

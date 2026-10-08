@@ -9,10 +9,7 @@ import {
     type IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    streamPdfPageTexts,
-    type IPageText,
-} from '@electron/features/search/public';
+import { streamPdfPageTexts } from '@electron/features/search/public';
 import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionStore';
 
 // The PDF text layer is the document's only text; OCR writes into it.
@@ -25,10 +22,23 @@ function digest(parts: readonly string[]) {
     return hash.digest('hex');
 }
 
-function toTextPages(pages: readonly IPageText[], maxTextLength: number) {
+/**
+ * Reads the requested pages into catalog pages. The budget is applied as each
+ * page arrives, so a document over it stops extraction at the page that
+ * crosses it instead of after reading every page.
+ */
+async function readTextPages(pdfPath: string, range: {
+    firstPage?: number;
+    lastPage?: number
+}, maxTextLength: number, signal?: AbortSignal) {
+    let pageCount = 0;
     let textLength = 0;
-    const textPages: IDocumentTextCatalogPage[] = [];
-    for (const page of pages) {
+    const pages: IDocumentTextCatalogPage[] = [];
+    for await (const page of streamPdfPageTexts(pdfPath, {
+        ...range,
+        signal,
+    })) {
+        pageCount += 1;
         if (!page.text.trim()) {
             continue;
         }
@@ -36,7 +46,7 @@ function toTextPages(pages: readonly IPageText[], maxTextLength: number) {
         if (textLength > maxTextLength) {
             throw new RangeError(`Document text exceeds ${maxTextLength} characters; export it in page windows`);
         }
-        textPages.push({
+        pages.push({
             pageNumber: requirePageNumber(page.pageNumber),
             text: page.text,
             source: 'pdf-native',
@@ -46,21 +56,10 @@ function toTextPages(pages: readonly IPageText[], maxTextLength: number) {
             ]),
         });
     }
-    return textPages;
-}
-
-async function readPages(pdfPath: string, range: {
-    firstPage?: number;
-    lastPage?: number
-}, signal?: AbortSignal) {
-    const pages: IPageText[] = [];
-    for await (const page of streamPdfPageTexts(pdfPath, {
-        ...range,
-        signal,
-    })) {
-        pages.push(page);
-    }
-    return pages;
+    return {
+        pageCount,
+        pages,
+    };
 }
 
 export async function readDocumentTextSnapshot(
@@ -71,11 +70,18 @@ export async function readDocumentTextSnapshot(
     signal?: AbortSignal,
 ): Promise<IDocumentTextSnapshot> {
     await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision);
-    const pageTexts = await readPages(pdfPath, pageCount === undefined ? {} : {lastPage: pageCount}, signal);
-    const pages = toTextPages(pageTexts, MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH);
+    const {
+        pageCount: readPageCount,
+        pages,
+    } = await readTextPages(
+        pdfPath,
+        pageCount === undefined ? {} : {lastPage: pageCount},
+        MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH,
+        signal,
+    );
     return {
         documentRevision,
-        pageCount: pageCount ?? pageTexts.length,
+        pageCount: pageCount ?? readPageCount,
         pages,
         contentDigest: digest(pages.map(page => page.contentDigest)),
     };
@@ -98,13 +104,10 @@ export async function readDocumentTextWindow(
         throw new RangeError(`Document text windows hold 1-${MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES} pages`);
     }
     await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision);
-    const pages = toTextPages(
-        await readPages(pdfPath, {
-            firstPage: window.firstPage,
-            lastPage,
-        }, signal),
-        MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
-    );
+    const {pages} = await readTextPages(pdfPath, {
+        firstPage: window.firstPage,
+        lastPage,
+    }, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH, signal);
     return {
         documentRevision,
         pageCount,

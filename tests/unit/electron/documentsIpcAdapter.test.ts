@@ -75,6 +75,7 @@ vi.mock('@electron/features/documents/public', () => ({
 }));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
     allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args),
+    allowOpenPaths: (filePaths: string[], owner: unknown) => filePaths.map(filePath => mocks.allowOpenPath(filePath, owner)),
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
 }));
 vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: unknown) => mocks.isSupportedOpenPath(path)}));
