@@ -1,0 +1,24 @@
+native/scan-cleanup/src/picture.rs
+  s_7edfcbf54e185d::t_59d37fac897d84 2382
+native/scan-cleanup/src/engine/render.rs
+  ai_agent 46-48
+  s_7edfcbf54e185d::t_59d37fac897d84 45
+native/scan-cleanup/src/engine/render/document_analysis.rs
+  s_7edfcbf54e185d::t_59d37fac897d84 1065
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "473c5497fa1abfdb370bb7d2e3dc94535b274635",
+  "prompts": {},
+  "sessions": {
+    "s_7edfcbf54e185d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11bfc-9d0d-7fa0-aaac-462bdddd5649",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
