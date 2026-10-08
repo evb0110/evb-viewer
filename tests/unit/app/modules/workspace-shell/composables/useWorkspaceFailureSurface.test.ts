@@ -137,6 +137,31 @@ describe('useWorkspaceFailureSurface', () => {
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 
+    it('keeps the native bridge receipt and cause in the save presentation', () => {
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: '0123456789abcdef0123456789abcdef',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const cause = Object.assign(new Error('EACCES: permission denied'), {failure: receipt});
+        const surface = useWorkspaceFailureSurface();
+        surface.reportSaveFailure('save-native', 'persist-rejected', undefined, undefined, {
+            channel: 'native',
+            operation: 'persist',
+            phase: 'mutation',
+            reason: 'write-failed',
+            message: cause.message,
+            cause,
+        });
+        expect(surface.saveFailurePresentation.value).toMatchObject({
+            failure: receipt,
+            description: 'errors.save.permissionDenied',
+            technicalDetails: expect.stringContaining(cause.message),
+        });
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: receipt.eventId}));
+    });
+
     it('keeps a rejected annotation out of the save state', () => {
         const surface = useWorkspaceFailureSurface();
 

@@ -765,6 +765,73 @@ describe('workspace save failure surfacing', () => {
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
+    it.each([
+        [
+            'io',
+            'EACCES: permission denied',
+            'errors.save.permissionDenied',
+        ],
+        [
+            'io',
+            'ENOSPC: no space left on device',
+            'errors.save.diskFull',
+        ],
+        [
+            'io',
+            'I/O error while writing the PDF',
+            'errors.save.writeFailed',
+        ],
+        [
+            'corrupt-xref',
+            'The PDF cross-reference table is damaged',
+            'errors.save.validation',
+        ],
+        [
+            'native-failure',
+            'Native appearance writer rejected the font',
+            'errors.save.nativeFailure',
+        ],
+    ] as const)('retains the %s native cause and dirty edits (%s)', async (code, message, expectedDescription) => {
+        const previousNavigator = globalThis.navigator;
+        const clipboard = vi.fn(async (_text: string) => undefined);
+        vi.stubGlobal('navigator', {clipboard: {writeText: clipboard}});
+        try {
+            const {deps} = createDeps({
+                totalPages: ref(2),
+                annotationDirty: ref(true),
+                hasShapeChanges: vi.fn(() => true),
+                getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+                trySavePdfNativeMutations: vi.fn(async () => ({
+                    success: false,
+                    outPath: null,
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                    failure: {
+                        channel: 'native',
+                        operation: 'persist',
+                        phase: 'mutation',
+                        reason: 'write-failed' as const,
+                        message,
+                        cause: {
+                            code,
+                            message,
+                        },
+                    },
+                })),
+            });
+            const service = useWorkspaceSaveServiceForTest(deps);
+            await expect(service.handleSave()).resolves.toBe(false);
+            expectWorkspaceSaveNotMarked(deps);
+            expect(service.hasSaveFailure.value).toBe(true);
+            expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({description: toastDescriptionContaining(expectedDescription)}));
+            const toast = toastAddMock.mock.calls[0]?.[0];
+            await toast.actions.find((action: {label: string}) => action.label === 'errors.runtime.copy').onClick();
+            expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(message));
+        } finally {
+            vi.stubGlobal('navigator', previousNavigator);
+        }
+    });
+
     it('reports a native mutation persistence that refuses to write', async () => {
         const { deps } = createDeps({
             totalPages: ref(2),
