@@ -1056,6 +1056,15 @@ fn image_page_to_layered_image(page: ImagePage) -> Result<LayeredPdfImage> {
     })
 }
 
+fn open_validated_input(input_path: &Path, output_path: &Path) -> Result<File> {
+    Ok(
+        ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?
+            .into_files()
+            .next()
+            .ok_or("Missing validated input")?,
+    )
+}
+
 pub fn encode_netpbm_path_as_png(
     input_path: &Path,
     output_path: &Path,
@@ -1070,8 +1079,7 @@ pub fn encode_netpbm_path_as_png_with_dpi(
     max_pixels: u64,
     dpi: Option<u32>,
 ) -> Result<()> {
-    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
+    let netpbm = read_netpbm_file(open_validated_input(input_path, output_path)?, max_pixels)?;
     let total_pixels = netpbm.width as usize * netpbm.height as usize;
     let mut channels = netpbm.channels as usize;
     let pixels = if channels == 3 && is_rgb_data_grayscale(&netpbm.pixels, total_pixels) {
@@ -1116,8 +1124,7 @@ pub fn encode_netpbm_path_as_jpeg(
     max_pixels: u64,
     dpi: Option<u32>,
 ) -> Result<()> {
-    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
+    let netpbm = read_netpbm_file(open_validated_input(input_path, output_path)?, max_pixels)?;
     let (pixels, color_type) = match netpbm.channels {
         1 => (Cow::Borrowed(netpbm.pixels.as_slice()), JpegColorType::Luma),
         3 => (Cow::Borrowed(netpbm.pixels.as_slice()), JpegColorType::Rgb),

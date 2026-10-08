@@ -411,7 +411,9 @@ impl Drop for AtomicOutput {
     }
 }
 
-/// Retains every validated input descriptor for the duration of an output operation.
+/// Every input of an output operation, opened and checked before the output
+/// is created. Consumers read the admitted descriptors themselves, so a path
+/// replaced after admission is never read.
 pub struct ValidatedInputFiles {
     files: Vec<File>,
 }
@@ -475,15 +477,11 @@ impl ValidatedInputFiles {
         Ok(Self { files })
     }
 
-    pub fn clone_file(&self, index: usize) -> io::Result<File> {
-        self.files
-            .get(index)
-            .ok_or_else(|| {
-                io::Error::other(format!(
-                    "Missing validated input descriptor at index {index}"
-                ))
-            })?
-            .try_clone()
+    /// Hands each admitted descriptor, in input order, to its consumer. A
+    /// descriptor closes once its consumer drops it, so an operation never
+    /// holds a second descriptor per input.
+    pub fn into_files(self) -> std::vec::IntoIter<File> {
+        self.files.into_iter()
     }
 }
 
@@ -871,7 +869,7 @@ mod tests {
 
         fs::rename(&input, &displaced).unwrap();
         fs::write(&input, b"replacement-input").unwrap();
-        let mut retained = validated.clone_file(0).unwrap();
+        let mut retained = validated.into_files().next().unwrap();
         let mut bytes = Vec::new();
         retained.read_to_end(&mut bytes).unwrap();
 
