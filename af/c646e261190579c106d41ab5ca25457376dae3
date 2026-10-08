@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics.ts
+  s_e57546bafc9911::t_bf45b7e9295eec 4-5,13,31,39-40,42-43,46-47
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread.ts
+  s_e57546bafc9911::t_bf45b7e9295eec 19,41
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_e57546bafc9911::t_bf45b7e9295eec 146,218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "afc646e261190579c106d41ab5ca25457376dae3",
+  "prompts": {},
+  "sessions": {
+    "s_e57546bafc9911": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11bc7-c9ea-7840-91cc-95de38de02fa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
