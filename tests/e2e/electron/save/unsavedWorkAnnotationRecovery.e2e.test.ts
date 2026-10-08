@@ -21,7 +21,7 @@ import {
     clickVisibleToolbarButton, openDocumentSidebarTab, waitForActiveDocumentSource, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    activatePaneByTab, splitActiveTabFromTabMenu,
+    activatePaneByTab, createNewWorkspaceTab, splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -263,7 +263,7 @@ describe('checkpointed annotation recovery', () => {
             .toEqual([titleAt(60)]);
     }, 240_000);
 
-    it('restores an unsaved bookmark title after a crash and saves the recovered edit', async () => {
+    it('restores an unsaved bookmark title and all 129 tabs after a crash', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-metadata-recovery-'));
         const originalTitle = 'Original crash-test bookmark';
         const editedTitle = 'Accepted unsaved bookmark survives crash';
@@ -276,6 +276,21 @@ describe('checkpointed annotation recovery', () => {
             clean: true,
             initialOpenPaths: [sourcePath],
         });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        for (let index = 0; index < 128; index += 1) {
+            await createNewWorkspaceTab(session);
+        }
+        const tabIds = () => session!.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.map(tab => tab.getAttribute('data-tab-id')));
+        const expectedTabIds = await tabIds();
+        expect(expectedTabIds).toHaveLength(129);
+        await session.page.keyboard.down('Shift');
+        await session.page.keyboard.press('Tab');
+        await session.page.keyboard.up('Shift');
+        await session.page.keyboard.press('Home');
+        await expect.poll(() => session!.page.evaluate(() => document.activeElement?.getAttribute('data-tab-id'))).toBe(expectedTabIds[0]);
+        await session.page.keyboard.press('Enter');
+        await expect.poll(() => session!.page.$eval('.tab-list .tab.is-active', tab => tab.getAttribute('data-tab-id'))).toBe(expectedTabIds[0]);
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
         await openDocumentSidebarTab(session.page, 'Bookmarks');
@@ -297,7 +312,8 @@ describe('checkpointed annotation recovery', () => {
         const bookmarkTitles = () => session!.page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
         await expect.poll(bookmarkTitles).toContain(editedTitle);
         await expect.poll(() => readWorkspaceRecoveryRecords(session!.name)
-            .some(record => decodeWorkspaceCheckpoint(record.checkpoint)?.tabs.some(tab => tab.isDirty)), {timeout: 30_000}).toBe(true);
+            .map(record => decodeWorkspaceCheckpoint(record.checkpoint))
+            .find(checkpoint => checkpoint?.tabs.some(tab => tab.isDirty))?.tabs.map(tab => tab.tabId), {timeout: 30_000}).toEqual(expectedTabIds);
         expect(readFileSync(sourcePath)).toEqual(sourceBytes);
 
         const crashed = session;
@@ -310,6 +326,7 @@ describe('checkpointed annotation recovery', () => {
         session = await startElectronE2ESession(sessionName, {clean: false});
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
+        await expect.poll(tabIds).toEqual(expectedTabIds);
         await openDocumentSidebarTab(session.page, 'Bookmarks');
         await expect.poll(bookmarkTitles, {timeout: 20_000}).toContain(editedTitle);
         expect(readFileSync(sourcePath)).toEqual(sourceBytes);
