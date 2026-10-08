@@ -2,10 +2,8 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
     TFitMode,
-    TPdfViewRotation,
     TPdfViewMode,
 } from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
 import { getCurrentSpreadRenderedBoundsFromDom } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -15,11 +13,10 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
     fitMode: TFitMode;
     pageNumber: TPageNumber;
     viewMode: TPdfViewMode;
-    viewRotation: TPdfViewRotation;
     numPages: number;
     basePageWidth: number | null;
     basePageHeight: number | null;
-    pageMetrics: IPdfPageMetric[];
+    pageWidths: readonly number[];
     effectiveScale: number;
     getScaleForPage?: ((pageNumber: TPageNumber) => number) | undefined;
     scaledMargin: number;
@@ -41,10 +38,9 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
             basePageWidth: options.basePageWidth,
             basePageHeight: options.basePageHeight,
             numPages: options.numPages,
-            pageMetrics: options.pageMetrics,
+            pageWidths: options.pageWidths,
             currentPage: options.pageNumber,
             viewMode: options.viewMode,
-            viewRotation: options.viewRotation,
             effectiveScale: options.effectiveScale,
             getScaleForPage: options.getScaleForPage,
             scaledMargin: options.scaledMargin,
