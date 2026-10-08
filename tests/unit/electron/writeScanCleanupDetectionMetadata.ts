@@ -3,7 +3,12 @@ import {
     writeFile,
 } from 'fs/promises';
 
-export async function writeScanCleanupDetectionMetadata(manifestPath: string): Promise<void> {
+import type {INativeScanCleanupPageMetadataV3} from '@contracts/scan-cleanup/nativeProtocolV3';
+
+export async function writeScanCleanupDetectionMetadata(
+    manifestPath: string,
+    metadata: (pageNumber: number) => Partial<INativeScanCleanupPageMetadataV3> = () => ({}),
+): Promise<void> {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
         pageMetadataPath: string;
         sourcePageIndex: number;
@@ -48,6 +53,7 @@ export async function writeScanCleanupDetectionMetadata(manifestPath: string): P
                 inputWidthPx: widthPx,
                 inputHeightPx: heightPx,
             }],
+            ...metadata(page.sourcePageIndex + 1),
         }));
     }));
 }

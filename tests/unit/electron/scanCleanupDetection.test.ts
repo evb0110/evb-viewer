@@ -456,6 +456,7 @@ function createStagedSidecar(options: {
     concurrency?: number;
     /** Extra lease taken after every page, as document reconciliation does. */
     reconcilePages?: readonly number[];
+    onAnalyzed?: (pageNumber: number) => void;
     onManifest?: (manifest: TStagedManifest) => void;
     onLease?: (event: 'acquired' | 'released', pageNumber: number) => void;
     /** Extra native fields on each page's final verdict. */
@@ -471,7 +472,7 @@ function createStagedSidecar(options: {
         manifestPath: string,
         signal: AbortSignal,
         _log: unknown,
-        onProgress: (progress: TNativeScanCleanupProgressV3) => void,
+        onProgress: (progress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     ) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TStagedManifest;
         options.onManifest?.(manifest);
@@ -482,7 +483,7 @@ function createStagedSidecar(options: {
                 pageNumber,
             });
             options.onLease?.('acquired', pageNumber);
-            onProgress({
+            await onProgress({
                 stage: 'page-input-required' as const,
                 completedPages: 0,
                 totalPages,
@@ -500,13 +501,13 @@ function createStagedSidecar(options: {
                 }
             }
         };
-        const release = (pageNumber: number) => {
+        const release = async (pageNumber: number) => {
             leaseHistory.push({
                 event: 'released',
                 pageNumber,
             });
             options.onLease?.('released', pageNumber);
-            onProgress({
+            await onProgress({
                 stage: 'page-input-released' as const,
                 completedPages: 0,
                 totalPages,
@@ -532,7 +533,7 @@ function createStagedSidecar(options: {
                         outputCount: 0,
                     }));
                     completedPages += 1;
-                    onProgress({
+                    await onProgress({
                         stage: 'page-analyzed' as const,
                         completedPages,
                         totalPages,
@@ -540,7 +541,8 @@ function createStagedSidecar(options: {
                         classification: 'single-uncut-page',
                         confidence: 0.9,
                     });
-                    release(page.sourcePageIndex + 1);
+                    options.onAnalyzed?.(page.sourcePageIndex + 1);
+                    await release(page.sourcePageIndex + 1);
                 }
             },
         );
@@ -550,10 +552,10 @@ function createStagedSidecar(options: {
         for (const pageNumber of options.reconcilePages ?? []) {
             const page = manifest.pages.find(candidate => candidate.sourcePageIndex + 1 === pageNumber)!;
             await lease(pageNumber, page.inputPath);
-            release(pageNumber);
+            await release(pageNumber);
         }
         for (const page of manifest.pages) {
-            onProgress({
+            await onProgress({
                 stage: 'page-complete' as const,
                 completedPages: totalPages,
                 totalPages,
@@ -655,6 +657,26 @@ afterEach(async () => {
 });
 
 describe('runScanCleanupDetection non-stream raster admission', () => {
+    it('publishes the analyzed page plan before the sidecar completes', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-provisional-plan-'));
+        dirs.push(tempDir);
+        const publish = vi.fn();
+        const harness = createSinglePageDetectionHarness(tempDir, createLazyPageSizeStore(1), {onAnalyzed: () => {
+            expect(publish.mock.calls.flatMap(call => call[0])).toContainEqual(expect.objectContaining({
+                pageNumber: 1,
+                pagePlanEvidence: {
+                    pageNumber: 1,
+                    rotationDegrees: 0,
+                    layoutClassification: 'single-uncut-page',
+                    outputs: {},
+                },
+            }));
+        }});
+        const outcome = await runScanCleanupDetection(createRequest(), new AbortController().signal,
+            harness.retention, harness.dependencies, {rasterConcurrency: 1}, publish);
+        resultStores.push(outcome.resultStore);
+    });
+
     /* Legacy FIFO Analyze transport coverage was removed when Analyze became
      * retained-PNG-only; Render conversion keeps its independent stream path. */
 
@@ -843,7 +865,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                                 outputCount: 0,
                             }))));
                             for (const [index] of manifest.pages.entries()) {
-                                onProgress({
+                                await onProgress({
                                     stage: 'page-complete',
                                     completedPages: index + 1,
                                     totalPages: manifest.pages.length,
@@ -960,7 +982,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                             blankOutputsSkipped: 0,
                             outputCount: 0,
                         }));
-                        onProgress({
+                        await onProgress({
                             stage: 'page-complete',
                             completedPages: 1,
                             totalPages: manifest.pages.length,
@@ -1091,7 +1113,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         expect(await readFile(page.inputPath)).toEqual(png);
                     }
                     for (const [index] of manifest.pages.entries()) {
-                        onProgress({
+                        await onProgress({
                             stage: 'page-analyzed',
                             completedPages: index,
                             totalPages: pageCount,
@@ -1099,7 +1121,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                             classification: 'single-uncut-page',
                             confidence: 0.9,
                         });
-                        onProgress({
+                        await onProgress({
                             stage: 'page-complete',
                             completedPages: index + 1,
                             totalPages: pageCount,
@@ -1262,7 +1284,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         blankOutputsSkipped: 0,
                         outputCount: 0,
                     }));
-                    onProgress({
+                    await onProgress({
                         stage: 'page-analyzed',
                         completedPages: 1,
                         totalPages: 1,
@@ -1391,7 +1413,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                         manifest.pages[0]!.pageMetadataPath,
                         JSON.stringify(nativeMetadata),
                     );
-                    onProgress({
+                    await onProgress({
                         stage: 'page-complete',
                         completedPages: 1,
                         totalPages: 1,
@@ -1965,7 +1987,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             manifestPath: string,
             _signal: AbortSignal,
             _log: unknown,
-            onProgress: (progress: TNativeScanCleanupProgressV3) => void,
+            onProgress: (progress: TNativeScanCleanupProgressV3) => void | Promise<void>,
         ) => {
             sidecarCalls += 1;
             const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as IRetryManifest;
@@ -1978,7 +2000,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                     layoutClassification: retry
                         ? 'two-page-spread'
                         : 'single-uncut-page',
-                    layoutConfidence: 0.9,
+                    layoutConfidence: retry ? 0.9 : 0.5,
                     cutterXPx: retry ? 0.5 : null,
                     rotationDegrees: 0,
                     canvasScope: 'page',
@@ -1987,7 +2009,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                     outputCount: 0,
                     ...(retry || pageNumber === 2 ? {splitDiagnostics: diagnostics} : {}),
                 }));
-                onProgress({
+                await onProgress({
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: manifest.pages.length,

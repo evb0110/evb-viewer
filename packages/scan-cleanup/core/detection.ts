@@ -377,6 +377,7 @@ export interface IScanCleanupDetectionRetention<TDocument> {
 
 export interface IScanCleanupDetectionDependencies {
     evidenceDirectory?: string | undefined;
+    onResultStoreReady?: (store: IScanCleanupDetectionResultStore) => void;
     fileSystem?: {
         copyFile: (source: string, destination: string) => Promise<void>;
         mkdir: (
@@ -1314,7 +1315,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             }
             return sourcePageByManifestIndex.get(pageNumber);
         };
-        const recordResult = (
+        const recordResult = async (
             nativeProgress: TNativeScanCleanupProgressV3,
             sourcePageNumber: number,
         ) => {
@@ -1324,6 +1325,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     `Scan cleanup detection reported page ${String(sourcePageNumber)} outside its geometry batch`,
                 );
             }
+            const metadata = decodeNativeScanCleanupPageMetadataJson(await fileSystem.readFile(
+                manifestPages[nativeProgress.pageNumber! - 1]!.pageMetadataPath, 'utf8',
+            ));
             const sourceDpi = resolveRasterPageDpi(
                 resolvedSourceRasterStructure,
                 sourcePage,
@@ -1336,13 +1340,20 @@ async function runBatchedScanCleanupDetection<TDocument>(
             const result: IScanCleanupDetectionResult = {
                 pageNumber: requirePageNumber(sourcePageNumber),
                 revision,
-                classification: nativeProgress.classification!,
-                confidence: nativeProgress.confidence!,
-                cutterXPx: nativeProgress.cutterXPx ?? null,
-                tier1Verdict: nativeProgress.tier1Verdict ?? nativeProgress.classification!,
-                reconciled: nativeProgress.reconciled ?? false,
-                clusterAgreement: nativeProgress.clusterAgreement ?? 0,
-                documentPrior: nativeProgress.documentPrior ?? null,
+                classification: metadata.layoutClassification,
+                confidence: metadata.layoutConfidence ?? nativeProgress.confidence!,
+                cutterXPx: metadata.cutterXPx,
+                tier1Verdict: metadata.tier1Verdict ?? nativeProgress.tier1Verdict ?? metadata.layoutClassification,
+                reconciled: metadata.reconciled ?? nativeProgress.reconciled ?? false,
+                clusterAgreement: metadata.clusterAgreement ?? nativeProgress.clusterAgreement ?? 0,
+                documentPrior: metadata.documentPrior == null
+                    ? nativeProgress.documentPrior ?? null
+                    : {
+                        ...metadata.documentPrior,
+                        cutterRatioMedian: metadata.documentPrior.cutterRatioMedian ?? null,
+                        strokeWidthMedianPx: metadata.documentPrior.strokeWidthMedianPx ?? undefined,
+                        xHeightMedianPx: metadata.documentPrior.xHeightMedianPx ?? undefined,
+                    },
                 ...(nativeProgress.textAxis === undefined ? {} : {textAxis: nativeProgress.textAxis}),
                 ...(nativeProgress.recommendedOutputMode === undefined
                     ? {}
@@ -1367,6 +1378,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         sourceDpi,
                     }}),
             };
+            result.pagePlanEvidence = createDetectionPagePlanEvidence(result, metadata, request.options.autoDewarp !== true);
+            if (metadata.splitDiagnostics !== undefined) result.splitDiagnostics = metadata.splitDiagnostics;
+            if (isFirstClassification) await resultStore.append(result);
+            else await resultStore.replace(sourcePageNumber, result);
             batchResults.set(sourcePageNumber, result);
             compatibilityResults?.set(sourcePageNumber, result);
             if (compatibilityResults === null) {
@@ -1377,13 +1392,13 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     canvasAccumulator,
                     sourcePage,
                     request.options,
-                    nativeProgress.classification!,
+                    result.classification,
                 );
                 addScanCleanupDocumentCanvasObservedPage(
                     resolvedCanvasAccumulator,
                     sourcePage,
                     request.options,
-                    nativeProgress.classification!,
+                    result.classification,
                 );
             }
             return result;
@@ -1395,7 +1410,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 manifestPath,
                 operationSignal,
                 log,
-                nativeProgress => {
+                async nativeProgress => {
                     if (nativeProgress.totalPages !== manifestPages.length) {
                         throw new ScanCleanupContractError(
                             `Scan cleanup detection reported ${String(nativeProgress.totalPages)} pages for ${String(manifestPages.length)} submitted pages`,
@@ -1462,7 +1477,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             ) {
                                 return;
                             }
-                            recordResult(nativeProgress, sourcePageNumber);
+                            await recordResult(nativeProgress, sourcePageNumber);
                             if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
                                 return;
                             }
@@ -1484,16 +1499,19 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         ) {
                             return;
                         }
-                        recordResult(nativeProgress, sourcePageNumber);
+                        const previousPlan = batchResults.get(sourcePageNumber)?.pagePlanEvidence;
+                        const result = await recordResult(nativeProgress, sourcePageNumber);
+                        const planChanged = previousPlan !== undefined
+                            && JSON.stringify(previousPlan) !== JSON.stringify(result.pagePlanEvidence);
                         const completedUnits = Math.max(
                             analyzedPages,
                             batch.startOffset + nativeProgress.completedPages,
                         );
-                        if (!shouldPublishLargeProgress(completedUnits >= totalPages)) {
+                        if (!planChanged && !shouldPublishLargeProgress(completedUnits >= totalPages)) {
                             return;
                         }
                         readOnlyProgressDirty = false;
-                        publish(takePublishableResults(), progressWithEta(
+                        publish(planChanged ? [result] : takePublishableResults(), progressWithEta(
                             'detecting',
                             completedUnits,
                             totalPages,
@@ -1510,44 +1528,21 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 },
             );
             for (const page of manifestPages) {
-                try {
-                    const result = batchResults.get(page.pageNumber);
-                    if (result === undefined) continue;
-                    const metadata = decodeNativeScanCleanupPageMetadataJson(
-                        await fileSystem.readFile(page.pageMetadataPath, 'utf8'),
-                    );
-                    result.pagePlanEvidence = createDetectionPagePlanEvidence(
+                const result = batchResults.get(page.pageNumber);
+                const sourcePage = batchPageByNumber.get(page.pageNumber);
+                if (
+                    result !== undefined && sourcePage !== undefined
+                    && mediaBoxRetryCandidates.length < MAX_MEDIA_BOX_RETRY_PAGES
+                    && result.classification === 'single-uncut-page'
+                    && shouldRetryMediaBoxPage(sourcePage, result)
+                ) {
+                    mediaBoxRetryCandidates.push({
+                        pageNumber: page.pageNumber,
                         result,
-                        metadata,
-                        request.options.autoDewarp !== true,
-                    );
-                    if (metadata.splitDiagnostics !== undefined) {
-                        result.splitDiagnostics = metadata.splitDiagnostics;
-                    }
-                    const sourcePage = batchPageByNumber.get(page.pageNumber);
-                    if (
-                        sourcePage !== undefined
-                        && mediaBoxRetryCandidates.length < MAX_MEDIA_BOX_RETRY_PAGES
-                        && result.classification === 'single-uncut-page'
-                        && shouldRetryMediaBoxPage(sourcePage, result)
-                    ) {
-                        mediaBoxRetryCandidates.push({
-                            pageNumber: page.pageNumber,
-                            result,
-                            sourcePage,
-                        });
-                    }
-                } finally {
-                    // Metadata is decoded into the page-indexed result before
-                    // its per-batch file is dropped.
-                    await fileSystem.rm(page.pageMetadataPath, {force: true});
+                        sourcePage,
+                    });
                 }
-            }
-            for (const pageNumber of batchPageNumbers) {
-                const result = batchResults.get(pageNumber);
-                if (result !== undefined) {
-                    await resultStore.append(result);
-                }
+                await fileSystem.rm(page.pageMetadataPath, {force: true});
             }
             batchCompleted = true;
         } catch (error) {
@@ -1885,6 +1880,7 @@ export async function runScanCleanupDetection<TDocument>(
                 rootDir: dependencies.getTempDir(),
                 pageCount: totalPages,
             });
+            dependencies.onResultStoreReady?.(resultStore);
             const outcome = await runBatchedScanCleanupDetection(
                 request,
                 signal,
