@@ -60,6 +60,22 @@ interface IBrowserLifecycleTestApi {
     }>;
 }
 
+async function readPersistedDocumentBytes(page: Page, ref: string): Promise<number[]> {
+    // Read persisted bytes without creating another document/maintenance lifecycle.
+    // Keep browser imports outside Vitest's server-side module transform.
+    return page.evaluate(`(async () => {
+        const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+        const {createEntryFromPersistedRecord} = await import('/_nuxt/platform/browser/browserDocumentRecords.ts');
+        const {readBrowserDocumentChunkedEntryBytes} = await import('/_nuxt/platform/browser/browserDocumentChunkStorage.ts');
+        const record = await loadRecord(${JSON.stringify(ref)});
+        if (!record) return [];
+        const entry = createEntryFromPersistedRecord(record);
+        return Array.from(entry.storageMode === 'chunked'
+            ? await readBrowserDocumentChunkedEntryBytes(entry)
+            : entry.data);
+    })()`);
+}
+
 async function waitForServer(url: string) {
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
@@ -272,7 +288,7 @@ describe('browser document lifecycle UI', () => {
             }).click();
 
             async function readRecovery() {
-                return page.evaluate(async () => {
+                const tab = await page.evaluate(async () => {
                     const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
                         const request = indexedDB.open('evb-viewer-browser-documents');
                         request.onsuccess = () => resolveDb(request.result);
@@ -291,17 +307,13 @@ describe('browser document lifecycle UI', () => {
                             request.onerror = () => rejectRows(request.error);
                         });
                         const tab = records.flatMap(record => record.checkpoint.tabs).find(candidate => candidate.isDirty);
-                        const bytes = tab?.workingCopyRef ? await new Promise<number[]>((resolveBytes, rejectBytes) => {
-                            const request = db.transaction('documents', 'readonly').objectStore('documents').get(tab.workingCopyRef!);
-                            request.onsuccess = () => resolveBytes(Array.from(request.result?.data ?? []));
-                            request.onerror = () => rejectBytes(request.error);
-                        }) : [];
-                        return {
-                            tab,
-                            bytes,
-                        };
+                        return tab;
                     } finally {db.close();}
                 });
+                return {
+                    tab,
+                    bytes: tab?.workingCopyRef ? await readPersistedDocumentBytes(page, tab.workingCopyRef) : [],
+                };
             }
             async function savedNoteTexts(recovery: Awaited<ReturnType<typeof readRecovery>>) {
                 if (!recovery.bytes.length) return [];
@@ -523,20 +535,7 @@ describe('browser document lifecycle UI', () => {
                             const refs = (await readCheckpoint()).flatMap(record => record.checkpoint.tabs
                                 .filter(tab => tab.isDirty && tab.workingCopyRef)
                                 .map(tab => tab.workingCopyRef!));
-                            const copies = await page.evaluate(async refs => {
-                                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                                    const request = indexedDB.open('evb-viewer-browser-documents');
-                                    request.onsuccess = () => resolveDb(request.result);
-                                    request.onerror = () => rejectDb(request.error);
-                                });
-                                try {
-                                    return await Promise.all(refs.map(ref => new Promise<number[]>((resolveBytes, rejectBytes) => {
-                                        const request = db.transaction('documents', 'readonly').objectStore('documents').get(ref);
-                                        request.onsuccess = () => resolveBytes(Array.from(request.result?.data ?? []));
-                                        request.onerror = () => rejectBytes(request.error);
-                                    })));
-                                } finally {db.close();}
-                            }, refs);
+                            const copies = await Promise.all(refs.map(ref => readPersistedDocumentBytes(page, ref)));
                             for (const copy of copies) {
                                 if (!copy.length) continue;
                                 const saved = await PDFDocument.load(Uint8Array.from(copy));
@@ -2284,31 +2283,35 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await expect.poll(() => page.evaluate(() => Reflect.get(window, '__printedNote')?.yellowPixels ?? 0), {timeout: 15_000}).toBeGreaterThan(50);
             expect(await page.evaluate(() => Reflect.get(window, '__printedNote').pages)).toBeGreaterThan(0);
-            await expect.poll(() => page.evaluate(async (noteText) => {
-                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                    const request = indexedDB.open('evb-viewer-browser-documents');
-                    request.onsuccess = () => resolveDb(request.result);
-                    request.onerror = () => rejectDb(request.error);
-                });
-                try {
-                    const rows = await new Promise<Array<{
-                        data: Uint8Array;
-                        fileName: string;
-                        kind: string
-                    }>>((resolveRows, rejectRows) => {
-                        const request = db.transaction('documents', 'readonly').objectStore('documents').getAll();
-                        request.onsuccess = () => resolveRows(request.result);
-                        request.onerror = () => rejectRows(request.error);
+            await expect.poll(async () => {
+                const rows = await page.evaluate(async () => {
+                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                        const request = indexedDB.open('evb-viewer-browser-documents');
+                        request.onsuccess = () => resolveDb(request.result);
+                        request.onerror = () => rejectDb(request.error);
                     });
-                    const encoded = [...noteText].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
-                    return {
-                        recovered: rows.some(row => row.fileName.endsWith('.recovery.pdf') && new TextDecoder().decode(row.data).toLowerCase().includes(encoded)),
-                        originalChanged: rows.some(row => row.kind === 'source' && new TextDecoder().decode(row.data).toLowerCase().includes(encoded)),
-                    };
-                } finally {
-                    db.close();
-                }
-            }, text), {timeout: 15_000}).toEqual({
+                    try {
+                        const rows = await new Promise<Array<{
+                            ref: string;
+                            fileName: string;
+                            kind: string
+                        }>>((resolveRows, rejectRows) => {
+                            const request = db.transaction('documents', 'readonly').objectStore('documents').getAll();
+                            request.onsuccess = () => resolveRows(request.result);
+                            request.onerror = () => rejectRows(request.error);
+                        });
+                        return rows;
+                    } finally {
+                        db.close();
+                    }
+                });
+                const bytes = await Promise.all(rows.map(row => readPersistedDocumentBytes(page, row.ref)));
+                const encoded = [...text].map(character => character.charCodeAt(0).toString(16).padStart(4, '0')).join('');
+                return {
+                    recovered: rows.some((row, index) => row.fileName.endsWith('.recovery.pdf') && new TextDecoder().decode(Uint8Array.from(bytes[index]!)).toLowerCase().includes(encoded)),
+                    originalChanged: rows.some((row, index) => row.kind === 'source' && new TextDecoder().decode(Uint8Array.from(bytes[index]!)).toLowerCase().includes(encoded)),
+                };
+            }, {timeout: 15_000}).toEqual({
                 recovered: true,
                 originalChanged: false,
             });
@@ -3383,20 +3386,7 @@ describe('optional search-cache mutation completion proof', () => {
             }).click();
             let storedBytes: number[] = [];
             await expect.poll(async () => {
-                storedBytes = await page!.evaluate(async (ref) => {
-                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                        const request = indexedDB.open('evb-viewer-browser-documents');
-                        request.onsuccess = () => resolveDb(request.result);
-                        request.onerror = () => rejectDb(request.error);
-                    });
-                    try {
-                        return await new Promise<number[]>((resolveBytes, rejectBytes) => {
-                            const request = db.transaction('documents', 'readonly').objectStore('documents').get(ref);
-                            request.onsuccess = () => resolveBytes(Array.from(request.result?.data ?? []));
-                            request.onerror = () => rejectBytes(request.error);
-                        });
-                    } finally {db.close();}
-                }, workingPath);
+                storedBytes = await readPersistedDocumentBytes(page!, workingPath);
                 if (!storedBytes.length) return null;
                 return (await PDFDocument.load(Uint8Array.from(storedBytes))).getPage(0).getRotation().angle;
             }, {timeout: 15000}).toBe(90);
