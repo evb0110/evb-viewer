@@ -122,39 +122,17 @@ async function main() {
             ],
             stdio: 'pipe',
         },
+        // Every native tool the app runs is rebuilt from the canonical list, so
+        // a pull that changes any crate just works. A crate whose inputs did not
+        // change is skipped by its build receipt.
         {
-            source: 'pnpm-dev-build-scan-cleanup',
-            label: 'Building native scan-cleanup',
+            source: 'pnpm-dev-build-native',
+            label: 'Building native tools',
             command: PNPM_COMMAND,
             args: [
                 '--silent',
                 'run',
-                'build:scan-cleanup',
-            ],
-            stdio: 'pipe',
-        },
-        // The PDF assemblers are part of the scan-cleanup engine contract:
-        // new TS emitting extended manifests against a stale staged binary
-        // fails every conversion, so dev keeps all three crates fresh.
-        {
-            source: 'pnpm-dev-build-pdf-image-combine',
-            label: 'Building native pdf-image-combine',
-            command: PNPM_COMMAND,
-            args: [
-                '--silent',
-                'run',
-                'build:pdf-image-combine',
-            ],
-            stdio: 'pipe',
-        },
-        {
-            source: 'pnpm-dev-build-pdf-page-ops',
-            label: 'Building native pdf-page-ops',
-            command: PNPM_COMMAND,
-            args: [
-                '--silent',
-                'run',
-                'build:pdf-page-ops',
+                'build:native',
             ],
             stdio: 'pipe',
         },
