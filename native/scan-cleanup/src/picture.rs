@@ -427,8 +427,12 @@ fn refine_tone_preservation_alpha_with_texture(
         }
     }
     // Texture only ever raises the alpha inside picture ownership, and only
-    // when the caller preserves picture texture.
-    let texture_alpha = (preserve_picture_texture && picture_geometry.is_some()).then(|| {
+    // when the caller preserves picture texture: a picture mask that owns no
+    // pixel feathers to a zero weight everywhere.
+    let picture_owns_pixels = picture_geometry
+        .as_ref()
+        .is_some_and(|mask| mask.count_black() > 0);
+    let texture_alpha = (preserve_picture_texture && picture_owns_pixels).then(|| {
         let texture_source = if texture_source.width() == layout_normalized.width()
             && texture_source.height() == layout_normalized.height()
         {
