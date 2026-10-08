@@ -1045,6 +1045,15 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                 )
             }
             ResolvedOutputMode::Grayscale | ResolvedOutputMode::Color => {
+                let mut rendered_gray = rendered_gray;
+                if resolved_output_mode == ResolvedOutputMode::Grayscale {
+                    super::paper_cleanup::whiten_unmarked_paper(
+                        &mut rendered_gray,
+                        rendered_picture_mask.as_ref(),
+                        calibration,
+                        options.dpi,
+                    );
+                }
                 let ContinuousOutputOutput {
                     image,
                     color_image,

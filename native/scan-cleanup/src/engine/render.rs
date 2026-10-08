@@ -86,6 +86,8 @@ mod document_analysis;
 mod final_composition;
 #[path = "render/fold_edge_filtering.rs"]
 mod fold_edge_filtering;
+#[path = "render/paper_cleanup.rs"]
+mod paper_cleanup;
 #[path = "render/region_preparation.rs"]
 mod region_preparation;
 #[path = "render/region_rendering.rs"]
