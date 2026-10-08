@@ -102,30 +102,36 @@ function isAlphaNumeric(value: string | undefined) {
 }
 
 function isSafeLinkHref(href: string) {
-    const normalized = href.trim();
-    if (!normalized) {
+    if (!href) {
         return false;
     }
     if (
-        normalized.startsWith('#')
-        || normalized.startsWith('/')
-        || normalized.startsWith('./')
-        || normalized.startsWith('../')
+        href.startsWith('#')
+        || href.startsWith('/')
+        || href.startsWith('./')
+        || href.startsWith('../')
     ) {
         return true;
     }
 
     try {
-        const url = new URL(normalized);
+        const url = new URL(href);
         return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:';
     } catch {
         return false;
     }
 }
 
-function findClosingMarker(text: string, marker: string, start: number) {
+function findClosingMarker(text: string, marker: string, start: number, failedMarkers: Set<string>) {
+    if (failedMarkers.has(marker)) {
+        return null;
+    }
     const end = text.indexOf(marker, start + marker.length);
-    if (end < 0 || end === start + marker.length) {
+    if (end < 0) {
+        failedMarkers.add(marker);
+        return null;
+    }
+    if (end === start + marker.length) {
         return null;
     }
     return end;
@@ -143,11 +149,15 @@ function canUseSingleEmphasisMarker(text: string, index: number, marker: '*' | '
     return true;
 }
 
-function findClosingSingleEmphasisMarker(text: string, marker: '*' | '_', start: number) {
+function findClosingSingleEmphasisMarker(text: string, marker: '*' | '_', start: number, failedMarkers: Set<string>) {
+    if (failedMarkers.has(marker)) {
+        return null;
+    }
     let cursor = start + 1;
     while (cursor < text.length) {
         const index = text.indexOf(marker, cursor);
         if (index < 0) {
+            failedMarkers.add(marker);
             return null;
         }
 
@@ -158,12 +168,17 @@ function findClosingSingleEmphasisMarker(text: string, marker: '*' | '_', start:
         }
         cursor = index + 1;
     }
+    failedMarkers.add(marker);
     return null;
 }
 
 function parseInlineSegments(text: string) {
     const segments: TAssistantMessageSegment[] = [];
     let cursor = 0;
+    const failedMarkers = new Set<string>();
+    let labelEnd = -2;
+    let hrefEnd = -1;
+    let href = '';
 
     while (cursor < text.length) {
         let matched = false;
@@ -172,7 +187,7 @@ function parseInlineSegments(text: string) {
             const char = text[index];
 
             if (char === '`') {
-                const end = findClosingMarker(text, '`', index);
+                const end = findClosingMarker(text, '`', index, failedMarkers);
                 if (end == null) {
                     continue;
                 }
@@ -187,19 +202,16 @@ function parseInlineSegments(text: string) {
             }
 
             if (char === '[') {
-                const labelEnd = text.indexOf('](', index + 1);
-                if (labelEnd < 0) {
-                    continue;
+                if (labelEnd !== -1 && labelEnd < index + 1) {
+                    labelEnd = text.indexOf('](', index + 1);
+                    hrefEnd = labelEnd < 0 ? -1 : (findClosingMarker(text, ')', labelEnd + 1, failedMarkers) ?? -1);
+                    href = hrefEnd < 0 ? '' : text.slice(labelEnd + 2, hrefEnd).trim();
+                    href = isSafeLinkHref(href) ? href : '';
                 }
-                const hrefEnd = text.indexOf(')', labelEnd + 2);
-                if (hrefEnd < 0) {
+                if (labelEnd < 0 || hrefEnd < 0 || !href || labelEnd === index + 1) {
                     continue;
                 }
                 const label = text.slice(index + 1, labelEnd);
-                const href = text.slice(labelEnd + 2, hrefEnd).trim();
-                if (!label || !isSafeLinkHref(href)) {
-                    continue;
-                }
                 appendTextSegment(segments, text.slice(cursor, index));
                 segments.push({
                     kind: 'link',
@@ -213,7 +225,7 @@ function parseInlineSegments(text: string) {
 
             const pair = text.slice(index, index + 2);
             if (pair === '**' || pair === '__') {
-                const end = findClosingMarker(text, pair, index);
+                const end = findClosingMarker(text, pair, index, failedMarkers);
                 if (end == null) {
                     continue;
                 }
@@ -228,7 +240,7 @@ function parseInlineSegments(text: string) {
             }
 
             if ((char === '*' || char === '_') && canUseSingleEmphasisMarker(text, index, char)) {
-                const end = findClosingSingleEmphasisMarker(text, char, index);
+                const end = findClosingSingleEmphasisMarker(text, char, index, failedMarkers);
                 if (end == null) {
                     continue;
                 }
