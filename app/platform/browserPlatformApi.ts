@@ -25,7 +25,16 @@ const {
     clearSearchCaches,
 } = createBrowserSearchCapability();
 
-const browserDocumentCapabilities = createBrowserDocumentsCapability({clearSearchCaches});
+const browserDocumentCapabilities = createBrowserDocumentsCapability({clearSearchCaches(pdfPath) {
+    // Memory invalidation runs synchronously; optional persisted maintenance
+    // must not determine whether an authoritative document operation succeeds.
+    void clearSearchCaches(pdfPath).catch((error: unknown) => {
+        BrowserLogger.warn('search', 'Optional search-cache invalidation failed', {
+            pdfPath,
+            error,
+        });
+    });
+}});
 const browserSystemSyncBindings = {getMemoryInfo: () => null} satisfies TFeatureSyncBindings<typeof SYSTEM_PLATFORM_FEATURE>;
 const browserSystemApi: IPlatformApi['system'] = {
     ...browserSystemSyncBindings,
