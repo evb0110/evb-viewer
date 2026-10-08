@@ -2487,13 +2487,16 @@ describe('optional search-cache mutation completion proof', () => {
             expect(alignment.boxCenterInsideWord).toBe(true);
             expect(problems).toEqual([]);
         } finally {
-            if (page) {
-                await page.screenshot({path: resolve(evidenceDir, 'final.png')}).catch(() => {});
-                const video = page.video();
-                await page.close();
-                await video?.saveAs(resolve(evidenceDir, 'proof.webm'));
+            try {
+                if (page) {
+                    await page.screenshot({path: resolve(evidenceDir, 'final.png')}).catch(() => {});
+                    const video = page.video();
+                    await page.close();
+                    await video?.saveAs(resolve(evidenceDir, 'proof.webm'));
+                }
+            } finally {
+                await browser.close();
             }
-            await browser.close();
         }
     }, 120_000);
 
