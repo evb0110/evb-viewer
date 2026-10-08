@@ -60,14 +60,10 @@ function commitOptions(
 ): ICommitPdfAnnotationParseToStoreOptions {
     return {
         result: writerParseResult(),
-        request: 1,
-        currentRequest: 1,
         isTransitionCurrent: () => true,
         targetStore: store,
         currentStore: store,
         targetStoreMutationEpoch: store.mutationEpoch,
-        workingCopyPath: '/tmp/working.pdf',
-        currentWorkingCopyPath: '/tmp/working.pdf',
         expectedRevisionToken: revisionToken,
         currentRevisionToken: revisionToken,
         ...overrides,
