@@ -8,6 +8,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import type {FileHandle} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -226,6 +227,107 @@ describe('file-backed scan-cleanup result store', () => {
         await store.close();
         await store.close();
         expect(await readdir(root)).toEqual([]);
+    });
+
+    it('finishes every record and index entry a file write stores only in part', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-short-write-test-'));
+        roots.push(root);
+        // A write may store fewer bytes than it was given; this handle never
+        // stores more than ten at a time.
+        const storingTenBytesPerWrite = (handle: FileHandle) => new Proxy(handle, {get(target, key) {
+            if (key === 'write') {
+                return (data: Buffer | string, offset: number, length?: number | string, position?: number) => {
+                    const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+                    const start = typeof data === 'string' ? 0 : offset;
+                    const available = typeof length === 'number' ? length : bytes.byteLength - start;
+                    const at = typeof data === 'string' ? offset : position;
+                    return target.write(bytes, start, Math.min(10, available), at);
+                };
+            }
+            const value = Reflect.get(target, key) as unknown;
+            return typeof value === 'function' ? value.bind(target) : value;
+        }});
+        const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
+            fileSystem: {
+                mkdtemp,
+                open: async (path, flags) => storingTenBytesPerWrite(await fsOpen(path, flags)),
+                rm,
+            },
+            pageCount: 2,
+            pageNumberOf: record => record.pageNumber,
+            rootDir: root,
+        });
+        await store.append({
+            pageNumber: 1,
+            value: 'first record, longer than one short write',
+        });
+        await store.append({
+            pageNumber: 2,
+            value: 'second record',
+        });
+
+        await expect(store.getPage(1)).resolves.toEqual({
+            pageNumber: 1,
+            value: 'first record, longer than one short write',
+        });
+        await expect(store.getPage(2)).resolves.toEqual({
+            pageNumber: 2,
+            value: 'second record',
+        });
+        expect(store.resultCount).toBe(2);
+        await store.close();
+    });
+
+    it('reads a range in page order across replaced, long and missing records', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-result-store-range-test-'));
+        roots.push(root);
+        const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
+            pageCount: 5,
+            pageNumberOf: record => record.pageNumber,
+            rootDir: root,
+        });
+        const long = 'y'.repeat(300_000);
+        await store.append({
+            pageNumber: 1,
+            value: 'one',
+        });
+        await store.append({
+            pageNumber: 2,
+            value: 'two',
+        });
+        await store.append({
+            pageNumber: 3,
+            value: long,
+        });
+        await store.append({
+            pageNumber: 5,
+            value: 'five',
+        });
+        // A replacement is appended at the end, after page 5's record.
+        await store.replace(2, {
+            pageNumber: 2,
+            value: 'two, revised',
+        });
+
+        await expect(store.readRange(1, 6)).resolves.toEqual([
+            {
+                pageNumber: 1,
+                value: 'one',
+            },
+            {
+                pageNumber: 2,
+                value: 'two, revised',
+            },
+            {
+                pageNumber: 3,
+                value: long,
+            },
+            {
+                pageNumber: 5,
+                value: 'five',
+            },
+        ]);
+        await store.close();
     });
 
     it('reconstructs a record that spans multiple read chunks', async () => {

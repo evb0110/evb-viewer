@@ -1,5 +1,5 @@
 use crate::{
-    calibration::PageCalibration, content::is_scanner_border_shadow, CleanupOptions,
+    calibration::PageCalibration, edge_artifacts::is_scanner_border_shadow, CleanupOptions,
     NormalizedZonePolygon, PictureZoneLayer,
 };
 use rayon::prelude::*;
@@ -371,7 +371,10 @@ fn refine_tone_preservation_alpha_with_texture(
     coarse_tone_evidence: Option<&BinaryImage>,
     preserve_picture_texture: bool,
 ) -> Option<GrayImage> {
-    if picture_mask.is_none() && coarse_tone_evidence.is_none() {
+    // Every weight below is a feathered copy of one of these masks, so with
+    // no owned pixels in either the field is zero everywhere.
+    let has_owner = |mask: Option<&BinaryImage>| mask.is_some_and(|mask| mask.count_black() > 0);
+    if !has_owner(picture_mask) && !has_owner(coarse_tone_evidence) {
         return None;
     }
     let picture_geometry = picture_mask.map(|mask| {
@@ -423,29 +426,38 @@ fn refine_tone_preservation_alpha_with_texture(
             raw_alpha.set(x, y, (smooth * 255.0).round() as u8);
         }
     }
-    let texture_source = if texture_source.width() == layout_normalized.width()
-        && texture_source.height() == layout_normalized.height()
-    {
-        texture_source.clone()
-    } else {
-        texture_source
-            .downscale_to_dimensions(layout_normalized.width(), layout_normalized.height())
-    };
-    let eroded = erode_gray(&texture_source, 2, 2);
-    let dilated = dilate_gray(&texture_source, 2, 2);
-    let texture_low = (3.0 * noise_sigma).max(8.0);
-    let texture_high = (8.0 * noise_sigma).max(24.0);
-    let texture_span = (texture_high - texture_low).max(1.0);
-    let mut texture_alpha =
-        GrayImage::new(layout_normalized.width(), layout_normalized.height(), 0);
-    for y in 0..layout_normalized.height() {
-        for x in 0..layout_normalized.width() {
-            let local_range = f64::from(eroded.get(x, y).saturating_sub(dilated.get(x, y)));
-            let linear = ((local_range - texture_low) / texture_span).clamp(0.0, 1.0);
-            let smooth = linear * linear * (3.0 - 2.0 * linear);
-            texture_alpha.set(x, y, (smooth * 255.0).round() as u8);
+    // Texture only ever raises the alpha inside picture ownership, and only
+    // when the caller preserves picture texture: a picture mask that owns no
+    // pixel feathers to a zero weight everywhere.
+    let picture_owns_pixels = picture_geometry
+        .as_ref()
+        .is_some_and(|mask| mask.count_black() > 0);
+    let texture_alpha = (preserve_picture_texture && picture_owns_pixels).then(|| {
+        let texture_source = if texture_source.width() == layout_normalized.width()
+            && texture_source.height() == layout_normalized.height()
+        {
+            texture_source.clone()
+        } else {
+            texture_source
+                .downscale_to_dimensions(layout_normalized.width(), layout_normalized.height())
+        };
+        let eroded = erode_gray(&texture_source, 2, 2);
+        let dilated = dilate_gray(&texture_source, 2, 2);
+        let texture_low = (3.0 * noise_sigma).max(8.0);
+        let texture_high = (8.0 * noise_sigma).max(24.0);
+        let texture_span = (texture_high - texture_low).max(1.0);
+        let mut texture_alpha =
+            GrayImage::new(layout_normalized.width(), layout_normalized.height(), 0);
+        for y in 0..layout_normalized.height() {
+            for x in 0..layout_normalized.width() {
+                let local_range = f64::from(eroded.get(x, y).saturating_sub(dilated.get(x, y)));
+                let linear = ((local_range - texture_low) / texture_span).clamp(0.0, 1.0);
+                let smooth = linear * linear * (3.0 - 2.0 * linear);
+                texture_alpha.set(x, y, (smooth * 255.0).round() as u8);
+            }
         }
-    }
+        texture_alpha
+    });
     let mut approved = BinaryImage::new(layout_normalized.width(), layout_normalized.height());
     if let Some(evidence) = coarse_geometry.as_ref() {
         let mut candidate = BinaryImage::new(layout_normalized.width(), layout_normalized.height());
@@ -503,11 +515,11 @@ fn refine_tone_preservation_alpha_with_texture(
         for x in 0..layout_normalized.width() {
             let tonal = u16::from(raw_alpha.get(x, y)) * u16::from(approved_weight.get(x, y)) / 255;
             let picture = picture_weight.as_ref().map_or(0, |weight| {
-                let evidence = if preserve_picture_texture {
-                    raw_alpha.get(x, y).max(texture_alpha.get(x, y))
-                } else {
-                    raw_alpha.get(x, y)
-                };
+                let evidence = texture_alpha
+                    .as_ref()
+                    .map_or(raw_alpha.get(x, y), |texture| {
+                        raw_alpha.get(x, y).max(texture.get(x, y))
+                    });
                 u16::from(material_tone_alpha(evidence)) * u16::from(weight.get(x, y)) / 255
             });
             let alpha = tonal.max(picture) as u8;
@@ -974,7 +986,7 @@ pub(crate) fn qualify_picture_owner(source: &GrayImage, candidate: &BinaryImage)
         return BinaryImage::new(candidate.width(), candidate.height());
     }
 
-    let border_artifacts = crate::content::border_artifact_mask(source);
+    let border_artifacts = crate::edge_artifacts::border_artifact_mask(source);
     let measured_gutter = gutter_shadow(source);
     let picture_map = ComponentMap::from_binary(candidate);
     let mut owner = candidate.clone();
@@ -2043,7 +2055,7 @@ mod tests {
                 }
             }
         }
-        let border = crate::content::border_artifact_mask(&page);
+        let border = crate::edge_artifacts::border_artifact_mask(&page);
         let border_overlap = border.and(&candidate).count_black();
         assert!(
             border_overlap >= 16 && border_overlap.saturating_mul(100) >= candidate.count_black(),

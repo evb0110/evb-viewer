@@ -587,6 +587,8 @@ const detectionJobBaseSchema = v.object({
     documentCanvasSignature: v.exactOptional(v.string()),
     progress: SCAN_CLEANUP_PROGRESS_SCHEMA,
     resultCount: v.exactOptional(nonNegativeIntegerSchema),
+    /** Final pages recommended as blank, counted over every result, not the window. */
+    blankPageCount: v.exactOptional(nonNegativeIntegerSchema),
     detectionResultStoreId: v.exactOptional(boundedOwnerText('detection result store id')),
     placementAnchorSummary: v.exactOptional(SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA),
     results: v.pipe(v.array(SCAN_CLEANUP_DETECTION_RESULT_SCHEMA),
@@ -618,6 +620,7 @@ export const SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA = v.pipe(
     v.check(state => state === null || (() => {
         const count = state.resultCount ?? state.results.length;
         return count >= state.results.length
+            && (state.blankPageCount ?? 0) <= count
             && count <= state.progress.completedUnits
             && count <= state.progress.totalUnits
             && (state.status !== 'completed' || count === state.progress.completedUnits);

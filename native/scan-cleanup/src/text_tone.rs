@@ -1,4 +1,4 @@
-use crate::content::border_artifact_mask;
+use crate::edge_artifacts::border_artifact_mask;
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};

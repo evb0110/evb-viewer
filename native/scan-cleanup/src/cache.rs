@@ -58,6 +58,19 @@ fn serialized(value: &impl Serialize) -> Vec<u8> {
     serde_json::to_vec(value).expect("cache key serialization uses finite validated options")
 }
 
+/// A later stage's key is its parent's key bytes, once and length-prefixed so
+/// the boundary is unambiguous, followed by the stage's own inputs. Serializing
+/// the parent bytes as a JSON value instead wrote each byte as a decimal number,
+/// which grew a page with large manual zones about thirtyfold by Content.
+fn nested(parent: &StageCacheKey, own: &impl Serialize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(size_of::<u64>() + parent.options.len() + 256);
+    bytes.extend_from_slice(&(parent.options.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(&parent.options);
+    serde_json::to_writer(&mut bytes, own)
+        .expect("cache key serialization uses finite validated options");
+    bytes
+}
+
 impl StageCacheKey {
     fn resident_bytes(&self) -> usize {
         size_of::<Self>()
@@ -133,35 +146,23 @@ impl StageCacheKey {
     /// single-page routing, manual cutter, and the optional document prior.
     /// It does not consume margins, placement, crop, thickness, or despeckling.
     pub(crate) fn split(
-        source: &SourceFingerprint,
         options: &CleanupOptions,
-        prepare_quality_raster: bool,
-        recommend_output_mode: bool,
-        analyze_layout: bool,
-        create_mixed_layers: bool,
-        calibration: CalibrationConfig,
+        analysis_key: &Self,
         document_prior: Option<crate::split::DocumentPrior>,
     ) -> Self {
         Self {
-            source: source.clone(),
+            source: analysis_key.source.clone(),
             stage: CacheStage::Split,
-            options: serialized(&(
-                Self::analysis(
-                    source,
-                    options,
-                    prepare_quality_raster,
-                    recommend_output_mode,
-                    analyze_layout,
-                    create_mixed_layers,
-                    calibration,
-                )
-                .options,
-                options.ocr_mode,
-                options.layout,
-                options.manual_split_x,
-                options.automatic_split,
-                document_prior,
-            )),
+            options: nested(
+                analysis_key,
+                &(
+                    options.ocr_mode,
+                    options.layout,
+                    options.manual_split_x,
+                    options.automatic_split,
+                    document_prior,
+                ),
+            ),
         }
     }
 
@@ -169,21 +170,22 @@ impl StageCacheKey {
     /// and split-derived region geometry. Output margins, placement, thickness,
     /// binarization, and despeckling cannot affect it.
     pub(crate) fn deskew(
-        source: &SourceFingerprint,
         options: &CleanupOptions,
         split_key: &Self,
         region: scan_primitives::Rect,
     ) -> Self {
         Self {
-            source: source.clone(),
+            source: split_key.source.clone(),
             stage: CacheStage::Deskew,
-            options: serialized(&(
-                &split_key.options,
-                rect_key(region),
-                options.dpi.to_bits(),
-                options.manual_skew_degrees.map(f64::to_bits),
-                serialized(&options.automatic_skew_degrees),
-            )),
+            options: nested(
+                split_key,
+                &(
+                    rect_key(region),
+                    options.dpi.to_bits(),
+                    options.manual_skew_degrees.map(f64::to_bits),
+                    &options.automatic_skew_degrees,
+                ),
+            ),
         }
     }
 
@@ -193,23 +195,24 @@ impl StageCacheKey {
     /// placement, match-page-size, binarization, thickness, and despeckling are
     /// deliberately excluded: they are applied after content is detected.
     pub(crate) fn content(
-        source: &SourceFingerprint,
         options: &CleanupOptions,
         deskew_key: &Self,
         half: crate::pipeline::PageHalf,
     ) -> Self {
         Self {
-            source: source.clone(),
+            source: deskew_key.source.clone(),
             stage: CacheStage::Content,
-            options: serialized(&(
-                &deskew_key.options,
-                half,
-                &options.manual_content_boxes,
-                &options.automatic_content_boxes,
-                &options.dewarp,
-                options.experimental.auto_dewarp,
-                options.experimental.auto_dewarp_depth.map(f64::to_bits),
-            )),
+            options: nested(
+                deskew_key,
+                &(
+                    half,
+                    &options.manual_content_boxes,
+                    &options.automatic_content_boxes,
+                    &options.dewarp,
+                    options.experimental.auto_dewarp,
+                    options.experimental.auto_dewarp_depth.map(f64::to_bits),
+                ),
+            ),
         }
     }
 }
@@ -444,6 +447,55 @@ mod tests {
         assert!(cache.get::<u32>(&key_b).is_none());
         assert!(cache.get::<String>(&key_a).is_none());
         assert_eq!(*cache.get::<u32>(&key_a).unwrap(), 7);
+    }
+
+    #[test]
+    fn later_stage_keys_carry_their_parent_key_once() {
+        // The per-page manual-zone cap allows 128 fill polygons of 64 points.
+        let mut options = CleanupOptions::default();
+        options.manual_zones.fill = (0..128)
+            .map(|zone| crate::domain::options::NormalizedZonePolygon {
+                points: (0..64)
+                    .map(|point| crate::domain::options::NormalizedZonePoint {
+                        x: 0.123_456_789 + f64::from(zone) / 1_000.0,
+                        y: 0.987_654_321 - f64::from(point) / 1_000.0,
+                    })
+                    .collect(),
+                rotation: OrthogonalRotation::None,
+            })
+            .collect();
+        let region = scan_primitives::Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1_000.0,
+            height: 1_500.0,
+        };
+        let content_key = |options: &CleanupOptions| {
+            let analysis = StageCacheKey::analysis(
+                &source(0),
+                options,
+                true,
+                true,
+                true,
+                true,
+                CalibrationConfig::default(),
+            );
+            let split = StageCacheKey::split(options, &analysis, None);
+            let deskew = StageCacheKey::deskew(options, &split, region);
+            let content = StageCacheKey::content(options, &deskew, crate::pipeline::PageHalf::Full);
+            (analysis, content)
+        };
+
+        let (analysis, content) = content_key(&options);
+        assert!(
+            content.options.len() < analysis.options.len() + 4_096,
+            "content key {} bytes over an analysis key of {} bytes",
+            content.options.len(),
+            analysis.options.len(),
+        );
+        let mut moved = options.clone();
+        moved.manual_zones.fill[127].points[63].x += 0.001;
+        assert_ne!(content, content_key(&moved).1);
     }
 
     #[test]

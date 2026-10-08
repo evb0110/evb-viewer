@@ -763,7 +763,7 @@ fn assemble_region_result(
 
 struct OutputProcessingInput<'a> {
     rendered_gray: GrayImage,
-    rendered_source_gray: GrayImage,
+    rendered_source_gray: Option<GrayImage>,
     rendered_color: Option<RgbImage>,
     rendered_picture_mask: Option<BinaryImage>,
     rendered_chroma_picture_mask: Option<BinaryImage>,
@@ -814,7 +814,7 @@ struct OutputProcessingInput<'a> {
 
 struct OutputModeProcessingInput<'a> {
     rendered_gray: GrayImage,
-    rendered_source_gray: GrayImage,
+    rendered_source_gray: Option<GrayImage>,
     rendered_color: Option<RgbImage>,
     rendered_picture_mask: Option<BinaryImage>,
     rendered_chroma_picture_mask: Option<BinaryImage>,
@@ -949,7 +949,8 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                     conservation_warnings: branch_warnings,
                 } = process_bilevel_output(BilevelProcessingInput {
                     rendered_gray,
-                    rendered_source_gray,
+                    rendered_source_gray: rendered_source_gray
+                        .expect(SOURCE_GRAY_FOR_BILEVEL_MODES),
                     canonical_routing_sample,
                     options,
                     spread_plan,
@@ -1001,7 +1002,8 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                     conservation_warnings: branch_warnings,
                 } = process_mixed_output(MixedProcessingInput {
                     rendered_gray,
-                    rendered_source_gray,
+                    rendered_source_gray: rendered_source_gray
+                        .expect(SOURCE_GRAY_FOR_BILEVEL_MODES),
                     rendered_color: &rendered_color,
                     rendered_picture_mask: &rendered_picture_mask,
                     rendered_chroma_picture_mask: &rendered_chroma_picture_mask,
@@ -1043,6 +1045,15 @@ fn process_output_mode(input: OutputModeProcessingInput<'_>) -> OutputModeProces
                 )
             }
             ResolvedOutputMode::Grayscale | ResolvedOutputMode::Color => {
+                let mut rendered_gray = rendered_gray;
+                if resolved_output_mode == ResolvedOutputMode::Grayscale {
+                    super::paper_cleanup::whiten_unmarked_paper(
+                        &mut rendered_gray,
+                        rendered_picture_mask.as_ref(),
+                        calibration,
+                        options.dpi,
+                    );
+                }
                 let ContinuousOutputOutput {
                     image,
                     color_image,
@@ -1317,9 +1328,8 @@ fn prepare_region_transforms(
         split_cache_key,
         timings,
     } = input;
-    let deskew_key = cache
-        .zip(split_cache_key)
-        .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
+    let deskew_key =
+        split_cache_key.map(|split_key| StageCacheKey::deskew(options, split_key, region));
     let deskew_started = Instant::now();
     let deskew = if options.ocr_polarity_only {
         // Polarity-only OCR must not quietly become scan cleanup through
@@ -1549,9 +1559,9 @@ fn detect_region_content(
         half,
         timings,
     } = input;
-    let content_key = cache.zip(deskew_key.as_ref()).map(|(cache, deskew_key)| {
-        StageCacheKey::content(&cache.source, options, deskew_key, half)
-    });
+    let content_key = deskew_key
+        .as_ref()
+        .map(|deskew_key| StageCacheKey::content(options, deskew_key, half));
     let content_started = Instant::now();
     let cached_content = cache
         .zip(content_key.as_ref())
@@ -1865,10 +1875,17 @@ struct RasterPlaneInput<'a> {
     timings: &'a mut PageStageTimings,
 }
 
+const SOURCE_GRAY_FOR_BILEVEL_MODES: &str =
+    "B&W and Mixed output render the routing source in output space";
+
+fn output_mode_uses_source_gray(mode: OutputMode) -> bool {
+    matches!(mode, OutputMode::Bw | OutputMode::Mixed)
+}
+
 struct RasterPlaneOutput {
     rendered_gray: GrayImage,
     rendered_color: Option<RgbImage>,
-    rendered_source_gray: GrayImage,
+    rendered_source_gray: Option<GrayImage>,
     rendered_tone_alpha: Option<GrayImage>,
     forward_transform: Option<Affine>,
     inverse_transform: Option<Affine>,
@@ -1992,20 +2009,24 @@ fn prepare_render_planes(
                 None,
             )
         };
-    let rendered_source_gray = if render_plan.has_dewarp() {
-        rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
-            render_plan.output_to_source(point)
-        })
-    } else {
-        render_affine_gray(
-            routing_source,
-            rendered_width,
-            rendered_height,
-            render_plan
-                .affine_inverse()
-                .expect("cleanup affine render plan is available"),
-        )
-    };
+    // Only B&W and Mixed threshold the routing source in output space;
+    // Grayscale and Color publish the cleaned tonal planes alone.
+    let rendered_source_gray = output_mode_uses_source_gray(options.output_mode).then(|| {
+        if render_plan.has_dewarp() {
+            rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
+                render_plan.output_to_source(point)
+            })
+        } else {
+            render_affine_gray(
+                routing_source,
+                rendered_width,
+                rendered_height,
+                render_plan
+                    .affine_inverse()
+                    .expect("cleanup affine render plan is available"),
+            )
+        }
+    });
     timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     // Coarse tonal evidence is valid for deriving the global tone curve, but
     // only pixel-resolution picture geometry may form a boundary in the
@@ -2112,60 +2133,34 @@ fn prepare_region_masks(input: MaskPreparationInput<'_>) -> MaskPreparationOutpu
             rendered_height,
         )
     });
-    let rendered_halftone_zone_mask = halftone_zone_mask.map(|mask| {
-        render_auxiliary_mask(
-            mask,
-            normalized,
-            render_plan,
-            rendered_width,
-            rendered_height,
-        )
-    });
-    let rendered_spatial_tone_mask = (options.output_mode == OutputMode::Mixed)
-        .then(|| {
-            spatial_tone_mask.map(|mask| {
-                render_auxiliary_mask(
-                    mask,
-                    normalized,
-                    render_plan,
-                    rendered_width,
-                    rendered_height,
-                )
-            })
+    // Halftone, spatial-tone, tone-picture and chroma geometry only partition
+    // Mixed output; text vicinity also guides B&W thresholding. Continuous
+    // output consumes none of them.
+    let mixed = options.output_mode == OutputMode::Mixed;
+    let render_for = |consumed: bool, mask: Option<&BinaryImage>| {
+        mask.filter(|_| consumed).map(|mask| {
+            render_auxiliary_mask(
+                mask,
+                normalized,
+                render_plan,
+                rendered_width,
+                rendered_height,
+            )
         })
-        .flatten();
-    let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
-        render_auxiliary_mask(
-            mask,
-            normalized,
-            render_plan,
-            rendered_width,
-            rendered_height,
-        )
-    });
+    };
+    let rendered_halftone_zone_mask = render_for(mixed, halftone_zone_mask);
+    let rendered_spatial_tone_mask = render_for(mixed, spatial_tone_mask);
+    let rendered_chroma_picture_mask = render_for(mixed, chroma_picture_mask);
     // Keep calibrated tone zones as geometry in render space. The alpha field
     // is useful for semantic protection, but it is not a complete layer
     // boundary: a bimodal photo or map can have low alpha over a valid
     // midtone region. Fresh Mixed composition must still own that region from
     // the cleaned raster rather than whitening it as unclassified paper.
-    let rendered_tone_picture_mask = tone_picture_mask.map(|mask| {
-        render_auxiliary_mask(
-            mask,
-            normalized,
-            render_plan,
-            rendered_width,
-            rendered_height,
-        )
-    });
-    let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
-        render_auxiliary_mask(
-            mask,
-            normalized,
-            render_plan,
-            rendered_width,
-            rendered_height,
-        )
-    });
+    let rendered_tone_picture_mask = render_for(mixed, tone_picture_mask);
+    let rendered_text_vicinity_mask = render_for(
+        output_mode_uses_source_gray(options.output_mode),
+        text_vicinity_mask,
+    );
     let rendered_text_mask = text_mask.map(|mask| {
         render_auxiliary_mask(
             mask,
@@ -2187,7 +2182,7 @@ fn prepare_region_masks(input: MaskPreparationInput<'_>) -> MaskPreparationOutpu
             |point| map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point),
         )
     });
-    if options.output_mode == OutputMode::Mixed {
+    if mixed {
         partition_mixed_picture_mask(
             &mut rendered_picture_mask,
             preserve_confirmed_photo_tones,
@@ -3205,9 +3200,10 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
         let text_recall = rendered_text_mask
             .as_ref()
             .map(|text_mask| unowned_text_recall(&text_mask.subtract(picture_mask), &binary));
-        let mut binary = text_recall
-            .as_ref()
-            .map_or(binary.clone(), |recall| binary.or(recall));
+        let mut binary = match text_recall.as_ref() {
+            Some(recall) => binary.or(recall),
+            None => binary,
+        };
         if matches!(
             options.binarization,
             crate::BinarizationMode::Auto | crate::BinarizationMode::Otsu

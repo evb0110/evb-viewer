@@ -244,45 +244,63 @@ pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayI
 fn decode_png_gray_ordinary(parsed: WalkedPng) -> Result<GrayImage, RasterError> {
     let header = parsed.header;
     let transparency = parsed.transparency;
-    validate_decoded_rows(&parsed.idat, header)?;
-    let row_bytes = (header.width as usize)
-        .checked_mul(header.color_type.channels())
-        .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
-    let expected = row_bytes
-        .checked_add(1)
-        .and_then(|value| value.checked_mul(header.height as usize))
-        .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
-    let mut filtered = Vec::with_capacity(expected);
-    ZlibDecoder::new(parsed.idat.as_slice())
-        .take(expected.saturating_add(1) as u64)
-        .read_to_end(&mut filtered)?;
-    if filtered.len() != expected {
-        return Err(RasterError::invalid(format!(
-            "PNG decompressed payload length mismatch: expected {expected} bytes, got {}",
-            filtered.len()
-        )));
-    }
     let mut gray = GrayImage::new(header.width as usize, header.height as usize, 255);
+    for_each_ordinary_png_row(&parsed.idat, header, |y, row| {
+        write_png_row(gray.row_mut(y), None, row, header.color_type, transparency);
+    })?;
+    Ok(gray)
+}
+
+/// Inflates an 8-bit, noninterlaced, nonindexed PNG one scanline at a time
+/// and hands each unfiltered row to `row`. The same pass enforces everything
+/// `validate_decoded_rows` checks for the other paths: zlib errors, filter
+/// types, and the exact inflated length, so one byte past the last scanline
+/// is an error. No image-sized filtered plane is kept.
+fn for_each_ordinary_png_row(
+    idat: &[u8],
+    header: PngHeader,
+    mut row: impl FnMut(usize, &[u8]),
+) -> Result<(), RasterError> {
     let channels = header.color_type.channels();
-    let mut current = vec![0; row_bytes];
-    let mut previous = vec![0; row_bytes];
-    let mut position = 0usize;
+    let row_bytes = (header.width as usize)
+        .checked_mul(channels)
+        .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
+    let scanline_bytes = row_bytes
+        .checked_add(1)
+        .ok_or_else(|| RasterError::invalid("PNG row length overflow"))?;
+    let expected = scanline_bytes
+        .checked_mul(header.height as usize)
+        .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
+    let mut decoder = ZlibDecoder::new(idat);
+    let mut current = vec![0; scanline_bytes];
+    let mut previous = vec![0; scanline_bytes];
+    let mut decoded = 0usize;
     for y in 0..header.height as usize {
-        let filter = filtered[position];
-        position += 1;
-        current.copy_from_slice(&filtered[position..position + row_bytes]);
-        position += row_bytes;
-        unfilter(&mut current, &previous, channels, filter)?;
-        write_png_row(
-            gray.row_mut(y),
-            None,
-            &current,
-            header.color_type,
-            transparency,
-        );
+        let mut filled = 0;
+        while filled < scanline_bytes {
+            let read = decoder.read(&mut current[filled..])?;
+            if read == 0 {
+                return Err(RasterError::invalid(format!(
+                    "PNG image data length mismatch: expected {expected} bytes, got {}",
+                    decoded + filled
+                )));
+            }
+            filled += read;
+        }
+        decoded += scanline_bytes;
+        let (filter, samples) = current
+            .split_first_mut()
+            .expect("a PNG scanline starts with its filter byte");
+        unfilter(samples, &previous[1..], channels, *filter)?;
+        row(y, samples);
         std::mem::swap(&mut current, &mut previous);
     }
-    Ok(gray)
+    if decoder.read(&mut [0u8; 1])? != 0 {
+        return Err(RasterError::invalid(format!(
+            "PNG image data is longer than expected: expected {expected} bytes"
+        )));
+    }
+    Ok(())
 }
 
 fn normalize_png_row_to_gray(source: &[u8], color_type: PngColorType) -> Vec<u8> {
@@ -318,16 +336,21 @@ pub fn decode_png_composited_rgb<R: Read>(
     Ok(rgb)
 }
 
-/// Inflated, still-filtered PNG samples: everything both decoders share before
-/// they differ in which planes they materialize.
+/// PNG samples both decoders share before they differ in which planes they
+/// materialize.
 struct PngPixels {
     width: usize,
     height: usize,
     color_type: PngColorType,
-    row_bytes: usize,
-    filtered: Vec<u8>,
-    needs_unfilter: bool,
+    rows: PngRows,
     transparency: Option<PngTransparencyKey>,
+}
+
+enum PngRows {
+    /// Ordinary 8-bit noninterlaced data, inflated row by row on demand.
+    Ordinary { idat: Vec<u8>, header: PngHeader },
+    /// Rows the png crate already expanded, `row_bytes` apart.
+    Expanded { pixels: Vec<u8>, row_bytes: usize },
 }
 impl PngPixels {
     fn read<R: Read>(reader: R, limits: DecodeLimits) -> Result<Self, RasterError> {
@@ -337,25 +360,14 @@ impl PngPixels {
             && header.interlace_method == 0
             && !matches!(header.color_type, PngColorType::Indexed)
         {
-            validate_decoded_rows(&parsed.idat, header)?;
-            let row_bytes = (header.width as usize)
-                .checked_mul(header.color_type.channels())
-                .ok_or_else(|| RasterError::invalid("PNG row overflow"))?;
-            let expected = row_bytes
-                .checked_add(1)
-                .and_then(|value| value.checked_mul(header.height as usize))
-                .ok_or_else(|| RasterError::invalid("Invalid PNG image data length"))?;
-            let mut filtered = Vec::with_capacity(expected);
-            ZlibDecoder::new(parsed.idat.as_slice())
-                .take(expected as u64)
-                .read_to_end(&mut filtered)?;
             return Ok(Self {
                 width: header.width as usize,
                 height: header.height as usize,
                 color_type: header.color_type,
-                row_bytes,
-                filtered,
-                needs_unfilter: true,
+                rows: PngRows::Ordinary {
+                    idat: parsed.idat,
+                    header,
+                },
                 transparency: parsed.transparency,
             });
         }
@@ -387,40 +399,28 @@ impl PngPixels {
                 return Err(RasterError::invalid("PNG decoder returned indexed pixels"));
             }
         };
-        let row_bytes = output.line_size;
         Ok(Self {
             width: header.width as usize,
             height: header.height as usize,
             color_type,
-            row_bytes,
-            filtered,
-            needs_unfilter: false,
+            rows: PngRows::Expanded {
+                pixels: filtered,
+                row_bytes: output.line_size,
+            },
             transparency: None,
         })
     }
 
     fn for_each_row(self, mut row: impl FnMut(usize, &[u8])) -> Result<(), RasterError> {
-        let row_bytes = self.row_bytes;
-        if !self.needs_unfilter {
-            for y in 0..self.height {
-                row(y, &self.filtered[y * row_bytes..(y + 1) * row_bytes]);
+        match self.rows {
+            PngRows::Ordinary { idat, header } => for_each_ordinary_png_row(&idat, header, row),
+            PngRows::Expanded { pixels, row_bytes } => {
+                for y in 0..self.height {
+                    row(y, &pixels[y * row_bytes..(y + 1) * row_bytes]);
+                }
+                Ok(())
             }
-            return Ok(());
         }
-        let channels = self.color_type.channels();
-        let mut current = vec![0; row_bytes];
-        let mut previous = vec![0; row_bytes];
-        let mut position = 0usize;
-        for y in 0..self.height {
-            let filter = self.filtered[position];
-            position += 1;
-            current.copy_from_slice(&self.filtered[position..position + row_bytes]);
-            position += row_bytes;
-            unfilter(&mut current, &previous, channels, filter)?;
-            row(y, &current);
-            std::mem::swap(&mut current, &mut previous);
-        }
-        Ok(())
     }
 }
 fn write_png_row(

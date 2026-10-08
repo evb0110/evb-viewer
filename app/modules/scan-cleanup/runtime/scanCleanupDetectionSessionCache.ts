@@ -1,16 +1,13 @@
-import type {
-    IScanCleanupDetectionResult,
-    TScanCleanupDetectionJobState,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {TScanCleanupDetectionJobState} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 
 export interface IScanCleanupDetectionSessionCacheEntry {
     ownerId: string;
-    results: IScanCleanupDetectionResult[];
     signatures: Map<number, string>;
     /** Scalar document/settings tokens avoid rechecking every page on restore. */
     documentSignature?: string;
     signatureToken?: string;
+    /** The one retained copy of the completed results is `state.results`. */
     state: TScanCleanupDetectionJobState;
     totalPages: number;
 }
@@ -41,7 +38,6 @@ function estimateEntryBytes(entry: IScanCleanupDetectionSessionCacheEntry) {
     try {
         return new TextEncoder().encode(JSON.stringify({
             ownerId: entry.ownerId,
-            results: entry.results,
             signatures: [...entry.signatures],
             documentSignature: entry.documentSignature,
             signatureToken: entry.signatureToken,

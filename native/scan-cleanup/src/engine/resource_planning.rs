@@ -3,7 +3,7 @@ use crate::cache::{ByteLru, PageCache, SourceFingerprint, DEFAULT_CACHE_BUDGET_B
 use crate::domain::options::OutputMode;
 use crate::engine::staged_input::{invalid, map_raster_error};
 use crate::io::raster;
-use evb_native_support::{NativeError, MAX_WORKER_THREADS};
+use evb_native_support::NativeError;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{
@@ -95,17 +95,28 @@ where
 }
 
 pub(crate) fn processing_worker_threads() -> usize {
-    capped_worker_threads(logical_cpus().unwrap_or(1))
+    evb_native_support::host_worker_threads()
 }
 
-fn logical_cpus() -> Option<usize> {
-    std::thread::available_parallelism().ok().map(usize::from)
+/// Split the processing threads between the page workers, earlier workers
+/// taking the remainder, so every thread belongs to exactly one page.
+fn page_pool_sizes(page_workers: usize, processing_threads: usize) -> Vec<usize> {
+    let page_workers = page_workers.clamp(1, processing_threads.max(1));
+    let share = processing_threads.max(1) / page_workers;
+    let remainder = processing_threads.max(1) % page_workers;
+    (0..page_workers)
+        .map(|worker| share + usize::from(worker < remainder))
+        .collect()
 }
 
-fn capped_worker_threads(available: usize) -> usize {
-    available.clamp(1, MAX_WORKER_THREADS)
-}
-
+/// Run page jobs with at most `worker_threads` pages in flight, a
+/// memory-derived limit, over `processing_threads` CPU threads.
+///
+/// Each page worker owns its own Rayon pool for the page's nested stages
+/// (thresholding, morphology, composition and resampling). With one shared
+/// pool, a page waiting on one of its own parallel stages let its thread take
+/// up a whole other page and could not resume until that page finished, so
+/// the first pages of a document finished last and most cores sat idle.
 pub(crate) fn run_regular_page_jobs<M, T, F>(
     manifest: &M,
     is_canceled: &AtomicBool,
@@ -118,18 +129,21 @@ where
     T: Send,
     F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
-    let results: Vec<Result<T, NativeError>> = if worker_threads > 1 {
-        let pool = rayon::ThreadPoolBuilder::new()
-            // `worker_threads` is a memory-derived limit on pages in flight,
-            // not the size of the processing pool. Each page contains nested
-            // Rayon stages (thresholding, morphology, composition, and
-            // resampling) which must retain access to the host's CPU threads.
-            // Building a pool with only the page limit made two large pages
-            // run every heavy stage on two total threads.
-            .num_threads(processing_threads)
-            .thread_name(|index| format!("scan-cleanup-processing-{index}"))
-            .build()
-            .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?;
+    let results: Vec<Result<T, NativeError>> = {
+        let pools = page_pool_sizes(
+            worker_threads.min(manifest.page_count()).max(1),
+            processing_threads,
+        )
+        .into_iter()
+        .enumerate()
+        .map(|(worker, threads)| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .thread_name(move |index| format!("scan-cleanup-page-{worker}-{index}"))
+                .build()
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| invalid(format!("Unable to initialize page workers: {error}")))?;
         type PageOutcome<T> = Result<Result<T, NativeError>, Box<dyn std::any::Any + Send>>;
         struct DispatchState<T> {
             next_page: usize,
@@ -142,14 +156,12 @@ where
             outcomes: (0..manifest.page_count()).map(|_| None).collect(),
         });
 
-        // The bounded page workers are ordinary scoped OS threads. They wait
-        // outside Rayon, while each admitted page enters the processing pool
-        // through `install`; even a one-thread pool therefore always has a
-        // worker available to execute the page and its nested Rayon stages.
+        // The page workers are ordinary scoped OS threads. They wait outside
+        // Rayon, while each admitted page enters its worker's own pool through
+        // `install`, so the pool's threads only ever run that page's stages.
         thread::scope(|scope| {
-            for _ in 0..worker_threads.min(manifest.page_count()) {
+            for pool in &pools {
                 let state = &state;
-                let pool = &pool;
                 let task = &task;
                 scope.spawn(move || loop {
                     let index = {
@@ -214,16 +226,6 @@ where
                     .expect("successful page dispatcher cannot retain a panic")
             })
             .collect()
-    } else {
-        (0..manifest.page_count())
-            .map(|index| {
-                if is_canceled.load(Ordering::Acquire) {
-                    return Err(crate::engine::cancellation_error());
-                }
-                let page = manifest.page(index);
-                task((index, &page))
-            })
-            .collect()
     };
     results
         .into_iter()
@@ -232,17 +234,14 @@ where
 }
 
 pub(crate) fn page_worker_threads<M: PlanningManifest>(manifest: &M) -> Result<usize, NativeError> {
-    page_worker_threads_on(manifest, host_parallelism())
+    // Every page in flight needs at least one processing thread of its own.
+    page_worker_threads_on(manifest, processing_worker_threads())
 }
 
 /// Tests that assert a pool width sized for this many logical CPUs rather
 /// than the host's.
 #[cfg(test)]
 const TEST_PARALLELISM: usize = 8;
-
-fn host_parallelism() -> usize {
-    logical_cpus().unwrap_or(2)
-}
 
 fn page_worker_threads_on<M: PlanningManifest>(
     manifest: &M,
@@ -520,12 +519,13 @@ mod tests {
     }
 
     #[test]
-    fn processing_worker_threads_share_the_native_worker_ceiling() {
-        assert_eq!(
-            capped_worker_threads(32),
-            evb_native_support::MAX_WORKER_THREADS
-        );
-        assert_eq!(capped_worker_threads(0), 1);
+    fn page_pools_split_every_processing_thread_between_the_pages() {
+        assert_eq!(page_pool_sizes(10, 10), vec![1; 10]);
+        assert_eq!(page_pool_sizes(3, 10), vec![4, 3, 3]);
+        assert_eq!(page_pool_sizes(1, 10), vec![10]);
+        // More pages than threads never leaves a page without a thread.
+        assert_eq!(page_pool_sizes(16, 4), vec![1; 4]);
+        assert_eq!(page_pool_sizes(0, 0), vec![1]);
     }
 
     #[test]
@@ -953,6 +953,56 @@ mod tests {
         .unwrap();
 
         assert_eq!(run, vec![0, 1, 2, 3]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_page_waiting_on_its_own_stage_never_takes_up_another_page() {
+        // A page whose parallel stage is still running elsewhere leaves its
+        // thread waiting. With one pool shared by every page, that thread
+        // started a whole other page and the waiting page could not resume
+        // until it finished, so early pages finished last.
+        thread_local! {
+            static PAGES_ON_THIS_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-page-dispatcher-nesting-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = scheduler_test_manifest(&dir, 32);
+        let deepest = AtomicUsize::new(0);
+
+        let run = run_regular_page_jobs(
+            &manifest,
+            &NEVER_CANCELED,
+            |(index, _)| {
+                let pages = PAGES_ON_THIS_THREAD.with(|pages| {
+                    pages.set(pages.get() + 1);
+                    pages.get()
+                });
+                deepest.fetch_max(pages, Ordering::AcqRel);
+                for _ in 0..4 {
+                    rayon::join(
+                        || thread::sleep(Duration::from_millis(1)),
+                        || thread::sleep(Duration::from_millis(6)),
+                    );
+                }
+                PAGES_ON_THIS_THREAD.with(|pages| pages.set(pages.get() - 1));
+                Ok::<_, NativeError>(index)
+            },
+            6,
+            3,
+        )
+        .unwrap();
+
+        assert_eq!(run, (0..32).collect::<Vec<_>>());
+        assert_eq!(
+            deepest.load(Ordering::Acquire),
+            1,
+            "a page started on a thread that was still inside another page"
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

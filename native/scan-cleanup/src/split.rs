@@ -1959,6 +1959,20 @@ fn fold_line_candidates_in_range(
         if response == 0 || candidates.len() >= TOP_CUTTER_CANDIDATES {
             break;
         }
+        let coherence = if average > 0.0 {
+            response as f64 / average
+        } else {
+            0.0
+        };
+        let line_strength = response as f64 / (gray.height() as f64 * 48.0);
+        let response_score = ramp(coherence, 3.0, 14.0) * ramp(line_strength, 0.12, 0.75);
+        // Both ramps grow with the response and the responses are sorted
+        // strongest first, while the coverage ramp is at most one. Once the
+        // response alone cannot reach the threshold no later line can, so
+        // the column scan below is not paid for every remaining response.
+        if response_score < 0.04 {
+            break;
+        }
         let slope = slopes[angle_index];
         if candidates.iter().any(|candidate| {
             (candidate.x - x as f64).abs() <= suppression_x
@@ -1966,16 +1980,8 @@ fn fold_line_candidates_in_range(
         }) {
             continue;
         }
-        let coherence = if average > 0.0 {
-            response as f64 / average
-        } else {
-            0.0
-        };
-        let line_strength = response as f64 / (gray.height() as f64 * 48.0);
         let coverage = vertical_gradient_coverage(gray, x as f64, slope);
-        let score = ramp(coherence, 3.0, 14.0)
-            * ramp(line_strength, 0.12, 0.75)
-            * ramp(coverage, 0.04, 0.42);
+        let score = response_score * ramp(coverage, 0.04, 0.42);
         if score >= 0.04 {
             candidates.push(FoldCandidate {
                 x: x as f64,
