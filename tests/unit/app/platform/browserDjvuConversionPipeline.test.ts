@@ -21,6 +21,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {SerializableError} from '@contracts/serializableError';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
@@ -29,7 +30,7 @@ const mocks = vi.hoisted(() => ({
     loggerInfo: vi.fn(),
     loggerWarn: vi.fn(),
     renderPageAsPpm: vi.fn(),
-    tryCombine: vi.fn(),
+    combineWorker: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
@@ -41,7 +42,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
 }}));
-vi.mock('@app/platform/browser-api/tryCombineImageInputsWithWasm', () => ({tryCombineImageInputsWithWasm: mocks.tryCombine}));
+vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({runBrowserPdfCombineWorkerRequest: mocks.combineWorker}));
 vi.mock('@app/platform/browser-api/browserDjvuRasterizer', () => ({
     DJVU_COMPACT_PHOTO_PPI_CAP: 300,
     DjvuCanceledError: class DjvuCanceledError extends Error {
@@ -356,10 +357,7 @@ describe('browserDjvuConversionPipeline', () => {
             }]})},
             terminate: vi.fn(),
         };
-        const admission = Promise.withResolvers<{
-            status: 'success';
-            data: Uint8Array;
-        }>();
+        const admission = Promise.withResolvers<{data: Uint8Array}>();
         mocks.createWorker.mockResolvedValueOnce(worker);
         mocks.getPageSizes.mockResolvedValueOnce([{
             width: 100,
@@ -379,16 +377,13 @@ describe('browserDjvuConversionPipeline', () => {
                 heightPoints: 72,
             },
         });
-        mocks.tryCombine.mockImplementationOnce((_inputs, _options, signal?: AbortSignal) => {
-            signal?.addEventListener('abort', () => admission.resolve({
-                status: 'success',
-                data: new Uint8Array([
-                    0x25,
-                    0x50,
-                    0x44,
-                    0x46,
-                ]),
-            }), {once: true});
+        mocks.combineWorker.mockImplementationOnce((_inputs, _options, signal?: AbortSignal) => {
+            signal?.addEventListener('abort', () => admission.resolve({data: new Uint8Array([
+                0x25,
+                0x50,
+                0x44,
+                0x46,
+            ])}), {once: true});
             return admission.promise;
         });
 
@@ -403,7 +398,7 @@ describe('browserDjvuConversionPipeline', () => {
                     preserveBookmarks: false,
                 },
             );
-            await vi.waitFor(() => expect(mocks.tryCombine).toHaveBeenCalledOnce());
+            await vi.waitFor(() => expect(mocks.combineWorker).toHaveBeenCalledOnce());
 
             expect(cancelBrowserDjvuConversion(jobId)).toEqual({canceled: true});
             await expect(conversion).resolves.toMatchObject({
@@ -414,6 +409,77 @@ describe('browserDjvuConversionPipeline', () => {
                 },
             });
             expect(getSaveTarget).not.toHaveBeenCalled();
+        } finally {
+            stat.mockRestore();
+            getSaveTarget.mockRestore();
+        }
+    });
+
+    it.each([
+        {
+            error: new Error('ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE'),
+            code: 'temporarily-unavailable',
+            message: 'Browser compact DjVu export is temporarily unavailable',
+        },
+        {
+            error: new Error('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT'),
+            code: 'unsupported-input',
+            message: 'Browser compact DjVu export does not support this page data',
+        },
+        {
+            error: new SerializableError({
+                code: 'too-large',
+                message: 'Image combine WASM request exceeds the admission ceiling',
+            }),
+            code: 'validation-rejected',
+            message: 'Image combine WASM request exceeds the admission ceiling',
+        },
+    ])('preserves the compact $code refusal without writing a fallback PDF', async ({
+        error, code, message,
+    }) => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget');
+        mocks.createWorker.mockResolvedValueOnce({terminate: vi.fn()});
+        mocks.getPageSizes.mockResolvedValueOnce([{
+            width: 100,
+            height: 100,
+            dpi: 300,
+        }]);
+        mocks.renderPageAsPpm.mockResolvedValueOnce({
+            input: {
+                fileName: 'page.ppm',
+                data: new Uint8Array([1]),
+            },
+            pageSize: {
+                widthPoints: 72,
+                heightPoints: 72,
+            },
+        });
+        mocks.combineWorker.mockRejectedValueOnce(error);
+        mocks.loggerError.mockClear();
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {
+                    jobId: requireJobId('djvu-compact-worker-refusal'),
+                    pdfStrategy: 'compact-djvu-aware',
+                    preserveBookmarks: false,
+                },
+            )).resolves.toMatchObject({
+                success: false,
+                error: message,
+                expected: {
+                    kind: 'expected',
+                    code,
+                },
+            });
+            expect(getSaveTarget).not.toHaveBeenCalled();
+            expect(mocks.loggerError).not.toHaveBeenCalled();
         } finally {
             stat.mockRestore();
             getSaveTarget.mockRestore();

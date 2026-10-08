@@ -6,6 +6,8 @@ import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import * as v from 'valibot';
 
+export const BROWSER_PDF_COMBINE_PAGE_SPEC_MAX_BYTES = 192 * 1024 * 1024;
+
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const byteArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
 const pdfBytesSchema = v.pipe(
@@ -92,10 +94,10 @@ const imagePreprocessingSchema = v.object({
     pageSizes: v.optional(v.pipe(v.array(pageSizeSchema), v.maxLength(500))),
     pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1), v.maxLength(500))),
 });
-const combinePayloadSchema = v.object({
-    inputs: v.pipe(v.array(inputSchema), v.minLength(1), v.maxLength(500)),
+const combinePayloadSchema = v.pipe(v.object({
+    inputs: v.pipe(v.array(inputSchema), v.maxLength(500)),
     wasmImagePreprocessing: v.optional(imagePreprocessingSchema),
-});
+}), v.check(value => value.inputs.length > 0 || (value.wasmImagePreprocessing?.pageSpecs?.length ?? 0) > 0));
 
 const requestSchema = v.object({
     id: requestIdSchema,
