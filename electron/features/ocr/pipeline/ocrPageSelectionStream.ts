@@ -13,6 +13,7 @@ import {iterateOcrPageRequestBatches} from '@electron/features/ocr/contracts';
 import type {
     IOcrPageWithWords,
     IOcrPdfPageRequest,
+    IOcrWordEdit,
     TOcrPdfPageSelection,
 } from '@electron/features/ocr/pipeline/types';
 
@@ -21,6 +22,8 @@ export interface IOcrCheckpointPageResult {
     pageDataPath: string;
     pdfPath: string;
     normalizeGreekMicroSign: boolean;
+    /** Edits the recognized words carry that Tesseract's PDF at `pdfPath` does not. */
+    wordEdits: IOcrWordEdit[];
     effectiveDpi?: number;
     diagnostics: IOcrDiagnostic[];
     /** Maps preprocessed raster pixels back to rendered raster pixels. */
@@ -57,6 +60,11 @@ function checkpointSchema(pageNumber: number) {
         effectiveDpi: v.optional(v.unknown()),
         diagnostics: v.optional(v.custom<IOcrDiagnostic[]>(Array.isArray)),
         preprocessInverse: v.optional(v.unknown()),
+        wordEdits: v.optional(v.array(v.strictObject({
+            word: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+            from: v.string(),
+            to: v.string(),
+        }))),
     });
 }
 
@@ -96,6 +104,7 @@ export async function* iterateCheckpointPageResults(
                 pageDataPath,
                 pdfPath,
                 normalizeGreekMicroSign: page.languages.some(isGreekOcrLanguage),
+                wordEdits: checkpoint.wordEdits ?? [],
                 ...(effectiveDpi === undefined ? {} : {effectiveDpi}),
                 diagnostics,
                 ...(isMatrix3(checkpoint.preprocessInverse) ? {preprocessInverse: checkpoint.preprocessInverse} : {}),
