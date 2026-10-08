@@ -14,19 +14,13 @@ describe('assistantMessageFormatting', () => {
         expect(formatAssistantMessage('Use `smth` here.')).toEqual([{
             kind: 'text',
             segments: [
-                {
-                    kind: 'text',
-                    text: 'Use ',
-                },
-                {
-                    kind: 'code',
-                    text: 'smth',
-                },
-                {
-                    kind: 'text',
-                    text: ' here.',
-                },
-            ],
+                'Use ',
+                'smth',
+                ' here.',
+            ].map((text, index) => ({
+                kind: index === 1 ? 'code' : 'text',
+                text,
+            })),
         }]);
     });
 
@@ -222,6 +216,28 @@ describe('assistantMessageFormatting', () => {
                 text,
             }],
         }]);
+    });
+
+    it.each([
+        'Plain paragraph grows without a blank line.',
+        'Plain **strong** tail and _emphasis_ followed by text.',
+        'word [pending `code` tail](/docs)',
+        'word [pending **strong** tail](/docs)',
+        'word [pending *emphasis* tail](/docs)',
+        'word _emphasis_suffix and [Docs](https://example.test) tail',
+        'First.\n\nSecond **bold** paragraph.\n\nAfter.',
+        'First\r\n\r\nSecond\r\nline',
+        '1. First\n2. Second\n\nAfter',
+        '| a | b |\n| --- | --- |\n| c | d |',
+        'Before\n```js\n| a | b |\n| --- | --- |\n| c | d |\n```\nAfter',
+    ])('matches full formatting at every streamed prefix: %s', (text) => {
+        const formatter = createStreamingAssistantMessageFormatter();
+        for (let end = 0; end <= text.length; end += 1) {
+            const prefix = text.slice(0, end);
+            expect(formatter.format(prefix), 'prefix ' + end).toEqual(formatAssistantMessage(prefix));
+        }
+        expect(formatter.format('Replacement.')).toEqual(formatAssistantMessage('Replacement.'));
+        expect(formatter.format('')).toEqual([]);
     });
 
     it('syntax-highlights code as escaped text tokens without producing HTML', () => {

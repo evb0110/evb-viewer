@@ -1,6 +1,5 @@
 import type {
     IAgentAssistantChatScope,
-    IAgentAssistantChatMessage,
     IAgentAssistantEvent,
     IAgentAssistantImageAttachment,
     IAgentAssistantState,
@@ -693,24 +692,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         if (event.type === 'message-delta' && event.messageId && event.delta && state.value) {
             setTurnActivity(t('assistant.activityReceivingResponse'));
-            const messageIndex = state.value.messages.findIndex((
-                message: IAgentAssistantChatMessage,
-            ) => message.id === event.messageId);
-            if (messageIndex >= 0) {
-                const messages = [...state.value.messages];
-                const message = messages[messageIndex];
-                if (!message) {
-                    return;
-                }
-                messages[messageIndex] = {
-                    ...message,
-                    text: `${message.text}${event.delta}`,
-                    pending: true,
-                };
-                state.value = {
-                    ...state.value,
-                    messages,
-                };
+            const message = state.value.messages.find(message => message.id === event.messageId);
+            if (message) {
+                message.text += event.delta;
+                message.pending = true;
                 if (isAssistantMessagesNearBottom()) {
                     void nextTick(scrollAssistantMessagesToBottom);
                 }
