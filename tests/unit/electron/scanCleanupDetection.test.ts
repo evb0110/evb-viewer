@@ -458,6 +458,8 @@ function createStagedSidecar(options: {
     reconcilePages?: readonly number[];
     onManifest?: (manifest: TStagedManifest) => void;
     onLease?: (event: 'acquired' | 'released', pageNumber: number) => void;
+    /** Extra native fields on each page's final verdict. */
+    pageComplete?: (pageNumber: number) => Partial<TNativeScanCleanupProgressV3>;
 } = {}) {
     const leaseHistory: Array<{
         event: 'acquired' | 'released';
@@ -560,6 +562,7 @@ function createStagedSidecar(options: {
                 confidence: 0.9,
                 reconciled: true,
                 clusterAgreement: 1,
+                ...options.pageComplete?.(page.sourcePageIndex + 1),
             });
         }
     });
@@ -599,6 +602,7 @@ function createRequest(): IScanCleanupDetectionRequest {
 function createSinglePageDetectionHarness(
     tempDir: string,
     pageSizeSource: ReturnType<typeof createLazyPageSizeStore>,
+    sidecarOptions: Parameters<typeof createStagedSidecar>[0] = {},
 ) {
     const publishedPath = join(tempDir, 'published.png');
     const retention = {
@@ -626,7 +630,7 @@ function createSinglePageDetectionHarness(
         releaseRaster: vi.fn(async () => undefined),
         release: vi.fn(async () => undefined),
     } satisfies IScanCleanupDetectionRetention<{id: string}>;
-    const sidecar = createStagedSidecar();
+    const sidecar = createStagedSidecar(sidecarOptions);
     return {
         retention,
         dependencies: {
@@ -693,6 +697,28 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
 
         expect(await detection.resultStore.getPage(1)).toMatchObject({pageNumber: 1});
         expect(detection.results).toHaveLength(1);
+    });
+
+    it('counts the pages recommended as blank among its final results', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-blank-count-test-'));
+        dirs.push(tempDir);
+        const harness = createSinglePageDetectionHarness(tempDir, createLazyPageSizeStore(1), {pageComplete: () => ({
+            recommendedOutputMode: 'bw',
+            recommendedOutputModeConfidence: 0.95,
+            recommendedOutputModeReason: 'blank',
+        })});
+
+        const detection = await runScanCleanupDetection(
+            createRequest(),
+            new AbortController().signal,
+            harness.retention,
+            harness.dependencies,
+            {rasterConcurrency: 1},
+            () => undefined,
+        );
+        resultStores.push(detection.resultStore);
+
+        expect(detection.blankPageCount).toBe(1);
     });
 
     it('preserves a successful result when scratch removal fails after publication', async () => {

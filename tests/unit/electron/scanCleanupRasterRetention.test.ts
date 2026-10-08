@@ -430,6 +430,54 @@ export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBat
 
 }
 
+export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): Promise<void> {
+
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
+    const page = {
+        ...DOCUMENT_PAGE_SIZES[0]!,
+        pageNumber: 1,
+    };
+    const store: IPdfPageSizeStore = {
+        pageCount: 1,
+        getPage: vi.fn(async () => page),
+        readRange: vi.fn(async () => [page]),
+        forEachChunk: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+        fork: vi.fn(() => store),
+    };
+    deps.getPageCount = vi.fn(async () => 1);
+    deps.getPageSizeStore = vi.fn(() => store);
+    deps.isRasterDetectionAvailable = () => true;
+    // A document closed while its raster facts are probed rejects the probe.
+    deps.detectRasterPages = vi.fn()
+        .mockRejectedValueOnce(new Error('document closed during the raster probe'))
+        .mockResolvedValue(createScanCleanupPageRasterSource({
+            pages: [1],
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+    const retention = scanCleanupRasterRetention(deps);
+    const document = await retention.openDocument({
+        sourcePdfPath: join(dir, 'source.pdf'),
+        documentRevision: 'revision-1',
+    });
+    const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+
+    await expect(Promise.resolve(rasterSource.getPageRaster(1)))
+        .rejects.toThrow('document closed during the raster probe');
+    // The failed read leaves the cache, so asking again probes again.
+    await expect(Promise.resolve(rasterSource.getPageRaster(1)))
+        .resolves.toMatchObject({dpi: 300});
+    expect(deps.detectRasterPages).toHaveBeenCalledTimes(2);
+    await retention.dispose();
+
+}
+
 export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLegacyArrays(): Promise<void> {
 
     const {
@@ -1398,6 +1446,10 @@ describe('scanCleanupRasterRetentionTest', () => {
         await expect(owner.dispose()).resolves.toBeUndefined();
     });
     const scenarios = [
+        [
+            'reject raster fact reads when the native probe fails',
+            scenarioRejectsRasterFactReadsWhenTheNativeProbeFails,
+        ],
         [
             'avoid reading path-only processing PNGs',
             scenarioDoesNotReadTheFullRetainedPNGWhenAProcessingRasterIsPathOnly,
