@@ -61,10 +61,7 @@ describe('scan cleanup copied spread evidence', () => {
     it('reuses the analyzed page plan for a preview during detection', async () => {
         const evidenceDir = resolve('.devkit/lane-a-1185', `real-app-${process.pid}`);
         await mkdir(evidenceDir, {recursive: true});
-        await sessionFixture.restart({extraEnv: {
-            EVB_SCAN_CLEANUP_EVIDENCE_DIR: evidenceDir,
-            EVB_RECORD_SESSION: '1',
-        }});
+        await sessionFixture.restart({extraEnv: {EVB_SCAN_CLEANUP_EVIDENCE_DIR: evidenceDir}});
         const app = sessionFixture.getSession();
         await app.command('windowResize', [
             1280,
