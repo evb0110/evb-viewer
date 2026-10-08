@@ -35,15 +35,23 @@ import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-
 // session recovers from.
 const stores = vi.hoisted(() => ({
     documents: [] as string[],
+    readableDocuments: new Map<string, Uint8Array>(),
     checkpoints: [] as unknown[],
 }));
 
 vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
-    createStoredDocument: vi.fn(async (fileName: string) => {
+    createStoredDocument: vi.fn(async (fileName: string, bytes: Uint8Array) => {
         stores.documents.push(fileName);
-        return `/browser-recovery/${String(stores.documents.length)}-${fileName}`;
+        const ref = `/browser-recovery/${String(stores.documents.length)}-${fileName}`;
+        stores.readableDocuments.set(ref, bytes.slice());
+        return ref;
     }),
-    cleanupDetachedDocument: vi.fn(async () => {}),
+    read: vi.fn(async (ref: string) => {
+        const bytes = stores.readableDocuments.get(ref);
+        if (!bytes) throw new Error(`Browser document not found: ${ref}`);
+        return bytes;
+    }),
+    cleanupDetachedDocument: vi.fn(async (ref: string) => stores.readableDocuments.delete(ref)),
 }}));
 vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => ({
     loadBrowserWorkspaceRecovery: vi.fn(async () => {
@@ -122,6 +130,7 @@ const unmounts: Array<() => void> = [];
 afterEach(() => {
     unmounts.splice(0).forEach(unmount => unmount());
     stores.documents.length = 0;
+    stores.readableDocuments.clear();
     stores.checkpoints.length = 0;
     notices.value = [];
     vi.unstubAllGlobals();
@@ -130,8 +139,11 @@ afterEach(() => {
 
 // Mounts recovery over one dirty PDF shown in two views (tab-1 and tab-2),
 // whose mounted workspaces produce recovery bytes through `snapshotBytes`.
-function mountLinkedDocumentRecovery(snapshotBytes: () => Promise<Uint8Array | null>, contentRevision = ref(0)) {
-    const workingCopyPath = requireDocumentRef('/browser-working/shared.pdf');
+function mountLinkedDocumentRecovery(
+    snapshotBytes: () => Promise<Uint8Array | null>,
+    contentRevision = ref(0),
+    workingCopyPath = requireDocumentRef('/browser-working/shared.pdf'),
+) {
     const originalPath = requireDocumentRef('/documents/shared.pdf');
     const session = createWorkspaceDocumentController({tabId: 'tab-1'});
     session.commitDocument({
@@ -245,6 +257,26 @@ describe('browser workspace recovery', () => {
         const refreshed = latestCheckpointRefs();
         expect(refreshed[0]).not.toBe(refs[0]);
         expect(refreshed[1]).toBe(refreshed[0]);
+    });
+
+    it('keeps adopted recovery bytes readable when replacement and clean checkpoints are published', async () => {
+        vi.useFakeTimers();
+        mountLinkedDocumentRecovery(async () => PDF_BYTES);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const adoptedRef = requireDocumentRef(latestCheckpointRefs()[0]);
+        unmounts.pop()!();
+        const session = mountLinkedDocumentRecovery(async () => PDF_BYTES, ref(0), adoptedRef);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const replacementRef = requireDocumentRef(latestCheckpointRefs()[0]);
+        const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        expect(replacementRef).not.toBe(adoptedRef);
+        await expect(browserDocumentStore.read(adoptedRef)).resolves.toEqual(PDF_BYTES);
+        await expect(browserDocumentStore.read(replacementRef)).resolves.toEqual(PDF_BYTES);
+
+        session.setDirty(false);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await expect(browserDocumentStore.read(adoptedRef)).resolves.toEqual(PDF_BYTES);
+        await expect(browserDocumentStore.read(replacementRef)).rejects.toThrow('Browser document not found');
     });
 
     it('updates linked reading views while retaining unchanged dirty recovery bytes', async () => {
