@@ -265,6 +265,7 @@ fn mode_stage_pins_mixed_line_art_soft_foreground_override() {
         ..CleanupOptions::default()
     };
     let output = resolve_mode_and_preservation(ModePreservationInput {
+        source_effectively_blank: false,
         rotated: &image,
         layout_normalized: &image,
         analysis_rgb: None,
@@ -301,6 +302,7 @@ fn mode_stage_pins_coherent_photo_preservation_and_mask_replacement() {
         ..CleanupOptions::default()
     };
     let output = resolve_mode_and_preservation(ModePreservationInput {
+        source_effectively_blank: false,
         rotated: &image,
         layout_normalized: &image,
         analysis_rgb: None,

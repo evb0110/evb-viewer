@@ -83,16 +83,9 @@ fn is_side_edge_rail(
     row_thickness * 40 <= width && length >= row_thickness.saturating_mul(8)
 }
 
-/// Side edge rails, and the innermost column the left and right edge rails
-/// reach. Besides
-/// single bands (`is_side_edge_rail`), edge shading breaks into dashes where it
-/// crosses the threshold intermittently, each too short to judge alone; a
-/// fore-edge often leaves two parallel strands of them. Dashes count only as
-/// a run: pieces ending within a fortieth of the page of one side edge, each
-/// taller than wide and clear of all other glyph-sized ink for a fiftieth of
-/// the page, that together with the bands along that edge cover a fortieth of
-/// it. A glyph cut by the edge always has the rest of its word closer than
-/// that.
+/// Side rails and their inner columns. Detached dashes use the same outer
+/// twentieth as bands, but must form a spatially connected, isolated run.
+/// Separate compact edge marks cannot borrow another strand's length.
 pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usize>; 2]) {
     let (width, height) = (binary.width(), binary.height());
     let components = ComponentMap::from_binary(binary);
@@ -100,35 +93,23 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usi
     for component in components.components() {
         rail[component.label as usize] = is_side_edge_rail(&components, component, width, height);
     }
-    let depth_limit = (width / 40).max(2);
     let clearance = (width / 50).max(4);
-    // Shading also leaves specks beside its dashes. Only glyph-sized ink can
-    // be the word a cut glyph belongs to.
     let owner_area = (width / 50).max(4);
     let band = width.div_ceil(20);
     let mut reach = [None; 2];
-    for (index, right_side) in [false, true].into_iter().enumerate() {
-        // Distance from this edge to a component's inner side.
-        let depth = |component: &Component| {
-            if right_side {
-                width - 1 - component.left
-            } else {
-                component.right
-            }
+    for (index, side_reach) in reach.iter_mut().enumerate() {
+        let depth = |component: &Component| [component.right, width - 1 - component.left][index];
+        let column = |cross: usize| [cross, width - 1 - cross][index];
+        let piece = |component: &Component| {
+            !rail[component.label as usize]
+                && depth(component) < band
+                && component.bottom + 1 - component.top
+                    >= (component.right + 1 - component.left) * 2
         };
-        let column = |cross: usize| if right_side { width - 1 - cross } else { cross };
-        let mut piece = vec![false; rail.len()];
-        for component in components.components() {
-            let thickness = component.right - component.left + 1;
-            piece[component.label as usize] = !rail[component.label as usize]
-                && depth(component) < depth_limit
-                && component.bottom + 1 - component.top >= thickness * 2;
-        }
-        // A band already found is not ink that could own a dash beside it.
         let isolated = components
             .components()
             .iter()
-            .filter(|component| piece[component.label as usize])
+            .filter(|component| piece(component))
             .filter(|component| {
                 let rows = component.top.saturating_sub(clearance)
                     ..=(component.bottom + clearance).min(height - 1);
@@ -138,32 +119,46 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usi
                         let x = column(cross);
                         let label = components.label_at(x, y) as usize;
                         label != 0
-                            && !piece[label]
+                            && !piece(&components.components()[label - 1])
                             && !rail[label]
                             && components.components()[label - 1].area >= owner_area
                     })
                 })
-            })
-            .collect::<Vec<_>>();
-        let mut side_rails = components
+            });
+        let mut pending = components
             .components()
             .iter()
             .filter(|component| rail[component.label as usize] && depth(component) < band)
+            .chain(isolated)
             .collect::<Vec<_>>();
         let mut covered = vec![false; height];
-        for component in side_rails.iter().chain(isolated.iter()) {
-            covered[component.top..=component.bottom].fill(true);
-        }
-        let run = covered.iter().filter(|&&covered| covered).count() * 40 >= height;
-        if run {
-            for component in &isolated {
-                rail[component.label as usize] = true;
+        while let Some(seed) = pending.pop() {
+            let mut run = vec![seed];
+            while let Some(index) = pending.iter().position(|candidate| {
+                run.iter().any(|member| {
+                    candidate.left <= member.right + RASTER_EDGE_SLIVER_PX
+                        && member.left <= candidate.right + RASTER_EDGE_SLIVER_PX
+                        && candidate.top <= member.bottom + clearance
+                        && member.top <= candidate.bottom + clearance
+                })
+            }) {
+                run.push(pending.swap_remove(index));
             }
-            side_rails.extend(isolated);
+            covered.fill(false);
+            for component in &run {
+                covered[component.top..=component.bottom].fill(true);
+            }
+            if run.len() > 1 && covered.iter().filter(|&&covered| covered).count() * 40 >= height {
+                for component in run {
+                    rail[component.label as usize] = true;
+                }
+            }
         }
-        reach[index] = side_rails
+        *side_reach = components
+            .components()
             .iter()
-            .map(|component| depth(component))
+            .filter(|component| rail[component.label as usize] && depth(component) < band)
+            .map(depth)
             .max()
             .map(column);
     }
