@@ -3349,9 +3349,10 @@ describe('Electron E2E - Viewer Smoke', () => {
                     const search = async (query: string, count: number) => {
                         const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
                         await clickAsUser(session.page, input!);
-                        await session.page.keyboard.down('Control');
+                        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+                        await session.page.keyboard.down(modifier);
                         await session.page.keyboard.press('KeyA');
-                        await session.page.keyboard.up('Control');
+                        await session.page.keyboard.up(modifier);
                         await session.page.keyboard.type(query);
                         await session.page.keyboard.press('Enter');
                         await waitForFunctionInPage(session.page, (root: string, expected: number) => (
@@ -3449,6 +3450,30 @@ describe('Electron E2E - Viewer Smoke', () => {
                 await session.page.keyboard.press('Tab');
                 await session.page.keyboard.up('Shift');
                 expect((await readGeometry()).focused).toBe(true);
+                if (uiScale === 'default' && direction === 'right') {
+                    const handle = await session.page.$(sash);
+                    const rect = await handle!.boundingBox();
+                    expect(rect).not.toBeNull();
+                    const x = rect!.x + rect!.width / 2;
+                    const y = rect!.y + rect!.height / 2;
+                    await session.page.mouse.move(x, y);
+                    await session.page.mouse.down();
+                    await session.page.keyboard.press('Tab');
+                    await session.page.mouse.move(x - 30, y);
+                    await session.page.mouse.up();
+                    await waitForAnimationFrames(session.page, 2);
+                    const dragged = await readGeometry();
+                    observations.push({
+                        pointerAfterBlur: dragged,
+                        pointerBeforeBlur: maximum,
+                    });
+                    expect(dragged.width).toBeLessThan(maximum.width);
+                    expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
+                    await session.page.keyboard.down('Shift');
+                    await session.page.keyboard.press('Tab');
+                    await session.page.keyboard.up('Shift');
+                    expect((await readGeometry()).focused).toBe(true);
+                }
                 const cdp = await session.page.createCDPSession();
                 const tree = await cdp.send('Accessibility.getFullAXTree');
                 expect(tree.nodes.some(node => node.role?.value === 'separator' && node.name?.value === after.label && node.value?.value !== undefined)).toBe(true);

@@ -45,8 +45,8 @@
             :aria-orientation="splitNode.orientation === 'horizontal' ? 'vertical' : 'horizontal'"
             @pointerdown.prevent="handleSplitResizePointerDown"
             @keydown="handleSplitResizeKeyDown"
-            @keyup="clearResizeListeners"
-            @blur="clearResizeListeners"
+            @keyup="finishKeyboardResize"
+            @blur="finishKeyboardResize"
         />
 
         <div
@@ -209,6 +209,31 @@ function handleSplitResizePointerDown(event: PointerEvent) {
     if (split) {
         startResize(event, split.id, split.orientation);
     }
+}
+
+function finishKeyboardResize(event: KeyboardEvent | FocusEvent) {
+    if (moveListener) {
+        return;
+    }
+    if (event instanceof KeyboardEvent) {
+        const keys = splitNode.value?.orientation === 'horizontal'
+            ? [
+                'ArrowLeft',
+                'ArrowRight',
+                'Home',
+                'End',
+            ]
+            : [
+                'ArrowUp',
+                'ArrowDown',
+                'Home',
+                'End',
+            ];
+        if (!keys.includes(event.key)) {
+            return;
+        }
+    }
+    clearResizeListeners();
 }
 
 function handleSplitResizeKeyDown(event: KeyboardEvent) {
