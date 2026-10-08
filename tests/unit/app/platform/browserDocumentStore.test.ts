@@ -311,6 +311,69 @@ describe('BrowserDocumentStore', () => {
         expect(getFile).toHaveBeenCalled();
     });
 
+    it('refreshes content snapshots through a source proxy without replacing its stored bytes', async () => {
+        let currentFile = new File([Uint8Array.of(1, 2, 3, 4)], 'snapshot.pdf', {lastModified: 11});
+        const handle = createFileSystemFileHandle({
+            name: currentFile.name,
+            getFile: async () => currentFile,
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(currentFile, {saveHandle: handle});
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const initial = await store.getContentSnapshot(workingRef);
+        expect(initial).toEqual({
+            ...await store.stat(sourceRef),
+            contentSignature: await store.getContentSignature(sourceRef),
+        });
+
+        currentFile = new File([Uint8Array.of(9, 8, 7, 6)], currentFile.name, {lastModified: 11});
+        const changed = await store.getContentSnapshot(workingRef);
+        expect(changed.size).toBe(initial.size);
+        expect(changed.contentSignature).not.toBe(initial.contentSignature);
+        expect(await store.getContentSnapshot(sourceRef)).toEqual(changed);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
+
+        currentFile = new File([Uint8Array.of(5, 4)], currentFile.name, {lastModified: 11});
+        const resized = await store.getContentSnapshot(workingRef);
+        expect(resized.size).toBe(2);
+        expect(resized.contentSignature).not.toBe(changed.contentSignature);
+    });
+
+    it('refreshes large content snapshots with the existing bounded head, middle and tail witness', async () => {
+        const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
+        let currentFile = new File([bytes], 'sampled.pdf', {lastModified: 11});
+        const handle = createFileSystemFileHandle({
+            name: currentFile.name,
+            getFile: async () => {
+                const file = currentFile;
+                Object.defineProperty(file, 'arrayBuffer', {value: async () => {
+                    throw new Error('Large content snapshots must not read the full source');
+                }});
+                return file;
+            },
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(currentFile.name, new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            storageMode: 'handle',
+            saveHandle: handle,
+        });
+        let previous = await store.getContentSnapshot(ref);
+        for (const offset of [
+            0,
+            Math.floor(bytes.length / 2),
+            bytes.length - 1,
+        ]) {
+            bytes[offset] = 7;
+            currentFile = new File([bytes], currentFile.name, {lastModified: 11});
+            const next = await store.getContentSnapshot(ref);
+            expect(next.size).toBe(bytes.length);
+            expect(next.contentSignature).not.toBe(previous.contentSignature);
+            await expect(store.readRange(ref, offset, 1)).resolves.toEqual(Uint8Array.of(7));
+            previous = next;
+        }
+    });
+
     it('rejects document creation when durable IndexedDB writes cannot commit', async () => {
         vi.stubGlobal('indexedDB', undefined);
         const store = new BrowserDocumentStore();

@@ -603,7 +603,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             size: largeSize,
             modifiedAt: 0,
         });
-        const signatureSpy = vi.spyOn(browserDocumentStore, 'getContentSignature').mockResolvedValue('large-validation');
+        const snapshotSpy = vi.spyOn(browserDocumentStore, 'getContentSnapshot').mockResolvedValue({
+            size: largeSize,
+            modifiedAt: 0,
+            contentSignature: 'large-validation',
+        });
         const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
             new Error('full browser reads are forbidden for this test'),
         );
@@ -621,9 +625,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         expect(readSpy).not.toHaveBeenCalled();
         expect(readRangeSpy).toHaveBeenCalledWith(path, 0, 4 * 1024 * 1024);
-        expect(signatureSpy).toHaveBeenCalled();
         statSpy.mockRestore();
-        signatureSpy.mockRestore();
+        snapshotSpy.mockRestore();
         readSpy.mockRestore();
         readRangeSpy.mockRestore();
     });
@@ -640,7 +643,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             size: largeSize,
             modifiedAt: 0,
         });
-        const signatureSpy = vi.spyOn(browserDocumentStore, 'getContentSignature').mockResolvedValue('multi-range-validation');
+        const snapshotSpy = vi.spyOn(browserDocumentStore, 'getContentSnapshot').mockResolvedValue({
+            size: largeSize,
+            modifiedAt: 0,
+            contentSignature: 'multi-range-validation',
+        });
         const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
             new Error('whole browser reads are forbidden for this test'),
         );
@@ -675,7 +682,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(readRangeSpy).toHaveBeenNthCalledWith(2, path, chunkSize, chunkSize);
         expect(readRangeSpy).toHaveBeenCalledTimes(2);
         statSpy.mockRestore();
-        signatureSpy.mockRestore();
+        snapshotSpy.mockRestore();
         readSpy.mockRestore();
         readRangeSpy.mockRestore();
     });
@@ -692,7 +699,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             size: largeSize,
             modifiedAt: 0,
         });
-        const signatureSpy = vi.spyOn(browserDocumentStore, 'getContentSignature').mockResolvedValue('failed-range-validation');
+        const snapshotSpy = vi.spyOn(browserDocumentStore, 'getContentSnapshot').mockResolvedValue({
+            size: largeSize,
+            modifiedAt: 0,
+            contentSignature: 'failed-range-validation',
+        });
         const readSpy = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(
             new Error('whole browser reads are forbidden for this test'),
         );
@@ -733,7 +744,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(readRangeSpy).toHaveBeenNthCalledWith(2, path, chunkSize, chunkSize);
         expect(readRangeSpy).toHaveBeenCalledTimes(2);
         statSpy.mockRestore();
-        signatureSpy.mockRestore();
+        snapshotSpy.mockRestore();
         readSpy.mockRestore();
         readRangeSpy.mockRestore();
     });

@@ -36,8 +36,10 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     path: string,
     options: ICreateBrowserPdfjsDocumentInitOptions = {},
 ) {
-    const { size } = await browserDocumentStore.stat(path);
-    const contentSignature = await browserDocumentStore.getContentSignature(path);
+    const {
+        size,
+        contentSignature,
+    } = await browserDocumentStore.getContentSnapshot(path);
     const initialData = await browserDocumentStore.readRange(
         path,
         0,
@@ -112,13 +114,10 @@ async function assertBrowserDocumentUnchanged(
     expectedSize: number,
     expectedContentSignature: string,
 ) {
-    const [
-        { size },
+    const {
+        size,
         contentSignature,
-    ] = await Promise.all([
-        browserDocumentStore.stat(path),
-        browserDocumentStore.getContentSignature(path),
-    ]);
+    } = await browserDocumentStore.getContentSnapshot(path);
     if (size !== expectedSize || contentSignature !== expectedContentSignature) {
         throw new Error('Browser PDF source changed while PDF.js range transport was active');
     }

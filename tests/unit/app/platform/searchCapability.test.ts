@@ -68,6 +68,7 @@ const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
     stat: vi.fn(),
     getContentSignature: vi.fn(),
+    getContentSnapshot: vi.fn(),
     getDocumentRevision: vi.fn(),
     read: vi.fn(),
     readRange: vi.fn(),
@@ -133,6 +134,11 @@ describe('createBrowserSearchCapability', () => {
         browserDocumentStoreMock.stat.mockReset();
         browserDocumentStoreMock.getContentSignature.mockReset();
         browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-1');
+        browserDocumentStoreMock.getContentSnapshot.mockReset();
+        browserDocumentStoreMock.getContentSnapshot.mockImplementation(async (path: string) => ({
+            ...await browserDocumentStoreMock.stat(path),
+            contentSignature: await browserDocumentStoreMock.getContentSignature(path),
+        }));
         browserDocumentStoreMock.getDocumentRevision.mockReset();
         browserDocumentStoreMock.getDocumentRevision.mockImplementation(async (documentRef: string) =>
             makeBrowserRevision(documentRef, 'drt1:browser:content-token-1'));
