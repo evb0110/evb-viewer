@@ -48,8 +48,12 @@ Choose the level by what a developer should do with the line:
 | `info` | A milestone worth seeing in the dev terminal. Keep it rare. |
 | `debug` | Detail for reconstructing a timeline after the fact. Lifecycle chatter belongs here or nowhere. |
 
-A slow operation is a `warn`, not a `debug` with a duration. For example, a
-native process that is still running after 5 s logs a warning.
+A slow operation is a `warn` when it is slower than its owner expects, not
+merely because time passed. A native process's age is not that signal: a
+scanned page legitimately renders for seconds, so every native process logs
+its duration at `debug` when it settles, and its owner reports a timeout, an
+unexpected exit or an unproven termination. The app's own teardown of a
+utility process it started is lifecycle detail and logs at `debug` too.
 
 ## Where records go
 

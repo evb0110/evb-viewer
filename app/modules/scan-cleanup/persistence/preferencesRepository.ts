@@ -58,16 +58,31 @@ export function exportScanCleanupLegacyStorage(
     };
 }
 
-export function clearScanCleanupLegacyStorage() {
+/**
+ * Removes legacy storage the file-backed store has adopted. Global settings
+ * migrate on the first read. A document entry keyed by its path can only be
+ * adopted once that document's source hash is known, so it stays until then.
+ */
+export function clearScanCleanupLegacyStorage(isDocumentAdopted: (legacyDocumentKey: string) => boolean) {
     if (typeof window === 'undefined') {
         return;
     }
     try {
         window.localStorage.removeItem(SETTINGS_KEY);
-        window.localStorage.removeItem(OVERRIDES_KEY);
+        const remaining = Object.entries(loadDocumentEntries(browserStorage))
+            .filter(([legacyDocumentKey]) => !isDocumentAdopted(legacyDocumentKey));
+        if (remaining.length === 0) {
+            window.localStorage.removeItem(OVERRIDES_KEY);
+        } else {
+            window.localStorage.setItem(OVERRIDES_KEY, JSON.stringify(Object.fromEntries(remaining)));
+        }
     } catch {
         // Best-effort cleanup after the file-backed store confirms migration.
     }
+}
+
+export function hasScanCleanupLegacyDocumentEntry(legacyDocumentKey: string) {
+    return Object.hasOwn(loadDocumentEntries(browserStorage), legacyDocumentKey);
 }
 
 function loadDocumentEntries(storage: IScanCleanupPreferenceStorage) {

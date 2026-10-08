@@ -77,7 +77,6 @@ export interface IRunCommandOptions {
 const DEFAULT_MAX_STDOUT_BYTES = 262_144;
 const DEFAULT_MAX_STDERR_BYTES = 262_144;
 const DEFAULT_TERMINATION_GRACE_MS = 1_000;
-const NATIVE_PROCESS_WATCHDOG_MS = 5_000;
 const NATIVE_COMMAND_SCRATCH_PREFIX = 'native-command-';
 const nativeProcessTelemetryLog = createLogger('native-process-telemetry');
 let activeNativeProcessCount = 0;
@@ -470,12 +469,10 @@ async function runNativeCommandCore(
         const stdoutDecoder = new StringDecoder('utf8');
         const stderrDecoder = new StringDecoder('utf8');
         let timeoutHandle: NodeJS.Timeout | null = null;
-        let watchdogHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError = null as Error | null;
         let terminationPromise: Promise<boolean> | null = null;
         let settled = false as boolean;
-        let watchdogTriggered = false;
         let settlementOutcome: 'resolved' | 'rejected' | null = null;
         let settlementExitCode: number | null = null;
         let settlementSignal: NodeJS.Signals | null = null;
@@ -598,26 +595,21 @@ async function runNativeCommandCore(
             if (processAdmitted) {
                 processAdmitted = false;
                 activeNativeProcessCount = Math.max(0, activeNativeProcessCount - 1);
-                const settledLog = watchdogTriggered
-                    ? nativeProcessTelemetryLog.warn
-                    : nativeProcessTelemetryLog.debug;
-                settledLog('Native process settled', {
+                // Process age is not a fault: a scanned page legitimately takes
+                // seconds. Failures, timeouts and unproven termination are
+                // reported by their own paths; this is timing detail.
+                nativeProcessTelemetryLog.debug('Native process settled', {
                     command: context.displayName,
                     durationMs: Math.round(performance.now() - startedAt),
                     active: activeNativeProcessCount,
                     outcome: settlementOutcome ?? 'unknown',
                     exitCode: settlementExitCode,
                     signal: settlementSignal,
-                    watchdogTriggered,
                 });
             }
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
-            }
-            if (watchdogHandle) {
-                clearTimeout(watchdogHandle);
-                watchdogHandle = null;
             }
             if (forceRejectHandle) {
                 clearTimeout(forceRejectHandle);
@@ -673,18 +665,6 @@ async function runNativeCommandCore(
             proc = spawnNativeProcess(command, args, context, windowsHide, stdin !== undefined);
             processAdmitted = true;
             activeNativeProcessCount += 1;
-            watchdogHandle = setTimeout(() => {
-                if (settled || !proc) {
-                    return;
-                }
-                watchdogTriggered = true;
-                nativeProcessTelemetryLog.warn('Native process still running', {
-                    command: context.displayName,
-                    elapsedMs: Math.round(performance.now() - startedAt),
-                    pid: proc.pid ?? null,
-                });
-            }, NATIVE_PROCESS_WATCHDOG_MS);
-            watchdogHandle.unref();
         } catch (error) {
             const message = `${context.displayName} failed to start: ${getErrorMessage(error)}`;
             log?.('error', `${message}; cmd=${context.displayCommand}`);

@@ -38,6 +38,16 @@ import {
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
+const HOST_RAM_BYTES = 16 * 1024 * 1024 * 1024;
+vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
+    logicalCpus: 8,
+    totalRamBytes: 16 * 1024 * 1024 * 1024,
+    safeMode: false,
+    detectedTier: 'medium',
+    performanceMode: 'auto',
+    tier: 'medium',
+})}));
+
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
 const dirs: string[] = [];
@@ -1657,6 +1667,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
             expect(defaultDependencies.getPageSizeStore).toBeDefined();
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy();
             expect(rasterPolicy.rasterConcurrency).toBeGreaterThan(0);
+            // Native detection sizes its page workers from host memory.
+            expect(rasterPolicy.totalRamBytes).toBe(HOST_RAM_BYTES);
             const signal = new AbortController().signal;
             const detectionLease = await defaultDependencies.acquireDetectionLease!(
                 'scan-cleanup-defaults-test',

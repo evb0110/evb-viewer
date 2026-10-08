@@ -13,11 +13,16 @@ import {
     createApp,
     defineComponent,
     h,
+    inject,
     nextTick,
     ref,
 } from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {useScanCleanupSourceSha256} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
+import {
+    scanCleanupSourceIdentityKey,
+    useScanCleanupSourceSha256,
+    type IScanCleanupSourceIdentity,
+} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
 
 const files = vi.hoisted(() => ({
     createManagedTempFileHandle: vi.fn(),
@@ -95,6 +100,48 @@ describe('scan cleanup source SHA-256 bridge', () => {
         expect(readSourceSha256()).toBe('a'.repeat(64));
         expect(files.createManagedTempFileHandle).toHaveBeenCalledOnce();
         expect(files.releaseManagedTempFileHandle).toHaveBeenCalledOnce();
+
+        app.unmount();
+        host.remove();
+    });
+
+    // Scan cleanup's document settings wait on this state: a hash that is
+    // still being read is not a missing one, and a failed read can be retried.
+    it('tells the Scan cleanup surface whether the hash is pending, ready or failed', async () => {
+        let resolveHandle!: (handle: unknown) => void;
+        files.createManagedTempFileHandle
+            .mockRejectedValueOnce(new Error('document is not readable'))
+            .mockReturnValueOnce(new Promise(resolve => {
+                resolveHandle = resolve;
+            }));
+        let identity: IScanCleanupSourceIdentity | null = null;
+        const Surface = defineComponent({setup() {
+            identity = inject(scanCleanupSourceIdentityKey, null);
+            return () => h('div');
+        }});
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            useScanCleanupSourceSha256({
+                enabled: ref(true),
+                sourcePath: ref(requireDocumentRef('/working/book.pdf')),
+                documentRevision: ref('revision-1'),
+            });
+            return () => h(Surface);
+        }}));
+        app.mount(host);
+        const readState = () => (identity as IScanCleanupSourceIdentity | null)?.state.value;
+
+        await vi.waitFor(() => expect(readState()).toBe('failed'));
+        (identity as IScanCleanupSourceIdentity | null)?.retry();
+        await vi.waitFor(() => expect(readState()).toBe('pending'));
+        resolveHandle({
+            path: '/working/book.pdf',
+            size: 1,
+            sha256: 'A'.repeat(64),
+            leaseId: 'scan-cleanup-hash-lease',
+            revision: null,
+        });
+        await vi.waitFor(() => expect(readState()).toBe('ready'));
 
         app.unmount();
         host.remove();

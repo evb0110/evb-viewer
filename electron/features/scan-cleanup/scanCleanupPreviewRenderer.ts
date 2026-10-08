@@ -20,11 +20,11 @@ import type {
     IPdfPageSizeStore,
 } from '@electron/pdf/pdfPageSizes';
 import {
-    DETECTION_DPI,
     PREVIEW_DPI,
     resolvePagePreviewDpi,
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
+    resolveScanCleanupAnalysisDpi,
 } from '@evb/scan-cleanup/core/detection';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -436,7 +436,10 @@ export async function scanCleanupPreviewRenderer(
         if (isScanCleanupSignalAborted(signal)) throw signal.reason;
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
-        const canonicalRaw = baseRaw.dpi === DETECTION_DPI
+        // Detection classified this page on the same plane, so its retained
+        // raster is reused here when it is still cached.
+        const analysisDpi = resolveScanCleanupAnalysisDpi(pageSize);
+        const canonicalRaw = baseRaw.dpi === analysisDpi
             ? baseRaw
             : await retention.materializeRawRasterPath(
                 document,
@@ -444,11 +447,11 @@ export async function scanCleanupPreviewRenderer(
                 signal,
                 dependencies,
                 baseRaw.totalPages,
-                DETECTION_DPI,
+                analysisDpi,
                 pageSize,
                 claimId,
             );
-        if (canonicalRaw !== baseRaw) rememberRasterClaim(request.pageNumber, DETECTION_DPI);
+        if (canonicalRaw !== baseRaw) rememberRasterClaim(request.pageNumber, analysisDpi);
         const outputs = [
             0,
             1,
@@ -531,7 +534,7 @@ export async function scanCleanupPreviewRenderer(
             pages: [{
                 inputPath: lossless ? canonicalRaw.path : inputPath,
                 analysisInputPath: canonicalRaw.path,
-                analysisDpi: DETECTION_DPI,
+                analysisDpi,
                 ...(trustedMrcLayers === null
                     ? {}
                     : {
@@ -539,7 +542,7 @@ export async function scanCleanupPreviewRenderer(
                         trustedMrcBackgroundPath: trustedMrcLayers.backgroundPath,
                     }),
                 pageNumber: request.pageNumber,
-                dpi: lossless ? DETECTION_DPI : renderDpi,
+                dpi: lossless ? analysisDpi : renderDpi,
                 sourceDpi,
                 sourceHasBilevelLayer,
                 ...(sourceBackgroundDpi === undefined ? {} : {sourceBackgroundDpi}),

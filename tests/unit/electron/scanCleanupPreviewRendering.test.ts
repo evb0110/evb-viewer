@@ -303,11 +303,14 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
             widthPx: number;
             heightPx: number
         };
-        pages: Array<{options: {
-            dpi: number;
-            sourceDpi: number;
-            requestedRenderDpi: number
-        }}>;
+        pages: Array<{
+            analysisDpi?: number;
+            options: {
+                dpi: number;
+                sourceDpi: number;
+                requestedRenderDpi: number
+            };
+        }>;
     } | null = null;
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
         manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
@@ -337,6 +340,13 @@ export async function scenarioBoundsAPhysicallyOversizedScanPreviewBeforePoppler
             requestedRenderDpi: 72,
         }}],
     });
+    // Routing analysis also runs on the scan's own 72-DPI pixels. A 150-DPI
+    // plane of this sheet is 67 megapixels, over the cap preview reads with,
+    // so preview used to fail here before showing anything.
+    expect(manifest).toMatchObject({pages: [{analysisDpi: 72}]});
+    for (const call of vi.mocked(deps.renderPage).mock.calls) {
+        expect(call[5]).toBeLessThanOrEqual(72);
+    }
 
 }
 

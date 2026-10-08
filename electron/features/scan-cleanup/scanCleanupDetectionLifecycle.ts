@@ -607,6 +607,9 @@ export function scanCleanupDetectionOwner(
                                 ...(rasterPolicy.rasterMaxPixels === undefined
                                     ? {}
                                     : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),
+                                ...(rasterPolicy.totalRamBytes === undefined
+                                    ? {}
+                                    : {totalRamBytes: rasterPolicy.totalRamBytes}),
                             },
                             (nextResults, progress, documentCanvasSignature) => {
                                 const normalizedProgress = normalizeDetectionProgress(progress);
