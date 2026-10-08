@@ -7,15 +7,9 @@ export type { IDjvuPageSize } from '@contracts/electronApiDjvu';
 
 interface IDjvuWorkerTask<T> { run(): Promise<T>; }
 
-export interface IDjvuImageData {
-    width: number;
-    height: number;
-    buffer: ArrayBuffer;
-}
-
 interface IDjvuPageTask {
     createPngObjectUrl(): IDjvuWorkerTask<IDjvuPngObjectData>;
-    getImageData(rotate?: boolean): IDjvuWorkerTask<IDjvuImageData>;
+    getImageData(rotate?: boolean): IDjvuWorkerTask<ImageData>;
     getText(): IDjvuWorkerTask<string>;
     getNormalizedTextZones(): IDjvuWorkerTask<IDjvuNormalizedTextZone[] | null>;
 }

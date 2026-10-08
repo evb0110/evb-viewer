@@ -1,4 +1,3 @@
-import type { IDjvuImageData } from '@app/platform/browser-api/djvujsLoader';
 import { decodeBrowserImageBlob } from '@app/platform/browser-api/decodeBrowserImageBlob';
 
 export type TDjvuCanvas = OffscreenCanvas | HTMLCanvasElement;
@@ -25,14 +24,6 @@ export function getDjvuCanvas2dContext(
     // An HTMLCanvasElement cannot exist in a runtime whose constructor is undefined,
     // so the remaining case is always OffscreenCanvas.
     return (canvas as OffscreenCanvas).getContext('2d');
-}
-
-export function createDjvuImageData(imageData: IDjvuImageData) {
-    return new ImageData(
-        new Uint8ClampedArray(imageData.buffer),
-        imageData.width,
-        imageData.height,
-    );
 }
 
 export function toOwnedArrayBuffer(bytes: Uint8Array) {
