@@ -1,0 +1,27 @@
+electron/file-access/workingCopyCreation.ts
+  s_ecd9d295ef2e8d::t_fa0b1ae4ea54e3 348-358,360,362-363
+electron/file-access/workingCopyDirectory.ts
+  s_ecd9d295ef2e8d::t_fa0b1ae4ea54e3 258-259
+tests/unit/electron/workingCopy.test.ts
+  s_ecd9d295ef2e8d::t_3896cbf84b5986 740-760,763-810
+  s_ecd9d295ef2e8d::t_1b0da47acf8881 811-837,841-881
+  s_ecd9d295ef2e8d::t_92ee50e3b79bda 761-762,838-840
+  s_ecd9d295ef2e8d::t_9f038a1e003b95 939,941-945
+  s_ecd9d295ef2e8d::t_59a6bbdf63afaf 41,940
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "399f2f7f8e3f08c671b669b1805c7ff664265709",
+  "prompts": {},
+  "sessions": {
+    "s_ecd9d295ef2e8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4d73a2e-5676-48b0-bb58-29497cf26a8f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
