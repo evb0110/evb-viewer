@@ -120,11 +120,14 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     onScopeDispose(cancelWriterParse, true);
     watch(options.documentRevisionToken, cancelWriterParse, {flush: 'sync'});
 
-    function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: string | null) {
-        const source = options.source.value;
-        const parsePath = parseDocumentRef(options.workingCopyPath.value)
-            ?? parseDocumentRef(originalPath)
-            ?? (source instanceof Blob ? null : parseDocumentRef(source?.path ?? null));
+    function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>) {
+        const selectedParsePath = () => {
+            const source = options.source.value;
+            return parseDocumentRef(options.workingCopyPath.value)
+                ?? parseDocumentRef(originalPath.value)
+                ?? (source instanceof Blob ? null : parseDocumentRef(source?.path ?? null));
+        };
+        const parsePath = selectedParsePath();
         const document = documentSession.pdfDocument.value;
         const fence = documentSession.captureFence();
         const revision = options.documentRevisionToken.value;
@@ -150,7 +153,8 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             && application.value.store === targetStore
             && documentSession.pdfDocument.value === document
             && documentSession.captureFence().documentVersion === fence.documentVersion
-            && options.documentRevisionToken.value === revision;
+            && options.documentRevisionToken.value === revision
+            && selectedParsePath() === parsePath;
         const promise = (async () => {
             const expectedRevisionToken = revision
                 ?? await getDocumentFilesCapability().getDocumentRevision(parsePath)

@@ -144,7 +144,7 @@ describe('writer annotations shared by linked views', () => {
     }
     function setup() {
         const revision = shallowRef(initialRevision);
-        const workingCopyPath = shallowRef(requireDocumentRef('/managed/working.pdf'));
+        const workingCopyPath = shallowRef<string | null>(requireDocumentRef('/managed/working.pdf'));
         const annotations = createPdfDocumentAnnotations({
             workingCopyPath,
             source: computed(() => null),
@@ -178,7 +178,7 @@ describe('writer annotations shared by linked views', () => {
         const retired = annotations.application.value;
         const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(pending.promise);
-        const loading = annotations.feedStoreFromWriterParse(resource, null);
+        const loading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         pending.resolve(parsed('Retired source'));
         workingCopyPath.value = requireDocumentRef('/managed/replacement.pdf');
         await loading;
@@ -186,16 +186,33 @@ describe('writer annotations shared by linked views', () => {
         expect(retired.listCommentSummaries()).toEqual([]);
         expect(annotations.application.value.listCommentSummaries()).toEqual([]);
     });
+    it('ignores a retired original path before a deferred view refresh replaces the producer', async () => {
+        const {
+            annotations, resource, workingCopyPath,
+        } = setup();
+        workingCopyPath.value = null;
+        await nextTick();
+        const originalPath = shallowRef('/source/original.pdf');
+        const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
+        parsePdfAnnotations.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(parsed('Current original path'));
+        const loading = annotations.feedStoreFromWriterParse(resource, originalPath);
+        pending.resolve(parsed('Retired original path'));
+        originalPath.value = '/source/replacement.pdf';
+        await loading;
+        expect(annotations.application.value.listCommentSummaries()).toEqual([]);
+        await annotations.feedStoreFromWriterParse(resource, originalPath);
+        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Current original path']);
+    });
     it('keeps an accepted local edit when a parse finishes after that edit', async () => {
         const {
             annotations, resource, replaceVersion,
         } = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         replaceVersion();
         const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(pending.promise);
-        const loading = annotations.feedStoreFromWriterParse(resource, null);
+        const loading = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         const id = annotations.application.value.store.list()[0]!.identity.id;
         annotations.application.value.store.updateTextBox(id, {text: 'Accepted local edit'});
         pending.resolve(parsed('Late saved baseline'));
@@ -207,9 +224,9 @@ describe('writer annotations shared by linked views', () => {
             annotations, resource,
         } = setup();
         parsePdfAnnotations.mockRejectedValueOnce(new Error('Injected parser failure')).mockResolvedValueOnce(parsed('Later caller imported text'));
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries()).toEqual([]);
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Later caller imported text']);
     });
     it('admits the ready document after an earlier view has no current revision fence', async () => {
@@ -224,8 +241,8 @@ describe('writer annotations shared by linked views', () => {
                 documentRevision: null,
             }),
         });
-        await annotations.feedStoreFromWriterParse(pendingView, null);
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(pendingView, shallowRef(null));
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Ready document']);
     });
     it('publishes imported text after the first view detaches while another view is waiting', async () => {
@@ -234,9 +251,9 @@ describe('writer annotations shared by linked views', () => {
         } = setup();
         const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(pending.promise);
-        const first = annotations.feedStoreFromWriterParse(resource, null);
+        const first = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         detach();
-        const second = annotations.feedStoreFromWriterParse(resource, null);
+        const second = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         pending.resolve(parsed('Imported text for both views'));
         await Promise.all([
             first,
@@ -250,9 +267,9 @@ describe('writer annotations shared by linked views', () => {
         } = setup();
         const old = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(old.promise).mockResolvedValueOnce(parsed('Current revision', nextRevision));
-        const previous = annotations.feedStoreFromWriterParse(resource, null);
+        const previous = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         revision.value = nextRevision;
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         old.resolve(parsed('Superseded revision'));
         await previous;
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Current revision']);
@@ -262,10 +279,10 @@ describe('writer annotations shared by linked views', () => {
             annotations, resource, replaceVersion,
         } = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Before replacement')).mockResolvedValueOnce(parsed('After replacement'));
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Before replacement']);
         replaceVersion();
-        await annotations.feedStoreFromWriterParse(resource, null);
+        await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['After replacement']);
     });
 });

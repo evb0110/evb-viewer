@@ -935,7 +935,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
-        await documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath.value);
+        await documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath);
         if (transition.isCurrent()) {
             annotationProjectionReady.value = true;
         }
