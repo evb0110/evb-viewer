@@ -24,60 +24,90 @@ pub(crate) fn touches_raster_edge(component: &Component, width: usize, height: u
 /// A thin band running down the left or right page edge: a scanner rail, the
 /// dark strip of a book's fore-edge, or the end of a binding shadow. It hugs
 /// the edge, often a few pixels inside it where the page's own lighter edge
-/// lies beyond, and is many times taller than it is wide. Authored marks near
+/// lies beyond, and is many times taller than it is thick. Authored marks near
 /// a side edge do not have that shape: a glyph or a rule cut by the edge meets
 /// it end-on, and a frame rule sits inside the margin, not in the outer
 /// twentieth of the sheet. A band touching the edge counts from a fortieth of
 /// the page's height; one inset from it must run at least an eighth of it.
 /// Head and tail bars are left to the trim loop, which owns those sides.
-fn is_side_edge_rail(component: &Component, width: usize, height: usize) -> bool {
-    let thickness = component.right - component.left + 1;
+///
+/// A deskewed page tilts the band, which widens its bounding box. A box wider
+/// than the band may be is still a band when every row of it is thin and the
+/// row centres drift without jumping, as a straight tilted strip does; line
+/// beginnings merged into one shape jump from line to line.
+fn is_side_edge_rail(
+    components: &ComponentMap,
+    component: &Component,
+    width: usize,
+    height: usize,
+) -> bool {
     let length = component.bottom - component.top + 1;
+    let box_thickness = component.right - component.left + 1;
     let band = width.div_ceil(20);
     let touching = component.left <= RASTER_EDGE_SLIVER_PX
         || component.right + 1 + RASTER_EDGE_SLIVER_PX >= width;
     let inside_band = component.right < band || component.left + band >= width;
-    thickness * 40 <= width
-        && length >= thickness.saturating_mul(8)
-        && if touching {
-            length * 40 >= height
-        } else {
-            inside_band && length * 8 >= height
+    let long_enough = length * if touching { 40 } else { 8 } >= height;
+    if !inside_band || !long_enough {
+        return false;
+    }
+    if box_thickness * 40 <= width {
+        return length >= box_thickness.saturating_mul(8);
+    }
+    let mut widths = Vec::with_capacity(length);
+    let mut previous_centre: Option<usize> = None;
+    for y in component.top..=component.bottom {
+        let mut first = None;
+        let mut last = 0;
+        for x in component.left..=component.right {
+            if components.label_at(x, y) == component.label {
+                first.get_or_insert(x);
+                last = x;
+            }
         }
+        let Some(first) = first else {
+            continue;
+        };
+        widths.push(last + 1 - first);
+        let centre = (first + last) / 2;
+        if previous_centre.is_some_and(|previous| previous.abs_diff(centre) > 2) {
+            return false;
+        }
+        previous_centre = Some(centre);
+    }
+    widths.sort_unstable();
+    let row_thickness = widths
+        .get(widths.len() * 9 / 10)
+        .copied()
+        .unwrap_or(box_thickness);
+    row_thickness * 40 <= width && length >= row_thickness.saturating_mul(8)
 }
 
 /// Side edge rails, and whether the left and right edges carry one. Besides
 /// single bands (`is_side_edge_rail`), edge shading breaks into dashes where it
-/// crosses the threshold intermittently, each too short to judge alone. Dashes
-/// count only as a run: pieces within a hundredth of the page of one side edge
-/// and ending within a fortieth of it, each taller than wide and clear of all
-/// other glyph-sized ink for a fiftieth of the page, that together with any
-/// rail along that edge cover a fortieth of it. A glyph cut by the edge always
-/// has the rest of its word closer than that.
+/// crosses the threshold intermittently, each too short to judge alone; a
+/// fore-edge often leaves two parallel strands of them. Dashes count only as
+/// a run: pieces ending within a fortieth of the page of one side edge, each
+/// taller than wide and clear of all other glyph-sized ink for a fiftieth of
+/// the page, that together with the bands along that edge cover a fortieth of
+/// it. A glyph cut by the edge always has the rest of its word closer than
+/// that.
 pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) {
     let (width, height) = (binary.width(), binary.height());
     let components = ComponentMap::from_binary(binary);
     let mut rail = vec![false; components.components().len() + 1];
     for component in components.components() {
-        rail[component.label as usize] = is_side_edge_rail(component, width, height);
+        rail[component.label as usize] = is_side_edge_rail(&components, component, width, height);
     }
-    let outer_limit = (width / 100).max(RASTER_EDGE_SLIVER_PX);
     let depth_limit = (width / 40).max(2);
     let clearance = (width / 50).max(4);
     // Shading also leaves specks beside its dashes. Only glyph-sized ink can
     // be the word a cut glyph belongs to.
-    let owner_area = outer_limit * 2;
+    let owner_area = (width / 50).max(4);
     let band = width.div_ceil(20);
     let mut sides = [false; 2];
     for (index, right_side) in [false, true].into_iter().enumerate() {
-        // Distance from this edge to a component's outer and inner sides.
-        let outer_gap = |component: &Component| {
-            if right_side {
-                width - 1 - component.right
-            } else {
-                component.left
-            }
-        };
+        // Distance from this edge to a component's inner side.
         let depth = |component: &Component| {
             if right_side {
                 width - 1 - component.left
@@ -90,11 +120,10 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [bool; 2]) 
         for component in components.components() {
             let thickness = component.right - component.left + 1;
             piece[component.label as usize] = !rail[component.label as usize]
-                && outer_gap(component) <= outer_limit
                 && depth(component) < depth_limit
                 && component.bottom + 1 - component.top >= thickness * 2;
         }
-        // A rail already found is not ink that could own a dash beside it.
+        // A band already found is not ink that could own a dash beside it.
         let isolated = components
             .components()
             .iter()
