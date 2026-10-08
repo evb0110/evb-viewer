@@ -133,7 +133,7 @@ pub(crate) fn write_pdf_combine_catalog(
     qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let incremental = load_incremental_pdf_path(input_path, qpdf_path)?;
+    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)?;
     let source = AppendedRevision::new(&incremental);
     let catalog = read_pdf_combine_catalog(&source)?;
     serde_json::to_writer(output, &catalog)?;

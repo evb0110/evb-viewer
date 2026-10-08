@@ -149,7 +149,7 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
             Ok((std::borrow::Cow::Owned(window), truncated))
         },
     ) {
-        Ok(()) => Ok(AppendAdmission::Appendable),
+        Ok(_) => Ok(AppendAdmission::Appendable),
         Err(error) => classify_refusal(error),
     }
 }
@@ -222,7 +222,7 @@ fn large_base_admission(temp: &TempQpdfFiles) -> Result<AppendAdmission> {
     })
 }
 
-fn read_window(file: &mut File, offset: usize, len: usize) -> Result<Vec<u8>> {
+pub(crate) fn read_window(file: &mut File, offset: usize, len: usize) -> Result<Vec<u8>> {
     file.seek(SeekFrom::Start(offset as u64))
         .map_err(io_domain_error)?;
     let mut window = vec![0; len];

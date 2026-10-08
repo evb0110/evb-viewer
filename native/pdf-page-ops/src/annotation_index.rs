@@ -89,7 +89,7 @@ pub(crate) fn write_annotation_name_index_path(
         ));
     }
 
-    let incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
+    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
