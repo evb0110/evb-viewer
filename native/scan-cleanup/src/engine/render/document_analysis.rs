@@ -879,6 +879,7 @@ struct FinalPictureOwnershipInput<'a> {
     trusted_mrc_owned_tone_mask: Option<&'a BinaryImage>,
     text_mask: Option<&'a BinaryImage>,
     text_vicinity_mask: Option<&'a BinaryImage>,
+    permissive_tone_mask: Option<&'a BinaryImage>,
     picture_mask: Option<Arc<BinaryImage>>,
     options: &'a CleanupOptions,
     effective_dpi: f64,
@@ -900,6 +901,7 @@ fn finalize_picture_ownership(
         trusted_mrc_owned_tone_mask,
         text_mask,
         text_vicinity_mask,
+        permissive_tone_mask,
         mut picture_mask,
         options,
         effective_dpi,
@@ -911,22 +913,26 @@ fn finalize_picture_ownership(
     // the inference and are applied once, last, so an operator override
     // cannot be enlarged and a final eraser cannot be silently undone.
     let automatic_picture_owner = {
-        // Flattened-page candidates passed the ordinary artifact qualifier
-        // in the detector, and the qualifier only drops whole components on
-        // their own evidence, so qualifying them again changes nothing.
-        // Trusted MRC tone has already passed the independent
-        // text-component veto and component/span gate above; qualifying
-        // that owner as a flattened edge artifact would erase
-        // producer-authored ownership before it can reach Mixed
-        // composition. Crop geometry remains independent below.
+        // Text geometry is now complete. Reconsider only flattened ownership;
+        // producer-authored MRC tone keeps its independent qualification.
         let mut owner = automatic_picture_mask.map_or_else(
             || BinaryImage::new(rotated.width(), rotated.height()),
-            Clone::clone,
+            |candidate| {
+                qualify_picture_owner(
+                    rotated,
+                    candidate,
+                    text_mask
+                        .zip(text_vicinity_mask)
+                        .zip(permissive_tone_mask)
+                        .map(|((text, vicinity), tone)| (text, vicinity, tone)),
+                )
+            },
         );
         if let Some(trusted) = trusted_mrc_owned_tone_mask {
             owner = owner.or(trusted);
         }
-        (owner.count_black() > 0).then(|| Arc::new(owner))
+        // An empty verdict must replace the earlier candidate, not leave it alive.
+        (automatic_picture_mask.is_some() || owner.count_black() > 0).then(|| Arc::new(owner))
     };
     if let Some(automatic) = automatic_picture_owner.as_deref() {
         let empty_text = BinaryImage::new(rotated.width(), rotated.height());
@@ -965,12 +971,12 @@ struct TonalEvidenceInput<'a> {
     rotated: &'a GrayImage,
     layout_normalized: &'a GrayImage,
     text_vicinity_mask: Option<&'a BinaryImage>,
+    permissive_tone_mask: Option<BinaryImage>,
     picture_mask: Option<Arc<BinaryImage>>,
     automatic_picture_mask: Option<&'a BinaryImage>,
     trusted_mrc_owned_tone_mask: Option<Arc<BinaryImage>>,
     continuous_tone_mask: Option<Arc<BinaryImage>>,
     options: &'a CleanupOptions,
-    effective_dpi: f64,
     calibration: PageCalibration,
     text_line_count: usize,
     blank_scan_candidate: bool,
@@ -1056,7 +1062,7 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
     // silently publishing a bilevel page and destroying the very map fill
     // or shaded region that caused the veto.
     let destructive_tone_mask = outside_tone.vetoes_destructive_mode().then(|| {
-        Arc::new(extend_tone_mask_for_content(
+        Arc::new(extend_picture_mask_for_content(
             layout_normalized,
             &tonal_seed_mask,
             calibration,
@@ -1072,7 +1078,7 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
     // promoted here: without vetted geometry it must not become a Mixed
     // stencil owner or a second source of the UI's picture label.
     let spatial_tone_mask = flat_graphic_picture_mask.as_deref().and_then(|candidate| {
-        let qualified = qualify_picture_owner(rotated, candidate);
+        let qualified = qualify_picture_owner(rotated, candidate, None);
         (qualified.count_black() > 0).then(|| Arc::new(qualified))
     });
     if options.crop_content && !content_evidence_complete {
@@ -1089,7 +1095,7 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
         // other automatic owner crosses. A flat-shaded plate is a dense,
         // page-interior component and clears it unchanged.
         let qualified_tone_mask = structural_tone_mask.as_deref().and_then(|tone| {
-            let qualified = qualify_picture_owner(rotated, tone);
+            let qualified = qualify_picture_owner(rotated, tone, None);
             (qualified.count_black() > 0).then(|| Arc::new(qualified))
         });
         content_picture_mask =
@@ -1111,12 +1117,12 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
         rotated,
         layout_normalized,
         text_vicinity_mask,
+        permissive_tone_mask,
         picture_mask,
         automatic_picture_mask,
         trusted_mrc_owned_tone_mask,
         continuous_tone_mask,
         options,
-        effective_dpi,
         calibration,
         text_line_count,
         blank_scan_candidate,
@@ -1210,19 +1216,21 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
         flat_graphic_preservation_alpha.as_ref(),
     );
     let source_effectively_blank = blank_scan_candidate;
-    let text_soft_edge_ratio = text_vicinity_mask.and_then(|mask| {
-        // Permissive tonal evidence serves strictly as an EXCLUSION for
-        // glyph-topology measurement: a spread gutter shadow rightly
-        // earns no output zone from the halftone classifier, yet its
-        // soft tone must not read as antialiased glyph edges and veto
-        // a crisp bilevel page.
-        let permissive_tone = detect_continuous_tone_mask(rotated, effective_dpi);
-        let exclusion = match picture_mask.as_deref() {
-            Some(zones) => zones.or(&permissive_tone),
-            None => permissive_tone,
-        };
-        text_soft_edge_to_ink_ratio(rotated, mask, Some(&exclusion))
-    });
+    let text_soft_edge_ratio =
+        text_vicinity_mask
+            .zip(permissive_tone_mask)
+            .and_then(|(mask, tone)| {
+                // Permissive tonal evidence serves strictly as an EXCLUSION for
+                // glyph-topology measurement: a spread gutter shadow rightly
+                // earns no output zone from the halftone classifier, yet its
+                // soft tone must not read as antialiased glyph edges and veto
+                // a crisp bilevel page.
+                let exclusion = match picture_mask.as_deref() {
+                    Some(zones) => zones.or(&tone),
+                    None => tone,
+                };
+                text_soft_edge_to_ink_ratio(rotated, mask, Some(&exclusion))
+            });
 
     TonalEvidenceOutput {
         outside_tone,
@@ -1828,6 +1836,10 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         effective_dpi,
         calibration,
     });
+    // Final ownership and glyph-topology exclusion consume the same raw-tone pass.
+    let permissive_tone_mask = text_vicinity_mask
+        .as_deref()
+        .map(|_| detect_continuous_tone_mask(&rotated, effective_dpi));
     let FinalPictureOwnershipOutput {
         picture_mask,
         content_picture_mask,
@@ -1837,6 +1849,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         trusted_mrc_owned_tone_mask: trusted_mrc_owned_tone_mask.as_deref(),
         text_mask: text_mask.as_deref(),
         text_vicinity_mask: text_vicinity_mask.as_deref(),
+        permissive_tone_mask: permissive_tone_mask.as_ref(),
         picture_mask,
         options,
         effective_dpi,
@@ -1865,12 +1878,12 @@ fn build_analysis_artifact(input: ArtifactInput<'_, '_>) -> Arc<AnalysisArtifact
         rotated: &rotated,
         layout_normalized: layout_plane,
         text_vicinity_mask: text_vicinity_mask.as_deref(),
+        permissive_tone_mask,
         picture_mask,
         automatic_picture_mask: automatic_picture_mask.as_deref(),
         trusted_mrc_owned_tone_mask,
         continuous_tone_mask,
         options,
-        effective_dpi,
         calibration,
         text_line_count,
         blank_scan_candidate,
