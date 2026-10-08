@@ -1,0 +1,38 @@
+tests/unit/app/platform/browserDjvuConversionPipeline.test.ts
+  s_836ee387c19ce7::t_b11150e48b3ecb 24,33,45,360,380-386,401,418-436,440-482
+  ai_agent 437-439
+app/platform/browser-api/browserDjvuConversionPipeline.ts
+  s_836ee387c19ce7::t_a843ac5d7c4630 31,52,273,782-787,789-802,994
+app/platform/browser-api/browserPdfCombineWorker.types.ts
+  s_836ee387c19ce7::t_a843ac5d7c4630 9-10,97-98,100
+tests/integration/browser/browserDjvuFinalizationAcceptance.test.ts
+  s_836ee387c19ce7::t_fd0163d15b3586 24,32-33,42,48-59,63-72,113-116,138-143,145-159,162-165,167-209,211-219
+app/platform/browser-api/browserPdfCombine.worker.ts
+  s_836ee387c19ce7::t_a843ac5d7c4630 36,222-224,226,259-261
+  s_836ee387c19ce7::t_cb5b3bc3044901 13
+  s_836ee387c19ce7::t_267780dae706e9 225
+tests/unit/app/platform/browserPdfCombineWorkerClient.test.ts
+  s_836ee387c19ce7::t_2a6ad58e20ccf9 219-222
+  s_836ee387c19ce7::t_c954d24bd8555f 286-315
+  s_836ee387c19ce7::t_15d71d0a3e5d78 8,183-218,223-233
+app/platform/browser-api/browserPdfCombineWorkerClient.ts
+  s_836ee387c19ce7::t_a843ac5d7c4630 11,43-47,51
+tests/integration/browser/browserDjvuFinalizationAcceptanceEntry.ts
+  s_836ee387c19ce7::t_fd0163d15b3586 11-22,117-138,140-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "604c0b8d9ca7160915b0c76e186af7d2066253d9",
+  "prompts": {},
+  "sessions": {
+    "s_836ee387c19ce7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11a6f-153e-7d92-8749-9b5998c64aab",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
