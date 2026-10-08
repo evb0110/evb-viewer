@@ -12,6 +12,7 @@ import {
     watch,
 } from 'vue';
 import {
+    afterAll,
     describe,
     expect,
     it,
@@ -43,6 +44,11 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+
+// Nuxt supplies these globals when the renderer owns its failure presenter.
+vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+afterAll(() => vi.unstubAllGlobals());
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     diagnostic: vi.fn(),
