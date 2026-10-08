@@ -1,0 +1,23 @@
+app/platform/browser-api/createBrowserSearchCapability.ts
+  s_f49ffee69fbb7a::t_2b7b9309a1a22d 36-39,124,172,176,374,494-496,679-680,775,780,790,795-814,816-818,821-823,838,843,849,878,994,1008-1012,1035,1043,1049-1050
+tests/unit/app/platform/searchCapability.test.ts
+  s_f49ffee69fbb7a::t_592957c77c9b97 161-166,172-195,436-437,529-598,1303-1306,1314,1321,1337-1340
+app/platform/browser-api/browserSearchCore.ts
+  s_f49ffee69fbb7a::t_2b7b9309a1a22d 21,23-28,31-32,38,43,47,69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "374d5496d996e7a24b4c06511f6148c9039d8047",
+  "prompts": {},
+  "sessions": {
+    "s_f49ffee69fbb7a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1189c-e94e-7610-9e46-9c24ab5231d4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
