@@ -1,0 +1,57 @@
+[
+  {
+    "afterMs": 0,
+    "method": "item/created",
+    "params": {
+      "item": {
+        "type": "mcpToolCall",
+        "id": "read-1",
+        "name": "read_document"
+      }
+    }
+  },
+  {
+    "afterMs": 300,
+    "method": "item/updated",
+    "params": {
+      "item": {
+        "type": "mcpToolCall",
+        "id": "read-1",
+        "name": "read_document"
+      }
+    }
+  },
+  {
+    "afterMs": 300,
+    "method": "item/created",
+    "params": {
+      "item": {
+        "type": "mcpToolCall",
+        "id": "search-2",
+        "name": "search_document"
+      }
+    }
+  },
+  {
+    "afterMs": 5000,
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "mcpToolCall",
+        "id": "read-1",
+        "name": "read_document"
+      }
+    }
+  },
+  {
+    "afterMs": 5000,
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "type": "mcpToolCall",
+        "id": "search-2",
+        "name": "search_document"
+      }
+    }
+  }
+]
