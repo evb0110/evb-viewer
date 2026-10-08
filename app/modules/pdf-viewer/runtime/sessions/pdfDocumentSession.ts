@@ -57,6 +57,10 @@ import {
     type TViewerResidencyState,
 } from '@app/modules/pdf-viewer/runtime/memory/resolvePdfViewerResidencyDecision';
 
+// Below the measured native crossover, Blob opens keep PDF.js geometry
+// independent of background whole-document metadata reads.
+const PDF_BLOB_NATIVE_GEOMETRY_MIN_PAGES = 1_000;
+
 type TPdfDocumentLoadState = TaggedUnion<'status', {
     idle: { version: number };
     loading: {
@@ -959,9 +963,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 return null;
             }
             sourceLoader.setLifecycleKey(lifecycleKey);
-            const nativeGeometry = loadOptions?.preservePageMetrics === true
-                ? null
-                : readNativePageGeometry(src, version);
+            const nativeGeometry = loadOptions?.preservePageMetrics !== true && isPathPdfSource(src)
+                ? readNativePageGeometry(src, version)
+                : null;
             const document = await sourceLoader.open(src, version);
             if (!document) {
                 return null;
@@ -971,7 +975,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 version,
                 lifecycleKey,
                 src,
-                await nativeGeometry,
+                await (nativeGeometry ?? (loadOptions?.preservePageMetrics !== true
+                    && document.numPages > PDF_BLOB_NATIVE_GEOMETRY_MIN_PAGES
+                    && document.numPages <= PDF_PAGE_METRICS_DENSE_LIMIT
+                    ? readNativePageGeometry(src, version)
+                    : null)),
                 loadOptions?.preservePageMetrics === true,
             );
         } catch (error) {

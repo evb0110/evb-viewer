@@ -400,10 +400,11 @@ describe('PdfDocumentSession range loading', () => {
         const revision = requireDocumentRevisionToken('rev-blob-native');
         const workingCopyPath = ref(witness === 'pathless' ? null : path);
         const documentRevisionToken = ref(witness === 'missing-revision' ? null : revision);
+        const pageCount = 1_001;
         const source = new Blob(['pdf'], {type: 'application/pdf'});
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
-                numPages: 2,
+                numPages: pageCount,
                 getPage: vi.fn(async () => ({
                     cleanup: vi.fn(),
                     getViewport: vi.fn(() => ({
@@ -426,15 +427,12 @@ describe('PdfDocumentSession range loading', () => {
                 kind: 'exact',
                 documentRef: witness === 'mismatched-ref' ? requireDocumentRef('/tmp/other.pdf') : path,
                 documentRevisionToken: witness === 'mismatched-revision' ? requireDocumentRevisionToken('rev-other') : revision,
-                pageCount: witness === 'mismatched-count' ? 3 : 2,
-                pages: [
-                    100,
-                    400,
-                ].map((widthPoints, index) => ({
+                pageCount: witness === 'mismatched-count' ? pageCount + 1 : pageCount,
+                pages: Array.from({length: pageCount}, (_, index) => ({
                     pageNumber: requirePageNumber(index + 1),
                     xPoints: 0,
                     yPoints: 0,
-                    widthPoints,
+                    widthPoints: index === 1 ? 400 : 100,
                     heightPoints: 200,
                     rotation: 0,
                     userUnit: 1,
@@ -448,10 +446,53 @@ describe('PdfDocumentSession range loading', () => {
         try {
             await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
             expect(documentState.acceptedSource.value).toBe(source);
-            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual([
-                100,
-                witness === 'matching' ? 400 : 100,
-            ]);
+            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(
+                Array.from({length: pageCount}, (_, index) => witness === 'matching' && index === 1 ? 400 : 100),
+            );
+        } finally {
+            documentState.cleanup();
+            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+        }
+    });
+
+    it.each([
+        3,
+        1_000,
+        PDF_PAGE_METRICS_DENSE_LIMIT + 1,
+    ])('opens a %s-page Blob independently of held native metadata', async (pageCount) => {
+        const source = new Blob(['pdf'], {type: 'application/pdf'});
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: pageCount,
+                getPage: vi.fn(async () => ({
+                    cleanup: vi.fn(),
+                    getViewport: () => ({
+                        width: 100,
+                        height: 200,
+                    }),
+                })),
+                loadingTask: {destroy: vi.fn()},
+            }),
+            destroy: vi.fn(),
+        });
+        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', () => new Promise(() => {}));
+        const documentState = createPdfDocumentSession({
+            workingCopyPath: ref(requireDocumentRef('/tmp/ordinary-blob.pdf')),
+            documentRevisionToken: ref(requireDocumentRevisionToken('rev-ordinary')),
+        });
+        try {
+            await expect(documentState.loadPdf(source)).resolves.not.toBeNull();
+            expect(documentState.loadState.value.status).toBe('ready');
+            expect(documentState.acceptedSource.value).toBe(source);
+            expect(documentState.pageMetrics.value.map(metric => [
+                metric.width,
+                metric.height,
+            ])).toEqual(
+                Array.from({length: pageCount > PDF_PAGE_METRICS_DENSE_LIMIT ? 1 : pageCount}, () => [
+                    100,
+                    200,
+                ]),
+            );
         } finally {
             documentState.cleanup();
             Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
