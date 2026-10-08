@@ -397,7 +397,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         settings: options.annotationSettings,
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
-        runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
+        runHistoryTransaction: action => appAnnotationHistory.runTransaction(
+            () => annotationApplication.value.store.batch(action),
+        ),
         undo: () => appAnnotationHistory.undoForEditor(),
         redo: () => appAnnotationHistory.redoForEditor(),
         emitShapeContextMenu: options.emitShapeContextMenu,

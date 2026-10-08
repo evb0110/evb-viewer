@@ -23,6 +23,7 @@ import type {
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireTabId } from '@contracts/windowTabs';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
@@ -337,7 +338,10 @@ describe('browser workspace recovery', () => {
         ]);
     });
 
-    it('does not report saved work as unprotected when Save finishes during recovery capture', async () => {
+    it.each([
+        'unavailable',
+        'rejected',
+    ] as const)('does not report saved work as unprotected when Save finishes during %s recovery capture', async (outcome) => {
         vi.useFakeTimers();
         const heldSnapshot = Promise.withResolvers<Uint8Array | null>();
         let snapshot = heldSnapshot.promise;
@@ -350,7 +354,8 @@ describe('browser workspace recovery', () => {
             await vi.advanceTimersByTimeAsync(1_000);
             session.setDirty(false);
             await nextTick();
-            heldSnapshot.resolve(null);
+            if (outcome === 'rejected') heldSnapshot.reject(createStaleRevisionError({}));
+            else heldSnapshot.resolve(null);
             await vi.advanceTimersByTimeAsync(1_000);
 
             expect(diagnostics).toEqual([]);
@@ -403,6 +408,34 @@ describe('browser workspace recovery', () => {
         expect(checkpoint.tabs[0]?.sourceRef).toBe('/documents/shared.pdf');
         expect(checkpoint.tabs[0]?.fileName).toBe('shared.pdf');
         expect(checkpoint.tabs[0]?.currentPage).toBe(3);
+    });
+
+    it('reports a current capture rejection while retaining readable recovery bytes', async () => {
+        vi.useFakeTimers();
+        const contentRevision = ref(0);
+        const error = createStaleRevisionError({});
+        let rejectCapture = false;
+        mountLinkedDocumentRecovery(async () => {
+            if (rejectCapture) throw error;
+            return PDF_BYTES;
+        }, contentRevision);
+        await vi.advanceTimersByTimeAsync(1_000);
+        const refs = latestCheckpointRefs();
+        const diagnostics: string[] = [];
+        const warning = vi.spyOn(BrowserLogger, 'warn').mockImplementation((section, message, cause) => {
+            diagnostics.push(`[${section}] ${message}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        });
+        try {
+            rejectCapture = true;
+            contentRevision.value += 1;
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(diagnostics.some(message => message.includes('Failed to refresh recovery snapshot') && message.includes(error.message))).toBe(true);
+            expect(latestCheckpointRefs()).toEqual(refs);
+            const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
+            await expect(browserDocumentStore.read(requireDocumentRef(refs[0]))).resolves.toEqual(PDF_BYTES);
+        } finally {
+            warning.mockRestore();
+        }
     });
 
     it('leaves both views of a document out together until one recovery copy can be made', async () => {

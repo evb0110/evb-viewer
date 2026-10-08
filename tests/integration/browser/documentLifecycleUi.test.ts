@@ -703,6 +703,15 @@ describe('browser document lifecycle UI', () => {
                 buffer: bytes,
             });
             await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state:'visible'});
+            // Establish pane layout before note placement and geometry comparison.
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
             await page.getByRole('button', {
                 name:'Place a sticky note on the page.',
                 exact:true,
@@ -725,14 +734,6 @@ describe('browser document lifecycle UI', () => {
                 exact:true,
             }).click();
             await expect.poll(() => input.inputValue()).toBe('Initial accepted note');
-            await page.getByRole('button', {
-                name: 'Toggle Sidebar',
-                exact: true,
-            }).click();
-            await page.getByRole('tab', {
-                name: 'Annotations',
-                exact: true,
-            }).click();
             // The textarea echoes a draft before persistence. Arm rejection only
             // after the document's rendered list confirms the initial update,
             // so this fault targets one draft rather than two separate edits.
