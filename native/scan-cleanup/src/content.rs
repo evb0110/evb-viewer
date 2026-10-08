@@ -2,6 +2,7 @@ use crate::{
     analysis::build_analysis_level,
     bw::{despeckle_connected_calibrated, rescue_component_scoped_faint_strokes},
     calibration::{CalibrationConfig, PageCalibration},
+    edge_artifacts::{border_artifact_mask_from_binary, is_scanner_border_shadow, side_edge_rails},
     protocol::manifest_v3::{
         ContentAcceptedTrim, ContentBlockEvidence, ContentDiagnosticRect, ContentDiagnostics,
         ContentSideConfidence, ContentTextMaskSummary, ContentTrimSide,
@@ -10,11 +11,10 @@ use crate::{
 };
 use scan_primitives::{
     distance::{find_peaks, squared_euclidean_distance, InfluenceMap},
-    morphology::{dilate, open, reconstruct_binary},
+    morphology::{dilate, open},
     threshold::{threshold_local, LocalThreshold},
     BinaryImage, Component, ComponentMap, GrayImage, Rect,
 };
-use std::ops::Range;
 
 #[derive(Clone, Debug)]
 pub struct ContentResult {
@@ -197,6 +197,15 @@ fn detect_content_at_analysis_scale(
         },
     );
     let borders = border_artifact_mask_from_binary(working, &binary);
+    // Side edge rails steer only the crop. Semantic evidence keeps them: mode
+    // selection's text and chroma evidence is calibrated on it as it is.
+    let (borders, rail_sides) = match purpose {
+        ContentAnalysisPurpose::Semantic => (borders, [false; 2]),
+        ContentAnalysisPurpose::Crop { .. } => {
+            let (rails, sides) = side_edge_rails(&binary);
+            (borders.or(&rails), sides)
+        }
+    };
     // Picture ownership is semantic/render state, but content bounds need a
     // stricter authority. Qualify it after the spread has been split into
     // local pages: a central gutter is not an outer-sheet rail, while each
@@ -396,7 +405,7 @@ fn detect_content_at_analysis_scale(
     // A side accepted by the trim loop owns its outer bound. Later evidence
     // may still expand untrimmed sides, but it cannot silently reverse an
     // accepted decision on the same side.
-    let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims);
+    let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims, rail_sides);
     if let Some(qualification) = early_picture_qualification.as_ref() {
         expand_bounds_for_structured_edge_text(
             &mut bounds,
@@ -465,23 +474,6 @@ fn detect_content_at_analysis_scale(
         }),
         diagnostics,
     )
-}
-
-/// Rasterizing a page whose size is not a whole number of pixels leaves a
-/// pixel of paper along its edges, so an object that close still touches one.
-const RASTER_EDGE_SLIVER_PX: usize = 2;
-
-fn touches_raster_edge(component: &Component, width: usize, height: usize) -> bool {
-    component.left <= RASTER_EDGE_SLIVER_PX
-        || component.top <= RASTER_EDGE_SLIVER_PX
-        || component.right + 1 + RASTER_EDGE_SLIVER_PX >= width
-        || component.bottom + 1 + RASTER_EDGE_SLIVER_PX >= height
-}
-
-/// A scanner bed, border rail or edge shadow is one large component attached
-/// to the raster edge. It is never page content or line art.
-pub(crate) fn is_scanner_border_shadow(component: &Component, width: usize, height: usize) -> bool {
-    touches_raster_edge(component, width, height) && component.area > width.max(height) / 3
 }
 
 /// A leaf with no page content on it still carries a fold shadow, a scanner
@@ -654,128 +646,6 @@ impl ComponentCenterGrid {
         }
         nearby
     }
-}
-
-/// Reconstructs the long, edge-attached objects used by content detection as
-/// scanner-border evidence. The opening seeds require sustained horizontal or
-/// vertical structure before reconstruction, so ordinary edge-touching content
-/// is not enough to qualify.
-pub(crate) fn border_artifact_mask(working: &GrayImage) -> BinaryImage {
-    let binary = threshold_local(
-        working,
-        25,
-        LocalThreshold::Wolf {
-            k: 0.5,
-            deviation_floor: 3.0,
-            minimum_percentile: 0.01,
-            hard_ink: 48,
-            hard_paper: 248,
-        },
-    );
-    border_artifact_mask_from_binary(working, &binary)
-}
-
-fn border_artifact_mask_from_binary(working: &GrayImage, binary: &BinaryImage) -> BinaryImage {
-    let horizontal_seed = open(binary, 40, 2);
-    let vertical_seed = open(binary, 2, 40);
-    let border_candidates = reconstruct_binary(&horizontal_seed, binary)
-        .or(&reconstruct_binary(&vertical_seed, binary));
-    let retained = ComponentMap::from_binary(&border_candidates).retain(|component| {
-        let width = component.right - component.left + 1;
-        let height = component.bottom - component.top + 1;
-        touches_raster_edge(component, working.width(), working.height())
-            && (width * 2 >= working.width() || height * 2 >= working.height())
-    });
-    // A scanner border is usually a thin band hugging the page edge. Threshold
-    // bloom on a normalized raster can bridge such a band to the nearest
-    // authored structure (observed: a top bar swallowing the running head and
-    // its rule through geodesic reconstruction), so the artifact mask is
-    // clipped to the same 1/40 edge zone the mode selector uses for border
-    // shapes. A solid scanner bed is the exception: rows or columns it covers
-    // edge to edge are no authored structure, so the mask follows the bed and
-    // its stippled fringe instead of leaving the bed's inner part as content.
-    let (width, height) = (working.width(), working.height());
-    let row_coverage = |y: usize, span: Range<usize>| {
-        let length = span.len().max(1);
-        span.filter(|&x| retained.get(x, y)).count() as f64 / length as f64
-    };
-    let column_coverage = |x: usize, span: Range<usize>| {
-        let length = span.len().max(1);
-        span.filter(|&y| retained.get(x, y)).count() as f64 / length as f64
-    };
-    let from_end = |extent: usize, band: Range<usize>| extent - band.end..extent - band.start;
-    let top = scanner_bed_depth(
-        height,
-        width,
-        row_coverage,
-        column_coverage,
-        |depth, band| column_coverage(width - 1 - depth, band),
-    );
-    let bottom = scanner_bed_depth(
-        height,
-        width,
-        |depth, span| row_coverage(height - 1 - depth, span),
-        |depth, band| column_coverage(depth, from_end(height, band)),
-        |depth, band| column_coverage(width - 1 - depth, from_end(height, band)),
-    );
-    let left = scanner_bed_depth(
-        width,
-        height,
-        column_coverage,
-        row_coverage,
-        |depth, band| row_coverage(height - 1 - depth, band),
-    );
-    let right = scanner_bed_depth(
-        width,
-        height,
-        |depth, span| column_coverage(width - 1 - depth, span),
-        |depth, band| row_coverage(depth, from_end(width, band)),
-        |depth, band| row_coverage(height - 1 - depth, from_end(width, band)),
-    );
-    BinaryImage::from_fn_parallel(width, height, |x, y| {
-        retained.get(x, y) && (x < left || x + right >= width || y < top || y + bottom >= height)
-    })
-}
-
-/// The end of a solid scanner bed along one edge: lines at least 90% covered
-/// by the border component, starting inside the 1/40 edge zone and never
-/// deeper than a fifth of the page. Zero when the edge has no bed.
-fn solid_bed_depth(extent: usize, coverage_at_depth: impl Fn(usize) -> f64) -> usize {
-    let zone = extent.div_ceil(40).max(1);
-    let limit = extent / 5;
-    let Some(start) = (0..zone.min(limit)).find(|&depth| coverage_at_depth(depth) >= 0.9) else {
-        return 0;
-    };
-    (start..limit)
-        .find(|&depth| coverage_at_depth(depth) < 0.9)
-        .unwrap_or(limit)
-}
-
-/// How far from one edge the border mask may reach: the 1/40 edge zone, or a
-/// solid scanner bed and the stippled fringe after it, whichever is deeper.
-/// A fringe is never deeper than the bed it frays from, and it is measured
-/// between the beds the neighbouring edges (`near`, `far`) carry beside it.
-fn scanner_bed_depth(
-    extent: usize,
-    cross_extent: usize,
-    along: impl Fn(usize, Range<usize>) -> f64,
-    near: impl Fn(usize, Range<usize>) -> f64,
-    far: impl Fn(usize, Range<usize>) -> f64,
-) -> usize {
-    let zone = extent.div_ceil(40).max(1);
-    let solid_end = solid_bed_depth(extent, |depth| along(depth, 0..cross_extent));
-    if solid_end == 0 {
-        return zone;
-    }
-    let limit = (extent / 5).min(solid_end * 2);
-    let band = solid_end..limit.max(solid_end);
-    let near_bed = solid_bed_depth(cross_extent, |depth| near(depth, band.clone()));
-    let far_bed = solid_bed_depth(cross_extent, |depth| far(depth, band.clone()));
-    let span = near_bed..cross_extent.saturating_sub(far_bed).max(near_bed);
-    let fringe_end = (solid_end..limit)
-        .find(|&depth| along(depth, span.clone()) < 0.2)
-        .unwrap_or(limit);
-    zone.max(fringe_end)
 }
 
 #[derive(Clone, Copy)]
@@ -1904,8 +1774,15 @@ struct AcceptedTrimAuthority {
 }
 
 impl AcceptedTrimAuthority {
-    fn new(trimmed_bounds: Option<PixelBounds>, accepted_trims: &[ContentAcceptedTrim]) -> Self {
-        let mut accepted_sides = [false; 4];
+    /// `rail_sides` are the left and right edges whose rails were removed
+    /// before trimming: that removal owns the side just as an accepted trim
+    /// does, so a later picture union cannot pull the crop back over it.
+    fn new(
+        trimmed_bounds: Option<PixelBounds>,
+        accepted_trims: &[ContentAcceptedTrim],
+        rail_sides: [bool; 2],
+    ) -> Self {
+        let mut accepted_sides = [rail_sides[0], false, rail_sides[1], false];
         for trim in accepted_trims {
             let index = match trim.side {
                 ContentTrimSide::Left => 0,
@@ -2650,6 +2527,7 @@ mod tests {
     }
 
     use super::*;
+    use crate::edge_artifacts::border_artifact_mask;
     use std::{
         sync::mpsc,
         thread,
@@ -3292,6 +3170,42 @@ mod tests {
         assert!(
             bounds.bottom() <= 735.0,
             "bottom gutter fragments survived: {bounds:?}"
+        );
+    }
+
+    fn calibrated_text_page() -> (GrayImage, PageCalibration) {
+        (
+            GrayImage::new(1_096, 1_626, 244),
+            PageCalibration {
+                effective_dpi: 150.0,
+                stroke_width_px: 4.0,
+                x_height_px: 40.0,
+                valid: true,
+                config: CalibrationConfig::default(),
+            },
+        )
+    }
+
+    #[test]
+    fn glyphs_cut_by_the_raster_edge_keep_their_words_in_the_crop() {
+        let (mut image, calibration) = calibrated_text_page();
+        // A tight scan crop: every line's first glyph touches the left border.
+        for row in 0..25 {
+            draw_glyph_line(&mut image, 0, 312 + row * 31, 60, 4, 12, 7);
+        }
+        let bounds = detect_content_and_margins_calibrated(
+            &image,
+            None,
+            150.0,
+            None,
+            Some([0.0; 4]),
+            calibration,
+        )
+        .content
+        .expect("authored text is content");
+        assert!(
+            bounds.x <= 1.0,
+            "the line-initial glyphs were cropped away: {bounds:?}"
         );
     }
 

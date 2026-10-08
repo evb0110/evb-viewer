@@ -10,6 +10,7 @@ pub mod content;
 pub mod deskew;
 pub mod dewarp;
 pub mod domain;
+mod edge_artifacts;
 pub mod engine;
 pub mod ink_consistency;
 pub mod io;
