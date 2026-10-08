@@ -17,10 +17,13 @@ import {
 } from 'vitest';
 import type * as TWorkerTaskModule from '@electron/utils/workerTask';
 import {SEARCH_INDEX_TEXT_BUDGET} from '@contracts/searchIndexWire';
+import {MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH} from '@contracts/documentTextCatalog';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 
 const fake = vi.hoisted(() => ({
     pageTexts: new Map<number, string>(),
+    pdftotextRanges: [] as string[],
     missingCjkDataPages: new Set<number>(),
     pdfjsPages: [] as number[],
     pdfjsRelease: null as Promise<void> | null,
@@ -45,6 +48,7 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
     if (command === '/fake/pdftotext') {
         const firstPage = Number(args[args.indexOf('-f') + 1]);
         const lastPage = Number(args[args.indexOf('-l') + 1]);
+        fake.pdftotextRanges.push(`${firstPage}-${lastPage}`);
         let stderr = '';
         for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
             if (fake.missingCjkDataPages.has(pageNumber)) {
@@ -94,6 +98,9 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdftotext: '/fake/pdftotext',
 })}));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/fake/evb-pdf-search'}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: async () => undefined}));
+// Without evb-pdf-page-ops, text extraction keeps Poppler's layout reading of every page.
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => null}));
 vi.mock('@electron/utils/workerTask', async importOriginal => ({
     ...await importOriginal<typeof TWorkerTaskModule>(),
     resolveUnpackedWorkerPath: () => '/fake/pdf-text-worker.js',
@@ -121,9 +128,11 @@ vi.mock('@electron/utils/workerTask', async importOriginal => ({
 
 const {streamPdfPageTexts} = await import('@electron/features/search/pdfPageTexts');
 const {buildSearchIndex} = await import('@electron/features/search/searchIndex');
+const {readDocumentTextSnapshot} = await import('@electron/features/ocr/main/documentText');
 
 afterEach(() => {
     fake.pageTexts = new Map();
+    fake.pdftotextRanges = [];
     fake.missingCjkDataPages = new Set();
     fake.pdfjsPages = [];
     fake.pdfjsRelease = null;
@@ -341,6 +350,26 @@ describe('search index text budget', () => {
                 force: true,
             });
         }
+    });
+});
+
+describe('document text snapshot budget', () => {
+    it('rejects a snapshot at the page that crosses the budget and reads no later page window', async () => {
+        for (let pageNumber = 1; pageNumber <= 1_000; pageNumber += 1) {
+            fake.pageTexts.set(pageNumber, Array.from({length: 2_500}, (_, word) => `p${pageNumber}w${word}`).join(' '));
+        }
+
+        await expect(readDocumentTextSnapshot(
+            '/working-copy/document.pdf',
+            join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'),
+            requireDocumentRevisionToken('revision'),
+            1_000,
+        )).rejects.toThrow(`Document text exceeds ${MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH} characters; export it in page windows`);
+        // Page 363 crosses 8 MiB of text, inside the second 256-page window.
+        expect(fake.pdftotextRanges).toEqual([
+            '1-256',
+            '257-512',
+        ]);
     });
 });
 
