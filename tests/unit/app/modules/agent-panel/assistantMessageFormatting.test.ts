@@ -210,6 +210,20 @@ describe('assistantMessageFormatting', () => {
         expect(second[0]).toBe(first[0]);
     });
 
+    it.each([
+        '['.repeat(4000),
+        '['.repeat(4000) + 'label](javascript:alert)',
+        'literal * unclosed and _ unclosed and ` unclosed',
+    ])('preserves unmatched or unsafe inline syntax literally', (text) => {
+        expect(formatAssistantMessage(text)).toEqual([{
+            kind: 'text',
+            segments: [{
+                kind: 'text',
+                text,
+            }],
+        }]);
+    });
+
     it('syntax-highlights code as escaped text tokens without producing HTML', () => {
         const source = 'const unsafe = "<img onerror=alert(1)>"; // safe text';
         const tokens = highlightAssistantCode(source, 'ts');
