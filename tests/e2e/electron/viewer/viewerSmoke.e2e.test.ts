@@ -73,7 +73,12 @@ import {
     waitForViewerInteractive,
     triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import { openNewPane } from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
+    activatePaneByTab,
+    openNewPane,
+    splitActiveTabFromTabMenu,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {countWarmHighlightPixels} from '@tests/e2e/electron/helpers/searchHighlightPaint';
 import {
     describeToolbarPageIndicator,
     readToolbarPageIndicator,
@@ -3260,6 +3265,112 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         expectSplitResizeAnchorPreserved(afterWideDrag, userAnchor);
         expect(afterWideDrag.paneWidth).toBeGreaterThan(afterNarrowDrag.paneWidth + 250);
+    }, 90_000);
+
+    it('keeps CSS search highlight pixels when focus clears the other linked view', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-css-linked-search-${Date.now()}`,
+        });
+        const evidence = resolve('.devkit/lane-a-css-search', session.name);
+        await mkdir(evidence, {recursive: true});
+        const problems: string[] = [];
+        session.page.on('pageerror', error => problems.push(String(error)));
+        session.page.on('console', message => {
+            if ([
+                'warning',
+                'error',
+            ].includes(message.type())) problems.push(message.text());
+        });
+        await session.page.evaluate(() => localStorage.setItem('pdfHighlightMode', 'css'));
+        const fixturePath = await createMultiPageTextFixturePdf('css-linked-search.pdf', 2);
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await splitActiveTabFromTabMenu(session.page, 'right');
+        const paneIds = await session.page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId!));
+        expect(paneIds).toHaveLength(2);
+        const searchInPane = async (paneId: string) => {
+            await activatePaneByTab(session.page, paneId);
+            await ensureSidebarOpen(session.page);
+            await openDocumentSidebarTab(session.page, 'Search');
+            const root = `.editor-pane[data-editor-pane-id="${paneId}"]`;
+            await clickAsUser(session.page, `${root} .document-search-bar input`);
+            await session.page.keyboard.type('Page 1 sample text');
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (selector: string) => document.querySelector(`${selector} .document-search-result`)?.textContent?.includes('Page 1 sample text'), {timeout: 15_000}, root);
+        };
+        for (const paneId of paneIds) await searchInPane(paneId);
+        const capture = async (label: string) => {
+            const geometry = await session.page.evaluate((ids: string[]) => ({
+                viewport: {
+                    width: innerWidth,
+                    height: innerHeight,
+                },
+                registry: [...CSS.highlights].map(([
+                    name,
+                    ranges,
+                ]) => ({
+                    name,
+                    ranges: [...ranges].map(range => {
+                        const element = range.startContainer.parentElement;
+                        return {
+                            pane: element?.closest<HTMLElement>('.editor-pane')?.dataset.editorPaneId,
+                            connected: element?.isConnected,
+                            text: range.toString(),
+                        };
+                    }),
+                })),
+                scripts: [...document.scripts].map(script => script.src).filter(Boolean),
+                panes: ids.map(id => {
+                    const pane = document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${id}"]`)!;
+                    const layer = pane.querySelector<HTMLElement>('.page_container[data-page="1"] .text-layer, .page_container[data-page="1"] .textLayer')!;
+                    const rect = layer.getBoundingClientRect();
+                    const paneRect = pane.getBoundingClientRect();
+                    return {
+                        id,
+                        rect: {
+                            left: Math.max(rect.left, paneRect.left),
+                            right: Math.min(rect.right, paneRect.right),
+                            top: Math.max(rect.top, paneRect.top),
+                            bottom: Math.min(rect.bottom, paneRect.bottom),
+                        },
+                    };
+                }),
+            }), paneIds);
+            const screenshot = await session.page.screenshot({path: join(evidence, `${label}.png`)});
+            const pixels = await Promise.all(geometry.panes.map(pane => countWarmHighlightPixels(screenshot, pane.rect, geometry.viewport, true)));
+            return {
+                label,
+                geometry,
+                pixels,
+            };
+        };
+        // Wait for the actual CSS range publication and a painted frame, not just result rows.
+        await waitForFunctionInPage(session.page, () => (CSS.highlights.get('pdf-search-current-match')?.size ?? 0) > 0, {timeout: 15_000});
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const secondActive = await capture('second-query-active');
+        await activatePaneByTab(session.page, paneIds[0]!);
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const firstActive = await capture('first-query-active');
+        await clickAsUser(session.page, '.editor-pane.is-active .app-search-input-clear');
+        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .document-search-result') === null, {timeout: 15_000});
+        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        const cleared = await capture('first-query-cleared');
+        await writeFile(join(evidence, 'observations.json'), JSON.stringify({
+            secondActive,
+            firstActive,
+            cleared,
+            problems,
+        }, null, 2));
+        expect(secondActive.pixels[0]).toBe(0);
+        expect(secondActive.pixels[1]).toBeGreaterThan(0);
+        expect(firstActive.pixels[0]).toBeGreaterThan(0);
+        expect(firstActive.pixels[1]).toBe(0);
+        expect(cleared.pixels).toEqual([
+            0,
+            0,
+        ]);
+        expect(problems).toEqual([]);
     }, 90_000);
 
     it('shared search explains an invalid regex and accepts a corrected query', async () => {
