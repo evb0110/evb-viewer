@@ -1,8 +1,4 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    createPdfjsDocumentInitFromBrowserDocument,
-    getPdfjsLib,
-} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 
 /**
  * Opens a stored browser document with PDF.js. The runtime of the current
@@ -11,6 +7,9 @@ import {
  * caller disposes the document through `document.loadingTask.destroy()`.
  */
 export async function loadBrowserPdfjsDocument(path: string): Promise<IPdfDocument> {
+    const {
+        createPdfjsDocumentInitFromBrowserDocument, getPdfjsLib,
+    } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
     const pdfjsLib = await getPdfjsLib();
     let rejectRangeReadFailure: ((error: Error) => void) | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
