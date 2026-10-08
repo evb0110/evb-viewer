@@ -164,5 +164,5 @@ export {
     resolvePdfFitWidthDimensions, resolvePdfFitWidthRowWidths, type IPdfFitWidthDimensions,
 } from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
 export {
-    computePdfViewportGeometry, createPdfViewportGeometryFromLayout, getViewportGeometryRowForPage, resolveAnchorFromScroll, resolveRetainedAnchorFromScroll, resolveScrollForAnchor, resolveScrollForPageRect, type IComputePdfViewportGeometryOptions, type IPdfSemanticAnchor, type IPdfViewportGeometry, type IPdfViewportPageMetric, type IPdfViewportRect,
+    computePdfViewportGeometry, createPdfViewportGeometryFromLayout, getViewportGeometryRowForPage, resolvePageIndicatorFromScroll, resolveAnchorFromScroll, resolveRetainedAnchorFromScroll, resolveScrollForAnchor, resolveScrollForPageRect, type IComputePdfViewportGeometryOptions, type IPdfSemanticAnchor, type IPdfViewportGeometry, type IPdfViewportPageMetric, type IPdfViewportRect,
 } from '@app/modules/document-viewer/layout/pdfViewportGeometry';

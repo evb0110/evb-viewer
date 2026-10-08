@@ -318,6 +318,55 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
     }, geometry.insetTop);
 }
 
+/** R1 indicator projection; the semantic center anchor remains independent. */
+export function resolvePageIndicatorFromScroll(
+    geometry: IPdfViewportGeometry,
+    scroll: {
+        left: number;
+        top: number
+    },
+    previousPage: number,
+) {
+    const left = scroll.left;
+    const top = scroll.top + geometry.physicalScrollOrigin;
+    const right = left + geometry.viewportWidth;
+    const bottom = top + geometry.viewportHeight;
+    const previous = geometry.pageRects[previousPage - 1];
+    if (previous && previous.width > 0 && previous.height > 0
+        && previous.left >= left && previous.left + previous.width <= right
+        && previous.top >= top && previous.top + previous.height <= bottom) {
+        return previousPage;
+    }
+    // Only intersecting rows are candidates, including both facing pages.
+    let low = 0;
+    let high = geometry.rows.length;
+    while (low < high) {
+        const middle = low + Math.floor((high - low) / 2);
+        const row = geometry.rows[middle]!;
+        if (row.rect.top + row.rect.height < top) low = middle + 1;
+        else high = middle;
+    }
+    let page = previousPage;
+    let fraction = -1;
+    for (let rowIndex = low; rowIndex < geometry.rows.length; rowIndex += 1) {
+        const row = geometry.rows[rowIndex]!;
+        if (row.rect.top > bottom) break;
+        for (let candidate = row.startPage; candidate <= row.endPage; candidate += 1) {
+            const rect = geometry.pageRects[candidate - 1]!;
+            const width = Math.max(0, Math.min(right, rect.left + rect.width) - Math.max(left, rect.left));
+            const height = Math.max(0, Math.min(bottom, rect.top + rect.height) - Math.max(top, rect.top));
+            if (width <= 0 || rect.height <= 0
+                || height < Math.min(rect.height, geometry.viewportHeight) / 4) continue;
+            const visibleFraction = width * height / (rect.width * rect.height);
+            if (visibleFraction > fraction) {
+                page = candidate;
+                fraction = visibleFraction;
+            }
+        }
+    }
+    return page;
+}
+
 export function resolveAnchorFromScroll(
     geometry: IPdfViewportGeometry,
     scroll: {

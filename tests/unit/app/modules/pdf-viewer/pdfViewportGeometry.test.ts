@@ -4,6 +4,7 @@ import {
     computePdfViewportGeometry,
     getViewportGeometryRowForPage,
     resolveAnchorFromScroll,
+    resolvePageIndicatorFromScroll,
     resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
     buildPageLayoutMetrics,
@@ -22,6 +23,86 @@ import { getViewportVisibilityFromLayout } from '@app/modules/pdf-viewer/engine/
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 describe('pdfViewportGeometry', () => {
+    it('projects R1 retention, qualifying fractions and facing ties independently of the center anchor', () => {
+        const mixed = computePdfViewportGeometry({
+            revision: 1,
+            pages: [
+                {
+                    width: 400,
+                    height: 200,
+                },
+                {
+                    width: 400,
+                    height: 1_000,
+                },
+            ],
+            viewportWidth: 450,
+            viewportHeight: 600,
+            zoom: 1,
+            viewMode: 'single',
+            gap: 20,
+            padding: 20,
+        });
+        expect(resolveAnchorFromScroll(mixed, {
+            left: 0,
+            top: 20,
+        }).page).toBe(2);
+        expect(resolvePageIndicatorFromScroll(mixed, {
+            left: 0,
+            top: 20,
+        }, 1)).toBe(1);
+        expect(resolvePageIndicatorFromScroll(mixed, {
+            left: 0,
+            top: 80,
+        }, 1)).toBe(1);
+        expect(resolvePageIndicatorFromScroll(mixed, {
+            left: 0,
+            top: 180,
+        }, 1)).toBe(2);
+        expect(resolvePageIndicatorFromScroll({
+            ...mixed,
+            physicalScrollOrigin: 240,
+        }, {
+            left: 0,
+            top: 0,
+        }, 1)).toBe(2);
+        const spread = computePdfViewportGeometry({
+            revision: 2,
+            pages: [
+                {
+                    width: 200,
+                    height: 800,
+                },
+                {
+                    width: 200,
+                    height: 800,
+                },
+            ],
+            viewportWidth: 450,
+            viewportHeight: 600,
+            zoom: 1,
+            viewMode: 'facing',
+            gap: 20,
+            padding: 20,
+        });
+        expect(resolvePageIndicatorFromScroll(spread, {
+            left: 0,
+            top: 0,
+        }, 2)).toBe(1);
+        expect(resolvePageIndicatorFromScroll(spread, {
+            left: 220,
+            top: 0,
+        }, 1)).toBe(2);
+        const visibleSpread = {
+            ...spread,
+            viewportHeight: 1_000,
+        };
+        expect(resolvePageIndicatorFromScroll(visibleSpread, {
+            left: 0,
+            top: 0,
+        }, 2)).toBe(2);
+    });
+
     const pages = [
         {
             width: 600,
