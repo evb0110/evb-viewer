@@ -16,9 +16,9 @@
   },
   "main": "dist-electron/main.js",
   "scripts": {
-    "start": "pnpm run build:scan-cleanup && pnpm run build:pdf-image-combine && pnpm run build:pdf-page-ops && pnpm run build:pdf-search && pnpm run build:electron && tsx scripts/electronRun.ts start",
+    "start": "pnpm run build:native && pnpm run build:electron && tsx scripts/electronRun.ts start",
     "dev": "node scripts/ensure-wasm-artifacts.mjs && tsx scripts/runDevWithOutputTee.ts",
-    "dev:headless": "pnpm run electron:run:headless -- stop --session=default --keep-nuxt && pnpm run build:scan-cleanup && pnpm run build:pdf-image-combine && pnpm run build:pdf-page-ops && pnpm run build:pdf-search && pnpm run build:electron && pnpm run electron:run:headless -- start",
+    "dev:headless": "pnpm run electron:run:headless -- stop --session=default --keep-nuxt && pnpm run build:native && pnpm run build:electron && pnpm run electron:run:headless -- start",
     "dev:nuxt": "pnpm exec nuxi dev --host 127.0.0.1",
     "dev:web": "node scripts/ensure-wasm-artifacts.mjs && pnpm exec nuxi dev --host 127.0.0.1 --port 3235",
     "deploy:web": "node scripts/deployVercelPrivate.mjs",
