@@ -911,22 +911,24 @@ fn finalize_picture_ownership(
     // the inference and are applied once, last, so an operator override
     // cannot be enlarged and a final eraser cannot be silently undone.
     let automatic_picture_owner = {
-        // Flattened-page candidates passed the ordinary artifact qualifier
-        // in the detector, and the qualifier only drops whole components on
-        // their own evidence, so qualifying them again changes nothing.
-        // Trusted MRC tone has already passed the independent
-        // text-component veto and component/span gate above; qualifying
-        // that owner as a flattened edge artifact would erase
-        // producer-authored ownership before it can reach Mixed
-        // composition. Crop geometry remains independent below.
+        // Text geometry is now complete. Reconsider only flattened ownership;
+        // producer-authored MRC tone keeps its independent qualification.
         let mut owner = automatic_picture_mask.map_or_else(
             || BinaryImage::new(rotated.width(), rotated.height()),
-            Clone::clone,
+            |candidate| {
+                qualify_picture_owner(
+                    rotated,
+                    candidate,
+                    text_mask.zip(text_vicinity_mask),
+                    effective_dpi,
+                )
+            },
         );
         if let Some(trusted) = trusted_mrc_owned_tone_mask {
             owner = owner.or(trusted);
         }
-        (owner.count_black() > 0).then(|| Arc::new(owner))
+        // An empty verdict must replace the earlier candidate, not leave it alive.
+        (automatic_picture_mask.is_some() || owner.count_black() > 0).then(|| Arc::new(owner))
     };
     if let Some(automatic) = automatic_picture_owner.as_deref() {
         let empty_text = BinaryImage::new(rotated.width(), rotated.height());
@@ -1072,7 +1074,7 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
     // promoted here: without vetted geometry it must not become a Mixed
     // stencil owner or a second source of the UI's picture label.
     let spatial_tone_mask = flat_graphic_picture_mask.as_deref().and_then(|candidate| {
-        let qualified = qualify_picture_owner(rotated, candidate);
+        let qualified = qualify_picture_owner(rotated, candidate, None, calibration.effective_dpi);
         (qualified.count_black() > 0).then(|| Arc::new(qualified))
     });
     if options.crop_content && !content_evidence_complete {
@@ -1089,7 +1091,7 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
         // other automatic owner crosses. A flat-shaded plate is a dense,
         // page-interior component and clears it unchanged.
         let qualified_tone_mask = structural_tone_mask.as_deref().and_then(|tone| {
-            let qualified = qualify_picture_owner(rotated, tone);
+            let qualified = qualify_picture_owner(rotated, tone, None, calibration.effective_dpi);
             (qualified.count_black() > 0).then(|| Arc::new(qualified))
         });
         content_picture_mask =
