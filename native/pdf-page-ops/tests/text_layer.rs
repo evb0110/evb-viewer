@@ -280,25 +280,21 @@ fn identity_pdf_text(text: &str) -> String {
         .collect()
 }
 
-#[test]
-fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
-    let source = path("bidi-text-source", "pdf");
-    let input = path("bidi-text-input", "pdf");
-    let output = path("bidi-text-output", "pdf");
-    let instructions = path("bidi-text-instructions", "json");
-    let source_text = "Latin .كلذ 123";
-    let cmap = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend";
+/// Tesseract's ToUnicode CMap: every two-byte code maps to the same scalar.
+const FULL_RANGE_CMAP: &[u8] = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend";
 
+/// Saves a one-page source showing `text` in a glyph-less Identity-H font, as
+/// Tesseract writes it, with `to_unicode` as the font's ToUnicode stream.
+fn save_identity_text_source(path: &Path, text: &str, to_unicode: Option<Stream>) -> Document {
     let mut source_document = save_single_page(
-        &source,
+        path,
         format!(
             "BT /F1 20 Tf 1 0 0 1 10 80 Tm <{}> Tj ET",
-            identity_pdf_text(source_text)
+            identity_pdf_text(text)
         )
         .into_bytes(),
         Dictionary::new(),
     );
-    let cmap_id = source_document.add_object(Stream::new(dictionary! {}, cmap.to_vec()));
     let descendant_id = source_document.add_object(dictionary! {
         "Type" => "Font",
         "Subtype" => "CIDFontType2",
@@ -311,14 +307,17 @@ fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
         "DW" => 1_000,
         "CIDToGIDMap" => "Identity",
     });
-    let font_id = source_document.add_object(dictionary! {
+    let mut font = dictionary! {
         "Type" => "Font",
         "Subtype" => "Type0",
         "BaseFont" => "OCR",
         "Encoding" => "Identity-H",
         "DescendantFonts" => vec![descendant_id.into()],
-        "ToUnicode" => cmap_id,
-    });
+    };
+    if let Some(to_unicode) = to_unicode {
+        font.set("ToUnicode", source_document.add_object(to_unicode));
+    }
+    let font_id = source_document.add_object(font);
     let source_page_id = *source_document.get_pages().get(&1).unwrap();
     source_document
         .get_dictionary_mut(source_page_id)
@@ -327,20 +326,40 @@ fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
             "Resources",
             dictionary! { "Font" => dictionary! { "F1" => font_id } },
         );
-    source_document.save(&source).unwrap();
+    source_document.save(path).unwrap();
+    source_document
+}
 
-    let mut input_document = save_single_page(&input, Vec::new(), Dictionary::new());
+/// Saves an empty 400x120 target page and an instruction that overlays source
+/// page 1 onto it unchanged.
+fn save_identity_overlay_target(input: &Path, instructions: &Path) {
+    let mut input_document = save_single_page(input, Vec::new(), Dictionary::new());
     let input_page_id = *input_document.get_pages().get(&1).unwrap();
     input_document
         .get_dictionary_mut(input_page_id)
         .unwrap()
         .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 120.into()]);
-    input_document.save(&input).unwrap();
+    input_document.save(input).unwrap();
     write(
-        &instructions,
+        instructions,
         r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
     )
     .unwrap();
+}
+
+#[test]
+fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
+    let source = path("bidi-text-source", "pdf");
+    let input = path("bidi-text-input", "pdf");
+    let output = path("bidi-text-output", "pdf");
+    let instructions = path("bidi-text-instructions", "json");
+    let mut source_document = save_identity_text_source(
+        &source,
+        "Latin .كلذ 123",
+        Some(Stream::new(dictionary! {}, FULL_RANGE_CMAP.to_vec())),
+    );
+    let source_page_id = *source_document.get_pages().get(&1).unwrap();
+    save_identity_overlay_target(&input, &instructions);
 
     let result = run_overlay_text(&input, &source, &output, &instructions);
     assert!(
@@ -386,6 +405,46 @@ fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
     }
 
     for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_treats_a_tounicode_cmap_past_the_stream_ceiling_as_unreadable() {
+    let input = path("oversized-cmap-input", "pdf");
+    let instructions = path("oversized-cmap-instructions", "json");
+    save_identity_overlay_target(&input, &instructions);
+    // A valid CMap padded past the 64 MiB per-stream ceiling is about 64 KB of
+    // Flate. Decoded in full it still parses and reorders the RTL text;
+    // bounded, the font must be handled as if it had no ToUnicode.
+    let mut padded = FULL_RANGE_CMAP.to_vec();
+    padded.resize(64 * 1024 * 1024 + 1, b' ');
+    let mut oversized = Stream::new(dictionary! {}, padded);
+    oversized.compress().unwrap();
+    let overlaid_content = |to_unicode: Option<Stream>, label: &str| {
+        let source = path(&format!("{label}-source"), "pdf");
+        let output = path(&format!("{label}-output"), "pdf");
+        save_identity_text_source(&source, "Latin .كلذ 123", to_unicode);
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let document = Document::load(&output).unwrap();
+        let content = document.get_page_content(*document.get_pages().get(&1).unwrap());
+        for path in [source, output] {
+            let _ = remove_file(path);
+        }
+        String::from_utf8_lossy(&content).into_owned()
+    };
+
+    assert_eq!(
+        overlaid_content(Some(oversized), "oversized-cmap"),
+        overlaid_content(None, "missing-cmap")
+    );
+
+    for path in [input, instructions] {
         let _ = remove_file(path);
     }
 }

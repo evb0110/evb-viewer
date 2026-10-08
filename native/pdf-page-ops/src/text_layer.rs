@@ -195,8 +195,13 @@ impl UnicodeMap {
         let dictionary = resolved_dictionary(document, font)?;
         let to_unicode = dictionary.get(b"ToUnicode").ok()?;
         let (_, to_unicode) = document.dereference(to_unicode).ok()?;
-        let stream = to_unicode.as_stream().ok()?;
-        let code_to_char = parse_unicode_cmap(&stream.decompressed_content().ok()?)?;
+        // A CMap past the per-stream ceiling is dropped like any unreadable map.
+        let cmap = to_unicode
+            .as_stream()
+            .ok()?
+            .decompressed_content_with_limit(MAX_DECOMPRESSED_PDF_STREAM_BYTES)
+            .ok()?;
+        let code_to_char = parse_unicode_cmap(&cmap)?;
         let mut char_to_code = HashMap::with_capacity(code_to_char.len());
         for (&code, &character) in &code_to_char {
             if char_to_code.insert(character, code).is_some() {
