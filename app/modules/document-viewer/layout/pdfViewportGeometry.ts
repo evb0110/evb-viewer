@@ -70,12 +70,11 @@ export function createPdfViewportGeometryFromLayout(
             height: getLayoutPageHeight(metrics, pageIndex),
         };
     };
-    const pageRects = metrics.base.isSparse
-        ? createLazyIndexedCollection<IPdfViewportRect>({
-            length: metrics.base.totalPages,
-            getValue: getPageRect,
-        })
-        : metrics.base.pageWidths.map((_width, index) => getPageRect(index));
+    const pageRects = createLazyIndexedCollection<IPdfViewportRect>({
+        length: metrics.base.totalPages,
+        getValue: getPageRect,
+        cacheValues: false,
+    });
     const getRow = (rowIndex: number) => {
         const startPage = metrics.base.rowStartPages[rowIndex] ?? rowIndex + 1;
         const endPage = metrics.base.rowEndPages[rowIndex] ?? startPage;
@@ -97,30 +96,38 @@ export function createPdfViewportGeometryFromLayout(
             },
         };
     };
-    const rows = metrics.base.isSparse
-        ? createLazyIndexedCollection<IPdfViewportGeometry['rows'][number]>({
-            length: metrics.base.rowStartPages.length,
-            getValue: getRow,
-        })
-        : metrics.base.rowStartPages.map((_startPage, rowIndex) => getRow(rowIndex));
+    const rows = createLazyIndexedCollection<IPdfViewportGeometry['rows'][number]>({
+        length: metrics.base.rowStartPages.length,
+        getValue: getRow,
+        cacheValues: false,
+    });
     const maxPageWidth = Number.isFinite(metrics.base.maxPageWidth)
         ? Math.max(0, metrics.base.maxPageWidth)
         : 0;
-    const contentWidth = metrics.base.isSparse
-        ? Math.max(
-            viewport.width,
-            maxPageWidth * metrics.scale
-                * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
-                + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0)
-                + paddingInline * 2,
-        )
-        : Math.max(viewport.width, ...pageRects.map(rect => rect.left + rect.width + paddingInline));
     return {
         revision,
         insetTop: metrics.paddingTop,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
-        contentWidth,
+        // Native scroll needs only indexed page/row reads. Authored anchor
+        // placement asks for the exact horizontal extent when clamping it.
+        get contentWidth() {
+            if (metrics.base.isSparse) {
+                return Math.max(
+                    viewport.width,
+                    maxPageWidth * metrics.scale
+                        * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
+                        + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0)
+                        + paddingInline * 2,
+                );
+            }
+            let width = viewport.width;
+            for (const endPage of metrics.base.rowEndPages) {
+                const rect = getPageRect(endPage - 1);
+                width = Math.max(width, rect.left + rect.width + paddingInline);
+            }
+            return width;
+        },
         contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
         physicalScrollOrigin: Math.max(0, physicalScrollOrigin),
         pageRects,
