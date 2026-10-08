@@ -1,4 +1,7 @@
-import { DOCUMENT_CHUNKS_STORE } from '@app/platform/browser/browserDocumentConstants';
+import {
+    BROWSER_DOCUMENT_CHUNK_SIZE,
+    DOCUMENT_CHUNKS_STORE,
+} from '@app/platform/browser/browserDocumentConstants';
 import type {
     IBrowserDocumentChunkRecord,
     IChunkKeyRecord,
@@ -9,6 +12,13 @@ import {
     withObjectStoreReadResult,
 } from '@app/platform/browser/browserDocumentIdb';
 import * as v from 'valibot';
+
+// One store-owned immutable generation chunk, including an in-flight read.
+// Returned document ranges copy these bytes; callers never receive this value.
+let cachedChunk: {
+    key: string;
+    result: Promise<IBrowserDocumentChunkRecord | null>
+} | null = null;
 
 const persistedChunkRecordSchema = v.pipe(
     v.object({
@@ -67,6 +77,9 @@ export function toPersistedChunkRecord(value: unknown): IBrowserDocumentChunkRec
 }
 
 export async function persistChunkRecord(record: IBrowserDocumentChunkRecord) {
+    if (cachedChunk?.key === record.key) {
+        cachedChunk = null;
+    }
     const result = await withObjectStore(
         DOCUMENT_CHUNKS_STORE,
         'readwrite',
@@ -78,14 +91,41 @@ export async function persistChunkRecord(record: IBrowserDocumentChunkRecord) {
 }
 
 export async function loadChunkRecord(ref: string, index: number, generation?: string) {
-    return withObjectStore<unknown>(
+    const key = createChunkKey(ref, index, generation);
+    if (generation && cachedChunk?.key === key) {
+        return cachedChunk.result;
+    }
+    const result = withObjectStore<unknown>(
         DOCUMENT_CHUNKS_STORE,
         'readonly',
-        (store) => store.get(createChunkKey(ref, index, generation)) as IDBRequest<unknown>,
-    );
+        (store) => store.get(key) as IDBRequest<unknown>,
+    ).then(toPersistedChunkRecord);
+    if (!generation) {
+        return result;
+    }
+    const candidate = {
+        key,
+        result,
+    };
+    cachedChunk = candidate;
+    try {
+        const chunk = await result;
+        if ((!chunk || chunk.data.byteLength > BROWSER_DOCUMENT_CHUNK_SIZE) && cachedChunk === candidate) {
+            cachedChunk = null;
+        }
+        return chunk;
+    } catch (error) {
+        if (cachedChunk === candidate) {
+            cachedChunk = null;
+        }
+        throw error;
+    }
 }
 
 export async function deleteChunkRecord(ref: string, index: number, generation?: string) {
+    if (cachedChunk?.key === createChunkKey(ref, index, generation)) {
+        cachedChunk = null;
+    }
     const result = await withObjectStore(
         DOCUMENT_CHUNKS_STORE,
         'readwrite',
