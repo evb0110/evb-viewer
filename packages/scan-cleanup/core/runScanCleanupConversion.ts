@@ -1099,6 +1099,9 @@ export async function validateScanCleanupStreamingReport(
     }
 }
 
+/** Pages one source-raster probe of a large conversion covers. */
+const RASTER_PROBE_WINDOW_PAGES = 256;
+
 function createLazyPageRasterSource({
     pdfPath,
     pdfimagesBinary,
@@ -1134,41 +1137,64 @@ function createLazyPageRasterSource({
         if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
         return raster;
     };
-    const getPageRaster = (pageNumber: number) => {
-        const cached = cache.get(pageNumber);
-        if (cached !== undefined) {
-            return cached;
+    // A miss probes the window of pages that follows it in one process:
+    // conversion visits pages in document order, often twice, and one
+    // pdfimages run per page made that two process launches per page.
+    const probeFrom = (firstPageNumber: number) => {
+        const pageNumbers = [firstPageNumber];
+        for (
+            let pageNumber = firstPageNumber + 1;
+            pageNumber <= documentPageCount && pageNumbers.length < RASTER_PROBE_WINDOW_PAGES;
+            pageNumber += 1
+        ) {
+            pageNumbers.push(pageNumber);
         }
-        const pending = (async () => {
+        const probed = (async () => {
             signal.throwIfAborted();
+            const rasters = new Map<number, IDetectedPageRaster | undefined>();
             if (pdfimagesBinary === undefined) {
                 rasterProbeFailed = true;
-                return recordPageRaster(pageNumber, undefined);
+            } else {
+                try {
+                    const result = await dependencies.detectSourceDpi(
+                        pdfPath,
+                        pdfimagesBinary,
+                        log,
+                        undefined,
+                        signal,
+                        pageNumbers,
+                    );
+                    documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
+                    for (const pageNumber of pageNumbers) {
+                        rasters.set(pageNumber, await result.getPageRaster(pageNumber));
+                    }
+                } catch (error) {
+                    signal.throwIfAborted();
+                    rasterProbeFailed = true;
+                    rasters.clear();
+                    log('debug', `Scan cleanup could not detect source rasters for pages ${String(firstPageNumber)}-${String(pageNumbers.at(-1))}: ${getErrorMessage(error)}`);
+                }
             }
-            try {
-                const result = await dependencies.detectSourceDpi(
-                    pdfPath,
-                    pdfimagesBinary,
-                    log,
-                    undefined,
-                    signal,
-                    [pageNumber],
-                );
-                documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
-                return recordPageRaster(pageNumber, await result.getPageRaster(pageNumber));
-            } catch (error) {
-                signal.throwIfAborted();
-                rasterProbeFailed = true;
-                log('debug', `Scan cleanup could not detect source raster for page ${String(pageNumber)}: ${getErrorMessage(error)}`);
-                return recordPageRaster(pageNumber, undefined);
-            }
+            for (const pageNumber of pageNumbers) recordPageRaster(pageNumber, rasters.get(pageNumber));
+            return rasters;
         })();
-        cache.set(pageNumber, pending);
-        if (cache.size > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
-            const oldest = cache.keys().next().value;
-            if (oldest !== undefined && oldest !== pageNumber) cache.delete(oldest);
+        // Re-inserting moves the window to the recent end, so the bound evicts
+        // pages the traversal has passed rather than the ones it reads next.
+        for (const pageNumber of pageNumbers) {
+            cache.delete(pageNumber);
+            const pageRaster = probed.then(rasters => rasters.get(pageNumber));
+            // A cancel rejects every page of the window; callers await only
+            // the pages they read, so the rest must not go unhandled.
+            pageRaster.catch(() => undefined);
+            cache.set(pageNumber, pageRaster);
         }
-        return pending;
+        while (cache.size > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
+            cache.delete(cache.keys().next().value!);
+        }
+    };
+    const getPageRaster = (pageNumber: number) => {
+        if (!cache.has(pageNumber)) probeFrom(pageNumber);
+        return cache.get(pageNumber)!;
     };
     return {
         get detected() {

@@ -3735,6 +3735,24 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('reports blank pages a completed detection counted beyond its result window', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`blank-page-count-${Date.now()}`);
+
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        // Above 1,024 results the completed state carries no per-page results,
+        // only counts; the blank-page hint must still see the blank pages.
+        const completed = detectionState('detect-1', 'completed');
+        completed.resultCount = completed.results.length;
+        completed.results = [];
+        completed.blankPageCount = 2;
+        harness.emitDetection(completed);
+
+        await vi.waitFor(() => expect(mounted.session.detection.blankPageCount.value).toBe(2));
+        mounted.unmount();
+    });
+
     it('pins completed detection plans for every page into the final run', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

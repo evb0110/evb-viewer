@@ -221,12 +221,16 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             while (prefetchRequested && !closed) {
                 prefetchRequested = false;
                 while (!closed) {
-                    const next = dependencies.pages.find(
-                        (pageNumber, index) => index > cursorIndex
-                            && !held.has(pageNumber)
-                            && !external.has(pageNumber)
-                            && !inFlight.has(pageNumber),
-                    );
+                    // Scan forward from the reading cursor: the pages before
+                    // it are never prefetch candidates.
+                    let next: number | undefined;
+                    for (let index = cursorIndex + 1; index < dependencies.pages.length; index += 1) {
+                        const pageNumber = dependencies.pages[index]!;
+                        if (!held.has(pageNumber) && !external.has(pageNumber) && !inFlight.has(pageNumber)) {
+                            next = pageNumber;
+                            break;
+                        }
+                    }
                     // Read-ahead stops at a page it could not stage rather than
                     // skipping it. Staging past it would fill the window with
                     // unread pages that may not be dropped, and that page's own
