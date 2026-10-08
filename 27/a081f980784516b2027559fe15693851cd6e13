@@ -1,0 +1,23 @@
+tests/unit/electron/agentMcpServer.test.ts
+  s_0dbaeaa78acb44::t_4424bdf0bf7e69 861-863,865-867,869-871,873-875,877-879,881-886,888,890-894,896-898,900-903,905-914,916-933
+electron/features/agent/mcp/mcpServerCore.ts
+  s_0dbaeaa78acb44::t_815d4ea6885576 438-444
+electron/features/agent/mcp/createMcpToolResult.ts
+  s_0dbaeaa78acb44::t_815d4ea6885576 52,82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "27a081f980784516b2027559fe15693851cd6e13",
+  "prompts": {},
+  "sessions": {
+    "s_0dbaeaa78acb44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a118f2-48d1-7271-87f6-897fc13ee038",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
