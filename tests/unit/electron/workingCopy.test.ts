@@ -218,17 +218,20 @@ describe('workingCopy', () => {
         )).rejects.toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     });
 
-    it('publishes unsupported durable PDFs as lazy while hashing the original in the background', async () => {
+    it('publishes unsupported durable PDFs as lazy and fingerprints the original as it materializes', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {ensureWorkingCopyMaterialized} = await import('@electron/file-access/workingCopyMaterialization');
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
         const {
             getWorkingCopyBackingEntry,
             getWorkingCopyOriginalFileExpectation,
         } = await import('@electron/file-access/workingCopyStore');
         const originalPath = join(tempRoot, 'lazy-original.pdf');
-        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 17));
+        const originalBytes = Buffer.alloc(2 * 1024 * 1024, 17);
+        writeFileSync(originalPath, originalBytes);
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
 
@@ -236,14 +239,24 @@ describe('workingCopy', () => {
 
         expect(existsSync(workingPath)).toBe(false);
         expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
-            admissionSnapshot: {size: BigInt(2 * 1024 * 1024)},
+            admissionSnapshot: {size: BigInt(originalBytes.byteLength)},
             backingState: 'lazy-original',
             originalPath: realpathSync.native(originalPath),
         });
-        await vi.waitFor(() => {
-            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint)
-                .toMatch(/^sha256-full-v1:[0-9a-f]{64}$/u);
+        // The registration keeps the witnessed revision; the copy that reads
+        // the source in full is the one that fingerprints it.
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({size: originalBytes.byteLength});
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBeUndefined();
+
+        await ensureWorkingCopyMaterialized(workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'first-mutation',
         });
+
+        expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
+            `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
+        );
     });
 
     it('fails the open when the source is replaced with same-size, same-mtime bytes during a rewrite', async () => {

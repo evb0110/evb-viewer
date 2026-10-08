@@ -15,10 +15,10 @@ use evb_native_support::{
 };
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi,
-    encode_netpbm_path_as_tiff_with_dpi, probe_netpbm_path, write_pdf, FramePolicy,
-    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
-    PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
-    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, PDF_COMBINE_MAX_OUTPUT_BYTES,
+    probe_netpbm_path, write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec,
+    InputSource, JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement,
+    PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
 
@@ -101,10 +101,11 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
         {
-            encode_netpbm_path_as_tiff_with_dpi(
-                &config.input_paths[0],
+            combine_tiff_paths(
+                &config.input_paths,
                 &config.output_path,
                 max_pixels,
+                1,
                 config.dpi,
             )?;
             return Ok(());

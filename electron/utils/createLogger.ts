@@ -462,33 +462,44 @@ export function redactLogData(data: TLogData | undefined): TLogData | undefined 
 /** `stdout: false` keeps a record out of the stdout mirror (the launcher already sees it). */
 export interface IWriteLogRecordOptions {readonly stdout?: boolean;}
 
+function selectLogSinks(level: TLogLevel, options: IWriteLogRecordOptions) {
+    return {
+        toFile: isLogLevelEnabled(level, FILE_LOG_LEVEL),
+        toStdout: STDOUT_LOG_ENABLED
+            && options.stdout !== false
+            && isLogLevelEnabled(level, STDOUT_LOG_LEVEL),
+    };
+}
+
 /**
- * Normalizes, redacts and writes one record to the app log and, when enabled,
- * the stdout mirror. Level filtering for each sink happens here.
+ * Writes one record to the app log and, when enabled, the stdout mirror. Level
+ * filtering for each sink happens here. `msg` and `data` are written as given:
+ * the caller has already bounded data with `toLogData` and redacted both with
+ * `redactElectronLogText` and `redactLogData`. Loggers do that in `log`; the
+ * renderer bridge does it once at its IPC boundary.
  */
 export function writeLogRecord(
     input: Omit<ILogRecord, 'ts' | 'pid' | 'data'> & {
         ts?: string;
-        data?: unknown;
+        data?: TLogData | undefined;
     },
     options: IWriteLogRecordOptions = {},
 ): ILogRecord | null {
-    const toFile = isLogLevelEnabled(input.level, FILE_LOG_LEVEL);
-    const toStdout = STDOUT_LOG_ENABLED
-        && options.stdout !== false
-        && isLogLevelEnabled(input.level, STDOUT_LOG_LEVEL);
+    const {
+        toFile,
+        toStdout,
+    } = selectLogSinks(input.level, options);
     if (!toFile && !toStdout) {
         return null;
     }
 
-    const data = redactLogData(toLogData(input.data));
     const record: ILogRecord = {
         ts: input.ts ?? new Date().toISOString(),
         level: input.level,
         proc: input.proc,
         scope: input.scope,
-        msg: redactElectronLogText(input.msg),
-        ...(data ? {data} : {}),
+        msg: input.msg,
+        ...(input.data ? {data: input.data} : {}),
         ...(input.errorId ? {errorId: input.errorId} : {}),
         ...(input.code ? {code: input.code} : {}),
         pid: process.pid,
@@ -627,18 +638,21 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
     const broadcastToRenderersEnabled = options.broadcastToRenderers ?? true;
 
     function log(level: TLogLevel, msg: string, data: unknown, failureRef?: IFailureRef) {
-        const record = writeLogRecord({
-            level,
-            proc: processKind(),
-            scope: source,
-            msg,
-            data,
-            ...(isMainThread ? {} : {thread: threadId}),
-            ...(failureRef ? {
-                errorId: failureRef.eventId,
-                code: failureRef.code,
-            } : {}),
-        });
+        const sinks = selectLogSinks(level, {});
+        const record = sinks.toFile || sinks.toStdout
+            ? writeLogRecord({
+                level,
+                proc: processKind(),
+                scope: source,
+                msg: redactElectronLogText(msg),
+                data: redactLogData(toLogData(data)),
+                ...(isMainThread ? {} : {thread: threadId}),
+                ...(failureRef ? {
+                    errorId: failureRef.eventId,
+                    code: failureRef.code,
+                } : {}),
+            })
+            : null;
 
         const canBroadcast = level !== 'error' || (isMainThread && failureRef !== undefined);
         if (broadcastToRenderersEnabled && canBroadcast && isLogLevelEnabled(level, RENDER_LOG_LEVEL)) {
