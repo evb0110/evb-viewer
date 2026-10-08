@@ -1299,6 +1299,7 @@ export default {
         }),
         'forQuery': 'for “{query}”',
         'showingFirst': 'Showing first {count} results — keep typing to narrow',
+        'showingRange': 'Showing matches {start}–{end}. Use Next or Previous to continue.',
         'page': 'Page {page}',
         'pageWithCount': plural({
             one: 'Page {page} ({count} match)',

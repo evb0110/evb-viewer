@@ -1321,6 +1321,7 @@ export default {
         }),
         'forQuery': 'по запросу «{query}»',
         'showingFirst': 'Показаны первые {count} результатов — продолжайте набирать для уточнения',
+        'showingRange': 'Показаны совпадения {start}–{end}. Продолжайте кнопками «Следующее» и «Предыдущее».',
         'page': 'Страница {page}',
         'pageWithCount': plural({
             one: 'Страница {page} ({count} совпадение)',

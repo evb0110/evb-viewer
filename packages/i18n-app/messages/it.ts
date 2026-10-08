@@ -1299,6 +1299,7 @@ export default {
         }),
         'forQuery': 'per “{query}”',
         'showingFirst': 'Primi {count} risultati mostrati — continua a digitare per affinare',
+        'showingRange': 'Corrispondenze {start}–{end}. Continua con Successivo o Precedente.',
         'page': 'Pagina {page}',
         'pageWithCount': plural({
             one: 'Pagina {page} ({count} corrispondenza)',

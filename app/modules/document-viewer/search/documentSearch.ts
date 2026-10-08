@@ -1,5 +1,6 @@
 import type {
     IResolvedSearchMatchOptions,
+    TSearchResultOffset,
     IPdfSearchExcerpt,
     ISearchIndexCoverage,
 } from '@contracts/search';
@@ -33,6 +34,7 @@ export interface IDocumentSearchResponse {
 }
 
 export interface IDocumentSearchRequest {
+    resultOffset?: TSearchResultOffset;
     query: string;
     matchOptions: IResolvedSearchMatchOptions;
     signal: AbortSignal;

@@ -1,8 +1,12 @@
 import { getErrorMessage } from '@app/utils/error';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
-import type { IResolvedSearchMatchOptions } from '@contracts/search';
-import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
+import type {
+    IResolvedSearchMatchOptions, TSearchResultOffset,
+} from '@contracts/search';
+import {
+    DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH, SEARCH_RESULT_LIMIT,
+} from '@contracts/search';
 import {
     DEFAULT_DOCUMENT_SEARCH_OPTIONS,
     getDocumentSearchQueryError,
@@ -53,6 +57,12 @@ export const useDocumentSearchSession = (
         toValue(options.backend)?.minQueryLength ?? DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH
     ));
     let activeController: AbortController | null = null;
+    let searchCommand: {
+        resultOffset?: TSearchResultOffset;
+        backend: IDocumentSearchBackend;
+        query: string;
+        matchOptions: IResolvedSearchMatchOptions
+    } | null = null;
     let sourceGeneration = 0;
     let runGeneration = 0;
 
@@ -73,6 +83,7 @@ export const useDocumentSearchSession = (
     }
 
     function clear() {
+        searchCommand = null;
         cancel();
         query.value = '';
         submittedQuery.value = '';
@@ -98,21 +109,30 @@ export const useDocumentSearchSession = (
         if (currentResultIndex.value < 0) {
             return select(direction === 'next' ? 0 : resultCount - 1);
         }
-        const delta = direction === 'next' ? 1 : -1;
-        return select((currentResultIndex.value + delta + resultCount) % resultCount);
+        if (isSearching.value || !searchCommand) return false;
+        const nextIndex = currentResultIndex.value + (direction === 'next' ? 1 : -1);
+        if (nextIndex >= 0 && nextIndex < resultCount) return select(nextIndex);
+        const firstOrdinal = results.value[0]!.matchIndex;
+        if (!isTruncated.value && (searchCommand.resultOffset ?? 0) === 0) return select(direction === 'next' ? 0 : resultCount - 1);
+        const resultOffset = direction === 'next'
+            ? isTruncated.value ? results.value.at(-1)!.matchIndex + 1 : 0
+            : firstOrdinal > 0 ? Math.max(0, firstOrdinal - SEARCH_RESULT_LIMIT) : 'last';
+        void run(resultOffset, direction, direction === 'previous' && firstOrdinal > 0 ? firstOrdinal - 1 : undefined);
+        return true;
     }
 
-    async function run() {
+    async function run(resultOffset?: TSearchResultOffset, direction?: TDocumentSearchDirection, targetMatchIndex?: number) {
         cancel();
-        const backend = toValue(options.backend);
-        const normalizedQuery = resolveDocumentSearchQuery(query.value);
+        const backend = direction ? searchCommand?.backend : toValue(options.backend);
+        const normalizedQuery = direction ? searchCommand?.query ?? '' : resolveDocumentSearchQuery(query.value);
+        const matchOptions = direction ? searchCommand!.matchOptions : {...searchOptions.value};
         submittedQuery.value = normalizedQuery;
-        resetResults();
+        if (!direction) resetResults();
         if (!backend || normalizedQuery.length < minQueryLength.value) {
             return false;
         }
 
-        const queryError = getDocumentSearchQueryError(normalizedQuery, searchOptions.value);
+        const queryError = getDocumentSearchQueryError(normalizedQuery, matchOptions);
         if (queryError) {
             error.value = t(queryError.key, {count: queryError.count});
             return false;
@@ -124,21 +144,25 @@ export const useDocumentSearchSession = (
         const currentDocumentRevision = toValue(options.documentRevision);
         activeController = controller;
         isSearching.value = true;
-        progress.value = {
+        if (!direction) progress.value = {
             processed: 0,
             total: 0,
         };
         try {
             const response = await backend.search({
                 query: normalizedQuery,
-                matchOptions: searchOptions.value,
+                matchOptions,
+                ...(resultOffset === undefined ? {} : {resultOffset}),
                 signal: controller.signal,
                 onProgress: nextProgress => {
                     if (
                         !controller.signal.aborted
                         && currentRunGeneration === runGeneration
                         && currentSourceGeneration === sourceGeneration
-                    ) progress.value = nextProgress;
+                    ) progress.value = {
+                        ...(direction ? progress.value : {}),
+                        ...nextProgress,
+                    };
                 },
             });
             if (
@@ -150,6 +174,12 @@ export const useDocumentSearchSession = (
             ) {
                 return false;
             }
+            searchCommand = {
+                backend,
+                query: normalizedQuery,
+                matchOptions,
+                ...(resultOffset === undefined ? {} : {resultOffset}),
+            };
             results.value = [...response.results];
             isTruncated.value = response.truncated;
             if (response.coverage) progress.value = {
@@ -157,7 +187,9 @@ export const useDocumentSearchSession = (
                 total: response.coverage.pageCount,
                 coverage: response.coverage,
             };
-            if (results.value.length > 0) select(0);
+            if (results.value.length > 0) select(targetMatchIndex === undefined
+                ? direction === 'previous' ? results.value.length - 1 : 0
+                : results.value.findIndex(match => match.matchIndex === targetMatchIndex));
             return true;
         } catch (caught) {
             if (

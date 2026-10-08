@@ -32,6 +32,7 @@ fn options(query: &str) -> SearchOptions {
         query: query.to_string(),
         limit: MAX_RESULT_LIMIT,
         context_chars: 24,
+        result_offset: Some(0),
         match_case: false,
         whole_word: false,
         use_regex: false,
@@ -423,4 +424,36 @@ fn repeated_ligature_ranges_keep_original_offsets_and_snippets() {
             })
         );
     }
+}
+
+#[test]
+fn traverses_bounded_windows_within_a_page_and_across_pages() {
+    let dense = "valve ".repeat(560);
+    let mut index = build_index(80, &[(1, &dense), (64, "valve later"), (80, "valve final")]);
+    let mut query = options("valve");
+    let first = search_index(&mut index, &query).unwrap();
+    assert_eq!(first.results.len(), 500);
+    assert!(first.truncated);
+    query.result_offset = Some(500);
+    let next = search_index(&mut index, &query).unwrap();
+    assert_eq!(next.results.len(), 62);
+    assert!(!next.truncated);
+    assert_eq!(
+        (
+            next.results[0].match_index,
+            next.results[0].page_match_index
+        ),
+        (500, 500)
+    );
+    assert_eq!(next.results.last().unwrap().page_number, 80);
+    assert_eq!(next.coverage, first.coverage);
+    query.result_offset = None;
+    let last = search_index(&mut index, &query).unwrap();
+    assert_eq!(last.results.len(), 500);
+    assert_eq!(last.results[0].match_index, 62);
+    assert_eq!(last.results.last().unwrap().match_index, 561);
+    assert!(!last.truncated);
+    assert_eq!(last.coverage, first.coverage);
+    query.result_offset = Some(562);
+    assert!(search_index(&mut index, &query).unwrap().results.is_empty());
 }

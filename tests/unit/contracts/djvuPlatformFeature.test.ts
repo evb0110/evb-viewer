@@ -313,6 +313,7 @@ describe('DjVu platform feature', () => {
         await expect(client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
             requestId: requireRequestId('djvu-search-1'),
             pageCount: 431,
+            resultOffset: 'last',
             wholeWord: true,
         })).resolves.toEqual({
             results: [],
@@ -325,6 +326,7 @@ describe('DjVu platform feature', () => {
             'needle',
             {
                 requestId: 'djvu-search-1',
+                resultOffset: 'last',
                 pageCount: 431,
                 matchCase: false,
                 wholeWord: true,

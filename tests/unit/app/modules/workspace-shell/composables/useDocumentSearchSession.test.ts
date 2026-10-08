@@ -107,6 +107,57 @@ describe('useDocumentSearchSession', () => {
         harness.stop();
     });
 
+    it('continues within a page and reverse-wraps without retaining preceding windows', async () => {
+        let pending: ReturnType<typeof createDeferred<IDocumentSearchResponse>> | null = null;
+        const harness = withSession(() => useDocumentSearchSession({backend: {
+            minQueryLength: 2,
+            search: request => pending?.promise ?? searchDocumentTextProvider({
+                ...request,
+                pageCount: 2,
+                provider: {getPageText: async page => page === 1 ? 'valve '.repeat(560) : 'valve final'},
+            }),
+        }}));
+        const session = harness.session;
+        session.setQuery('valve');
+        await session.run();
+        session.select(499);
+        session.setQuery('unsubmitted draft');
+        pending = createDeferred<IDocumentSearchResponse>();
+        session.navigate('next');
+        session.cancel();
+        pending.resolve({
+            results: [],
+            truncated: false,
+        });
+        await Promise.resolve();
+        pending = null;
+        expect(session.results.value).toHaveLength(500);
+        expect(session.isTruncated.value).toBe(true);
+        expect(session.navigate('next')).toBe(true);
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value).toHaveLength(61);
+        expect(session.results.value[session.currentResultIndex.value]).toMatchObject({
+            matchIndex: 500,
+            pageMatchIndex: 500,
+        });
+        session.navigate('previous');
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value[session.currentResultIndex.value]?.matchIndex).toBe(499);
+        session.select(0);
+        session.navigate('previous');
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value).toHaveLength(500);
+        expect(session.results.value[session.currentResultIndex.value]).toMatchObject({
+            matchIndex: 560,
+            pageIndex: 1,
+        });
+        session.select(0);
+        session.navigate('previous');
+        await vi.waitFor(() => expect(session.isSearching.value).toBe(false));
+        expect(session.results.value[session.currentResultIndex.value]?.matchIndex).toBe(60);
+        harness.stop();
+    });
+
     it('owns query, progress, result selection, and cyclic navigation' , async () => {
         const onNavigate = vi.fn();
         const search = vi.fn(async (request: IDocumentSearchRequest) => {
@@ -119,7 +170,7 @@ describe('useDocumentSearchSession', () => {
                     createMatch(1, 0),
                     createMatch(3, 1),
                 ],
-                truncated: true,
+                truncated: false,
             };
         });
         const backend: IDocumentSearchBackend = {
@@ -141,7 +192,7 @@ describe('useDocumentSearchSession', () => {
             total: 4,
         });
         expect(harness.session.results.value).toHaveLength(2);
-        expect(harness.session.isTruncated.value).toBe(true);
+        expect(harness.session.isTruncated.value).toBe(false);
         expect(harness.session.currentResultIndex.value).toBe(0);
         expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({pageIndex: 1}), 0);
 

@@ -7,6 +7,8 @@ import {
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+    type TSearchResultOffset,
+    type IResolvedSearchMatchOptions,
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
 } from '@contracts/search';
@@ -46,22 +48,18 @@ export interface ISearchIndexedDocument {
     readPages(signal: AbortSignal, pageCount: number | undefined): AsyncIterable<IPageText>;
 }
 
-export interface ISearchQueryOptions {
-    matchCase: boolean;
-    wholeWord: boolean;
-    useRegex: boolean;
+export interface ISearchQueryOptions extends IResolvedSearchMatchOptions {
     pages?: readonly number[];
     limit?: number;
+    resultOffset?: TSearchResultOffset;
 }
 
 /**
  * Names how page text is extracted. Changing extraction changes this, so
  * indexes built the old way no longer match their document and are rebuilt.
  */
-const INDEX_TEXT_VERSION = 'text-4';
-
 function indexRevision(document: ISearchIndexedDocument) {
-    return `${INDEX_TEXT_VERSION}:${document.documentRevision}`;
+    return `text-4:${document.documentRevision}`;
 }
 
 export function getSearchIndexPath(documentPath: string) {
@@ -189,28 +187,6 @@ export function cancelSearchIndexBuilds(indexPath: string) {
     }
 }
 
-function searchArgs(document: ISearchIndexedDocument, query: string, options: ISearchQueryOptions) {
-    return [
-        '--index',
-        document.indexPath,
-        '--document-revision',
-        indexRevision(document),
-        '--query',
-        query,
-        '--limit',
-        String(options.limit ?? SEARCH_RESULT_LIMIT),
-        '--context',
-        String(SEARCH_EXCERPT_CONTEXT_CHARS),
-        ...(options.matchCase ? ['--match-case'] : []),
-        ...(options.wholeWord ? ['--whole-word'] : []),
-        ...(options.useRegex ? ['--regex'] : []),
-        ...(options.pages && options.pages.length > 0 ? [
-            '--pages',
-            options.pages.join(','),
-        ] : []),
-    ];
-}
-
 async function runIndexQuery(command: 'search' | 'stat', args: string[], signal: AbortSignal | undefined) {
     const result = await runNativeToolCommand(resolvePdfSearchBinary(), [
         command,
@@ -245,7 +221,29 @@ export async function searchIndexedDocument(
         onIndexProgress?: (pagesScanned: number) => void;
     } = {},
 ): Promise<ISearchIndexResponse> {
-    const args = searchArgs(document, query, options);
+    const args = [
+        '--index',
+        document.indexPath,
+        '--document-revision',
+        indexRevision(document),
+        '--query',
+        query,
+        '--limit',
+        String(options.limit ?? SEARCH_RESULT_LIMIT),
+        '--context',
+        String(SEARCH_EXCERPT_CONTEXT_CHARS),
+        ...(options.resultOffset === undefined ? [] : [
+            '--result-offset',
+            options.resultOffset === 'last' ? '-1' : String(options.resultOffset),
+        ]),
+        ...(options.matchCase ? ['--match-case'] : []),
+        ...(options.wholeWord ? ['--whole-word'] : []),
+        ...(options.useRegex ? ['--regex'] : []),
+        ...(options.pages && options.pages.length > 0 ? [
+            '--pages',
+            options.pages.join(','),
+        ] : []),
+    ];
     let response = await runIndexQuery('search', args, context.signal);
     if (response === null) {
         await awaitWithSignal(buildSearchIndex(document, context.onIndexProgress), context.signal);

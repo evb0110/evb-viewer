@@ -1299,6 +1299,7 @@ export default {
         }),
         'forQuery': 'voor “{query}”',
         'showingFirst': 'Eerste {count} resultaten weergegeven — typ verder om te verfijnen',
+        'showingRange': 'Overeenkomsten {start}–{end}. Ga verder met Volgende of Vorige.',
         'page': 'Pagina {page}',
         'pageWithCount': plural({
             one: 'Pagina {page} ({count} overeenkomst)',

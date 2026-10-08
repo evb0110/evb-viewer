@@ -250,10 +250,12 @@ describe('createBrowserSearchCapability', () => {
             requestId: 41,
             promise: Promise.resolve({
                 matches: [{
+                    pageMatchIndex: 0,
                     startOffset: 3,
                     endOffset: 9,
                 }],
                 truncated: false,
+                matchCount: 1,
                 matchingMs: 1,
             }),
         });
@@ -282,6 +284,7 @@ describe('createBrowserSearchCapability', () => {
                     useRegex: true,
                 },
                 maxMatches: 501,
+                resultOffset: 0,
                 budgetMs: 250,
             },
             {matchTimeoutMs: 1_250},
@@ -314,6 +317,7 @@ describe('createBrowserSearchCapability', () => {
             promise: Promise.resolve({
                 matches: [],
                 truncated: false,
+                matchCount: 0,
                 matchingMs: reportedMatchingMs.shift() ?? 0,
             }),
         }));
@@ -369,10 +373,12 @@ describe('createBrowserSearchCapability', () => {
                     requestId: 41,
                     promise: Promise.resolve({
                         matches: [{
+                            pageMatchIndex: 0,
                             startOffset: 0,
                             endOffset: 4,
                         }],
                         truncated: false,
+                        matchCount: 1,
                         matchingMs: 1,
                     }),
                 }
@@ -1119,6 +1125,81 @@ describe('createBrowserSearchCapability', () => {
         const indexedDbFactory = requireFakeIndexedDbFactory();
         const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
         expect(database?.getStoreRecords('document-text').size ?? 0).toBe(0);
+    });
+
+    it.each([
+        false,
+        true,
+    ])('continues through bounded browser windows with regex=%s', async (useRegex) => {
+        const lines = Array.from({length: 70}, (_, row) => `Inspection ${row}: valve valve valve valve valve valve valve valve`).join('\n');
+        const pageTexts = [
+            lines,
+            'valve later',
+        ];
+        browserDocumentStoreMock.stat.mockResolvedValue({size: 3});
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        pdfjsModule.getDocument.mockReturnValue({promise: Promise.resolve({
+            numPages: 2,
+            getPage: async (page: number) => ({
+                getTextContent: async () => ({items: [{str: pageTexts[page - 1]}]}),
+                cleanup: async () => {},
+            }),
+            loadingTask: {destroy: async () => {}},
+        })});
+        const {matchPdfSearchPageWindow} = await import('@pdf-core/pdfSearchCore');
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockImplementation((_type, payload) => ({
+            requestId: 41,
+            promise: Promise.resolve({
+                ...matchPdfSearchPageWindow(payload.text, payload.query,
+                    payload.options, payload.maxMatches, payload.resultOffset),
+                matchingMs: 0,
+            }),
+        }));
+        const {createBrowserSearchCapability} = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const {capability} = createBrowserSearchCapability();
+        for (const [
+            resultOffset,
+            firstOrdinal,
+            length,
+            truncated,
+        ] of [
+                [
+                    0,
+                    0,
+                    500,
+                    true,
+                ],
+                [
+                    500,
+                    500,
+                    61,
+                    false,
+                ],
+                [
+                    'last',
+                    61,
+                    500,
+                    false,
+                ],
+            ] as const) {
+            const response = await capability.run('/tmp/windowed.pdf', 'valve', {
+                useRegex,
+                resultOffset,
+            });
+            expect(response.results).toHaveLength(length);
+            expect(response.results[0]?.matchIndex).toBe(firstOrdinal);
+            expect(response.truncated).toBe(truncated);
+            if (resultOffset !== 0) expect(response.results.at(-1)).toMatchObject({
+                matchIndex: 560,
+                pageNumber: 2,
+                pageMatchIndex: 0,
+            });
+        }
     });
 
     it('keeps an exact-limit result set complete and scans every remaining page', async () => {

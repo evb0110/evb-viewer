@@ -1302,6 +1302,7 @@ export default {
         }),
         'forQuery': 'pour “{query}”',
         'showingFirst': 'Affichage des {count} premiers résultats — continuez à taper pour affiner',
+        'showingRange': 'Résultats {start}–{end}. Continuez avec Suivant ou Précédent.',
         'page': 'Page {page}',
         'pageWithCount': plural({
             zero: 'Page {page} ({count} correspondances)',
