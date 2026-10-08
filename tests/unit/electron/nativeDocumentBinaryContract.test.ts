@@ -19,7 +19,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { streamPdfPageTexts } from '@electron/features/search/pdfPageTexts';
+import {
+    readPdfPageTexts,
+    streamPdfPageTexts,
+} from '@electron/features/search/pdfPageTexts';
 
 const execFileAsync = promisify(execFile);
 const hostResourceDirectory = `${process.platform}-${process.arch}`;
@@ -81,7 +84,7 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
         expect(stdout).toContain('Second text box');
     }, nativeToolContractTestTimeoutMs);
 
-    it('extracts every page across Poppler text windows', async () => {
+    it('extracts every page across Poppler windows and releases aborted or stale extraction', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-search-text-pages-'));
         try {
             const pdfPath = join(directory, 'search-text-pages.pdf');
@@ -111,6 +114,28 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
             pages.forEach((page, index) => {
                 expect(page.text).toContain(`EVB_SEARCH_WINDOW_PAGE_${expectedPageNumbers[index]}`);
             });
+
+            const selected = await readPdfPageTexts(pdfPath, [
+                1,
+                259,
+            ]);
+            expect(selected.map(page => page.text)).toEqual([
+                'EVB_SEARCH_WINDOW_PAGE_1',
+                'EVB_SEARCH_WINDOW_PAGE_259',
+            ]);
+            expect(await readPdfPageTexts(pdfPath, [])).toEqual([]);
+
+            const controller = new AbortController();
+            const aborted = streamPdfPageTexts(pdfPath, {signal: controller.signal});
+            expect((await aborted.next()).value?.text).toContain('EVB_SEARCH_WINDOW_PAGE_1');
+            controller.abort();
+            await expect(aborted.next()).rejects.toThrow(/abort/iu);
+
+            const stale = streamPdfPageTexts(pdfPath);
+            for (let index = 0; index < 256; index += 1) await stale.next();
+            document.getPages()[0]?.drawText('New revision', {font});
+            await writeFile(pdfPath, await document.save());
+            await expect(stale.next()).rejects.toThrow('PDF source changed during text extraction');
         } finally {
             await rm(directory, {
                 recursive: true,

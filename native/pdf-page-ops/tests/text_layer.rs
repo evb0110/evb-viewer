@@ -9,7 +9,7 @@ use std::{
     fs::{self, remove_file, write, File},
     io::{Seek, SeekFrom, Write},
     path::Path,
-    process::Command,
+    process::{Command, Output, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -21,54 +21,34 @@ fn path(label: &str, extension: &str) -> std::path::PathBuf {
     env::temp_dir().join(format!("evb-pdf-page-ops-{label}-{nonce}.{extension}"))
 }
 
-fn save_single_page(path: &Path, content: Vec<u8>, resources: Dictionary) -> Document {
-    let mut document = Document::with_version("1.7");
-    let pages_id = document.new_object_id();
-    let content_id = document.add_object(Stream::new(dictionary! {}, content));
-    let page_id = document.add_object(dictionary! {
-        "Type" => "Page",
-        "Parent" => pages_id,
-        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
-        "Resources" => resources,
-        "Contents" => content_id,
-    });
-    document.objects.insert(
-        pages_id,
-        dictionary! {
-            "Type" => "Pages",
-            "Kids" => vec![Object::Reference(page_id)],
-            "Count" => 1,
-        }
-        .into(),
-    );
-    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
-    document.trailer.set("Root", catalog_id);
-    document.save(path).unwrap();
-    document
-}
-
-fn save_two_pages(path: &Path, contents: [Vec<u8>; 2], resources: Dictionary) -> Document {
+fn save_pages(
+    path: &Path,
+    contents: impl Iterator<Item = Option<Vec<u8>>>,
+    resources: Dictionary,
+) -> Document {
     let mut document = Document::with_version("1.7");
     let pages_id = document.new_object_id();
     let page_ids = contents
-        .into_iter()
         .map(|content| {
-            let content_id = document.add_object(Stream::new(dictionary! {}, content));
-            document.add_object(dictionary! {
-                "Type" => "Page",
-                "Parent" => pages_id,
+            let mut page = dictionary! {
+                "Type" => "Page", "Parent" => pages_id,
                 "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
                 "Resources" => resources.clone(),
-                "Contents" => content_id,
-            })
+            };
+            if let Some(content) = content {
+                page.set(
+                    "Contents",
+                    document.add_object(Stream::new(dictionary! {}, content)),
+                );
+            }
+            document.add_object(page)
         })
         .collect::<Vec<_>>();
     document.objects.insert(
         pages_id,
         dictionary! {
-            "Type" => "Pages",
+            "Type" => "Pages", "Count" => page_ids.len() as i64,
             "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
-            "Count" => 2,
         }
         .into(),
     );
@@ -78,31 +58,16 @@ fn save_two_pages(path: &Path, contents: [Vec<u8>; 2], resources: Dictionary) ->
     document
 }
 
+fn save_single_page(path: &Path, content: Vec<u8>, resources: Dictionary) -> Document {
+    save_pages(path, std::iter::once(Some(content)), resources)
+}
+
+fn save_two_pages(path: &Path, contents: [Vec<u8>; 2], resources: Dictionary) -> Document {
+    save_pages(path, contents.into_iter().map(Some), resources)
+}
+
 fn save_empty_pages(path: &Path, count: usize) {
-    let mut document = Document::with_version("1.7");
-    let pages_id = document.new_object_id();
-    let page_ids = (0..count)
-        .map(|_| {
-            document.add_object(dictionary! {
-                "Type" => "Page",
-                "Parent" => pages_id,
-                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
-                "Resources" => Dictionary::new(),
-            })
-        })
-        .collect::<Vec<_>>();
-    document.objects.insert(
-        pages_id,
-        dictionary! {
-            "Type" => "Pages",
-            "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
-            "Count" => count as i64,
-        }
-        .into(),
-    );
-    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
-    document.trailer.set("Root", catalog_id);
-    document.save(path).unwrap();
+    save_pages(path, (0..count).map(|_| None), Dictionary::new());
 }
 
 fn run_overlay_text(
@@ -1198,6 +1163,7 @@ fn replaces_previous_ocr_text_and_keeps_the_page_ink() {
     // One incremental revision: the original bytes are a prefix.
     let (original, written) = (fs::read(&input).unwrap(), fs::read(&output).unwrap());
     assert!(written.starts_with(&original));
+    assert_eq!(run_ocr_text_visibility(&output)["evbOcrLayer"], true);
 
     // Running again replaces the layer written above instead of stacking it.
     let rerun = path("ocr-rerun", "pdf");
@@ -1312,6 +1278,20 @@ fn save_ocr_page_with_form(path: &Path, contents: Vec<Vec<u8>>, form_content: &[
     document.save(path).unwrap();
 }
 
+fn run_visibility_session(input: &Path, requests: &[u8]) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["ocr-text-visibility", "--input"])
+        .arg(input)
+        .args(["--pages-stdin", "--with-evb-ocr-text"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(requests).unwrap();
+    child.wait_with_output().unwrap()
+}
+
 fn run_ocr_text_visibility(input: &Path) -> serde_json::Value {
     let pages = path("ocr-visibility-pages", "txt");
     fs::write(&pages, "1\n").unwrap();
@@ -1320,6 +1300,7 @@ fn run_ocr_text_visibility(input: &Path) -> serde_json::Value {
         .arg(input)
         .arg("--pages-file")
         .arg(&pages)
+        .arg("--with-evb-ocr-text")
         .output()
         .unwrap();
     let _ = fs::remove_file(pages);
@@ -1327,6 +1308,16 @@ fn run_ocr_text_visibility(input: &Path) -> serde_json::Value {
         result.status.success(),
         "{}",
         String::from_utf8_lossy(&result.stderr)
+    );
+    let session = run_visibility_session(input, b"[1]\n[1]\n");
+    assert!(
+        session.status.success(),
+        "{}",
+        String::from_utf8_lossy(&session.stderr)
+    );
+    assert_eq!(
+        session.stdout,
+        [&result.stdout[..], b"\n", &result.stdout[..], b"\n"].concat()
     );
     let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(report["format"], "evb-pdf-ocr-text-visibility");

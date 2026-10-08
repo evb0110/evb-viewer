@@ -1,3 +1,4 @@
+import {stat} from 'node:fs/promises';
 import { dirname } from 'path';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -5,9 +6,11 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { normalizeSearchablePageText } from '@pdf-core/pdfSearchCore';
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
-import { inspectPdfPageTextVisibility } from '@electron/pdf/inspectPdfPageTextVisibility';
+import {
+    createPdfPageTextVisibilitySession,
+    type TOcrPdfTextVisibilityAnalysis,
+} from '@electron/pdf/inspectPdfPageTextVisibility';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
-import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     resolveUnpackedWorkerPath,
@@ -159,18 +162,10 @@ function resolvePageOpsBinary() {
 async function readOcrLayersInRecognitionOrder(
     pdfPath: string,
     pages: IPageText[],
+    inspection: TOcrPdfTextVisibilityAnalysis,
     signal?: AbortSignal,
 ) {
     const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
-    const inspection = await inspectPdfPageTextVisibility({
-        pdfPath,
-        pageNumbers: textPageNumbers,
-        pdfPageOpsBinary: resolvePageOpsBinary(),
-        qpdfBinary: getPdfNativeToolPaths().qpdf,
-        tempDir: getAppTempDir(),
-        withEvbOcrText: true,
-        ...(signal === undefined ? {} : {signal}),
-    });
     if (inspection.status === 'degraded') {
         log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
     }
@@ -211,30 +206,64 @@ export function streamPdfPageTexts(
         signal,
         ...range
     } = options;
-    return (async function* () {
-        signal?.throwIfAborted();
-        const lastPage = range.lastPage ?? await readPdfPageCount(pdfPath, signal);
-        for (
-            let firstPage = range.firstPage ?? 1;
-            firstPage <= lastPage;
-            firstPage += POPPLER_TEXT_PAGE_WINDOW_SIZE
-        ) {
-            signal?.throwIfAborted();
-            const batchRange = {
-                firstPage,
-                lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
-            };
-            const pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
-            if (pages === null) {
-                yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
-                continue;
-            }
-            yield* await readOcrLayersInRecognitionOrder(pdfPath, pages, signal);
-            if (pages.length < batchRange.lastPage - firstPage + 1) {
-                return;
+    return streamPdfPageTextRanges(pdfPath, [range], signal);
+}
+
+async function* streamPdfPageTextRanges(
+    pdfPath: string,
+    ranges: Iterable<IPdfPageRange>,
+    signal?: AbortSignal,
+): AsyncGenerator<IPageText> {
+    signal?.throwIfAborted();
+    const source = await stat(pdfPath, {bigint: true});
+    const assertSource = async () => {
+        const current = await stat(pdfPath, {bigint: true});
+        if (current.dev !== source.dev || current.ino !== source.ino || current.size !== source.size
+            || current.mtimeNs !== source.mtimeNs || current.ctimeNs !== source.ctimeNs) {
+            throw new Error('PDF source changed during text extraction');
+        }
+    };
+    const visibility = createPdfPageTextVisibilitySession({
+        pdfPath,
+        pdfPageOpsBinary: resolvePageOpsBinary(),
+        qpdfBinary: getPdfNativeToolPaths().qpdf,
+        signal,
+    });
+    try {
+        for (const range of ranges) {
+            const lastPage = range.lastPage ?? await readPdfPageCount(pdfPath, signal);
+            for (
+                let firstPage = range.firstPage ?? 1;
+                firstPage <= lastPage;
+                firstPage += POPPLER_TEXT_PAGE_WINDOW_SIZE
+            ) {
+                signal?.throwIfAborted();
+                await assertSource();
+                const batchRange = {
+                    firstPage,
+                    lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
+                };
+                const pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
+                if (pages === null) {
+                    await assertSource();
+                    yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
+                    continue;
+                }
+                const inspection = await visibility.inspect(pages.filter(page => page.text.length > 0).map(page => page.pageNumber));
+                const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, signal);
+                await assertSource();
+                for (const page of orderedPages) {
+                    signal?.throwIfAborted();
+                    yield page;
+                }
+                if (pages.length < batchRange.lastPage - firstPage + 1) {
+                    return;
+                }
             }
         }
-    })();
+    } finally {
+        await visibility.close();
+    }
 }
 
 /** Reads the text of the requested pages, one pass per contiguous range. */
@@ -244,13 +273,9 @@ export async function readPdfPageTexts(
     signal?: AbortSignal,
 ): Promise<IPageText[]> {
     const texts: IPageText[] = [];
-    for (const range of groupContiguousPages([...pageNumbers])) {
-        for await (const page of streamPdfPageTexts(pdfPath, {
-            ...range,
-            signal,
-        })) {
-            texts.push(page);
-        }
+    if (pageNumbers.length === 0) return texts;
+    for await (const page of streamPdfPageTextRanges(pdfPath, groupContiguousPages([...pageNumbers]), signal)) {
+        texts.push(page);
     }
     return texts;
 }
