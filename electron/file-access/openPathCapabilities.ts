@@ -140,7 +140,11 @@ function allowPathsForWebContents(
         }
     }
     pruneAllowedPaths();
-    return normalizedPaths;
+    // A batch larger than the owner's cap loses its oldest grants to the
+    // prune; report only the paths that are still granted.
+    return normalizedPaths.map(normalizedPath => (
+        normalizedPath !== null && allowedOpenPaths.has(normalizedPath) ? normalizedPath : null
+    ));
 }
 
 export function allowOpenPath(filePath: string, owner?: number | WebContents) {

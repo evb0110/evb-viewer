@@ -1396,15 +1396,33 @@ fn previous_numbers(tokens: &[String], operator_index: usize, count: usize) -> V
 /// Return true only for the legacy FreeText note representation. The parser
 /// and the later marker-rewrite writer share this predicate so the 0.02-point
 /// compatibility rule cannot drift between read and edit paths.
+/// The page-independent part of the legacy FreeText note-marker test: a
+/// FreeText annotation with a popup and an empty normal appearance. Only a
+/// candidate needs its page to finish the test.
+pub(crate) fn is_free_text_note_marker_candidate(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> bool {
+    annotation_subtype_name(document, dict).eq_ignore_ascii_case("FreeText")
+        && annotation_related_ref(dict, b"Popup").is_some()
+        && dict
+            .get(b"AP")
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(|object| object.as_dict().ok())
+            .and_then(|appearance| appearance.get(b"N").ok())
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(|object| object.as_stream().ok())
+            .is_some_and(|appearance| appearance.content.is_empty())
+}
+
 pub(crate) fn is_free_text_note_marker(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     page_view: PdfRect,
     page_rotation: i64,
 ) -> bool {
-    if !annotation_subtype_name(document, dict).eq_ignore_ascii_case("FreeText")
-        || annotation_related_ref(dict, b"Popup").is_none()
-    {
+    if !is_free_text_note_marker_candidate(document, dict) {
         return false;
     }
     let Ok(rect) = read_annotation_rect(document, dict) else {
@@ -1414,21 +1432,7 @@ pub(crate) fn is_free_text_note_marker(
         return false;
     };
     let marker_limit = MARKER_RECT_THRESHOLD + MARKER_RECT_EPSILON;
-    if marker_rect.width > marker_limit || marker_rect.height > marker_limit {
-        return false;
-    }
-    let Some(appearance) = dict
-        .get(b"AP")
-        .ok()
-        .and_then(|object| document.resolved(object).ok())
-        .and_then(|object| object.as_dict().ok())
-        .and_then(|appearance| appearance.get(b"N").ok())
-        .and_then(|object| document.resolved(object).ok())
-        .and_then(|object| object.as_stream().ok())
-    else {
-        return false;
-    };
-    appearance.content.is_empty()
+    marker_rect.width <= marker_limit && marker_rect.height <= marker_limit
 }
 
 fn truncate_reason(reason: &str) -> String {

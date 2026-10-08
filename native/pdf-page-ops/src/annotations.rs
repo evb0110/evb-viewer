@@ -40,8 +40,8 @@ pub(crate) fn resolve_note_target(
 }
 
 /// Scans every page for the one whose `/Annots` lists the note, trying a
-/// targeted popup before its parent. Only a geometry move and the legacy
-/// FreeText marker rewrite need the page; a text update does not.
+/// targeted popup before its parent. Only a geometry move and a text update of
+/// a legacy FreeText marker candidate need the page; other text updates do not.
 pub(crate) fn find_note_target_page(
     document: &impl PdfObjectSource,
     target: &NoteTarget,
@@ -2051,7 +2051,12 @@ pub(crate) fn update_annotation_text_by_ref(
         Ok(target) => target,
         Err(_) => return Ok(false),
     };
-    if target.annotation_subtype == "freetext" {
+    if target.annotation_subtype == "freetext"
+        && is_free_text_note_marker_candidate(
+            document,
+            document.get_dictionary(target.annotation_id)?,
+        )
+    {
         if let Some(page_id) = find_note_target_page(document, &target) {
             let page_view = resolve_page_view(document, page_id)?;
             let page_rotation = resolve_page_rotation(document, page_id)?;
@@ -2106,7 +2111,14 @@ pub(crate) fn update_annotation_text_incremental_by_ref(
         Ok(target) => target,
         Err(_) => return Ok(false),
     };
-    if target.annotation_subtype == "freetext" {
+    if target.annotation_subtype == "freetext"
+        && is_free_text_note_marker_candidate(
+            incremental.get_prev_documents(),
+            incremental
+                .get_prev_documents()
+                .get_dictionary(target.annotation_id)?,
+        )
+    {
         if let Some(page_id) = find_note_target_page(incremental.get_prev_documents(), &target) {
             let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
             let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
