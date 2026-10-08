@@ -596,32 +596,67 @@ export class AnnotationStore {
         entities: readonly AnnotationEntity[],
         foreign: readonly IPdfForeignAnnotationRecord[],
     ) {
-        const currentEntities = Array.from(this.#entities.values());
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();
         const parsedById = new Map<AnnotationId, AnnotationEntity>();
+        let fingerprintCandidates: Map<string, Set<AnnotationId>> | undefined;
+        const fingerprintBucketById = new Map<AnnotationId, Set<AnnotationId>>();
+        let blankRefCandidates: Map<string, Set<AnnotationId>> | undefined;
+        const uniqueFingerprintId = (entity: AnnotationEntity) => {
+            if (!fingerprintCandidates) {
+                fingerprintCandidates = new Map();
+                this.#entities.forEach((current, id) => {
+                    if (current.deleted || usedCurrentIds.has(id)
+                        || !(current.persistedRevision >= 0 || current.kind === 'shape')) {
+                        return;
+                    }
+                    // The semantic key includes kind and page. Keep every
+                    // candidate: an ambiguous bucket can become unique later.
+                    const key = saveReconciliationFingerprint(current);
+                    const bucket = fingerprintCandidates!.get(key) ?? new Set<AnnotationId>();
+                    bucket.add(id);
+                    fingerprintCandidates!.set(key, bucket);
+                    fingerprintBucketById.set(id, bucket);
+                });
+            }
+            const bucket = fingerprintCandidates.get(saveReconciliationFingerprint(entity));
+            return bucket?.size === 1 ? bucket.values().next().value : undefined;
+        };
+        const referenceId = (pdfRef: string | undefined) => {
+            if (pdfRef === undefined) {
+                return undefined;
+            }
+            if (pdfRef.trim()) {
+                const id = this.#identities.resolve({pdfRef});
+                const current = id ? this.#entities.get(id) : undefined;
+                // The external index normalizes refs; this reconciliation has
+                // always required raw equality, even for dirty local entities.
+                return current && !current.deleted && !usedCurrentIds.has(current.identity.id)
+                    && current.identity.pdfRef === pdfRef ? current.identity.id : undefined;
+            }
+            // Blank refs are not indexed external bindings, but raw equality
+            // previously admitted them. Derive their candidates only if needed.
+            if (!blankRefCandidates) {
+                blankRefCandidates = new Map();
+                this.#entities.forEach((current, id) => {
+                    const ref = current.identity.pdfRef;
+                    if (current.deleted || usedCurrentIds.has(id) || ref === undefined || ref.trim()) {
+                        return;
+                    }
+                    const bucket = blankRefCandidates!.get(ref) ?? new Set<AnnotationId>();
+                    bucket.add(id);
+                    blankRefCandidates!.set(ref, bucket);
+                });
+            }
+            const bucket = blankRefCandidates.get(pdfRef);
+            return bucket?.size === 1 ? bucket.values().next().value : undefined;
+        };
         entities.forEach((entity) => {
             let id = entity.identity.id;
             if (!this.#entities.has(id)) {
-                const pdfRefMatches = entity.identity.pdfRef === undefined
-                    ? []
-                    : currentEntities.filter(current => (
-                        current.identity.pdfRef === entity.identity.pdfRef
-                        && !current.deleted
-                        && !usedCurrentIds.has(current.identity.id)
-                    ));
-                const matches = pdfRefMatches.length === 1
-                    ? pdfRefMatches
-                    : currentEntities.filter(current => (
-                        !current.deleted
-                    && (current.persistedRevision >= 0 || current.kind === 'shape')
-                    && !usedCurrentIds.has(current.identity.id)
-                    && current.kind === entity.kind
-                    && current.pageIndex === entity.pageIndex
-                    && saveReconciliationFingerprint(current) === saveReconciliationFingerprint(entity)
-                    ));
-                if (matches.length === 1) {
-                    id = matches[0]!.identity.id;
+                const matchedId = referenceId(entity.identity.pdfRef) ?? uniqueFingerprintId(entity);
+                if (matchedId !== undefined) {
+                    id = matchedId;
                     fingerprintMatchedIds.add(id);
                     entity = {
                         ...entity,
@@ -636,6 +671,11 @@ export class AnnotationStore {
                 throw new Error(`Duplicate parsed AnnotationId ${id}`);
             }
             usedCurrentIds.add(id);
+            fingerprintBucketById.get(id)?.delete(id);
+            const currentRef = this.#entities.get(id)?.identity.pdfRef;
+            if (currentRef !== undefined) {
+                blankRefCandidates?.get(currentRef)?.delete(id);
+            }
             parsedById.set(id, cloneCanonicalEntity(entity));
         });
 
