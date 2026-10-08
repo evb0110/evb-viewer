@@ -3412,7 +3412,10 @@ describe('optional search-cache mutation completion proof', () => {
             expect(saved.getPage(0).getRotation().angle).toBe(90);
             expect(saved.getPageCount()).toBe(1);
             if (fault === 'denied') expect(problems.length).toBeGreaterThan(0);
-            expect(problems.every(problem => problem.includes('[search] Optional search-cache invalidation failed'))).toBe(true);
+            expect(
+                problems.every(problem => problem.includes('[search] Optional search-cache invalidation failed')),
+                JSON.stringify(problems),
+            ).toBe(true);
             writeFileSync(resolve(evidenceDir, `${fault}-result.json`), JSON.stringify({
                 workingPath,
                 rotation: 90,
