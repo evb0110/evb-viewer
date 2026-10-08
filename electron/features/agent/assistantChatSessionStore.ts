@@ -150,36 +150,6 @@ function normalizeRecoveredLastAccessedAt(value: number, now = Date.now()) {
         : now;
 }
 
-function boundAssistantMessages(messages: IAgentAssistantChatMessage[], maxBytes: number) {
-    let totalBytes = 0;
-    let totalImageBytes = 0;
-    let firstKeptIndex = messages.length;
-    // The accepted question and its answer share a retention boundary. Binary
-    // images use their admission budget and the existing snapshot blob storage,
-    // independently of the text budget.
-    const latestUserIndex = messages.findLastIndex(message => message.role === 'user');
-    const latestTurnStart = latestUserIndex < 0 ? messages.length - 1 : latestUserIndex;
-    const maxImageBytes = ASSISTANT_MAX_IMAGE_ATTACHMENTS * ASSISTANT_MAX_IMAGE_BYTES;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (!message) {
-            continue;
-        }
-        const messageBytes = Buffer.byteLength(message.text, 'utf8') + 256;
-        const imageBytes = message.attachments?.reduce((total, attachment) => total + attachment.sizeBytes, 0) ?? 0;
-        if (firstKeptIndex < messages.length && index < latestTurnStart
-            && (totalBytes + messageBytes > maxBytes || totalImageBytes + imageBytes > maxImageBytes)) {
-            break;
-        }
-        totalBytes += messageBytes;
-        totalImageBytes += imageBytes;
-        firstKeptIndex = index;
-    }
-    if (firstKeptIndex > 0) {
-        messages.splice(0, firstKeptIndex);
-    }
-}
-
 export function createAssistantChatSessionStore(options: IAssistantChatSessionStoreOptions = {}) {
     const maxEntries = options.maxEntries ?? DEFAULT_ASSISTANT_CHAT_SESSION_MAX_ENTRIES;
     const ttlMs = options.ttlMs ?? Number.POSITIVE_INFINITY;
@@ -188,6 +158,62 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         : options.persistence ?? new AssistantChatPersistence();
     const maxSessionBytes = persistence?.getMaxSessionBytes() ?? DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES;
     const chatSessions = new Map<string, IAssistantChatSession>();
+    // Derived sizes follow canonical message identities, so filtering/resetting
+    // the transcript and evicting a session need no second retention lifecycle.
+    const messageBytes = new WeakMap<IAgentAssistantChatMessage, {
+        textBytes: number;
+        imageBytes: number;
+        lastCodeUnit: number;
+    }>();
+
+    function measureMessageBytes(message: IAgentAssistantChatMessage, patch: Partial<IAgentAssistantChatMessage> = message) {
+        const cached = messageBytes.get(message);
+        const bytes = cached ?? {
+            textBytes: 0,
+            imageBytes: 0,
+            lastCodeUnit: Number.NaN,
+        };
+        if (!cached || patch.text !== undefined) {
+            bytes.textBytes = Buffer.byteLength(message.text, 'utf8');
+            bytes.lastCodeUnit = message.text.charCodeAt(message.text.length - 1);
+        }
+        if (!cached || 'attachments' in patch) {
+            bytes.imageBytes = message.attachments?.reduce((total, attachment) => total + attachment.sizeBytes, 0) ?? 0;
+        }
+        messageBytes.set(message, bytes);
+        return bytes;
+    }
+
+    function boundAssistantMessages(messages: IAgentAssistantChatMessage[], maxBytes: number) {
+        let totalBytes = 0;
+        let totalImageBytes = 0;
+        let firstKeptIndex = messages.length;
+        // The accepted question and its answer share a retention boundary. Binary
+        // images use their admission budget and the existing snapshot blob storage,
+        // independently of the text budget.
+        const latestUserIndex = messages.findLastIndex(message => message.role === 'user');
+        const latestTurnStart = latestUserIndex < 0 ? messages.length - 1 : latestUserIndex;
+        const maxImageBytes = ASSISTANT_MAX_IMAGE_ATTACHMENTS * ASSISTANT_MAX_IMAGE_BYTES;
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+            const message = messages[index];
+            if (!message) {
+                continue;
+            }
+            const bytes = messageBytes.get(message) ?? measureMessageBytes(message);
+            const textBytes = bytes.textBytes + 256;
+            const imageBytes = bytes.imageBytes;
+            if (firstKeptIndex < messages.length && index < latestTurnStart
+                && (totalBytes + textBytes > maxBytes || totalImageBytes + imageBytes > maxImageBytes)) {
+                break;
+            }
+            totalBytes += textBytes;
+            totalImageBytes += imageBytes;
+            firstKeptIndex = index;
+        }
+        if (firstKeptIndex > 0) {
+            messages.splice(0, firstKeptIndex);
+        }
+    }
     let activeChatKey: string | null = null;
     let lastStateScope: IAgentAssistantChatScope | null = null;
     let lastSelection: IAssistantSelection = DEFAULT_SELECTION;
@@ -490,6 +516,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
         const existing = session.messages.find(message => message.id === id);
         if (existing) {
             Object.assign(existing, patch);
+            measureMessageBytes(existing, patch);
             boundAssistantMessages(session.messages, maxSessionBytes);
             options.onSessionMessageEvent?.({
                 type: 'message',
@@ -518,6 +545,16 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
                 text: '',
                 pending: true,
             });
+        const bytes = messageBytes.get(message) ?? measureMessageBytes(message);
+        if (delta.length > 0) {
+            // Two separately encoded lone surrogates occupy six UTF-8 bytes;
+            // joined across a chunk boundary they form one four-byte code point.
+            const firstCodeUnit = delta.charCodeAt(0);
+            const joinsSurrogatePair = bytes.lastCodeUnit >= 0xD800 && bytes.lastCodeUnit <= 0xDBFF
+                && firstCodeUnit >= 0xDC00 && firstCodeUnit <= 0xDFFF;
+            bytes.textBytes += Buffer.byteLength(delta, 'utf8') - (joinsSurrogatePair ? 2 : 0);
+            bytes.lastCodeUnit = delta.charCodeAt(delta.length - 1);
+        }
         message.pending = true;
         message.text += delta;
         boundAssistantMessages(session.messages, maxSessionBytes);
