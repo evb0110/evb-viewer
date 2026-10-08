@@ -117,6 +117,7 @@ describe('Electron E2E fixture policy', () => {
         const root = sessionDir(sessionName);
         const screenshotPath = join(root, 'screenshots', 'failure.png');
         const logPath = join(root, 'session.log');
+        const appLogPath = join(root, 'electron-logs', 'app.ndjson');
 
         try {
             await mkdir(join(root, 'electron-user-data'), {recursive: true});
@@ -128,11 +129,14 @@ describe('Electron E2E fixture policy', () => {
             await writeFile(join(root, 'automation-electron-app-entry', 'main.js'), 'entry');
             await writeFile(screenshotPath, 'screenshot');
             await writeFile(logPath, 'diagnostics');
+            await mkdir(join(root, 'electron-logs'), {recursive: true});
+            await writeFile(appLogPath, 'worker terminal outcome');
 
             prunePreservedSessionArtifacts(sessionName);
 
             await expect(stat(screenshotPath)).resolves.toBeDefined();
             await expect(stat(logPath)).resolves.toBeDefined();
+            await expect(readFile(appLogPath, 'utf8')).resolves.toBe('worker terminal outcome');
             await expect(stat(join(root, 'electron-user-data'))).rejects.toMatchObject({code: 'ENOENT'});
             await expect(stat(join(root, 'automation-electron-app'))).rejects.toMatchObject({code: 'ENOENT'});
             await expect(stat(join(root, 'automation-electron-app-entry'))).rejects.toMatchObject({code: 'ENOENT'});

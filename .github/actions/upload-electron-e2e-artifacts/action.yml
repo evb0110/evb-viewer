@@ -15,6 +15,7 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: |
           .devkit/sessions/e2e-*/session.log
+          .devkit/sessions/e2e-*/electron-logs/app.ndjson
           .devkit/sessions/e2e-*/session.json
           .devkit/sessions/e2e-*/session-starting.json
           .devkit/sessions/e2e-*/screenshots/**
