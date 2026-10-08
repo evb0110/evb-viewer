@@ -1,0 +1,24 @@
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_0dbaeaa78acb44::t_81cd7ef76bcf83 2058-2100
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_0dbaeaa78acb44::t_5824f5c281f879 533,560,563
+electron/features/agent/assistantService.ts
+  s_0dbaeaa78acb44::t_e9042bf9f95ea3 911-915,959,972,1015
+  s_0dbaeaa78acb44::t_5824f5c281f879 134-135,137-141,144,151-156,158-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a042cd3d01ea3d41665393238b01ab21aab267b2",
+  "prompts": {},
+  "sessions": {
+    "s_0dbaeaa78acb44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a118f2-48d1-7271-87f6-897fc13ee038",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
