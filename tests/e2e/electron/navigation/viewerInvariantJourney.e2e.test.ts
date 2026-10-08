@@ -171,16 +171,50 @@ describe('viewer invariant journey', () => {
             'Zoom Out',
         ]) {
             const previous = await readZoomTextFromScreen(page);
-            const startedAt = performance.now();
-            await clickVisibleToolbarButton(page, label);
-            await waitForFunctionInPage(page, old => {
-                const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
-                return Boolean(zoom && zoom !== old);
-            }, { timeout: 1_000 }, previous);
-            await evaluateInPage(page, () => new Promise<void>(resolve => (
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-            )));
-            expect(performance.now() - startedAt).toBeLessThan(1_000);
+            // Acknowledge listener installation before input. The helper's
+            // pointer/hover preparation precedes the reader's actual click.
+            const observation = await page.evaluateHandle((expectedLabel, oldZoom) => {
+                let frame = 0;
+                let onClick: (event: MouseEvent) => void;
+                const response = new Promise<number>(resolve => {
+                    onClick = event => {
+                        const button = event.target instanceof Element ? event.target.closest('button') : null;
+                        const name = button?.getAttribute('aria-label')?.trim();
+                        if (!event.isTrusted || (name !== expectedLabel && !name?.startsWith(`${expectedLabel} (`))) return;
+                        document.removeEventListener('click', onClick, true);
+                        const observeChangedZoom = () => {
+                            const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
+                            if (!zoom || zoom === oldZoom) {
+                                frame = requestAnimationFrame(observeChangedZoom);
+                                return;
+                            }
+                            frame = requestAnimationFrame(() => {
+                                frame = requestAnimationFrame(() => resolve(performance.now() - event.timeStamp));
+                            });
+                        };
+                        frame = requestAnimationFrame(observeChangedZoom);
+                    };
+                    document.addEventListener('click', onClick, true);
+                });
+                return {
+                    response,
+                    dispose: () => {
+                        document.removeEventListener('click', onClick, true);
+                        cancelAnimationFrame(frame);
+                    },
+                };
+            }, label, previous);
+            try {
+                await clickVisibleToolbarButton(page, label);
+                await waitForFunctionInPage(page, old => {
+                    const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
+                    return Boolean(zoom && zoom !== old);
+                }, { timeout: 1_000 }, previous);
+                expect(await page.evaluate(value => value.response, observation)).toBeLessThan(1_000);
+            } finally {
+                await page.evaluate(value => value.dispose(), observation);
+                await observation.dispose();
+            }
         }
         expect(await readDrafts()).toEqual(drafts);
         const noteIds = await evaluateInPage(page, () => [...document.querySelectorAll<HTMLElement>('.note-window')]
