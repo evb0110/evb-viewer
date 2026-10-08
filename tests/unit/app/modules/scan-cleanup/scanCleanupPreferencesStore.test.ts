@@ -751,6 +751,97 @@ describe('scan cleanup renderer preference store', () => {
         }
     });
 
+    // A revision change resets the hash to pending. An edit made while the
+    // new hash is read must survive it, not be overwritten by stored settings.
+    it('keeps an edit made while a revised document is re-hashed', async () => {
+        const firstSha256 = 'a'.repeat(64);
+        const revisedSha256 = 'b'.repeat(64);
+        const remote = createDefaultScanCleanupSettingsFile();
+        remote.documentOverrides[firstSha256] = {
+            outputMode: 'bw',
+            lastUsedAtMs: Date.now(),
+        };
+        remote.documentOverrides[revisedSha256] = {
+            outputMode: 'grayscale',
+            lastUsedAtMs: Date.now(),
+        };
+        capability.value.getSettings.mockResolvedValue(remote);
+        const source = ref<string | null>(firstSha256);
+        const revision = ref('revision-1');
+        const identityState = ref<TScanCleanupSourceIdentityState>('ready');
+        let settings!: ReturnType<typeof useScanCleanupDocumentSettings>;
+        const host = document.createElement('div');
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => `${source.value ?? '/documents/book.pdf'}\u0000${revision.value}`),
+                documentRevision: computed(() => revision.value),
+                sourceSha256: computed(() => source.value),
+                legacyDocumentKey: computed(() => '/documents/book.pdf'),
+            });
+            return () => h('div');
+        }}));
+        app.provide(scanCleanupSourceIdentityKey, {
+            state: identityState,
+            retry: () => undefined,
+        });
+        app.mount(host);
+        try {
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            revision.value = 'revision-2';
+            source.value = null;
+            identityState.value = 'pending';
+            await nextTick();
+            expect(settings.documentSettingsReady.value).toBe(false);
+
+            settings.values.outputMode = 'color';
+            await nextTick();
+            source.value = revisedSha256;
+            identityState.value = 'ready';
+
+            await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
+            expect(settings.values.outputMode).toBe('color');
+        } finally {
+            app.unmount();
+            host.remove();
+        }
+    });
+
+    // Opening a second document while the first hydration is in flight must not
+    // make the first read decide what the second document's entry migrated to.
+    it('keeps another document\'s legacy entry when a hydration in flight did not adopt it', async () => {
+        const {store} = await createDurableSettingsStore();
+        const otherSha256 = 'b'.repeat(64);
+        await store.update({document: {
+            sourceSha256: otherSha256,
+            patch: {outputMode: 'grayscale'},
+        }});
+        localStorage.setItem('evb.scanCleanup.documentOverrides.v1', JSON.stringify({'/documents/other.pdf': {
+            updatedAt: Date.now() + 1_000,
+            outputMode: 'color',
+        }}));
+        let releaseRead!: () => void;
+        capability.value.getSettings.mockImplementation(async request => {
+            const result = await store.get(request);
+            await new Promise<void>(resolve => {
+                releaseRead = resolve;
+            });
+            return result;
+        });
+        getScanCleanupPreferencesStore({
+            sourceSha256: 'a'.repeat(64),
+            legacyDocumentKey: '/documents/first.pdf',
+        });
+        await vi.waitFor(() => expect(releaseRead).toBeDefined());
+        getScanCleanupPreferencesStore({
+            sourceSha256: otherSha256,
+            legacyDocumentKey: '/documents/other.pdf',
+        });
+        releaseRead();
+        await whenScanCleanupPreferencesReady();
+
+        expect(localStorage.getItem('evb.scanCleanup.documentOverrides.v1')).toContain('/documents/other.pdf');
+    });
+
     it('reports a document hash that could not be read, with a retry', async () => {
         const identityState = ref<TScanCleanupSourceIdentityState>('pending');
         const retry = vi.fn(() => {

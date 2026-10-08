@@ -434,10 +434,13 @@ async function hydratePreferences() {
         preferencesHydrated = true;
         return;
     }
+    // Another surface can replace the migration context while this read is in
+    // flight; what main adopted is decided by the context this request sent.
+    const requestContext = {...migrationContext};
     try {
         const result = await readRemoteSettings(createSettingsReadRequest(
-            migrationContext.sourceSha256,
-            migrationContext.legacyDocumentKey,
+            requestContext.sourceSha256,
+            requestContext.legacyDocumentKey,
             true,
         ));
         remoteSettingsFile = result;
@@ -453,13 +456,13 @@ async function hydratePreferences() {
         Object.assign(preferences, result.settings, localPatch);
         await nextTick();
         observedPreferences = cloneScanCleanupPreferenceValue(preferences);
-        const hydratedSourceSha256 = isScanCleanupSourceSha256(migrationContext.sourceSha256)
-            ? migrationContext.sourceSha256.toLowerCase()
+        const hydratedSourceSha256 = isScanCleanupSourceSha256(requestContext.sourceSha256)
+            ? requestContext.sourceSha256.toLowerCase()
             : null;
         clearScanCleanupLegacyStorage(legacyDocumentKey => {
             const adoptedSha256 = isScanCleanupSourceSha256(legacyDocumentKey)
                 ? legacyDocumentKey.toLowerCase()
-                : legacyDocumentKey === migrationContext.legacyDocumentKey ? hydratedSourceSha256 : null;
+                : legacyDocumentKey === requestContext.legacyDocumentKey ? hydratedSourceSha256 : null;
             return adoptedSha256 !== null && result.documentOverrides[adoptedSha256] !== undefined;
         });
         preferencesHydrated = true;

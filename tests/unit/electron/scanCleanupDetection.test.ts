@@ -1701,6 +1701,10 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 widthPoints: 2912,
                 heightPoints: 4368,
                 rotation: 0,
+                dominantImageWidthPx: 2912,
+                dominantImageHeightPx: 4368,
+                dominantImageWidthPoints: 2912,
+                dominantImageHeightPoints: 4368,
             }])),
             rasterPages: vi.fn(async () => ({
                 detected: true,

@@ -72,18 +72,37 @@ function strongDiagnostics(overrides: Partial<INativeScanCleanupSplitDiagnostics
     } as INativeScanCleanupSplitDiagnosticsV3;
 }
 
+/** A page that is one full-page scanned image at `ppi`. */
+function scannedPage(widthPoints: number, heightPoints: number, ppi: number): IPdfPageSize {
+    return {
+        ...cropPage(1, widthPoints, heightPoints),
+        dominantImageWidthPx: Math.round(widthPoints / 72 * ppi),
+        dominantImageHeightPx: Math.round(heightPoints / 72 * ppi),
+        dominantImageWidthPoints: widthPoints,
+        dominantImageHeightPoints: heightPoints,
+    };
+}
+
 describe('scan cleanup canonical analysis plane', () => {
     it('keeps 150 DPI for a scan finer than the analysis plane', () => {
-        expect(resolveScanCleanupAnalysisDpi(cropPage(1, 612, 792), 300)).toBe(150);
-        expect(resolveScanCleanupAnalysisDpi(cropPage(1, 612, 792), undefined)).toBe(150);
+        expect(resolveScanCleanupAnalysisDpi(scannedPage(612, 792, 300))).toBe(150);
+    });
+
+    // Every stage reads the same page record, so a page whose only images are
+    // smaller than the page keeps 150 everywhere; a probe that picks the
+    // largest image could otherwise give detection and final cleanup
+    // different planes for the same page.
+    it('keeps 150 DPI for a page that is not a full-page scan', () => {
+        expect(resolveScanCleanupAnalysisDpi(cropPage(1, 612, 792))).toBe(150);
+        expect(resolveScanCleanupAnalysisDpi(undefined)).toBe(150);
     });
 
     // A scan stored at one pixel per point declares a 1 m page. At 150 DPI its
     // 2912x4368 image became 6067x9100 interpolated pixels, over the cap that
     // preview applies to the same raster, so preview failed on that page.
     it('analyzes a coarse scan at its own resolution, inside the shared cap', () => {
-        const cover = cropPage(1, 2912, 4368);
-        const dpi = resolveScanCleanupAnalysisDpi(cover, 72);
+        const cover = scannedPage(2912, 4368, 72);
+        const dpi = resolveScanCleanupAnalysisDpi(cover);
         const limits = resolveScanCleanupRasterRenderLimits(cover, dpi);
 
         expect(dpi).toBe(72);
@@ -97,8 +116,8 @@ describe('scan cleanup canonical analysis plane', () => {
     });
 
     it('lowers the plane until an oversized page fits the shared cap', () => {
-        const poster = cropPage(1, 4000, 6000);
-        const dpi = resolveScanCleanupAnalysisDpi(poster, 300);
+        const poster = scannedPage(4000, 6000, 300);
+        const dpi = resolveScanCleanupAnalysisDpi(poster);
         const limits = resolveScanCleanupRasterRenderLimits(poster, dpi);
         const finer = resolveScanCleanupRasterRenderLimits(poster, dpi + 1);
 

@@ -47,6 +47,11 @@ function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined
     }
 }
 
+/** Where Poppler writes the PPM a PNG render is encoded from. */
+function popplerPpmPath(pngPath: string) {
+    return `${pngPath.replace(/\.png$/u, '')}.ppm`;
+}
+
 function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
     if (crop === undefined) {
         return;
@@ -113,10 +118,9 @@ async function renderPage(
             String(crop.height),
         );
     }
-    const outputPrefix = outputPath.replace(format === 'png' ? /\.png$/u : /\.ppm$/u, '');
     commandArgs.push(
         sourcePdfPath,
-        outputPrefix,
+        outputPath.replace(format === 'png' ? /\.png$/u : /\.ppm$/u, ''),
     );
     await runCommand(paths.pdftoppmBinary, commandArgs, {
         commandLabel: `pdftoppm(page=${String(pageNumber)},dpi=${String(dpi)})`,
@@ -126,16 +130,14 @@ async function renderPage(
         log,
     });
     if (format === 'png') {
-        const ppmPath = `${outputPrefix}.ppm`;
-        try {
-            await writePngFromPpm(ppmPath, outputPath, {
-                maxPixels: limits?.maxPixels ?? DEFAULT_RASTER_LIMITS.maxPixels,
-                maxDimensionPx: limits?.maxDimensionPx ?? DEFAULT_RASTER_LIMITS.maxDimensionPx,
-                ...(signal === undefined ? {} : {signal}),
-            });
-        } finally {
-            await rm(ppmPath, {force: true}).catch(() => undefined);
-        }
+        // A failed render or encode leaves this file to the renderer's own
+        // failure cleanup, which removes it with the PNG.
+        await writePngFromPpm(popplerPpmPath(outputPath), outputPath, {
+            maxPixels: limits?.maxPixels ?? DEFAULT_RASTER_LIMITS.maxPixels,
+            maxDimensionPx: limits?.maxDimensionPx ?? DEFAULT_RASTER_LIMITS.maxDimensionPx,
+            ...(signal === undefined ? {} : {signal}),
+        });
+        await rm(popplerPpmPath(outputPath), {force: true}).catch(() => undefined);
     }
 }
 
@@ -202,6 +204,7 @@ export function createScanCleanupRenderers(
             // The renderer error is the useful failure. A best-effort cleanup
             // must not replace it when the output path cannot be removed.
             await rm(outputPngPath, {force: true}).catch(() => undefined);
+            await rm(popplerPpmPath(outputPngPath), {force: true}).catch(() => undefined);
             throw error;
         }
     };

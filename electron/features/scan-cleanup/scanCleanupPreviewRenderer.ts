@@ -438,7 +438,7 @@ export async function scanCleanupPreviewRenderer(
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
         // Detection classified this page on the same plane, so its retained
         // raster is reused here when it is still cached.
-        const analysisDpi = resolveScanCleanupAnalysisDpi(pageSize, boundedRasterPage?.dpi);
+        const analysisDpi = resolveScanCleanupAnalysisDpi(pageSize);
         const canonicalRaw = baseRaw.dpi === analysisDpi
             ? baseRaw
             : await retention.materializeRawRasterPath(

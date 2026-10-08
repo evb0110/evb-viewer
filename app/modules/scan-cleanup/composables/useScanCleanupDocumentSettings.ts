@@ -453,7 +453,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             // Desktop document settings are keyed by the source hash, so until
             // it is known there is nothing to load and defaults must not pass
             // for loaded settings. Edits made meanwhile are kept as intents and
-            // merged when the hash arrives and this load runs again.
+            // merged when the hash arrives and this load runs again, so the
+            // reset above must stop counting as an applied load once it lands.
+            void nextTick(() => {
+                if (generation === documentLoadGeneration) applyingDocumentSettings = false;
+            });
             loadingDocument.value = identityState === 'pending';
             if (identityState === 'failed') {
                 documentSettingsLoadFailure.value = {

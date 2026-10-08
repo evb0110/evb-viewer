@@ -90,16 +90,17 @@ export const PREVIEW_DPI = DETECTION_DPI;
 /**
  * The DPI of one page's canonical analysis plane. Detection classifies a page
  * on it, and preview and final cleanup route the same page on it, so it is a
- * function of the page alone: 150 DPI, never finer than the page's own scan
- * (rendering a 72-ppi scan at 150 only interpolates pixels), and coarse enough
- * for the raster to fit the cap every producer and reader of it applies.
+ * function of the page's geometry record alone, which every stage reads from
+ * the same page-size reader: 150 DPI, never finer than the page's full-page
+ * scan (rendering a 72-ppi scan at 150 only interpolates pixels), and coarse
+ * enough for the raster to fit the cap every producer and reader applies. A
+ * page without a full-page image keeps 150: a smaller image on it says nothing
+ * about the resolution the rest of the page needs.
  */
-export function resolveScanCleanupAnalysisDpi(
-    pageSize: IPdfPageSize | undefined,
-    sourceDpi: number | null | undefined,
-) {
-    let dpi = Number.isFinite(sourceDpi) && (sourceDpi ?? 0) >= 1
-        ? Math.min(DETECTION_DPI, Math.floor(sourceDpi!))
+export function resolveScanCleanupAnalysisDpi(pageSize: IPdfPageSize | undefined) {
+    const sourceDpi = pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize)?.dpi;
+    let dpi = sourceDpi !== undefined && Number.isFinite(sourceDpi) && sourceDpi >= 1
+        ? Math.min(DETECTION_DPI, Math.floor(sourceDpi))
         : DETECTION_DPI;
     const pageArea = (pageSize?.widthPoints ?? 0) * (pageSize?.heightPoints ?? 0);
     if (pageSize === undefined || !Number.isFinite(pageArea) || pageArea <= 0) {
@@ -920,10 +921,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
         ] as const)));
         const analysisDpiByPage = new Map(batchPageNumbers.map(pageNumber => [
             pageNumber,
-            resolveScanCleanupAnalysisDpi(
-                batchPageByNumber.get(pageNumber),
-                batchRasterByNumber.get(pageNumber)?.dpi,
-            ),
+            resolveScanCleanupAnalysisDpi(batchPageByNumber.get(pageNumber)),
         ]));
         const analysisDpi = (pageNumber: number) => analysisDpiByPage.get(pageNumber)!;
         const previouslyBroadenedPages = new Set(
@@ -1582,13 +1580,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
         );
         // The retry renders the wider MediaBox, so its plane is planned for
         // that geometry rather than reused from the CropBox pass.
-        const retryAnalysisDpiByPage = new Map(await Promise.all(mediaBoxRetryCandidates.map(async candidate => [
+        const retryAnalysisDpiByPage = new Map(mediaBoxRetryCandidates.map(candidate => [
             candidate.pageNumber,
-            resolveScanCleanupAnalysisDpi(
-                toMediaBoxPageSize(candidate.sourcePage),
-                (await getPageRaster(resolvedSourceRasterStructure, candidate.pageNumber))?.dpi,
-            ),
-        ] as const)));
+            resolveScanCleanupAnalysisDpi(toMediaBoxPageSize(candidate.sourcePage)),
+        ]));
         const retryPlans = mediaBoxRetryCandidates.map(candidate => {
             const mediaPage = toMediaBoxPageSize(candidate.sourcePage);
             const dpi = retryAnalysisDpiByPage.get(candidate.pageNumber)!;

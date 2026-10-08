@@ -271,10 +271,7 @@ export async function runLosslessScanCleanup(
         // them on; the source pages themselves are preserved, not rendered.
         const analysisDpiByPage = new Map(batchPageNumbers.map(pageNumber => [
             pageNumber,
-            resolveScanCleanupAnalysisDpi(
-                pageSizeByNumber.get(pageNumber),
-                batchRasterByNumber.get(pageNumber)?.dpi,
-            ),
+            resolveScanCleanupAnalysisDpi(pageSizeByNumber.get(pageNumber)),
         ]));
         const rasterHandoff = await resolveRasterHandoff(rasterPlans.map(plan => ({
             renderDpi: analysisDpiByPage.get(plan.pageNumber)!,

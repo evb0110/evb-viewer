@@ -184,6 +184,25 @@ describe('createScanCleanupRenderers', () => {
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
     });
 
+    // Poppler writes the PPM a PNG is encoded from. A render that fails after
+    // writing part of it must not leave that file behind its PNG caller.
+    it('removes the intermediate PPM when the render fails', async () => {
+        const rendererError = new Error('pdftoppm failed after writing part of the page');
+        const runCommand = vi.fn().mockRejectedValue(rendererError);
+        const {renderPage} = createScanCleanupRenderers(runCommand);
+
+        await expect(renderPage(
+            {pdftoppmBinary: '/bin/pdftoppm'},
+            vi.fn(),
+            1,
+            '/tmp/source.pdf',
+            '/tmp/page.png',
+            300,
+        )).rejects.toBe(rendererError);
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.png', {force: true});
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/page.ppm', {force: true});
+    });
+
     it('keeps the PPM route available for sidecar-only handoffs', async () => {
         const runCommand = vi.fn().mockResolvedValue(undefined);
         const {renderPagePpm} = createScanCleanupRenderers(runCommand);

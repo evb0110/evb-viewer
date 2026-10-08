@@ -2422,13 +2422,10 @@ export async function runScanCleanupConversion(
         ]));
         pagePlanResolver.report();
         // Detection classified each page on this plane, and routing must see
-        // the same one, so the page geometry and source facts choose it.
+        // the same one, so the page's geometry record chooses it.
         const analysisDpiByPage = new Map(rasterPlans.map(plan => [
             plan.pageNumber,
-            resolveScanCleanupAnalysisDpi(
-                pageGeometryByNumber.get(plan.pageNumber),
-                detectedRasterByPage.get(plan.pageNumber)?.dpi,
-            ),
+            resolveScanCleanupAnalysisDpi(pageGeometryByNumber.get(plan.pageNumber)),
         ]));
         const estimateNativeOutputScratchBytes = (plan: ReturnType<typeof capRasterPlanDpi>) => {
             const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
