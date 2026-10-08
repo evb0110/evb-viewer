@@ -192,6 +192,137 @@ async function zoomActivePane(page: Page, paneId: string, label: 'Zoom In' | 'Zo
 }
 
 describe('browser document lifecycle UI', () => {
+    it('retains a fully visible short indicator page while the center enters a tall page', async () => {
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (const [
+            index,
+            height,
+        ] of [
+                120,
+                1_000,
+                600,
+            ].entries()) {
+            pdf.addPage([
+                400,
+                height,
+            ]).drawText(`Mixed-size reading page ${String(index + 1)}`, {
+                x: 24,
+                y: height - 40,
+                size: 16,
+                font,
+            });
+        }
+        const bytes = Buffer.from(await pdf.save());
+        const evidenceDir = resolve(process.cwd(), '.devkit/lane-a-rux2', `app-${String(process.pid)}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const page = await browser.newPage({
+            viewport: {
+                width: 900,
+                height: 700,
+            },
+            recordVideo: {dir: evidenceDir},
+        });
+        const problems = collectConsoleProblems(page);
+        const observations: unknown[] = [];
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'mixed-size-reading.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container[data-page="1"] .page_canvas canvas').first().waitFor({state: 'visible'});
+            const readPosition = () => page.evaluate(() => {
+                const first = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                const second = document.querySelector<HTMLElement>('.page_container[data-page="2"]')!;
+                const viewport = first.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const view = viewport.getBoundingClientRect();
+                const rects = [
+                    first,
+                    second,
+                ].map(element => {
+                    const rect = element.getBoundingClientRect();
+                    const width = Math.max(0, Math.min(rect.right, view.left + viewport.clientWidth) - Math.max(rect.left, view.left));
+                    const height = Math.max(0, Math.min(rect.bottom, view.top + viewport.clientHeight) - Math.max(rect.top, view.top));
+                    return {
+                        top: rect.top,
+                        bottom: rect.bottom,
+                        height: rect.height,
+                        fraction: width * height / (rect.width * rect.height),
+                        fullyVisible: width >= rect.width && height >= rect.height,
+                    };
+                });
+                return {
+                    indicator: document.querySelector('.page-controls-current-primary')!.textContent!.trim(),
+                    top: viewport.scrollTop,
+                    centerY: view.top + viewport.clientHeight / 2,
+                    rects,
+                };
+            });
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            const before = await readPosition();
+            observations.push({
+                step: 'open',
+                ...before,
+            });
+            const viewer = page.locator('[data-document-viewer-chassis-viewport]').first();
+            await viewer.hover();
+            await page.mouse.wheel(0, 10);
+            await expect.poll(async () => (await readPosition()).top).toBeGreaterThan(before.top);
+            await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            const after = await readPosition();
+            observations.push({
+                step: 'trusted-wheel',
+                ...after,
+            });
+            await page.screenshot({path: resolve(evidenceDir, 'retained.png')});
+            expect(after.rects[0]!.fullyVisible).toBe(true);
+            expect(after.centerY).toBeGreaterThan(after.rects[1]!.top);
+            expect(after.rects[0]!.fraction).toBeGreaterThan(after.rects[1]!.fraction);
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.mouse.wheel(0, 80);
+            await expect.poll(async () => (await readPosition()).top).toBeGreaterThan(after.top);
+            await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            const partial = await readPosition();
+            observations.push({
+                step: 'greatest-fraction',
+                ...partial,
+            });
+            expect(partial.rects[0]!.fullyVisible).toBe(false);
+            expect(partial.rects[0]!.fraction).toBeGreaterThan(partial.rects[1]!.fraction);
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('1');
+            await page.mouse.wheel(0, 300);
+            await expect.poll(async () => (await readPosition()).rects[0]!.fraction).toBe(0);
+            await expect.poll(() => page.locator('.page-controls-current-primary').first().innerText()).toBe('2');
+            observations.push({
+                step: 'short-page-left-viewport',
+                ...await readPosition(),
+            });
+            await page.screenshot({path: resolve(evidenceDir, 'advanced.png')});
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
+            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+            try {await page.context().close();} finally {await browser.close();}
+        }
+    }, 90_000);
+
     it('retains the readable page and retries failed annotation interaction', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));

@@ -416,6 +416,7 @@ describe('ViewportAuthority', () => {
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
             getGeometryRevision: () => 1,
+            resolveIndicatorPage: (_anchor, previousPage) => previousPage,
             resolve: async () => ({
                 anchor,
                 left: 0,
@@ -434,7 +435,8 @@ describe('ViewportAuthority', () => {
         release();
         await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
         expect(writes).toEqual([]);
-        expect(authority.currentPage.value).toBe(3);
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.committedAnchor.value?.page).toBe(3);
     });
 
     it('retains newer input when a viewport write synchronously changes ownership', async () => {

@@ -1,5 +1,5 @@
 import {
-    parsePageNumber, requirePageNumber, 
+    parsePageNumber, requirePageNumber,
 } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
@@ -12,6 +12,7 @@ import {
     createPdfViewportGeometryFromLayout,
     getViewportGeometryRowForPage,
     resolveAnchorFromScroll,
+    resolvePageIndicatorFromScroll,
     resolveRetainedAnchorFromScroll,
     resolveScrollForAnchor,
     type IPdfSemanticAnchor,
@@ -266,6 +267,17 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     const viewportAuthority = createViewportAuthorityService({
         getDocumentRevision: options.getDocumentRevision,
         getGeometryRevision: options.getGeometryRevision,
+        resolveIndicatorPage: (anchor, previousPage) => {
+            const container = options.viewerContainer.value;
+            // Start anchors carry a known placement/segment transition while
+            // geometry still describes the previous physical scroll origin.
+            return container && geometry && options.continuousScroll.value && anchor.affinity === 'center'
+                ? resolvePageIndicatorFromScroll(geometry, {
+                    left: container.scrollLeft,
+                    top: container.scrollTop,
+                }, previousPage)
+                : anchor.page;
+        },
         isIntentCurrent: isIntentDocumentCurrent,
         shouldStageNavigationVisual: intent => intent.navigation?.readiness === 'text-layer' || isUnplacedOpeningNavigation(intent.navigationTicket),
         reportNavigation,
@@ -919,7 +931,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             viewportAuthority.observeUserScroll(anchor);
         }
         if (container) options.viewportWritePort.observeUserScroll(container);
-        return anchor.page;
+        return viewportAuthority.currentPage.value;
     }
 
     function captureCurrentSemanticAnchor(viewportPoint?: {
@@ -1234,30 +1246,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         : null);
     const searchNavigationState = computed(() => searchNavigationTargetPage.value === null ? 'idle' : 'navigating');
     const currentPageAuthority = {commitViewportPage: (page: number) => {
-        if (viewportAuthority.activeIntent.value !== null) {
-            logPdfRenderTrace('viewport-current-page-commit-rejected', {
-                page,
-                activeIntentId: viewportAuthority.activeIntent.value.id,
-                activeIntentKind: viewportAuthority.activeIntent.value.kind,
-            });
-            return false;
-        }
+        if (viewportAuthority.activeIntent.value !== null) return false;
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
-        const anchor = container && snapshot
-            ? resolveAnchorForViewport(snapshot, toPageNumber(page))
-            : getRequestAnchor(undefined, page);
-        viewportAuthority.observeUserScroll({
-            ...anchor,
-            page: toPageNumber(page),
-        });
-        logPdfRenderTrace('viewport-current-page-commit-observed', () => ({
-            page,
-            anchorPage: anchor.page,
-            scrollLeft: container?.scrollLeft ?? null,
-            scrollTop: container?.scrollTop ?? null,
-        }));
-        if (container) options.viewportWritePort.observeUserScroll(container);
+        if (!container || !snapshot) return false;
+        // A reload's legacy absolute-area hint cannot overwrite R1 or the
+        // center anchor. Project both from the authority's current geometry.
+        viewportAuthority.observeUserScroll(resolveAnchorForViewport(snapshot, toBoundedPageNumber(page)));
+        options.viewportWritePort.observeUserScroll(container);
         return true;
     }};
     return {
