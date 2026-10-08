@@ -1433,8 +1433,6 @@ fn rectangle_addition_contains_text_line(
     })
 }
 
-pub(crate) use extend_picture_mask_for_content as extend_tone_mask_for_content;
-
 pub(crate) fn extend_picture_mask_for_content(
     source: &GrayImage,
     seed_mask: &BinaryImage,
@@ -2381,7 +2379,7 @@ mod tests {
         }
         let calibration = PageCalibration::estimate(&image, 150.0, CalibrationConfig::default());
 
-        let extended = extend_tone_mask_for_content(&image, &tone_seed, calibration);
+        let extended = extend_picture_mask_for_content(&image, &tone_seed, calibration);
 
         assert!(extended.get(80, 80));
         assert!(

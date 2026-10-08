@@ -1062,7 +1062,7 @@ fn prepare_tonal_candidates(input: TonalCandidateInput<'_>) -> TonalCandidateOut
     // silently publishing a bilevel page and destroying the very map fill
     // or shaded region that caused the veto.
     let destructive_tone_mask = outside_tone.vetoes_destructive_mode().then(|| {
-        Arc::new(extend_tone_mask_for_content(
+        Arc::new(extend_picture_mask_for_content(
             layout_normalized,
             &tonal_seed_mask,
             calibration,
