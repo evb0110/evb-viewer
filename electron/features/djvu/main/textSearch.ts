@@ -32,6 +32,10 @@ const DJVU_TEXT_MAX_DEPTH = 64;
 const DJVU_TEXT_CAPTURED_STDERR_BYTES = 256 * 1024;
 const DJVU_SEARCH_MAX_WORDS_PER_MATCH = 256;
 const INTERNAL_STOP_REASON = Symbol('djvu-text-internal-stop');
+const OPEN_PAREN = 0x28;
+const CLOSE_PAREN = 0x29;
+const QUOTE = 0x22;
+const BACKSLASH = 0x5c;
 
 interface IDjvuTextZone {
     lineId: number | null;
@@ -79,7 +83,23 @@ interface IDjvuTextStreamOptions extends IDjvuTextParserOptions {
     signal?: AbortSignal | undefined;
 }
 
+/** `/\s/u` for the code point at `index`, without a string per ASCII character. */
+function isDjvuTextWhitespace(text: string, index: number) {
+    const code = text.charCodeAt(index);
+    return code < 0x80
+        ? code === 0x20 || (code >= 0x09 && code <= 0x0d)
+        : /\s/u.test(text[index]!);
+}
+
+function isDjvuTextDelimiter(text: string, index: number) {
+    const code = text.charCodeAt(index);
+    return code === OPEN_PAREN || code === CLOSE_PAREN || code === QUOTE || isDjvuTextWhitespace(text, index);
+}
+
 function decodeDjvuString(raw: string) {
+    if (!raw.includes('\\')) {
+        return raw;
+    }
     let decoded = '';
     let octalBytes: number[] = [];
 
@@ -322,48 +342,58 @@ export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions)
         }
     }
 
+    // Tokens are taken as slices of the chunk, not built a character at a
+    // time: the delimiters are ASCII, so no character needs its own string.
     function push(chunk: string) {
         assertHealthy();
         try {
-            for (const character of chunk) {
-                if (stopped) {
-                    break;
-                }
+            let index = 0;
+            while (index < chunk.length && !stopped) {
+                const runStart = index;
                 if (inString) {
-                    if (stringEscaped) {
-                        stringToken += character;
-                        stringEscaped = false;
-                    } else if (character === '\\') {
-                        stringToken += character;
-                        stringEscaped = true;
-                    } else if (character === '"') {
-                        inString = false;
-                        consumeString();
-                    } else {
-                        stringToken += character;
+                    for (; index < chunk.length; index += 1) {
+                        const code = chunk.charCodeAt(index);
+                        if (stringEscaped) {
+                            stringEscaped = false;
+                        } else if (code === BACKSLASH) {
+                            stringEscaped = true;
+                        } else if (code === QUOTE) {
+                            break;
+                        }
                     }
+                    stringToken += chunk.slice(runStart, index);
                     if (stringToken.length > DJVU_TEXT_MAX_TOKEN_CHARS) {
                         fail('DjVu text token exceeds the supported limit');
+                    }
+                    if (index < chunk.length) {
+                        index += 1;
+                        inString = false;
+                        consumeString();
                     }
                     continue;
                 }
 
-                if (character === '(') {
+                const code = chunk.charCodeAt(index);
+                if (code === OPEN_PAREN) {
                     consumeAtom();
                     openFrame();
-                } else if (character === ')') {
+                } else if (code === CLOSE_PAREN) {
                     closeFrame();
-                } else if (character === '"') {
+                } else if (code === QUOTE) {
                     consumeAtom();
                     inString = true;
-                } else if (/\s/u.test(character)) {
+                } else if (isDjvuTextWhitespace(chunk, index)) {
                     consumeAtom();
                 } else {
-                    atom += character;
+                    while (index + 1 < chunk.length && !isDjvuTextDelimiter(chunk, index + 1)) {
+                        index += 1;
+                    }
+                    atom += chunk.slice(runStart, index + 1);
                     if (atom.length > DJVU_TEXT_MAX_TOKEN_CHARS) {
                         fail('DjVu text token exceeds the supported limit');
                     }
                 }
+                index += 1;
             }
         } catch (error) {
             failed = error instanceof Error ? error : new Error(String(error));
