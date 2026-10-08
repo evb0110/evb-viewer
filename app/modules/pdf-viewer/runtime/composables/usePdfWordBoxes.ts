@@ -45,9 +45,10 @@ export const usePdfWordBoxes = () => {
             viewportByPageContainer.set(pageContainer, viewport);
         }
 
+        const pageViewport = viewport ?? viewportByPageContainer.get(pageContainer);
         if (words && words.length > 0 && pdfPageWidth && pdfPageHeight) {
-            const scaleX = renderedPageWidth / pdfPageWidth;
-            const scaleY = renderedPageHeight / pdfPageHeight;
+            const scaleX = renderedPageWidth / (pageViewport?.width ?? pdfPageWidth);
+            const scaleY = renderedPageHeight / (pageViewport?.height ?? pdfPageHeight);
             const diff = Math.abs(scaleX - scaleY);
             if (diff >= 0.01) {
                 BrowserLogger.warn('word-boxes', 'Coordinate space mismatch', {
@@ -83,7 +84,7 @@ export const usePdfWordBoxes = () => {
             renderedPageHeight,
             currentMatchWords,
             rotation,
-            viewport ?? viewportByPageContainer.get(pageContainer),
+            pageViewport,
         );
 
         let boxContainer = pageContainer.querySelector<HTMLElement>('.pdf-word-boxes-layer');
