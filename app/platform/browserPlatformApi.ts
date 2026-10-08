@@ -56,10 +56,7 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
         return Promise.resolve(undefined);
     }
 
-    const openedWindow = window.open(decision.normalizedUrl, '_blank', 'noopener,noreferrer');
-    if (!openedWindow) {
-        BrowserLogger.warn('shell', 'Failed to open external URL', { url: decision.normalizedUrl });
-    }
+    window.open(decision.normalizedUrl, '_blank', 'noopener,noreferrer');
 
     return Promise.resolve(undefined);
 } } satisfies TFeatureBrowserBindings<typeof SHELL_PLATFORM_FEATURE>;

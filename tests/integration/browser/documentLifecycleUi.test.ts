@@ -1305,6 +1305,113 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    it('opens URI destinations by pointer and Enter with no opener or console failure', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-external-url-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const destination = `${origin}/privacy-policy`;
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const sourcePage = pdf.addPage([
+            612,
+            792,
+        ]);
+        sourcePage.drawText('Open privacy policy', {
+            x: 72,
+            y: 700,
+            size: 18,
+            font,
+        });
+        sourcePage.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Link',
+            Rect: [
+                72,
+                694,
+                260,
+                722,
+            ],
+            Border: [
+                0,
+                0,
+                0,
+            ],
+            A: {
+                S: 'URI',
+                URI: PDFString.of(destination),
+            },
+        }))]));
+        const bytes = Buffer.from(await pdf.save());
+        writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        const observations: Array<{
+            input: string;
+            url: string;
+            opener: boolean
+        }> = [];
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles({
+                name: 'external-uri.pdf',
+                mimeType: 'application/pdf',
+                buffer: bytes,
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const link = page.locator('.pdf-link-overlay').first();
+            await link.waitFor({state: 'visible'});
+            for (const input of [
+                'pointer',
+                'Enter',
+            ]) {
+                const openedPage = context.waitForEvent('page');
+                if (input === 'pointer') {
+                    await link.click();
+                } else {
+                    await link.focus();
+                    await link.press('Enter');
+                }
+                const destinationPage = await openedPage;
+                await destinationPage.waitForURL(destination);
+                await destinationPage.waitForLoadState('domcontentloaded');
+                const opener = await destinationPage.evaluate(() => window.opener !== null);
+                observations.push({
+                    input,
+                    url: destinationPage.url(),
+                    opener,
+                });
+                expect(destinationPage.url()).toBe(destination);
+                expect(opener).toBe(false);
+                await destinationPage.close();
+            }
+            expect(problems).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'result.json'), JSON.stringify({
+                observations,
+                problems,
+            }, null, 2));
+            await browser.close();
+        }
+    }, 120_000);
+
     it('starts and opens a PDF without desktop diagnostics or recovery warnings under an Electron-shaped user agent', async () => {
         const browser = await chromium.launch({headless: true});
         try {
