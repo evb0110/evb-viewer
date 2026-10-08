@@ -63,7 +63,9 @@ const RENDERER_LOG_DATA_LIMITS: ILogDataLimits = {
 };
 
 function normalizeRendererLogData(data: unknown): TLogData | undefined {
-    // The renderer is untrusted input: bound and redact at this boundary.
+    // The renderer is untrusted input: bound and redact at this boundary. The
+    // log sink writes the result as is. Truncation below cuts redacted text,
+    // which can shorten a redaction marker but not expose a redacted value.
     const normalized = redactLogData(toLogData(data, RENDERER_LOG_DATA_LIMITS));
     if (!normalized) {
         return undefined;
