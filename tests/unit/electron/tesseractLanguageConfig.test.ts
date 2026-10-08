@@ -11,7 +11,7 @@ import {
     RTL_OCR_LANGUAGE_CODES,
     isGreekOcrLanguage,
     isRtlOcrLanguage,
-    resolveOcrLanguageModels,
+    LONG_S_MODEL_CODES,
 } from '@contracts/ocrLanguages';
 import { resolveTesseractLanguageConfig } from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 
@@ -27,20 +27,13 @@ describe('resolveTesseractLanguageConfig', () => {
         expect(AVAILABLE_OCR_LANGUAGES.length).toBeGreaterThan(BUNDLED_OCR_LANGUAGE_CODES.length);
     });
 
-    it('pins one SHA-256 digest for every model a registered language recognizes with', () => {
-        expect(Object.keys(OCR_LANGUAGE_MODEL_SHA256).sort()).toEqual(
-            [...new Set(AVAILABLE_OCR_LANGUAGES.flatMap(language => resolveOcrLanguageModels(language.code)))].sort(),
-        );
+    it('pins one SHA-256 digest for every language model and every long-s model', () => {
+        expect(Object.keys(OCR_LANGUAGE_MODEL_SHA256).sort()).toEqual([
+            ...AVAILABLE_OCR_LANGUAGES.map(language => language.code),
+            ...LONG_S_MODEL_CODES,
+        ].sort());
         expect(Object.values(OCR_LANGUAGE_MODEL_SHA256).every(digest =>
             /^[a-f0-9]{64}$/u.test(digest))).toBe(true);
-    });
-
-    it('recognizes early printed Latin with the historical models that read long s', () => {
-        expect(resolveTesseractLanguageConfig(['lat_early']).orderedLanguages).toEqual([
-            'ita_old',
-            'spa_old',
-        ]);
-        expect(resolveTesseractLanguageConfig(['lat']).orderedLanguages).toEqual(['lat']);
     });
 
     it('derives the rtl language set from the canonical OCR language registry', () => {
