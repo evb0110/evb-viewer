@@ -11,7 +11,6 @@
         :modified-at="note.modifiedAt"
         :text="note.draftText"
         :saving="note.saving"
-        :error="note.error"
         :position="annotationNotePositions[note.annotationId] ?? null"
         :z-index="NOTE_WINDOW.ACTIVE_Z_INDEX_BASE + Math.min(
             noteIndex,

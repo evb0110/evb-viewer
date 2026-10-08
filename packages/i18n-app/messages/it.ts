@@ -1771,6 +1771,8 @@ export default {
             'selectionSpansPages': 'Seleziona il testo di una sola pagina per aggiungere questa annotazione.',
             'delete': 'Impossibile eliminare questa annotazione dal documento corrente.',
             'updateNote': 'Impossibile aggiornare questa nota.',
+            'noteUpdateRejected': 'Il visualizzatore non ha accettato la modifica della nota.',
+            'noteDraftRetained': 'La bozza della nota è conservata. {reason}',
         },
         'djvu': {
             'open': 'Conversione DjVu non riuscita',

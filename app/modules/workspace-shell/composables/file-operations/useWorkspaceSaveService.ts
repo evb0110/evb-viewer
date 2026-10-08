@@ -713,14 +713,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         deps.annotations.openNoteCount.value > 0
                         && !await deps.annotations.persistOpenNotes()
                     ) {
-                        BrowserLogger.warn('workspace', 'Save aborted because annotation note persistence failed');
-                        const noteFailure = notSavedBeforeWrite(
-                            'note-persistence-failed',
-                            revisionBeforeNotes,
-                            null,
-                        );
-                        const completed = await completeWorkspaceSave(null, noteFailure, deps);
-                        reportSaveAbort(noteFailure);
+                        const completed = await completeWorkspaceSave(null,
+                            notSavedBeforeWrite('note-persistence-failed', revisionBeforeNotes, null), deps);
+                        reportSaveFailureIfCurrent('note-persistence-failed', {
+                            expectedRevisionToken: revisionBeforeNotes,
+                            failure: deps.annotations.getNoteFailurePresentation?.(),
+                        });
                         return completed;
                     }
 

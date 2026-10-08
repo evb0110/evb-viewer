@@ -12,6 +12,7 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
+import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 
 const toastAddMock = vi.fn();
@@ -73,6 +74,26 @@ describe('useWorkspaceFailureSurface', () => {
         expect(capture).toHaveBeenCalledOnce();
         expect(surface.saveFailurePresentation.value?.failure).toBe(receipt);
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.runtime.errorId: receipt')}));
+    });
+
+    it('keeps the note cause, receipt and retry when Save encounters the same rejected draft', () => {
+        const surface = useWorkspaceFailureSurface();
+        const retry = vi.fn();
+        const note = surface.reportNoteFailure({
+            cause: new Error('Document policy refused the note'),
+            retry,
+        });
+        expect(formatFailurePresentationCopy(note)).toContain('Document policy refused the note');
+        expect(note.actions?.[0]?.label).toBe('common.retry');
+
+        surface.reportSaveFailure('save-with-rejected-note', 'note-persistence-failed', undefined, note);
+        const saved = surface.saveFailurePresentation.value;
+        expect(saved?.failure).toBe(note.failure);
+        expect(saved?.description).toBe(note.description);
+        expect(saved && formatFailurePresentationCopy(saved)).toContain('Document policy refused the note');
+        saved?.actions?.[0]?.onClick();
+        expect(retry).toHaveBeenCalledOnce();
+        expect(new Set(toastAddMock.mock.calls.map(([toast]) => toast.id)).size).toBe(1);
     });
 
     it('shows one toast when a low-level failure and a service result share an operation', () => {

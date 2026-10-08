@@ -15,6 +15,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
 import { classifyDocumentOpenError } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {
+    isFailurePresentation,
     copyTextToClipboard,
     getNonEmptyDetails,
     useFailureToast,
@@ -136,7 +137,7 @@ export const useWorkspaceFailureSurface = () => {
         operationId: string,
         reason: TWorkspaceSaveFailureReason,
         detail?: string | null,
-        existingReceipt?: FailureReceipt,
+        existingReceipt?: FailureReceipt | FailurePresentation,
         diagnostics?: IPdfPersistFailure,
     ) {
         if (isDuplicateFailure({
@@ -145,8 +146,9 @@ export const useWorkspaceFailureSurface = () => {
         })) {
             return false;
         }
-        const description = detail ?? describeSaveFailure(reason, diagnostics);
-        const receipt = existingReceipt ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
+        const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
+        const description = detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
+        const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
             'workspace',
             'Workspace save failed',
             {
@@ -158,6 +160,7 @@ export const useWorkspaceFailureSurface = () => {
             {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         const presentation: FailurePresentation = {
+            ...priorPresentation,
             failure: receipt,
             title: t('errors.file.save'),
             description,
@@ -235,6 +238,30 @@ export const useWorkspaceFailureSurface = () => {
         return true;
     }
 
+    function reportNoteFailure(input: {
+        cause?: unknown;
+        message?: string;
+        retry?: () => void;
+        previous?: FailurePresentation;
+    }): FailurePresentation {
+        const reason = input.cause === undefined ? input.message ?? t('errors.annotation.noteUpdateRejected') : getErrorMessage(input.cause);
+        const presentation: FailurePresentation = {
+            failure: getFailureReceipt(input.cause) ?? input.previous?.failure ?? BrowserLogger.error(
+                'annotations', 'Annotation note operation failed', input.cause ?? reason,
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            ),
+            title: input.message ?? t('errors.annotation.updateNote'),
+            description: t('errors.annotation.noteDraftRetained', {reason}),
+            technicalDetails: reason,
+            ...(input.retry ? {actions: [{
+                label: t('common.retry'),
+                onClick: input.retry,
+            }]} : {}),
+        };
+        presentFailureToast(presentation);
+        return presentation;
+    }
+
     function presentCopyFeedback(copied: boolean) {
         toast.add({
             color: copied ? 'success' : 'error',
@@ -268,6 +295,7 @@ export const useWorkspaceFailureSurface = () => {
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,
+        reportNoteFailure,
         describeOpenFailure,
     };
 };

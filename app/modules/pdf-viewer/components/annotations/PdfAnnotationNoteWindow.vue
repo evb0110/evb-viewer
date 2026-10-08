@@ -51,12 +51,9 @@
             :placeholder="t('noteWindow.writeNote')"
             @keydown.esc.stop.prevent="minimizeNote"
             @input="updateText"
-            @change="updateText"
-            @blur="updateText"
         ></textarea>
 
         <p v-if="saving" class="note-window__status" role="status" aria-live="polite">{{ t('noteWindow.saving') }}</p>
-        <p v-if="error" class="note-window__error" role="alert" aria-live="assertive">{{ error }}</p>
     </div>
 </template>
 
@@ -94,7 +91,6 @@ interface IProps {
     modifiedAt: number | null;
     text: string;
     saving?: boolean;
-    error?: string | null;
     position?: IAnnotationNotePosition | null;
     zIndex?: number;
     boundsRoot?: HTMLElement | null;
@@ -109,7 +105,6 @@ const {
     modifiedAt,
     text,
     saving = false,
-    error = null,
     position = null,
     zIndex = NOTE_WINDOW.DEFAULT_Z_INDEX,
     boundsRoot = null,
@@ -722,10 +717,5 @@ watch(
     padding: var(--app-pdf-note-status-padding);
 }
 
-.note-window__error {
-    margin: 0;
-    font-size: var(--app-pdf-note-error-font-size);
-    color: var(--note-delete-color);
-    padding: var(--app-pdf-note-error-padding);
-}
+
 </style>

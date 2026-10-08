@@ -1782,6 +1782,8 @@ export default {
             'selectionSpansPages': 'Selecione texto em uma única página para adicionar esta anotação.',
             'delete': 'Não foi possível excluir esta anotação do documento atual.',
             'updateNote': 'Não foi possível atualizar esta nota.',
+            'noteUpdateRejected': 'O visualizador não aceitou a alteração da nota.',
+            'noteDraftRetained': 'O rascunho da nota é mantido. {reason}',
         },
         'djvu': {
             'open': 'Falha na conversão de DjVu',
