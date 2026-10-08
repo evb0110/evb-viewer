@@ -86,6 +86,8 @@ mod document_analysis;
 mod final_composition;
 #[path = "render/fold_edge_filtering.rs"]
 mod fold_edge_filtering;
+#[path = "render/paper_cleanup.rs"]
+mod paper_cleanup;
 #[path = "render/region_preparation.rs"]
 mod region_preparation;
 #[path = "render/region_rendering.rs"]
@@ -2460,9 +2462,21 @@ fn prepare_page<'a>(
 }
 
 fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
-    let gray = artifact.normalized.data().len()
-        + artifact.layout_normalized.data().len()
-        + artifact.canonical_routing_source.data().len();
+    // Planes with identical pixels share one allocation; count it once.
+    let normalized = &artifact.normalized;
+    let layout = &artifact.layout_normalized;
+    let canonical = &artifact.canonical_routing_source;
+    let gray = normalized.data().len()
+        + if Arc::ptr_eq(layout, normalized) {
+            0
+        } else {
+            layout.data().len()
+        }
+        + if Arc::ptr_eq(canonical, normalized) || Arc::ptr_eq(canonical, layout) {
+            0
+        } else {
+            canonical.data().len()
+        };
     let picture_mask = artifact
         .picture_mask
         .as_deref()
@@ -4241,6 +4255,8 @@ fn map_analysis_rect_to_source_support(
     let candidate_top = ((rect.y - 0.5) / scale_y).max(0.0);
     let candidate_right = ((rect.right() + 0.5) / scale_x).min(source_width);
     let candidate_bottom = ((rect.bottom() + 0.5) / scale_y).min(source_height);
+    // One full-source histogram serves every edge of the box.
+    let ink_threshold = std::cell::OnceCell::new();
     let has_support = |bounds: Rect| {
         let SourceContentSupport::Rectilinear { image, to_source } = source_support else {
             return true;
@@ -4248,7 +4264,7 @@ fn map_analysis_rect_to_source_support(
         source_rect_has_ink_support(
             image,
             transform_rect_bounds(bounds, to_source),
-            paper_reference(image).saturating_sub(16),
+            *ink_threshold.get_or_init(|| paper_reference(image).saturating_sub(16)),
         )
     };
     let unconditional_dewarp_x = matches!(

@@ -19,7 +19,6 @@ import {
 function entry(ownerId = 'owner') {
     return {
         ownerId,
-        results: [],
         signatures: new Map<number, string>(),
         state: {
             jobId: requireJobId('detect-1'),

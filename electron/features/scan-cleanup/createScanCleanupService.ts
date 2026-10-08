@@ -83,6 +83,7 @@ import {
     isScanCleanupDetectionResultStoreRegistered,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
+    describePersistedScanCleanupDetectionResultStore,
     persistScanCleanupDetectionResultStore,
     removeScanCleanupDetectionResultStoreDescriptor,
     type IScanCleanupDetectionResultStoreDescriptor,
@@ -795,6 +796,7 @@ export function createScanCleanupService(
                         runStarted = true;
                         let lease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
                         let detectionResultStoreDescriptor: IScanCleanupDetectionResultStoreDescriptor | null = null;
+                        let ownsDetectionResultStoreDescriptor = false;
                         let retainRunArtifacts = false;
                         try {
                             lease = await mainJobBroker.acquire({
@@ -831,10 +833,19 @@ export function createScanCleanupService(
                                 );
                             }
                             if (detectionResultStoreLease !== null) {
-                                detectionResultStoreDescriptor = await persistScanCleanupDetectionResultStore(
+                                // The lease keeps the detection store open until
+                                // the worker settles, so the worker can read the
+                                // store's own files; only a store without them
+                                // is copied, and only a copy is removed below.
+                                const persisted = describePersistedScanCleanupDetectionResultStore(
                                     detectionResultStoreLease.resultStore,
-                                    getAppTempDir(),
                                 );
+                                ownsDetectionResultStoreDescriptor = persisted === null;
+                                detectionResultStoreDescriptor = persisted
+                                    ?? await persistScanCleanupDetectionResultStore(
+                                        detectionResultStoreLease.resultStore,
+                                        getAppTempDir(),
+                                    );
                             }
                             const summary = await runScanCleanupWorkerTask(
                                 {
@@ -922,7 +933,7 @@ export function createScanCleanupService(
                             }
                             lease?.release();
                             await detectionResultStoreLease?.release();
-                            if (detectionResultStoreDescriptor !== null) {
+                            if (detectionResultStoreDescriptor !== null && ownsDetectionResultStoreDescriptor) {
                                 await removeScanCleanupDetectionResultStoreDescriptor(
                                     detectionResultStoreDescriptor,
                                 ).catch(() => undefined);

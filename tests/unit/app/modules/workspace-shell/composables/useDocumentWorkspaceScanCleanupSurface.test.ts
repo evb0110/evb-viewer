@@ -65,7 +65,6 @@ function viewState(overrides: Partial<ITabViewSessionState> = {}): ITabViewSessi
 function detectionCacheEntry() {
     return {
         ownerId: 'owner-1',
-        results: [],
         signatures: new Map<number, string>(),
         state: {
             jobId: requireJobId('detect-1'),

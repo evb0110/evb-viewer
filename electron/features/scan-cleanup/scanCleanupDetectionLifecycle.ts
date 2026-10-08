@@ -268,6 +268,7 @@ export function scanCleanupDetectionOwner(
                         ...completedPageProgress(new Set(results.map(item => item.pageNumber)), resultCount),
                     },
                     resultCount,
+                    blankPageCount: result.blankPageCount,
                     ...(result.resultStoreId === undefined
                         ? {}
                         : {detectionResultStoreId: result.resultStoreId}),

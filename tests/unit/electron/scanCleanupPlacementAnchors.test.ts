@@ -168,6 +168,29 @@ describe('scan-cleanup bounded ink placement summary', () => {
         expect(current.identity.calibrationSignature).toBe('calibration-current-options');
     });
 
+    it('measures ink against the leaves a taller cover would otherwise outgrow', async () => {
+        // The matched canvas is the leaves' paper, so ink anchors must be
+        // fractions of the leaf height: measured against the cover, every
+        // leaf's ink would land higher than it was measured.
+        const records = Array.from({length: 40}, (_, index) => {
+            const pageNumber = index + 1;
+            return result(pageNumber, 0.2, pageNumber === 1 ? 1_100 : 792);
+        });
+
+        const summary = await buildScanCleanupPlacementAnchorSummary({
+            options,
+            resultStore: resultStore(records),
+            signal: new AbortController().signal,
+            identity: {
+                documentRevision: 'revision-cover',
+                detectionSignature: 'detection-cover',
+                calibrationSignature: 'calibration-cover',
+            },
+        });
+
+        expect(summary.referenceHeightPoints).toBe(792);
+    });
+
     it('keeps early, middle, and late anchors bounded for a 20,001-page result store', async () => {
         const records = Array.from({length: 20_001}, (_, index) => {
             const pageNumber = index + 1;

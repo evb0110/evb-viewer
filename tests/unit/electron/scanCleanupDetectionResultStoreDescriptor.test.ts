@@ -19,7 +19,9 @@ import {
 } from 'vitest';
 import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
+    describePersistedScanCleanupDetectionResultStore,
     openScanCleanupDetectionResultStoreDescriptor,
     persistScanCleanupDetectionResultStore,
     removeScanCleanupDetectionResultStoreDescriptor,
@@ -99,6 +101,39 @@ describe('scan cleanup detection result-store handoff', () => {
         ]);
         await removeScanCleanupDetectionResultStoreDescriptor(descriptor);
         expect(close).not.toHaveBeenCalled();
+    });
+
+    it('hands a complete file-backed store to the worker without copying it', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-handoff-in-place-test-'));
+        roots.push(root);
+        const result = (pageNumber: number, confidence: number) => ({
+            pageNumber,
+            classification: 'single-uncut-page',
+            confidence,
+        }) as IScanCleanupDetectionResult;
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            pageCount: 3,
+            rootDir: root,
+        });
+        await store.append(result(1, 0.9));
+        await store.append(result(2, 0.9));
+        expect(describePersistedScanCleanupDetectionResultStore(store))
+            .toBeNull();
+        await store.append(result(3, 0.9));
+        await store.replace(2, result(2, 0.5));
+        const directoriesBefore = await readdir(root);
+
+        const descriptor = describePersistedScanCleanupDetectionResultStore(store);
+        expect(descriptor).not.toBeNull();
+        expect(await readdir(root)).toEqual(directoriesBefore);
+        const workerView = await openScanCleanupDetectionResultStoreDescriptor(descriptor!);
+        await expect(workerView.readRange(1, 4)).resolves.toEqual([
+            result(1, 0.9),
+            result(2, 0.5),
+            result(3, 0.9),
+        ]);
+        await workerView.close();
+        await store.close();
     });
 
     it('persists indexed records when file writes are partial', async () => {

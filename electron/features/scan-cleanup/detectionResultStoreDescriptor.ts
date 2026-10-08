@@ -15,6 +15,7 @@ import {isRecord} from '@contracts/runtimeGuards';
 import {
     openFileBackedScanCleanupResultStore,
     RESULT_STORE_INDEX_BYTES,
+    writeFully,
 } from '@evb/scan-cleanup/core/fileBackedResultStore';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
@@ -46,28 +47,6 @@ function serialize(result: IScanCleanupDetectionResult) {
     return line;
 }
 
-type TScanCleanupFileHandle = Awaited<ReturnType<typeof open>>;
-
-async function writeFully(
-    handle: TScanCleanupFileHandle,
-    data: Buffer,
-    position?: number,
-) {
-    let offset = 0;
-    while (offset < data.byteLength) {
-        const {bytesWritten} = await handle.write(
-            data,
-            offset,
-            data.byteLength - offset,
-            position === undefined ? undefined : position + offset,
-        );
-        if (bytesWritten <= 0) {
-            throw new Error('Scan cleanup detection result handoff made no write progress');
-        }
-        offset += bytesWritten;
-    }
-}
-
 function assertDescriptor(descriptor: unknown): asserts descriptor is IScanCleanupDetectionResultStoreDescriptor {
     if (
         !isRecord(descriptor)
@@ -91,6 +70,35 @@ function assertDescriptor(descriptor: unknown): asserts descriptor is IScanClean
  * page-offset index. The store is read one bounded chunk at a time, so this
  * handoff never recreates a result array in the main process.
  */
+/**
+ * A complete detection store already keeps its records on disk in the format
+ * the worker reads. Describe those files instead of writing a second copy.
+ * The caller's lease must keep the store open until the worker has settled,
+ * and the caller does not remove these files: the store does, when it closes.
+ * Returns null for a store without its own files or with any page missing.
+ */
+export function describePersistedScanCleanupDetectionResultStore(
+    store: IScanCleanupDetectionResultStore,
+): IScanCleanupDetectionResultStoreDescriptor | null {
+    const files = store.persistedFiles;
+    if (
+        files === undefined
+        || !Number.isSafeInteger(store.pageCount)
+        || store.pageCount < 1
+        || store.resultCount !== store.pageCount
+    ) {
+        return null;
+    }
+    return {
+        format: DESCRIPTOR_FORMAT,
+        indexPath: files.indexPath,
+        pageCount: store.pageCount,
+        recordsPath: files.recordsPath,
+        resultCount: store.resultCount,
+        schemaVersion: DESCRIPTOR_SCHEMA_VERSION,
+    };
+}
+
 export async function persistScanCleanupDetectionResultStore(
     store: IScanCleanupDetectionResultStore,
     rootDir: string,

@@ -18,7 +18,10 @@ import {requireRequestId} from '@contracts/shared';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
-import type {IScanCleanupPreviewDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {
+    previewIdentityKey,
+    type IScanCleanupPreviewDependencies,
+} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {decodeScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
@@ -1457,10 +1460,12 @@ export async function scenarioMatchesProvisionalPreviewsFromKnownPagesWithoutGue
             widthPx: 1_275,
             heightPx: 1_650,
         },
+        // Settled: the two spreads give four leaves beside one single sheet,
+        // so the leaves hold the paper and the single is fitted onto it.
         {
-            widthPoints: 1_224,
+            widthPoints: 612,
             heightPoints: 792,
-            widthPx: 2_550,
+            widthPx: 1_275,
             heightPx: 1_650,
         },
     ]);
@@ -1992,5 +1997,32 @@ describe('scanCleanupPreviewRenderingTest', () => {
     ] as const;
     it.each(scenarios)('%s', async (_name, scenario) => {
         await scenario();
+    });
+});
+
+describe('scan cleanup preview identity', () => {
+    const pageOverride = (rotationDegrees: 0 | 90) => ({
+        rotationDegrees,
+        layoutOverride: 'auto' as const,
+        excluded: false,
+        manualSplit: null,
+    });
+    const withSecondPage = (matchPageSize: boolean, rotationDegrees: 0 | 90) => ({
+        ...request,
+        options: {
+            ...request.options,
+            matchPageSize,
+            pageOverrides: {'2': pageOverride(rotationDegrees)},
+        },
+    });
+
+    it('ignores another page\'s exception when the page size is not matched', () => {
+        expect(previewIdentityKey(withSecondPage(false, 0)))
+            .toBe(previewIdentityKey(withSecondPage(false, 90)));
+    });
+
+    it('keeps every page\'s exception when the matched canvas depends on it', () => {
+        expect(previewIdentityKey(withSecondPage(true, 0)))
+            .not.toBe(previewIdentityKey(withSecondPage(true, 90)));
     });
 });

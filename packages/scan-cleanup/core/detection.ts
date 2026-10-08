@@ -1831,7 +1831,17 @@ async function runBatchedScanCleanupDetection<TDocument>(
             },
         })
         : undefined;
+    // The terminal state carries per-page results only for small documents,
+    // so the blank-page hint needs its own count of the final records.
+    let blankPageCount = 0;
+    await resultStore.forEachChunk(results => {
+        signal.throwIfAborted();
+        for (const result of results) {
+            if (result.recommendedOutputModeReason === 'blank') blankPageCount += 1;
+        }
+    });
     return {
+        blankPageCount,
         resultStore,
         results: publishedResults(),
         ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),

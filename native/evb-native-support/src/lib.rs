@@ -7,7 +7,19 @@ pub mod output;
 pub mod pdf_catalog;
 pub mod wasm_request_allocation;
 
-pub const MAX_WORKER_THREADS: usize = 8;
+/// Ceiling on the CPU threads one native tool may run at once.
+pub const MAX_WORKER_THREADS: usize = 16;
+
+/// CPU threads a native tool may use on this host: every logical CPU but one,
+/// which stays free for the app and its window, never above
+/// [`MAX_WORKER_THREADS`].
+#[must_use]
+pub fn host_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .saturating_sub(1)
+        .clamp(1, MAX_WORKER_THREADS)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Error)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

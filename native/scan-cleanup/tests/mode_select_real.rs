@@ -82,3 +82,34 @@ fn a_book_fore_edge_strip_does_not_make_a_text_page_color() {
         "{recommendation:?}"
     );
 }
+
+#[test]
+fn a_book_fore_edge_strip_stays_outside_the_content_crop() {
+    // The strip runs along the recto's right border, a few pixels inside the
+    // raster where the page's own lighter edge lies beyond it. Kept in the
+    // crop, a B&W render published it as a black bar beside the text.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/leaf-edge/prym-p00063-fore-edge-150dpi.png");
+    let decoded = decode_image(&fs::read(path).unwrap(), 10_000_000, 3_000).unwrap();
+    let result = analyze_page_with_color_and_document_prior(
+        &decoded.gray,
+        Some(&decoded.rgb),
+        &CleanupOptions {
+            dpi: 150.0,
+            output_mode: OutputMode::Bw,
+            crop_content: true,
+            ..CleanupOptions::default()
+        },
+        None,
+    )
+    .unwrap();
+    let content = result.outputs[0]
+        .content_box
+        .expect("a text page has a content box");
+    // Text ink ends at x = 666; the strip occupies the last eight columns.
+    assert!(content.right() >= 667.0, "the crop cut text: {content:?}");
+    assert!(
+        content.right() <= 700.0,
+        "the crop kept the fore-edge strip: {content:?}"
+    );
+}

@@ -14,6 +14,7 @@ import {
 } from 'path';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requireRequestId} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {
@@ -430,6 +431,54 @@ export async function scenarioCoalescesSerializedRasterFactsIntoBoundedNativeBat
 
 }
 
+export async function scenarioRejectsRasterFactReadsWhenTheNativeProbeFails(): Promise<void> {
+
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
+    const page = {
+        ...DOCUMENT_PAGE_SIZES[0]!,
+        pageNumber: 1,
+    };
+    const store: IPdfPageSizeStore = {
+        pageCount: 1,
+        getPage: vi.fn(async () => page),
+        readRange: vi.fn(async () => [page]),
+        forEachChunk: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+        fork: vi.fn(() => store),
+    };
+    deps.getPageCount = vi.fn(async () => 1);
+    deps.getPageSizeStore = vi.fn(() => store);
+    deps.isRasterDetectionAvailable = () => true;
+    // A document closed while its raster facts are probed rejects the probe.
+    deps.detectRasterPages = vi.fn()
+        .mockRejectedValueOnce(new Error('document closed during the raster probe'))
+        .mockResolvedValue(createScanCleanupPageRasterSource({
+            pages: [1],
+            sourceDpiByPage: new Map([[
+                1,
+                300,
+            ]]),
+        }));
+    const retention = scanCleanupRasterRetention(deps);
+    const document = await retention.openDocument({
+        sourcePdfPath: join(dir, 'source.pdf'),
+        documentRevision: 'revision-1',
+    });
+    const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
+
+    await expect(Promise.resolve(rasterSource.getPageRaster(1)))
+        .rejects.toThrow('document closed during the raster probe');
+    // The failed read leaves the cache, so asking again probes again.
+    await expect(Promise.resolve(rasterSource.getPageRaster(1)))
+        .resolves.toMatchObject({dpi: 300});
+    expect(deps.detectRasterPages).toHaveBeenCalledTimes(2);
+    await retention.dispose();
+
+}
+
 export async function scenarioOpensBoundedPageGeometryAndRasterFactsWithoutTheLegacyArrays(): Promise<void> {
 
     const {
@@ -520,6 +569,66 @@ export async function scenarioBoundsSourceDPIMeasurementsWhilePreservingRecentPa
     expect(detectSourceDpi).toHaveBeenCalledTimes(301);
     await retention.release(document);
     await retention.dispose();
+
+}
+
+export async function scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews(): Promise<void> {
+
+    const {deps} = await previewDependencies();
+    const pageSizes = DOCUMENT_PAGE_SIZES.map(page => ({
+        ...page,
+        dominantImageWidthPx: 2_550,
+        dominantImageHeightPx: 3_300,
+        dominantImageWidthPoints: page.widthPoints,
+        dominantImageHeightPoints: page.heightPoints,
+    }));
+    let documentPasses = 0;
+    const store: IPdfPageSizeStore = {
+        pageCount: pageSizes.length,
+        getPage: vi.fn(async pageNumber => pageSizes[pageNumber - 1]!),
+        readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+            pageSizes.slice(firstPageNumber - 1, lastPageNumberExclusive - 1)),
+        forEachChunk: vi.fn(async onChunk => {
+            documentPasses += 1;
+            await onChunk({
+                pageCount: pageSizes.length,
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                offset: 0,
+                byteLength: 0,
+                pages: pageSizes,
+            });
+        }),
+        close: vi.fn(async () => undefined),
+        fork: vi.fn(() => store),
+    };
+    deps.getPageCount = vi.fn(async () => pageSizes.length);
+    deps.getPageSizeStore = vi.fn(() => store);
+    deps.isRasterDetectionAvailable = () => false;
+    const service = scanCleanupPreviewLifecycle(deps);
+    const matched = {
+        ...request,
+        options: {
+            ...request.options,
+            matchPageSize: true,
+        },
+        layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
+        layoutDetectionComplete: true,
+    };
+
+    await previewOf(service, sender(), matched);
+    const passesAfterFirstPreview = documentPasses;
+    expect(passesAfterFirstPreview).toBeGreaterThan(0);
+    // Another page with the same settings and layouts needs no new pass over
+    // the whole document: its facts and canvas summary are revision facts.
+    const second = await previewOf(service, sender(), {
+        ...matched,
+        pageNumber: requirePageNumber(2),
+    });
+
+    expect(second.pageNumber).toBe(2);
+    expect(documentPasses).toBe(passesAfterFirstPreview);
+    await service.dispose();
 
 }
 
@@ -1413,6 +1522,14 @@ describe('scanCleanupRasterRetentionTest', () => {
         [
             'preserve adopted rasters across slot release',
             scenarioNeverUnlinksAnAdoptedRasterHoweverOftenItsSlotIsGivenBack,
+        ],
+        [
+            'read document geometry once per settings across previews',
+            scenarioReadsDocumentGeometryOncePerSettingsAcrossPreviews,
+        ],
+        [
+            'reject raster fact reads when the native probe fails',
+            scenarioRejectsRasterFactReadsWhenTheNativeProbeFails,
         ],
         [
             'serve forked page-size reads',

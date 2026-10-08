@@ -335,10 +335,6 @@ fn geometry_stage_pins_split_region_crop_coordinates_and_scale() {
 fn raster_stage_preserves_grayscale_source_pixels_on_identity_plan() {
     let source = GrayImage::from_vec(4, 3, 4, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
         .expect("synthetic grayscale raster dimensions must be valid");
-    let options = CleanupOptions {
-        output_mode: OutputMode::Bw,
-        ..CleanupOptions::default()
-    };
     let plan = ComposedRenderPlan::new(
         Rect::new(0.0, 0.0, 4.0, 3.0),
         Affine::scaling(1.0, 1.0),
@@ -348,35 +344,48 @@ fn raster_stage_preserves_grayscale_source_pixels_on_identity_plan() {
         3,
         Rect::new(0.0, 0.0, 4.0, 3.0),
     );
-    let output = prepare_render_planes(RasterPlaneInput {
-        normalized: &source,
-        routing_source: &source,
-        color_source: None,
-        source_picture_mask: None,
-        tone_preservation_alpha: None,
-        text_tone_diagnostics: None,
-        options: &options,
-        preserve_confirmed_photo_tones: false,
-        working_width: 4,
-        working_height: 3,
-        render_region: None,
-        sampled_region: None,
-        output_rect: Rect::new(0.0, 0.0, 4.0, 3.0),
-        render_plan: &plan,
-        rendered_width: 4,
-        rendered_height: 3,
-        region: Rect::new(0.0, 0.0, 4.0, 3.0),
-        local_deskew_forward: Affine::scaling(1.0, 1.0),
-        local_deskew_inverse: Affine::scaling(1.0, 1.0),
-        dewarp_model: None,
-        timings: &mut PageStageTimings::default(),
-    })
-    .expect("identity raster plan should be valid");
+    let planes = |output_mode| {
+        prepare_render_planes(RasterPlaneInput {
+            normalized: &source,
+            routing_source: &source,
+            color_source: None,
+            source_picture_mask: None,
+            tone_preservation_alpha: None,
+            text_tone_diagnostics: None,
+            options: &CleanupOptions {
+                output_mode,
+                ..CleanupOptions::default()
+            },
+            preserve_confirmed_photo_tones: false,
+            working_width: 4,
+            working_height: 3,
+            render_region: None,
+            sampled_region: None,
+            output_rect: Rect::new(0.0, 0.0, 4.0, 3.0),
+            render_plan: &plan,
+            rendered_width: 4,
+            rendered_height: 3,
+            region: Rect::new(0.0, 0.0, 4.0, 3.0),
+            local_deskew_forward: Affine::scaling(1.0, 1.0),
+            local_deskew_inverse: Affine::scaling(1.0, 1.0),
+            dewarp_model: None,
+            timings: &mut PageStageTimings::default(),
+        })
+        .expect("identity raster plan should be valid")
+    };
+    let output = planes(OutputMode::Bw);
 
     assert_eq!(output.rendered_gray.data(), source.data());
-    assert_eq!(output.rendered_source_gray.data(), source.data());
+    assert_eq!(
+        output.rendered_source_gray.as_ref().map(GrayImage::data),
+        Some(source.data())
+    );
     assert!(output.rendered_color.is_none());
     assert!(output.rendered_tone_alpha.is_none());
+    // Continuous output publishes the cleaned tonal plane alone.
+    let grayscale = planes(OutputMode::Grayscale);
+    assert_eq!(grayscale.rendered_gray.data(), source.data());
+    assert!(grayscale.rendered_source_gray.is_none());
 }
 
 #[test]
