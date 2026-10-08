@@ -1,0 +1,31 @@
+tests/unit/app/platform/browserPdfjsDocumentInit.test.ts
+  s_1d1f90a80a9290::t_9b99a5557be9f0 9-14,194-226,228-247
+  s_1d1f90a80a9290::t_536cf3f09cb4dc 38,53,55-58,156-159
+app/platform/browser/browserDocumentRecordStore.ts
+  s_1d1f90a80a9290::t_3375063365597c 328-332
+  s_1d1f90a80a9290::t_748ac3131e8924 314,317,319-320,324-327,335,341-352
+  s_1d1f90a80a9290::t_8d85eeec38df34 315-316
+app/platform/browser-api/browserPdfjsDocumentInit.ts
+  s_1d1f90a80a9290::t_748ac3131e8924 39,42,117,120
+  s_1d1f90a80a9290::t_8d85eeec38df34 40-41,118
+tests/unit/app/platform/browserDocumentStore.test.ts
+  s_1d1f90a80a9290::t_9b99a5557be9f0 314-364,366-376
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_1d1f90a80a9290::t_536cf3f09cb4dc 606-610,629,646-650,685,702-706,747
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "28d49f347d8b388d9b949664d29b6a2227874449",
+  "prompts": {},
+  "sessions": {
+    "s_1d1f90a80a9290": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11ad9-c013-7f23-91fc-7199ef19d671",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
