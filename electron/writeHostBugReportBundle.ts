@@ -1,7 +1,7 @@
 import {
     mkdir,
+    open,
     readdir,
-    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -27,6 +27,8 @@ const BUG_REPORT_RETAINED_BUNDLES = 20;
 const BUNDLE_DIRECTORY_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/u;
 /** Enough to match a corpus manifest's sha256 prefix without being the file. */
 const SOURCE_HASH_HEX_LENGTH = 16;
+/** The one buffer the source is hashed through, whatever its size. */
+const SOURCE_HASH_CHUNK_BYTES = 1024 * 1024;
 const UNAVAILABLE = 'unavailable';
 
 const REFUSED: IHostBugReportWriteResult = {
@@ -52,8 +54,23 @@ async function hashDocumentSource(sourcePath: string) {
         return UNAVAILABLE;
     }
     try {
-        const bytes = await readFile(sourcePath);
-        return createHash('sha256').update(bytes).digest('hex').slice(0, SOURCE_HASH_HEX_LENGTH);
+        // Chunked, so a large document never sits in memory whole or holds
+        // the main process for the length of its hash.
+        const handle = await open(sourcePath, 'r');
+        try {
+            const hash = createHash('sha256');
+            const buffer = Buffer.allocUnsafe(SOURCE_HASH_CHUNK_BYTES);
+            for (;;) {
+                const {bytesRead} = await handle.read(buffer, 0, buffer.byteLength, null);
+                if (bytesRead === 0) {
+                    break;
+                }
+                hash.update(buffer.subarray(0, bytesRead));
+            }
+            return hash.digest('hex').slice(0, SOURCE_HASH_HEX_LENGTH);
+        } finally {
+            await handle.close().catch(() => undefined);
+        }
     } catch {
         // A web build, an unsaved document, or a path the status bar shortened.
         return UNAVAILABLE;
