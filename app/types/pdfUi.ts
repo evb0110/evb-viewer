@@ -85,6 +85,7 @@ export interface IPdfUiSearchMatch {
 export type IPdfSearchMatch = IPdfUiSearchMatch;
 
 export interface IPdfUiPageMatchEntry {
+    pageMatchIndex?: number;
     matchIndex: number;
     start: number;
     end: number;
@@ -174,6 +175,7 @@ export function mapPdfSearchResultToUiMatch(result: IPdfSearchResult): IPdfUiSea
 
 export function mapPdfSearchResultToUiPageMatchEntry(result: IPdfSearchResult): IPdfUiPageMatchEntry {
     return {
+        pageMatchIndex: result.pageMatchIndex,
         matchIndex: result.matchIndex,
         start: result.startOffset,
         end: result.endOffset,
