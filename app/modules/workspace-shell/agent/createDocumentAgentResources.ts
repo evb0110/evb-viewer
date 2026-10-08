@@ -160,13 +160,17 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
         }
 
         if (resourceKind === 'toc' || resourceKind === 'bookmarks') {
-            const snapshot = createAgentBookmarkSnapshot();
+            const {
+                bookmarks, ...snapshot
+            } = createAgentBookmarkSnapshot();
             return {
                 uri,
                 tabId,
                 status: 'ready',
+                schemaVersion: 2,
+                treeField: resourceKind,
                 ...snapshot,
-                toc: snapshot.bookmarks,
+                [resourceKind]: bookmarks,
             };
         }
 

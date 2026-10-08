@@ -382,9 +382,8 @@ function getBookmarkComparable(entry: IAgentBookmarkFlatEntry) {
     };
 }
 
-function createBookmarkIssues(bookmarks: readonly IPdfBookmarkEntry[]) {
+function createBookmarkIssues(bookmarks: readonly IPdfBookmarkEntry[], flat: readonly IAgentBookmarkFlatEntry[]) {
     const issues: IAgentMetadataIssue[] = [];
-    const flat = flattenBookmarks(bookmarks);
     for (const entry of flat) {
         if (entry.pageIndex === null && !entry.namedDest) {
             pushIssue(issues, {
@@ -501,7 +500,7 @@ export function createAgentBookmarkSnapshot(
         count: bookmarks.length,
         dirty: options.dirty,
         summary: createBookmarkSummary(bookmarks, flat),
-        issues: createBookmarkIssues(bookmarks),
+        issues: createBookmarkIssues(bookmarks, flat),
         flat,
         bookmarks: bookmarks.map((bookmark, index) => normalizeBookmarkForAgent(bookmark, [index])),
     };

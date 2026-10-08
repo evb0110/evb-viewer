@@ -649,13 +649,13 @@ function createDocumentResources(tab: IAgentTabSnapshot) {
             tab,
             'toc',
             'TOC',
-            'Document TOC/bookmarks with titles and one-based page numbers when present.',
+            'Legacy bookmark URI: version 2 returns the toc tree (treeField: toc), flat paths, summary, and issues. Use /bookmarks for its bookmarks field.',
         ),
         createDocumentJsonResource(
             tab,
             'bookmarks',
             'bookmarks',
-            'Editable nested bookmark tree with zero-based paths and one-based page numbers.',
+            'Editable nested bookmark tree: version 2 returns bookmarks (treeField: bookmarks), flat paths, summary, and issues. The legacy /toc URI returns toc.',
         ),
         createDocumentJsonResource(
             tab,
