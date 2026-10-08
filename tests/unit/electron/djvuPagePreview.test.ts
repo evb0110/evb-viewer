@@ -443,6 +443,38 @@ describe('DjVu native page preview helpers', () => {
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(2);
     });
 
+    it('runs one page-size command per distinct cold page once the source revision is known', async () => {
+        mocks.getDjvuPageCount.mockResolvedValue(20);
+        mocks.runNativeCommand.mockImplementation(async (...rawArgs: unknown[]) => {
+            const args = rawArgs[1] as string[];
+            const pageNumber = Number.parseInt(/select (\d+); size/u.exec(String(args[2]))?.[1] ?? '', 10);
+            return {
+                stdout: `${100 + pageNumber} 200`,
+                stderr: '',
+                exitCode: 0,
+            };
+        });
+
+        for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+            await expect(getDjvuPageSizeForViewing('/tmp/cold-pages.djvu', pageNumber)).resolves.toEqual({
+                width: 100 + pageNumber,
+                height: 200,
+                dpi: 300,
+            });
+        }
+        await getDjvuPageSizeForViewing('/tmp/cold-pages.djvu', 7);
+
+        expect(mocks.getDjvuPageCount).toHaveBeenCalledOnce();
+        expect(mocks.getDjvuResolution).toHaveBeenCalledOnce();
+        expect(mocks.runNativeCommand.mock.calls.map(call => (call as unknown[])[1])).toEqual(
+            Array.from({length: 20}, (_, index) => [
+                '/tmp/cold-pages.djvu',
+                '-e',
+                `select ${index + 1}; size`,
+            ]),
+        );
+    });
+
     it('does not share or block in-flight page probes across document paths', async () => {
         const firstProbe = Promise.withResolvers<{
             stdout: string;
