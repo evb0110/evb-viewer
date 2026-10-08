@@ -643,7 +643,7 @@ describe('browser document lifecycle UI', () => {
             size: 16,
         });
         const bytes = Buffer.from(await pdf.save());
-        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-rux6/app-${process.pid}`);
+        const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1205/app-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
         const browser = await chromium.launch({headless: true});
@@ -725,9 +725,30 @@ describe('browser document lifecycle UI', () => {
                 exact:true,
             }).click();
             await expect.poll(() => input.inputValue()).toBe('Initial accepted note');
+            await page.getByRole('button', {
+                name: 'Toggle Sidebar',
+                exact: true,
+            }).click();
+            await page.getByRole('tab', {
+                name: 'Annotations',
+                exact: true,
+            }).click();
+            // The textarea echoes a draft before persistence. Arm rejection only
+            // after the document's rendered list confirms the initial update,
+            // so this fault targets one draft rather than two separate edits.
+            await expect.poll(() => page.locator('.note-item-text').allTextContents()).toEqual(['Initial accepted note']);
+            observations.push({
+                step: 'initial-committed',
+                text: await page.locator('.note-item-text').allTextContents(),
+            });
             const initialRect = await note.boundingBox();
             const initialInputRect = await input.boundingBox();
             await page.evaluate(() => Reflect.set(window,'__noteUpdateFailure',true));
+            const cdp = await context.newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            const typingBounds = await input.boundingBox();
+            if (!typingBounds) throw new Error('The note input is not visible');
+            await page.mouse.move(typingBounds.x + 20, typingBounds.y + 20, {steps: 10});
             await input.fill('Retained RUX06 draft');
             // Either baseline's inline row or the operation toast acknowledges
             // completion, so a missing fault cannot masquerade as a red proof.
