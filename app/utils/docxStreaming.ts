@@ -320,13 +320,16 @@ export class DocxBodyWriter {
                 yield* this.paragraphs(region.columns[0]!);
                 continue;
             }
+            // Columns come left to right; a right-to-left page reads its right
+            // column first, and a bidi table shows that first cell on the right.
             const first = region.columns.flat()[0];
+            const rtl = first !== undefined && this.isRtl(first);
             yield {
                 kind: 'markup',
-                xml: columnsTableStart(region.columns.length, first !== undefined && this.isRtl(first)),
+                xml: columnsTableStart(region.columns.length, rtl),
             };
             const cellWidth = Math.floor(FULL_WIDTH_PERCENT_FIFTIETHS / region.columns.length);
-            for (const column of region.columns) {
+            for (const column of rtl ? [...region.columns].reverse() : region.columns) {
                 yield {
                     kind: 'markup',
                     xml: `<w:tc><w:tcPr><w:tcW w:w="${cellWidth}" w:type="pct"/></w:tcPr>`,

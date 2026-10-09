@@ -12,7 +12,11 @@ interface IBlock {
     bottom: number;
 }
 
-type TSide = 'left' | 'right';
+const SIDES = [
+    'left',
+    'right',
+] as const;
+type TSide = (typeof SIDES)[number];
 
 // A block narrower than this share of the page's text is a margin note or the
 // edge of a facing page, not a column.
@@ -102,7 +106,7 @@ function paragraphsOf(blocks: readonly IBlock[]) {
 /**
  * How an EVB OCR layer sets its page: blocks that span the gutter run across
  * the page, and blocks on either side of it, read in the same stretch, form
- * columns in the order Tesseract read them.
+ * columns, left to right.
  */
 export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumentTextPageLayout {
     const blocks = blocksOf(lines);
@@ -126,8 +130,9 @@ export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumen
             : block.left >= gutter - slack ? 'right' : null;
         let open: Map<TSide, IBlock[]> | null = null;
         const close = () => {
-            if (!open) return;
-            const sides = [...open.values()];
+            const current = open;
+            if (!current) return;
+            const sides = SIDES.map(side => current.get(side)).filter(side => side !== undefined);
             const overlap = sides.length === 2 && Math.min(...sides.map(side => Math.max(...side.map(block => block.top))))
                 > Math.max(...sides.map(side => Math.min(...side.map(block => block.bottom))));
             regions.push(overlap

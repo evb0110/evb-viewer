@@ -219,7 +219,7 @@ async function readHocr(path: string) {
  * On a page its own model read with the long-s signature, reads the raster
  * again: the same model, now also writing hOCR, then the early-print models.
  * Plans the edits that make their joint reading the page's text, and replaces
- * the first PDF and TSV with the rerun's only when every pass succeeded.
+ * the first reading with the rerun's only when every pass succeeded.
  */
 async function readEarlyPrint(
     run: ITesseractRun,
@@ -273,8 +273,8 @@ async function readEarlyPrint(
             longS: await readHocr(`${bases.longS}.hocr`),
             ligatures: await readHocr(`${bases.ligatures}.hocr`),
         }, await loadEarlyPrintDictionary(run.tessdataPath, languages), {latin: languages.includes('lat')});
+        // The page keeps the rerun's TSV in memory; only its PDF replaces the first.
         await rename(`${bases.base}.pdf`, `${outputBase}.pdf`);
-        await rename(`${bases.base}.tsv`, `${outputBase}.tsv`);
         return {
             tsvContent: rereadTsv,
             wordEdits,

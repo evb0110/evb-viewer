@@ -12,6 +12,9 @@ const BACKWARD_FLAG = 2n;
 const WORD_END_FLAG = 4n;
 const MAX_TRAINEDDATA_BYTES = 256 * 1024 * 1024;
 const MAX_WORDS = 2_000_000;
+// A corrupt dictionary can point an edge back up its own path.
+const MAX_WORD_LENGTH = 256;
+const MAX_EDGE_VISITS = 64_000_000;
 
 function component(data: Buffer, index: number) {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -64,11 +67,15 @@ export async function readTraineddataWordList(path: string): Promise<string[] | 
         depth: 0,
     }];
     const prefix: string[] = [];
+    let visits = 0;
     while (stack.length > 0) {
         const {
             edge: index, depth,
         } = stack.pop()!;
         if (index >= edgeCount) continue;
+        if (depth >= MAX_WORD_LENGTH || ++visits > MAX_EDGE_VISITS) {
+            throw new Error('traineddata dictionary is corrupt: its words do not end');
+        }
         const record = edge(index);
         if ((record & MARKER_FLAG << flagStart) === 0n) stack.push({
             edge: index + 1,

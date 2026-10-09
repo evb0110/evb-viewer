@@ -113,6 +113,22 @@ describe('createDocxFromTextChunks', () => {
         expect(xml).toContain('<w:tblBorders><w:top w:val="nil"/>');
     });
 
+    it('puts a right-to-left page\'s right column first and shows it on the right', async () => {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of createDocxFromTextChunks([{
+            text: 'שמאל\nימין',
+            layout: {regions: [{columns: [
+                ['שמאל'],
+                ['ימין'],
+            ]}]},
+        }])) {
+            chunks.push(chunk);
+        }
+        const xml = new TextDecoder().decode(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))));
+        expect(xml).toContain('<w:tblPr><w:bidiVisual/>');
+        expect(xml.indexOf('ימין')).toBeLessThan(xml.indexOf('שמאל'));
+    });
+
     it('uses an RTL language hint only when text has no detected strong direction', () => {
         expect(resolveDocxParagraphDirection('123', true)).toBe(false);
         expect(resolveDocxParagraphDirection('漢字', true)).toBe(true);
