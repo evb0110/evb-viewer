@@ -47,6 +47,7 @@ import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolic
 import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
 import {
     AVAILABLE_OCR_LANGUAGES,
+    getOcrModelSourcePath,
     isAvailableOcrLanguageCode,
     OCR_LANGUAGE_MODEL_SHA256,
     OCR_MODEL_CODES,
@@ -870,7 +871,8 @@ async function downloadLanguageModel(
         return;
     }
 
-    const languageUrl = `${DOWNLOAD_BASE_URL}/${encodeURIComponent(languageCode)}.traineddata`;
+    const sourcePath = getOcrModelSourcePath(languageCode).split('/').map(encodeURIComponent).join('/');
+    const languageUrl = `${DOWNLOAD_BASE_URL}/${sourcePath}.traineddata`;
     const tempPath = `${modelPath}.download-${randomUUID()}`;
     await precheckLanguageDownload(languageCode, languageUrl, options);
 

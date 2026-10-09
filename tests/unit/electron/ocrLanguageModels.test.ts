@@ -13,6 +13,7 @@ import { Readable } from 'node:stream';
 import type * as NodeFs from 'fs';
 import type * as NodeFsPromises from 'node:fs/promises';
 import type * as NodeOs from 'node:os';
+import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 
 const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
 
@@ -564,32 +565,57 @@ describe('verified model download publication', () => {
         });
     });
 
-    async function expectVerifiedModel() {
-        const installed = await files.readFile(join(runtimeRoot, 'tessdata', 'eng.traineddata'));
+    async function expectVerifiedModel(code: 'eng' | 'lat' = 'eng') {
+        const installed = await files.readFile(join(runtimeRoot, 'tessdata', `${code}.traineddata`));
         expect(installed.equals(modelBytes)).toBe(true);
         expect(createHash('sha256').update(installed).digest('hex')).toBe(
-            '8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba',
+            OCR_LANGUAGE_MODEL_SHA256[code],
         );
-        expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual(['eng.traineddata']);
+        expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual([`${code}.traineddata`]);
     }
 
-    it('publishes a pinned model after a transient response, then uses it offline', async () => {
-        let failed = false;
-        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    it.each([
+        {
+            code: 'eng',
+            source: 'eng',
+        },
+        {
+            code: 'lat',
+            source: 'script/Latin',
+        },
+    ] as const)('publishes pinned $code from $source, then uses it offline', async ({
+        code, source,
+    }) => {
+        modelBytes = await files.readFile(join(tessdataFixtureRoot, `${code}.traineddata`));
+        if (code === 'lat') {
+            await files.mkdir(join(runtimeRoot, 'tessdata'));
+            await files.copyFile(
+                join(tessdataFixtureRoot, 'lat_dictionary.traineddata'),
+                join(runtimeRoot, 'tessdata', 'lat.traineddata'),
+            );
+        }
+        let transientFailurePending = code === 'eng';
+        vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+            if (url !== `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/${source}.traineddata`) {
+                return new Response(null, {status: 404});
+            }
             if (init.method === 'HEAD') return new Response(null, {status: 200});
-            if (!failed) {
-                failed = true;
+            if (transientFailurePending) {
+                transientFailurePending = false;
                 return new Response(null, {status: 503});
             }
-            return new Response(new Uint8Array(modelBytes));
+            return new Response(new ReadableStream<Uint8Array>({start(controller) {
+                controller.enqueue(modelBytes);
+                controller.close();
+            }}));
         });
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
-        await ensureTessdataLanguages(['eng']);
-        await expectVerifiedModel();
+        await ensureTessdataLanguages([code]);
+        await expectVerifiedModel(code);
         vi.stubGlobal('fetch', () => { throw new Error('offline'); });
-        await ensureTessdataLanguages(['eng']);
-        await expectVerifiedModel();
+        await ensureTessdataLanguages([code]);
+        await expectVerifiedModel(code);
     });
 
     it('keeps a shared download usable when one consumer cancels', async () => {

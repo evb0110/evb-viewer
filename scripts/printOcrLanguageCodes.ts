@@ -1,5 +1,6 @@
 import {
     BUNDLED_OCR_LANGUAGE_CODES,
+    getOcrModelSourcePath,
     OCR_LANGUAGE_MODEL_SHA256,
     OCR_MODEL_CODES,
 } from '@contracts/ocrLanguages';
@@ -17,6 +18,6 @@ if (codes.length === 0) {
 process.stdout.write(process.argv.includes('--sha256')
     ? codes.map((code) => {
         const sha256 = OCR_LANGUAGE_MODEL_SHA256[code];
-        return `${code} ${sha256}`;
+        return `${code} ${sha256} ${getOcrModelSourcePath(code)}`;
     }).join('\n')
     : codes.join(separator));
