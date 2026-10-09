@@ -2,13 +2,11 @@ import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
-    mkdtemp,
     readFile,
     rm,
     stat,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
 import {
     basename,
