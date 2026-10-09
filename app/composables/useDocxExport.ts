@@ -1,4 +1,4 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { createDocxFromTextAsync } from '@app/utils/createDocxFromTextAsync';

@@ -353,7 +353,7 @@ import AppSearchInput from '@app/components/AppSearchInput.vue';
 // User-initiated surface: stays out of the startup chunk and loads on first open,
 // matching the split policy documented in warmupDesktopViewerChunks.ts.
 const CombinePdfPage = defineAsyncComponent(
-    () => import('@app/components/combine/CombinePdfPage.vue'),
+    () => import('@app/modules/combine/public').then(module => module.CombinePdfPage),
 );
 
 const {

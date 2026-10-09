@@ -17,7 +17,7 @@ import {
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireDocumentRef} from '@contracts/documentRef';
-import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
+import { CombinePdfPage } from '@app/modules/combine/public';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';

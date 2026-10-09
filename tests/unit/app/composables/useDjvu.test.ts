@@ -108,7 +108,7 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
-vi.mock('@app/modules/workspace-shell/document-sessions/useDocumentSourceSession', () => {
+vi.mock('@app/modules/workspace-shell/public/useDocumentSourceSession', () => {
     const activateDocumentSource = vi.fn((_kind: 'pdf' | 'djvu', source: string, temp: string | null = null) => {
         mockDjvuModeState.activationGeneration += 1;
         mockDjvuModeState.activeActivation = {

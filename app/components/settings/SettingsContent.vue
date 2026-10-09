@@ -145,9 +145,9 @@ import { getShellCapability } from '@app/utils/getShellCapability';
 import {
     captureAssistantFailure,
     getAssistantExpectedOutcome,
-} from '@app/modules/agent-panel/utils/assistantFailure';
-import type { TAssistantFailureAction } from '@app/modules/agent-panel/utils/assistantFailure';
-import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
+} from '@app/modules/agent-panel/public/assistantFailure';
+import type { TAssistantFailureAction } from '@app/modules/agent-panel/public/assistantFailure';
+import { runSettingsAssistantAction } from '@app/modules/workspace-shell/public/settingsAssistant';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
