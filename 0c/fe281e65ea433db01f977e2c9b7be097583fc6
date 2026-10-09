@@ -1,0 +1,23 @@
+app/platform/browser/browserDocumentLeaseStore.ts
+  s_71647ad39805ad::t_cfa10b5f5ce1a8 67
+  s_71647ad39805ad::t_514c9ab3c3459a 119,123,131-132
+  s_71647ad39805ad::t_d4b01d3b403013 120-122
+tests/unit/app/platform/browserWindowTabs.test.ts
+  s_71647ad39805ad::t_cb24df55f14b7f 422-467
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0cfe281e65ea433db01f977e2c9b7be097583fc6",
+  "prompts": {},
+  "sessions": {
+    "s_71647ad39805ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c890b126-1629-46c6-bfff-61607d50e2d7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
