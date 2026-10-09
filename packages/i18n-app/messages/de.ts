@@ -1158,6 +1158,13 @@ export default {
             'wait': 'Weiter warten',
             'reload': 'Fenster neu laden',
         },
+        'rendererCrashed': {
+            'title': 'Fenster funktioniert nicht mehr',
+            'message': 'Das Fenster wurde mehrmals hintereinander unerwartet beendet und nicht erneut geladen.',
+            'detail': 'Laden Sie es für einen weiteren Versuch neu oder schließen Sie es. Nicht gespeicherte Arbeit bleibt für die Wiederherstellung erhalten.',
+            'reload': 'Fenster neu laden',
+            'close': 'Fenster schließen',
+        },
         'agentMcp': {
             'enableTitle': 'Externes MCP aktivieren',
             'enableMessage': 'EVB Viewer erlauben, seinen externen MCP-Server zu starten und ihn zu den Codex-Einstellungen hinzuzufügen?',
@@ -1789,6 +1796,8 @@ export default {
             'loadDescriptionWithMessage': 'Versuchen Sie, den Arbeitsbereich erneut zu laden. ({message})',
             'sessionRestoreTitle': 'Vorherige Sitzung nicht wiederhergestellt',
             'sessionRestoreDescription': 'Die Tabs Ihrer letzten Sitzung konnten nicht erneut geöffnet werden. Die Wiederherstellungsdaten wurden aufbewahrt.',
+            'documentNotReopenedTitle': 'Dokument nicht wieder geöffnet',
+            'documentNotReopenedDescription': '{fileName} hat die Anzeige beim Öffnen beendet und wurde deshalb nicht wieder geöffnet. Sie können es über „Zuletzt verwendete Dateien“ erneut öffnen.',
         },
         'settings': {
             'load': 'Einstellungen konnten nicht geladen werden',

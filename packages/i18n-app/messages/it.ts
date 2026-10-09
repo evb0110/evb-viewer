@@ -1158,6 +1158,13 @@ export default {
             'wait': 'Continua ad attendere',
             'reload': 'Ricarica finestra',
         },
+        'rendererCrashed': {
+            'title': 'La finestra ha smesso di funzionare',
+            'message': 'La finestra si è chiusa in modo imprevisto più volte di seguito e non è stata ricaricata.',
+            'detail': 'Ricaricala per riprovare ancora una volta oppure chiudila. Il lavoro non salvato viene conservato per il ripristino.',
+            'reload': 'Ricarica finestra',
+            'close': 'Chiudi finestra',
+        },
         'agentMcp': {
             'enableTitle': 'Attiva MCP esterno',
             'enableMessage': 'Consentire a EVB Viewer di avviare il suo server MCP esterno e aggiungerlo alle impostazioni di Codex?',
@@ -1789,6 +1796,8 @@ export default {
             'loadDescriptionWithMessage': 'Prova a caricare di nuovo l’area di lavoro. ({message})',
             'sessionRestoreTitle': 'Sessione precedente non ripristinata',
             'sessionRestoreDescription': 'Non è stato possibile riaprire le schede dell’ultima sessione. I dati di ripristino sono stati conservati.',
+            'documentNotReopenedTitle': 'Documento non riaperto',
+            'documentNotReopenedDescription': '{fileName} ha arrestato il visualizzatore durante l’apertura, quindi non è stato riaperto. Puoi riaprirlo da File recenti.',
         },
         'settings': {
             'load': 'Impossibile caricare le impostazioni',

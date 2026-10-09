@@ -1158,6 +1158,13 @@ export default {
             'wait': 'Seguir esperando',
             'reload': 'Recargar ventana',
         },
+        'rendererCrashed': {
+            'title': 'La ventana dejó de funcionar',
+            'message': 'La ventana se cerró inesperadamente varias veces seguidas y no se volvió a cargar.',
+            'detail': 'Recárgala para intentarlo una vez más o ciérrala. El trabajo no guardado se conserva para recuperarlo.',
+            'reload': 'Recargar ventana',
+            'close': 'Cerrar ventana',
+        },
         'agentMcp': {
             'enableTitle': 'Activar MCP externo',
             'enableMessage': '¿Permitir que EVB Viewer inicie su servidor MCP externo y lo añada a los ajustes de Codex?',
@@ -1789,6 +1796,8 @@ export default {
             'loadDescriptionWithMessage': 'Intenta cargar el espacio de trabajo de nuevo. ({message})',
             'sessionRestoreTitle': 'No se restauró la sesión anterior',
             'sessionRestoreDescription': 'No se pudieron volver a abrir las pestañas de tu última sesión. Se conservaron sus datos de recuperación.',
+            'documentNotReopenedTitle': 'Documento no reabierto',
+            'documentNotReopenedDescription': '{fileName} detuvo el visor mientras se abría, así que no se volvió a abrir. Puedes abrirlo de nuevo desde Archivos recientes.',
         },
         'settings': {
             'load': 'No se pudieron cargar los ajustes',

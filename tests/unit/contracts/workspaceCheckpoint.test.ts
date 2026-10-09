@@ -132,6 +132,18 @@ describe('decodeWorkspaceCheckpoint', () => {
         expect(decodeWorkspaceCheckpoint(checkpoint)).toEqual(checkpoint);
     });
 
+    it('keeps the documents a restore left closed and still reads records without them', () => {
+        expect(decodeWorkspaceCheckpoint(createCheckpoint())).not.toHaveProperty('notReopened');
+        const notReopened = [{
+            fileName: 'bomb.pdf',
+            sourceRef: '/documents/bomb.pdf',
+        }];
+        expect(decodeWorkspaceCheckpoint({
+            ...createCheckpoint(),
+            notReopened,
+        })?.notReopened).toEqual(notReopened);
+    });
+
     it('round-trips the scan-cleanup surface without accepting renderer state', () => {
         const checkpoint = {
             ...createCheckpoint(),
