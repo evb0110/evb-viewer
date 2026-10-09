@@ -305,36 +305,34 @@ async function promptCrashedRendererRecovery(
     const BUTTON_CLOSE = 0;
     const BUTTON_RELOAD = 1;
 
-    try {
-        const { response } = await dialog.showMessageBox(window, {
-            type: 'error',
-            title: te('dialogs.rendererCrashed.title'),
-            message: te('dialogs.rendererCrashed.message'),
-            detail: te('dialogs.rendererCrashed.detail'),
-            buttons: [
-                te('dialogs.rendererCrashed.close'),
-                te('dialogs.rendererCrashed.reload'),
-            ],
-            defaultId: BUTTON_RELOAD,
-            cancelId: BUTTON_CLOSE,
-            noLink: true,
-        });
-        if (window.isDestroyed()) {
-            return;
-        }
-        if (response === BUTTON_RELOAD) {
-            reloadRenderer();
-        } else {
-            window.destroy();
-        }
-    } catch (error) {
-        if (!window.isDestroyed()) {
-            reportWindowFailure(
-                'MAIN_RENDERER_RECOVERY_FAILED',
-                `Failed to prompt after renderer recovery ran out (windowId=${windowId}): ${getErrorMessage(error)}`,
-                error,
-            );
-        }
+    // A dialog that cannot be shown closes the window rather than leave it blank.
+    const response = await dialog.showMessageBox(window, {
+        type: 'error',
+        title: te('dialogs.rendererCrashed.title'),
+        message: te('dialogs.rendererCrashed.message'),
+        detail: te('dialogs.rendererCrashed.detail'),
+        buttons: [
+            te('dialogs.rendererCrashed.close'),
+            te('dialogs.rendererCrashed.reload'),
+        ],
+        defaultId: BUTTON_RELOAD,
+        cancelId: BUTTON_CLOSE,
+        noLink: true,
+    }).then(result => result.response, (error: unknown) => {
+        reportWindowFailure(
+            'MAIN_RENDERER_RECOVERY_FAILED',
+            `Failed to prompt after renderer recovery ran out (windowId=${windowId}): ${getErrorMessage(error)}`,
+            error,
+        );
+        return BUTTON_CLOSE;
+    });
+    if (window.isDestroyed()) {
+        return;
+    }
+    if (response === BUTTON_RELOAD) {
+        reloadRenderer();
+    } else {
+        window.destroy();
     }
 }
 
