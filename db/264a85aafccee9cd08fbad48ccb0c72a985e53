@@ -1,0 +1,20 @@
+electron/features/documents/main/pdfOptimization.ts
+  s_44a4f89a8c59f7::t_fac276ce8d7a2c 39-40,417,419,452,458
+  ai_agent 457
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "db264a85aafccee9cd08fbad48ccb0c72a985e53",
+  "prompts": {},
+  "sessions": {
+    "s_44a4f89a8c59f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-78c3-7a92-a92d-fea06f0cbbe2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
