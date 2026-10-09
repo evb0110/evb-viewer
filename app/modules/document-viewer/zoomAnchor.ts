@@ -5,6 +5,14 @@ export interface IDocumentZoomPageLayout {
     height: number;
 }
 
+/** The viewport's client box and the outer box around it, scrollbars included. */
+interface IDocumentZoomViewportBox {
+    clientHeight: number;
+    clientWidth: number;
+    offsetHeight: number;
+    offsetWidth: number;
+}
+
 export interface IDocumentZoomAnchor {
     pageIndex: number;
     viewportX?: number;
@@ -13,7 +21,12 @@ export interface IDocumentZoomAnchor {
     viewportYRatio?: number;
     xRatio: number;
     yRatio: number;
+    /** The box the anchor was taken in, when the viewport is a laid-out element. */
+    viewportBox?: IDocumentZoomViewportBox;
 }
+
+type TDocumentZoomViewport = Pick<HTMLElement, 'clientHeight' | 'clientWidth' | 'scrollLeft' | 'scrollTop'>
+    & Partial<Pick<HTMLElement, 'offsetHeight' | 'offsetWidth'>>;
 
 export interface IDocumentZoomViewportPoint {
     x: number;
@@ -28,7 +41,7 @@ function resolveLayoutLeft(
 }
 
 export function captureDocumentZoomAnchor(
-    container: Pick<HTMLElement, 'clientHeight' | 'clientWidth' | 'scrollLeft' | 'scrollTop'>,
+    container: TDocumentZoomViewport,
     layouts: readonly IDocumentZoomPageLayout[],
     viewportPoint?: IDocumentZoomViewportPoint,
     preferredPageIndex?: number | null,
@@ -76,11 +89,17 @@ export function captureDocumentZoomAnchor(
         viewportYRatio: pointY / Math.max(1, container.clientHeight),
         xRatio: (viewportX - left) / Math.max(1, layout.width),
         yRatio: (viewportY - layout.top) / Math.max(1, layout.height),
+        ...(container.offsetWidth === undefined || container.offsetHeight === undefined ? {} : {viewportBox: {
+            clientHeight: container.clientHeight,
+            clientWidth: container.clientWidth,
+            offsetHeight: container.offsetHeight,
+            offsetWidth: container.offsetWidth,
+        }}),
     };
 }
 
 export function resolveDocumentZoomAnchorScroll(
-    container: Pick<HTMLElement, 'clientHeight' | 'clientWidth' | 'scrollLeft' | 'scrollTop'>,
+    container: TDocumentZoomViewport,
     layouts: readonly IDocumentZoomPageLayout[],
     anchor: IDocumentZoomAnchor | null,
 ) {
@@ -92,11 +111,20 @@ export function resolveDocumentZoomAnchorScroll(
         return null;
     }
     const left = resolveLayoutLeft(container, layout);
+    // A scrollbar that comes or goes changes the client box but not the outer
+    // one, and moves nothing on screen: the anchor's point stays where it was
+    // taken. A resize changes the outer box, and the point takes its place in
+    // the new client box.
+    const box = anchor.viewportBox
+        && anchor.viewportBox.offsetWidth === container.offsetWidth
+        && anchor.viewportBox.offsetHeight === container.offsetHeight
+        ? anchor.viewportBox
+        : container;
     const viewportX = anchor.viewportX === undefined
-        ? container.clientWidth * (anchor.viewportXRatio ?? 0.5)
+        ? box.clientWidth * (anchor.viewportXRatio ?? 0.5)
         : Math.min(container.clientWidth, Math.max(0, anchor.viewportX));
     const viewportY = anchor.viewportY === undefined
-        ? container.clientHeight * (anchor.viewportYRatio ?? 0.5)
+        ? box.clientHeight * (anchor.viewportYRatio ?? 0.5)
         : Math.min(container.clientHeight, Math.max(0, anchor.viewportY));
     return {
         left: Math.max(0, left + layout.width * anchor.xRatio - viewportX),
@@ -105,8 +133,7 @@ export function resolveDocumentZoomAnchorScroll(
 }
 
 export function resolveRetainedDocumentZoomAnchor(
-    container: Pick<HTMLElement,
-        'clientHeight' | 'clientWidth' | 'scrollHeight' | 'scrollLeft' | 'scrollTop' | 'scrollWidth'>,
+    container: TDocumentZoomViewport & Pick<HTMLElement, 'scrollHeight' | 'scrollWidth'>,
     layouts: readonly IDocumentZoomPageLayout[],
     retainedAnchor: IDocumentZoomAnchor | null,
     tolerance = 1,

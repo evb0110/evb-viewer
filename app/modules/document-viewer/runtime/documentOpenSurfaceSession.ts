@@ -664,11 +664,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         commitOpeningPageGeometry(generation, geometry) {
             const current = snapshot.value;
             const normalizedGeometry = normalizeOpeningPageGeometry(geometry);
+            // As at begin, the opening geometry is that of the page the open
+            // presents: another page's shape is not known to be this one's.
             if (
                 current.generation !== generation
                 || !isTransitionPhase(current.phase)
                 || normalizedGeometry === null
                 || normalizedGeometry.documentId !== current.identity?.documentId
+                || normalizedGeometry.pageNumber !== sessionState.value.viewport.requestedPage
             ) {
                 return false;
             }
