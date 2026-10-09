@@ -18,7 +18,7 @@
                     :style="strip.rowStyle"
                 >
                     <div
-                        v-for="(shell, index) in backdrop.pages"
+                        v-for="(shell, index) in backdrop?.pages ?? []"
                         :key="index"
                         class="document-viewer-fling-backdrop__page"
                         :style="{
@@ -37,8 +37,8 @@
 <script setup lang="ts">
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import {
+    injectDocumentViewerRuntime,
     resolveDocumentWheelInteraction,
-    type IDocumentViewportFlingBackdrop,
 } from '@app/modules/document-viewer/public';
 
 interface IScrollTimelineOptions {
@@ -48,13 +48,14 @@ interface IScrollTimelineOptions {
 
 interface IScrollTimelineConstructor {new (options: IScrollTimelineOptions): AnimationTimeline}
 
-const {
-    backdrop,
-    viewport,
-} = defineProps<{
-    backdrop: IDocumentViewportFlingBackdrop;
-    viewport: HTMLElement | null;
-}>();
+// The backdrop and the viewport are read from the chassis runtime that owns
+// them, so the chassis does not re-render when the row geometry changes.
+const runtime = injectDocumentViewerRuntime();
+if (!runtime) {
+    throw new Error('DocumentViewerFlingBackdrop renders inside a document viewer chassis');
+}
+const backdrop = runtime.viewportFlingBackdrop;
+const viewport = runtime.viewportElement;
 
 // A fling moves more than a viewport between consecutive scroll events. So can
 // a page jump or a zoom, which is why a step shows the strip only while wheel
@@ -82,12 +83,14 @@ const bindRevision = ref(0);
 
 // Primitive projections: a renderer republishes the descriptor as the current
 // page changes, and an unchanged row must not restart the scroll animation.
-const pitch = computed(() => backdrop.pitch);
-const columnGap = computed(() => backdrop.columnGap);
-const phase = computed(() => ((backdrop.rowTop % backdrop.pitch) + backdrop.pitch) % backdrop.pitch);
+const pitch = computed(() => backdrop.value?.pitch ?? 0);
+const columnGap = computed(() => backdrop.value?.columnGap ?? 0);
+const phase = computed(() => (pitch.value > 0
+    ? (((backdrop.value?.rowTop ?? 0) % pitch.value) + pitch.value) % pitch.value
+    : 0));
 const rowCount = computed(() => (
-    viewportHeight.value > 0 && backdrop.pitch > 0
-        ? Math.ceil(viewportHeight.value / backdrop.pitch) + 2
+    viewportHeight.value > 0 && pitch.value > 0
+        ? Math.ceil(viewportHeight.value / pitch.value) + 2
         : 0
 ));
 
@@ -135,10 +138,11 @@ function syncScrollRange() {
         bindRevision.value += 1;
         return;
     }
-    if (!viewport || !viewport.isConnected) {
+    const element = viewport.value;
+    if (!element || !element.isConnected) {
         return;
     }
-    const scrollRange = viewport.scrollHeight - viewport.clientHeight;
+    const scrollRange = element.scrollHeight - element.clientHeight;
     if (scrollRange > 0 && scrollRange !== binding.scrollRange) {
         binding.scrollRange = scrollRange;
         binding.animation.effect?.updateTiming({iterations: scrollRange / binding.rowPitch});
@@ -174,7 +178,7 @@ function handleScroll(event: Event) {
     showStrip();
 }
 
-watch(() => viewport, (element, _previous, onCleanup) => {
+watch(viewport, (element, _previous, onCleanup) => {
     lastScrollTop = null;
     if (!element) {
         return;
@@ -230,17 +234,28 @@ watch(() => viewport, (element, _previous, onCleanup) => {
     });
 }, {immediate: true});
 
+function rowKeyframes(rowPitch: number) {
+    return [
+        {transform: 'translateY(0)'},
+        {transform: `translateY(${-rowPitch}px)`},
+    ];
+}
+
 // The compositor drives the strip from the viewport's scroll offset: each
 // iteration moves it up by one row, and one iteration spans one row of scroll,
 // so the rows stay in phase with the page track without new raster. It stays
 // bound while the strip is transparent: a fling can outrun raster in its first
 // frame, before the main thread shows the strip, and binding it then would
 // cost more frames. The iterations follow the scroll range as it changes.
-watchEffect((onCleanup) => {
-    const element = stripElement.value;
-    const source = viewport;
+watch([
+    stripElement,
+    viewport,
+    bindRevision,
+], ([
+    element,
+    source,
+], _previous, onCleanup) => {
     const rowPitch = pitch.value;
-    void bindRevision.value;
     if (!element || !source || !(rowPitch > 0)) {
         return;
     }
@@ -249,10 +264,7 @@ watchEffect((onCleanup) => {
     if (!ScrollTimelineConstructor || scrollRange <= 0) {
         return;
     }
-    const animation = element.animate([
-        {transform: 'translateY(0)'},
-        {transform: `translateY(${-rowPitch}px)`},
-    ], {
+    const animation = element.animate(rowKeyframes(rowPitch), {
         timeline: new ScrollTimelineConstructor({
             source,
             axis: 'block',
@@ -270,6 +282,22 @@ watchEffect((onCleanup) => {
         animation.cancel();
         binding = null;
     });
+}, {immediate: true});
+
+// A zoom or a pane resize changes the row pitch, during a divider drag on
+// every frame. The bound animation takes the new pitch in place: rebinding
+// read the scroll range, forcing a layout in the middle of the update, and
+// replaced the scroll timeline. The resize observer above corrects the
+// iterations once the new scroll range is laid out, before paint.
+watch(pitch, (rowPitch) => {
+    const effect = binding?.animation.effect;
+    if (!binding || !(rowPitch > 0) || !(effect instanceof KeyframeEffect)) {
+        bindRevision.value += 1;
+        return;
+    }
+    effect.setKeyframes(rowKeyframes(rowPitch));
+    effect.updateTiming({iterations: binding.scrollRange / rowPitch});
+    binding.rowPitch = rowPitch;
 });
 
 onBeforeUnmount(releaseHold);
