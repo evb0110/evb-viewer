@@ -1,0 +1,21 @@
+tests/unit/app/platform/browserWindowTabs.test.ts
+  s_71647ad39805ad::t_cb24df55f14b7f 422-467
+app/platform/browser/browserDocumentLeaseStore.ts
+  s_71647ad39805ad::t_cfa10b5f5ce1a8 67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "daf530a9df15824642c173837bafe55cfe9458f9",
+  "prompts": {},
+  "sessions": {
+    "s_71647ad39805ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c890b126-1629-46c6-bfff-61607d50e2d7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
