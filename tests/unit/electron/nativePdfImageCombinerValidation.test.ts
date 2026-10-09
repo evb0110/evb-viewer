@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { resolve } from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -77,6 +78,10 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.warn,
 })}));
 
+// The managed scratch owner removes the resolved directory, which gains a drive
+// letter on Windows.
+const SCRATCH_DIR = resolve('/tmp/pdfExport-scope-image-combine-test');
+
 describe('native PDF image combiner output validation', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -138,7 +143,7 @@ describe('native PDF image combiner output validation', () => {
 
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('produced invalid PDF output'));
         expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(/^[\\/]tmp[\\/]pdfExport-scope-image-combine-test[\\/].+\.pdf$/u), { force: true });
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -192,7 +197,7 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.spawn).toHaveBeenCalledWith('/native/evb-pdf-image-combine', expect.any(Array), expect.objectContaining({detached: true}));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
         expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/input.jpg');
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -218,7 +223,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -243,7 +248,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('child identity was not usable');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -269,7 +274,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -292,7 +297,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -320,7 +325,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('within 3000ms');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -329,7 +334,7 @@ describe('native PDF image combiner output validation', () => {
         await vi.advanceTimersByTimeAsync(0);
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.rm).toHaveBeenCalledTimes(1);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -355,7 +360,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(SCRATCH_DIR, {
             recursive: true,
             force: true,
         });

@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import {
     beforeEach,
     describe,
@@ -129,6 +130,10 @@ const {
     createCombinedPdf,
     stageNativeCombineInputs,
 } = await import('@electron/image/pdfCombineShared');
+
+// The managed scratch owner removes the resolved directory, which gains a drive
+// letter on Windows.
+const NORMALIZED_SCRATCH_DIR = resolve('/tmp/pdfExport-scope-normalized');
 
 describe('createCombinedPdf native image fast path', () => {
     beforeEach(() => {
@@ -283,7 +288,7 @@ describe('createCombinedPdf native image fast path', () => {
             expect.any(Object),
         );
         expect(mocks.embedPng).not.toHaveBeenCalled();
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
+        expect(mocks.rm).toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -303,7 +308,7 @@ describe('createCombinedPdf native image fast path', () => {
             ['/tmp/pdfExport-scope-normalized/input-1.png'],
             expect.any(Object),
         );
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
@@ -319,13 +324,13 @@ describe('createCombinedPdf native image fast path', () => {
 
         const pending = createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`});
         await expect(pending).rejects.toThrow('native image tree is still running');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
             recursive: true,
             force: true,
         });
 
         termination.resolve(true);
-        await vi.waitFor(() => expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
+        await vi.waitFor(() => expect(mocks.rm).toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {
             recursive: true,
             force: true,
         }));
