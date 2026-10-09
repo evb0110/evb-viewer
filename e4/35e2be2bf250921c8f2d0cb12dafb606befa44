@@ -1,0 +1,44 @@
+electron/features/documents/main/openInputPaths.service.ts
+  s_44a4f89a8c59f7::t_8a5c757c6787c6 1-2,4,313-331,333-368
+electron/image/pdfCombineShared.ts
+  s_44a4f89a8c59f7::t_26ddc496b80750 3-4
+  s_44a4f89a8c59f7::t_d57501c3a0fa54 1-2,5,569-570,588,595
+electron/features/djvu/main/embedBookmarksIntoPdfFile.ts
+  s_44a4f89a8c59f7::t_8a5c757c6787c6 2-3,122-125,128-160
+  s_44a4f89a8c59f7::t_9e0a0cc494175a 1,163
+electron/image/tryCreatePdfWithNativeImageCombiner.ts
+  s_44a4f89a8c59f7::t_d57501c3a0fa54 1-2,5,334-338
+  s_44a4f89a8c59f7::t_26ddc496b80750 3-4
+electron/utils/appTempDir.ts
+  s_44a4f89a8c59f7::t_aca0954e781267 2,43,74
+electron/utils/printHandoff.ts
+  s_44a4f89a8c59f7::t_9e0a0cc494175a 1-2,5-6,537-538,543,551,566-568,1058
+  s_44a4f89a8c59f7::t_26ddc496b80750 3-4
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_44a4f89a8c59f7::t_8a5c757c6787c6 1-2,243-244,289
+electron/image/tryCreatePdfFromInputPathsNative.ts
+  s_44a4f89a8c59f7::t_26ddc496b80750 3
+  s_44a4f89a8c59f7::t_24cd85c1a1c2da 4-5
+  s_44a4f89a8c59f7::t_9e0a0cc494175a 1-2,6,421,467,780,783,855,882-894,896-903,905-909
+electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner.ts
+  s_44a4f89a8c59f7::t_26ddc496b80750 3-4
+  s_44a4f89a8c59f7::t_d57501c3a0fa54 1-2,5,55-56,63
+electron/features/djvu/main/estimateSizes.ts
+  s_44a4f89a8c59f7::t_d57501c3a0fa54 1-3,6,233-236,238-245,247-296,306-308,310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e435e2be2bf250921c8f2d0cb12dafb606befa44",
+  "prompts": {},
+  "sessions": {
+    "s_44a4f89a8c59f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-78c3-7a92-a92d-fea06f0cbbe2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}
