@@ -133,6 +133,24 @@ function keepFileChooserInterceptionEnabled(page: Page) {
     page.on('filechooser', () => {});
 }
 
+// Headless pages ignore Page.setWebLifecycleState: they stay visible and keep
+// running. A window is frozen instead by pausing its script, which returns
+// only once the page has paused. Until the returned resume runs, none of its
+// timers, channel messages, storage events or IndexedDB callbacks run, while
+// its context keeps its locks, as for a frozen tab.
+async function freezeWindow(context: BrowserContext, page: Page) {
+    const session = await context.newCDPSession(page);
+    await session.send('Debugger.enable');
+    const paused = new Promise<void>(resolvePaused => session.once('Debugger.paused', () => resolvePaused()));
+    const pausedEvaluation = session.send('Runtime.evaluate', {expression: 'debugger;'}).catch(() => undefined);
+    await paused;
+    return async () => {
+        await session.send('Debugger.resume');
+        await pausedEvaluation;
+        await session.detach();
+    };
+}
+
 async function stopServer() {
     const server = devServer;
     devServer = null;
@@ -1829,11 +1847,12 @@ describe('browser document lifecycle UI', () => {
             }
             const grantedId = await reportInputFailure('granted-control');
             await expect.poll(() => envelopes.some(body => body.includes(grantedId))).toBe(true);
-            const secondLifecycle = await context.newCDPSession(second);
-            await secondLifecycle.send('Page.setWebLifecycleState', {state: 'frozen'});
+            // The withdrawal happens while the second window cannot run, so it
+            // must reach that window when it resumes, before its next report.
+            const resumeSecond = await freezeWindow(context, second);
             await consent.uncheck();
             await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'denied');
-            await secondLifecycle.send('Page.setWebLifecycleState', {state: 'active'});
+            await resumeSecond();
             await author.fill('After withdrawal');
             await second.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName === 'After withdrawal');
             const withdrawnId = await reportInputFailure('withdrawn-control');
@@ -2452,15 +2471,7 @@ describe('browser document lifecycle UI', () => {
             const ownerId = ownerRecord!.ownerId;
             await expect.poll(() => readLiveLeaseOwners(owner), {timeout: 15_000}).toContain(ownerId);
 
-            // Headless pages ignore Page.setWebLifecycleState, so the owner is
-            // frozen by pausing its script: none of its timers, channel
-            // messages or IndexedDB callbacks run while its context keeps its
-            // locks, as for a frozen or fully throttled tab.
-            const ownerDebugger = await context.newCDPSession(owner);
-            await ownerDebugger.send('Debugger.enable');
-            const frozen = new Promise<void>(resolveFrozen => ownerDebugger.once('Debugger.paused', () => resolveFrozen()));
-            const frozenEvaluation = ownerDebugger.send('Runtime.evaluate', {expression: 'debugger;'}).catch(() => undefined);
-            await frozen;
+            const resumeOwner = await freezeWindow(context, owner);
 
             // The second window starts as if the owner had been silent for a
             // minute: its clock runs 60 s ahead, past the 30 s after which a
@@ -2473,9 +2484,7 @@ describe('browser document lifecycle UI', () => {
             expect((await readRecoveries(second)).map(record => record.ownerId)).toEqual([ownerId]);
             expect(await second.locator('.page_container').count()).toBe(0);
 
-            await ownerDebugger.send('Debugger.resume');
-            await frozenEvaluation;
-            await ownerDebugger.detach();
+            await resumeOwner();
             await addNote(owner, secondNote, {
                 x: 300,
                 y: 400,
