@@ -39,7 +39,9 @@ function createAuthority(
     readLayoutRevision?: () => number,
 ) {
     return createDocumentOpeningPageFrame({
+        instanceId: 'chassis-test',
         openSurface: surface,
+        readRendererKind: () => 'pdfjs',
         ...(readLayoutRevision ? {readLayoutRevision} : {}),
         readPolicy: () => ({
             fitMode: 'width',
@@ -183,7 +185,9 @@ describe('documentOpeningPageFrame', () => {
             surface.navigate(createPageNavigationRequest(pageNumber, 'restore', anchor));
         }
         createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
             openSurface: surface,
+            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -265,7 +269,9 @@ describe('documentOpeningPageFrame', () => {
             documentRevision: 'pending',
         }, pdfGeometry);
         createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
             openSurface: surface,
+            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -354,7 +360,9 @@ describe('documentOpeningPageFrame', () => {
             tallestPageHeight: 900,
         });
         createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
             openSurface: surface,
+            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',

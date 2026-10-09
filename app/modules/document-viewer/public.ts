@@ -26,7 +26,7 @@ export { createAnchorPageWindow } from '@app/modules/document-viewer/virtualizat
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 export { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
 export {
-    createDocumentOpeningPageFrame, resolveDocumentOpeningPageMargin, resolveDocumentOpeningPageShellId, type IDocumentOpeningPageFrame,
+    createDocumentOpeningPageFrame, type IDocumentOpeningPageFrame,
 } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
 export { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
 export {
