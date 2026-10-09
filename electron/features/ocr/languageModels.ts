@@ -8,7 +8,6 @@ import {
     uniq,
 } from 'es-toolkit/array';
 import {
-    createReadStream,
     createWriteStream,
     existsSync,
     openSync,
@@ -43,6 +42,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { forEachConcurrent } from '@electron/utils/concurrency';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import { getErrorMessage } from '@electron/utils/error';
+import { hashFileSha256 } from '@electron/utils/hashFileSha256';
 import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
 import {
@@ -755,35 +755,6 @@ async function writeDownloadResponseBody(
         throw signal.reason ?? createAbortError();
     }
     await writeFile(tempPath, Buffer.from(arrayBuffer), { signal });
-}
-
-export async function hashFileSha256(
-    path: string,
-    signal?: AbortSignal,
-) {
-    throwIfAborted(signal);
-    const hash = createHash('sha256');
-    const stream = createReadStream(path);
-    const onAbort = () => {
-        if (signal) {
-            stream.destroy(abortErrorFromSignal(signal));
-        }
-    };
-
-    signal?.addEventListener('abort', onAbort, { once: true });
-    try {
-        for await (const rawChunk of stream) {
-            const chunk: unknown = rawChunk;
-            if (!(chunk instanceof Uint8Array)) {
-                throw new Error(`OCR model stream returned a non-binary chunk: ${path}`);
-            }
-            hash.update(chunk);
-        }
-        throwIfAborted(signal);
-        return hash.digest('hex');
-    } finally {
-        signal?.removeEventListener('abort', onAbort);
-    }
 }
 
 async function downloadLanguageModelAttempt(
