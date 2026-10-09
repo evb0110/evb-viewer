@@ -14,7 +14,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     createDocumentPageSourceLifecycle,
     type IDocumentPageSourceTransition,
-} from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
+} from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 
 const documentRef = '/documents/scan.djvu' as TDocumentRef;
 const revision = (value: string) => value as TDocumentRevisionToken;

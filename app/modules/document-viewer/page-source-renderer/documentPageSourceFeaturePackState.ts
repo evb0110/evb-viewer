@@ -6,24 +6,27 @@ import type {
     TPdfZoomState,
     TZoomMode,
 } from '@contracts/shared';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 import type {
-    IDocumentSearchMatch,
     IDocumentPageMetrics,
     IDocumentPageSource,
     IDocumentSourceCapabilities,
-    IDocumentTransition,
-    IDocumentViewerRuntime,
-    workspaceSurfaceBudgetController,
-} from '@app/modules/document-viewer/public';
+} from '@app/modules/document-viewer/source/documentPageSource';
+import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import type { workspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {
-    createDocumentTransitionChannel, createDjvuPageSource , resolveDocumentPageSourceOpeningFrame , DOCUMENT_PAGE_GUTTER_PX,  
-} from '@app/modules/document-viewer/public';
+    createDocumentTransitionChannel,
+    type IDocumentTransition,
+} from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
+import { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
+import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import {
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
-} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+} from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
 
 /** Keep background DjVu metric work within the visible and render-priority window. */

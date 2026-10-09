@@ -20,11 +20,9 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-export {
-    createAnchorPageWindow, createLazyIndexedCollection, isLazyIndexedCollection, type ILazyIndexedCollection,
-} from '@app/modules/document-viewer/virtualization/pageVirtualization';
+export { createAnchorPageWindow } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 export { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
 export {
@@ -83,10 +81,7 @@ export {
     type IClientPoint, type IClientRect, type ILocalRect, type IOverlayRect,
 } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
 export {
-    resolveDocumentPageDisplayLayouts, resolveDocumentPageDisplayScale, type IDocumentPageDisplayLayout,
-} from '@app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout';
-export {
-    type IDocumentPageMetrics, type IDocumentPageRenderRequest, type IDocumentPageSource, type IDocumentSourceCapabilities, type IDocumentRenderLease, type TDocumentPageSourceKind, type TDocumentRenderPriority,
+    type IDocumentPageMetrics, type IDocumentPageRenderRequest, type IDocumentPageSource, type IDocumentSourceCapabilities, type IDocumentRenderLease, type TDocumentPageSourceKind,
 } from '@app/modules/document-viewer/source/documentPageSource';
 export {
     resolveDocumentRasterResidencyPlan, type IDocumentRasterResidencyPlan,
@@ -95,15 +90,9 @@ export {
     type IDocumentSearchBackend, type IDocumentSearchProgress, type IDocumentSearchSession, type TDocumentSearchDirection,
 } from '@app/modules/document-viewer/search/documentSearch';
 export { type IDocumentThumbnailListEmits } from '@app/modules/document-viewer/thumbnails/documentThumbnailListEmits';
-export { type IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
-export { type IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
-export {
-    captureDocumentZoomAnchor,
-    resolveDocumentZoomAnchorScroll,
-    type IDocumentZoomAnchor,
-    type IDocumentZoomPageLayout,
-} from '@app/modules/document-viewer/zoomAnchor';
 export { intersectClientRects } from '@app/modules/document-viewer/region-geometry/intersectClientRects';
+/** The page-source renderer stays its own async chunk; only the chassis mounts it. */
+export const loadDocumentPageSourceRenderer = () => import('@app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue');
 export {
     normalizeMemoryPressureLevel, resolveInactiveViewerResidencyState, resolvePostReclaimResidencyState, selectViewerReclaimCandidates, shouldReclaimViewerResidencyState, type IRuntimeMemoryPressureSignal, type IViewerReclaimCandidate, type TMemoryPressureLevel, type TViewerResidencyState,
 } from '@app/utils/viewerResidencyPolicy';
@@ -132,9 +121,6 @@ export {
 } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 export { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/resolveBoundedRasterDimensions';
 export { resolveDjvuPageSizeInPoints } from '@app/modules/document-viewer/source/resolveDjvuPageSizeInPoints';
-export {
-    resolveDocumentContinuousScrollWindow, resolveNearestDocumentPageToViewportCenter,
-} from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 export { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 export { resolveVirtualRowRevealScrollTop } from '@app/modules/document-viewer/virtualization/resolveVirtualRowRevealScrollTop';
 export {
@@ -147,8 +133,6 @@ export { unionClientRects } from '@app/modules/document-viewer/region-geometry/u
 export { useDocumentBookmarkSession } from '@app/modules/document-viewer/bookmarks/useDocumentBookmarkSession';
 export { useDocumentSidebarCapabilitySession } from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 export { useDocumentThumbnailController } from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
-export { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
-export { useDocumentWheelZoomSessionBoundaries } from '@app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
 export {
     PDF_PAGE_METRICS_CHUNK_SIZE, PDF_PAGE_METRICS_DENSE_LIMIT, cloneSparsePageMetrics, forEachKnownPageMetric, getIndexedValue, getPageMetricMaximum, isSparsePageMetricCollection, normalizePageMetrics, projectPdfPageMetricForView, type IPdfLazyIndexedCollection, type IPdfPageMetricCollection,
 } from '@app/modules/document-viewer/layout/normalizePageMetrics';

@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
+import { resolveDocumentPageSourceRenderDemand } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderDemand';
 
 describe('resolveDocumentPageSourceRenderDemand', () => {
     const pageTops = [

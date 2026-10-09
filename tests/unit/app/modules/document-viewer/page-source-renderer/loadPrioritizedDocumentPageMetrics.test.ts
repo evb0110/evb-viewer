@@ -10,7 +10,7 @@ import {
     hydrateRemainingDocumentPageMetrics,
     isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
-} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+} from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 

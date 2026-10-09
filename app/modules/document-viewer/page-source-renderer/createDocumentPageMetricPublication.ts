@@ -1,4 +1,4 @@
-import type { IDocumentPageMetrics } from '@app/modules/document-viewer/public';
+import type { IDocumentPageMetrics } from '@app/modules/document-viewer/source/documentPageSource';
 import {
     createRafCoalescedCallback,
     type IRafCoalescedCallbackEnvironment,
@@ -6,7 +6,7 @@ import {
 import {
     mergeDocumentPageMetrics,
     type TDocumentPageMetricsCollection,
-} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+} from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 
 interface ICreateDocumentPageMetricPublicationOptions {
     readMetrics: () => TDocumentPageMetricsCollection;

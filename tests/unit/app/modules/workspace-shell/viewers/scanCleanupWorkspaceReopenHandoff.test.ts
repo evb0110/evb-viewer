@@ -27,7 +27,7 @@ import { requireEpochMs } from '@contracts/timestamps';
 import {
     createDocumentPageSourceLifecycle,
     type IDocumentPageSourceTransition,
-} from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
+} from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 

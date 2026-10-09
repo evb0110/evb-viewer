@@ -11,11 +11,11 @@ import {
     resolveDocumentPageSourceReadyEdgeSemanticPage,
     resolveDocumentPageTopsBounded,
     resolveDocumentPageZoomAnchorLayoutsBounded,
-} from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
+} from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 import {
     createProvisionalDocumentPageMetrics,
     isSparseDocumentPageMetrics,
-} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+} from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import {
     createLazyIndexedCollection,

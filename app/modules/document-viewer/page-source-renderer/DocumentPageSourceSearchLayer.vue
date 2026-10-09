@@ -21,11 +21,11 @@
 </template>
 
 <script setup lang="ts">
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/public';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 import {
     resolveDocumentPageSourceSearchHighlights,
     type IDocumentPageSourceSearchHighlight,
-} from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceSearchHighlights';
+} from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights';
 
 const props = defineProps<{
     currentResultIndex: number;

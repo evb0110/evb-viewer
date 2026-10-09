@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveDocumentPageSourceSearchHighlights } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceSearchHighlights';
+import { resolveDocumentPageSourceSearchHighlights } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights';
 import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 
 function createMatch(overrides: Partial<IDocumentSearchMatch> = {}): IDocumentSearchMatch {
