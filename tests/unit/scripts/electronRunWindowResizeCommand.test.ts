@@ -1,4 +1,8 @@
 import {
+    createContext,
+    runInContext,
+} from 'node:vm';
+import {
     describe,
     expect,
     it,
@@ -247,5 +251,47 @@ describe('electron run window resize command', () => {
         });
         expect(model.resizeRequests).toEqual([]);
         expect(model.contentWidth).toBe(900);
+    });
+});
+
+describe('electron run openPdf command', () => {
+    // Puppeteer sends a page function to the renderer as source text, so it
+    // runs without this script's module scope. This page does the same: each
+    // function is compiled again inside a context that holds only page globals.
+    function createHandlerForPage(pageGlobals: Record<string, unknown>) {
+        const pageContext = createContext({
+            ...pageGlobals,
+            crypto: globalThis.crypto,
+            setTimeout,
+            document: {querySelectorAll: () => []},
+        });
+        pageContext.window = pageContext;
+        const page = cast<Page>({
+            evaluateOnNewDocument: () => Promise.resolve(),
+            evaluate: (pageFunction: string | ((...args: unknown[]) => unknown), ...args: unknown[]) => Promise.resolve(
+                typeof pageFunction === 'string'
+                    ? runInContext(pageFunction, pageContext)
+                    : (runInContext(`(${pageFunction.toString()})`, pageContext) as (...pageArgs: unknown[]) => unknown)(...args),
+            ),
+        });
+        return createCommandHandler(() => cast<ISessionState>({page}));
+    }
+
+    it('fails at once with the page error when the in-page open rejects', async () => {
+        const handleCommand = createHandlerForPage({
+            __allowRendererFileOpenForAutomation: () => Promise.resolve(true),
+            __openFileDirect: () => Promise.reject(new Error('Document open was refused')),
+        });
+
+        await expect(handleCommand('openPdf', ['/documents/refused.pdf'])).rejects.toThrow(/^Document open was refused$/u);
+    });
+
+    it('fails at once when the renderer does not open the document', async () => {
+        const handleCommand = createHandlerForPage({
+            __allowRendererFileOpenForAutomation: () => Promise.resolve(false),
+            __openFileDirect: () => Promise.resolve(false),
+        });
+
+        await expect(handleCommand('openPdf', ['/documents/missing.pdf'])).rejects.toThrow('The renderer did not open /documents/missing.pdf');
     });
 });

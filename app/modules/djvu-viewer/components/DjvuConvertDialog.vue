@@ -179,9 +179,9 @@ import type {
 } from '@contracts/electronApiDjvu';
 import {
     DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
+    estimateDjvuPdfConversionSource,
     evaluateDjvuPdfConversionPolicy,
     resolveBrowserDjvuConversionPreflight,
-    type IDjvuPdfConversionMetrics,
 } from '@contracts/djvuConversionPolicy';
 import {
     DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE,
@@ -237,7 +237,9 @@ interface IResolvedPreset {
     disabled?: boolean;
 }
 
-const info = ref<IInfo | null>(null);
+// Each load replaces the snapshot whole, so its up to 10,000 page sizes need no
+// per-object reactive proxies.
+const info = shallowRef<IInfo | null>(null);
 const infoLoading = ref(false);
 const estimates = ref<IDjvuSizeEstimate[]>([]);
 const estimatesLoading = ref(false);
@@ -293,17 +295,14 @@ const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
         estimate.subsample,
         estimate,
     ] as const));
-    const recommendedDirectValue = info.value
-        ? resolveRecommendedAdvancedDirectPresetValue({
-            pageCount: info.value.pageCount,
-            sourceDpi: info.value.sourceDpi,
-            ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
-        })
+    const conversionSource = resolveConversionSource();
+    const recommendedDirectValue = info.value && conversionSource
+        ? resolveRecommendedAdvancedDirectPresetValue(info.value.pageCount, conversionSource)
         : null;
 
     return DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.map((subsample) => {
         const estimate = estimateBySubsample.get(subsample);
-        const policy = resolvePolicyForSubsample(subsample);
+        const policy = conversionSource && evaluateDjvuPdfConversionPolicy(conversionSource, subsample);
         const isBlocked = Boolean(policy && !policy.isAllowed);
         const value = createDirectDjvuConvertDialogPresetValue(subsample);
         const resultingDpi = estimate?.resultingDpi ?? resolveResultingDpi(subsample);
@@ -323,11 +322,10 @@ const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
         };
     });
 });
-const selectedConversionPolicy = computed(() => (
-    selectedConversion.value.pdfStrategy === 'direct'
-        ? resolvePolicyForSubsample(selectedConversion.value.subsample)
-        : null
-));
+const selectedConversionPolicy = computed(() => {
+    const conversionSource = selectedConversion.value.pdfStrategy === 'direct' ? resolveConversionSource() : null;
+    return conversionSource && evaluateDjvuPdfConversionPolicy(conversionSource, selectedConversion.value.subsample);
+});
 
 const browserConversionPreflight = computed(() => {
     if (!isBrowserPlatformActive() || !info.value) {
@@ -398,18 +396,16 @@ function resolveResultingDpi(subsample: number) {
     return Math.round(info.value.sourceDpi / subsample);
 }
 
-function resolvePolicyForSubsample(subsample: number) {
+function resolveConversionSource() {
     if (!info.value) {
         return null;
     }
 
-    const metrics: IDjvuPdfConversionMetrics = {
+    return estimateDjvuPdfConversionSource({
         pageCount: info.value.pageCount,
         sourceDpi: info.value.sourceDpi,
         ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
-    };
-
-    return evaluateDjvuPdfConversionPolicy(metrics, subsample);
+    });
 }
 
 watch(() => selectedConversion.value.pdfStrategy, (pdfStrategy) => {

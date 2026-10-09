@@ -392,6 +392,45 @@ describe('workingCopyMaterialization', () => {
         expect(readFileSync(fixture.workingPath).equals(fixture.bytes)).toBe(true);
     });
 
+    it('waits for the broker I/O budget to prewarm while a save materializes at once', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 31));
+        const {mainJobBroker} = await import('@electron/resources/jobBroker');
+        const {
+            ensureWorkingCopyMaterialized,
+            startBackgroundWorkingCopyMaterialization,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const bulkIo = await mainJobBroker.acquire({
+            ownerId: 'bulk-save:test',
+            kind: 'bulk-save',
+            priority: 'user',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 0,
+                nativeProcesses: 0,
+                ioWeight: mainJobBroker.getSnapshot().capacity.ioWeight,
+            },
+        });
+        try {
+            const background = startBackgroundWorkingCopyMaterialization(fixture.workingPath, 7);
+            expect(background).not.toBeNull();
+            await new Promise(resolve => setImmediate(resolve));
+            expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)?.backingState).toBe('lazy-original');
+            expect(materializingArtifacts(fixture.workingPath)).toEqual([]);
+
+            await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+                ownerWebContentsId: 7,
+                reason: 'save',
+            })).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
+            expect(readFileSync(fixture.workingPath).equals(fixture.bytes)).toBe(true);
+
+            bulkIo.release();
+            await expect(background!.promise).resolves.toMatchObject({physicalWorkingCopyPath: fixture.workingPath});
+        } finally {
+            bulkIo.release();
+        }
+    });
+
     it('explicitly cancels shared work, removes its partial, and permits retry', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 29));
         const {
@@ -403,7 +442,7 @@ describe('workingCopyMaterialization', () => {
         const background = startBackgroundWorkingCopyMaterialization(fixture.workingPath, 7);
         expect(background).not.toBeNull();
         const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
-            if (event.operationId === background?.operationId && event.bytesCopied > 0) {
+            if (event.documentRef === fixture.workingPath && event.bytesCopied > 0) {
                 cancelWorkingCopyMaterialization(event.operationId, 'test cancellation');
             }
         });

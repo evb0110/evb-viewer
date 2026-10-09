@@ -543,8 +543,12 @@ pub(crate) fn append_native_mutations_with_qpdf(
 ) -> Result<()> {
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental = if is_dictionary_only_mutation(mutations) {
+        load_dictionary_incremental_pdf_path(input_path, qpdf_path)
+    } else {
+        load_incremental_pdf_path(input_path, qpdf_path)
+    }
+    .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
@@ -622,6 +626,8 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
             qpdf_path.ok_or("Large rotation input requires the bundled qpdf reader")?,
             &mutations.page_rotations,
         )
+    } else if is_dictionary_only_mutation(mutations) {
+        load_dictionary_incremental_pdf_path(input_path, qpdf_path)
     } else {
         load_incremental_pdf_path(input_path, qpdf_path)
     }
@@ -680,19 +686,28 @@ fn materialize_reused_base_streams(
 
 fn is_rotation_only_mutation(mutations: &NativeMutationsFile) -> bool {
     !mutations.page_rotations.is_empty()
+        && mutations.page_labels.is_none()
+        && mutations.bookmarks.is_none()
+        && mutations.continuation.is_none()
+        && is_dictionary_only_mutation(mutations)
+}
+
+/// Rotations, page labels and bookmarks read and rewrite only dictionaries.
+/// Annotation writers can read appearance, font or image streams.
+fn is_dictionary_only_mutation(mutations: &NativeMutationsFile) -> bool {
+    (!mutations.page_rotations.is_empty()
+        || mutations.page_labels.is_some()
+        || mutations.bookmarks.is_some())
         && mutations.updates.is_empty()
         && mutations.geometry_updates.is_empty()
         && mutations.notes.is_empty()
         && mutations.free_text_notes.is_empty()
         && mutations.text_boxes.is_empty()
         && mutations.deletes.is_empty()
-        && mutations.page_labels.is_none()
-        && mutations.bookmarks.is_none()
         && mutations.shapes.is_none()
         && mutations.markup.is_none()
         && mutations.placed_images.is_empty()
         && mutations.placed_image_geometry_updates.is_empty()
-        && mutations.continuation.is_none()
 }
 
 fn write_native_mutations_revision(

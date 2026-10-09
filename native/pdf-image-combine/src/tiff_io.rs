@@ -331,15 +331,14 @@ pub(crate) fn combine_tiff_pages(
     }
 
     let validated_inputs = ValidatedInputFiles::open(input_paths, output_path)?;
-    combine_validated_tiff_pages(input_paths, output_path, max_pixels, dpi, &validated_inputs)
+    combine_validated_tiff_pages(output_path, max_pixels, dpi, validated_inputs)
 }
 
 fn combine_validated_tiff_pages(
-    input_paths: &[PathBuf],
     output_path: &Path,
     max_pixels: u64,
     dpi: Option<u32>,
-    validated_inputs: &ValidatedInputFiles,
+    validated_inputs: ValidatedInputFiles,
 ) -> Result<()> {
     let mut output = AtomicOutput::create(output_path)?;
     {
@@ -351,9 +350,8 @@ fn combine_validated_tiff_pages(
             let mut encoder = TiffEncoder::new(&mut writer)?
                 .with_compression(Compression::Deflate(DeflateLevel::Fast))
                 .with_predictor(Predictor::Horizontal);
-            for (index, _input_path) in input_paths.iter().enumerate() {
-                let page =
-                    read_first_tiff_export_page(validated_inputs.clone_file(index)?, max_pixels)?;
+            for file in validated_inputs.into_files() {
+                let page = read_first_tiff_export_page(file, max_pixels)?;
                 let dpi = dpi.unwrap_or(page.dpi);
                 match &page.samples {
                     TiffExportSamples::Gray(samples) => {
