@@ -1321,15 +1321,32 @@ fn parse_xref_dictionary(
     let mut dictionary = AdmissionDictionary::default();
     let mut dictionary_depth = 1_usize;
     let mut array_depth = 0_usize;
+    // A revision's direct /DecodeParms, read here because the structural scan
+    // can stop before it reaches this stream.
+    let mut decode_parms: Option<(AdmissionPredictorParms, Option<AdmissionKey>)> = None;
 
     while let Some(token) = lexer.next_token() {
         match token {
             AdmissionToken::DictionaryStart => {
+                if dictionary_depth == 1
+                    && array_depth == 0
+                    && dictionary
+                        .pending_key
+                        .take_if(|key| *key == AdmissionKey::DecodeParms)
+                        .is_some()
+                {
+                    decode_parms = Some((AdmissionPredictorParms::default(), None));
+                }
                 dictionary_depth = dictionary_depth.saturating_add(1);
                 enforce_structural_nesting(dictionary_depth, array_depth, policy)?;
             }
             AdmissionToken::DictionaryEnd => {
                 dictionary_depth = dictionary_depth.saturating_sub(1);
+                if dictionary_depth == 1 {
+                    if let Some((parms, _)) = decode_parms.take() {
+                        dictionary.decode_parms = Some(parms);
+                    }
+                }
                 if dictionary_depth == 0 {
                     validate_admission_dictionary(&dictionary, policy, &mut 0)?;
                     return Ok((dictionary, offset.saturating_add(lexer.cursor)));
@@ -1427,6 +1444,24 @@ fn parse_xref_dictionary(
             }
             AdmissionToken::Keyword(_) if dictionary_depth == 1 && array_depth == 0 => {
                 dictionary.pending_key = None;
+            }
+            AdmissionToken::Name(name) if dictionary_depth == 2 && array_depth == 0 => {
+                if let Some((_, key)) = decode_parms.as_mut() {
+                    *key = admission_key(name);
+                }
+            }
+            AdmissionToken::Integer(value) if dictionary_depth == 2 && array_depth == 0 => {
+                if let Some((parms, key)) = decode_parms.as_mut() {
+                    match key.take() {
+                        Some(AdmissionKey::Predictor) => parms.predictor = Some(value),
+                        Some(AdmissionKey::Columns) => parms.columns = Some(value),
+                        Some(AdmissionKey::Colors) => parms.colors = Some(value),
+                        Some(AdmissionKey::BitsPerComponent) => {
+                            parms.bits_per_component = Some(value)
+                        }
+                        _ => {}
+                    }
+                }
             }
             _ => {}
         }
@@ -2514,5 +2549,28 @@ mod tests {
             let bytes = array_form.as_bytes();
             assert!(preflight_pdf_structure(bytes, policy(bytes.len(), 1024, 100, 10)).is_ok());
         }
+    }
+
+    #[test]
+    fn xref_chain_bounds_predictor_rows_the_structural_scan_never_reaches() {
+        // The indirect /Length stops the structural scan at object 1, so only the
+        // cross-reference chain walk sees the xref stream after it.
+        let mut bytes =
+            b"%PDF-1.7\n1 0 obj\n<</Length 2 0 R>>\nstream\nab\nendstream\nendobj\n2 0 obj\n2\nendobj\n"
+                .to_vec();
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(
+            b"3 0 obj\n<</Type/XRef/Size 4/W[1 1 1]/Length 0/Filter/FlateDecode/DecodeParms<</Predictor 12/Columns 1025>>>>\nstream\n\nendstream\nendobj\n",
+        );
+        bytes.extend_from_slice(format!("startxref\n{xref_offset}\n%%EOF\n").as_bytes());
+        assert_too_large(
+            load_pdf_bytes_with_policy(&bytes, policy(bytes.len(), 1024, 100, 10)).unwrap_err(),
+        );
+
+        let fitting = String::from_utf8(bytes)
+            .unwrap()
+            .replace("/Columns 1025", "/Columns 3");
+        let fitting = fitting.as_bytes();
+        assert!(preflight_pdf_structure(fitting, policy(fitting.len(), 1024, 100, 10)).is_ok());
     }
 }
