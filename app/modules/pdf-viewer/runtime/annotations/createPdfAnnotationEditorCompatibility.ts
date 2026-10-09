@@ -6,20 +6,15 @@ import type {
 
 interface ICreatePdfAnnotationEditorCompatibilityOptions {
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
-    canonicalMarkupSubtypeHints: Map<string, TMarkupSubtype>;
     commitPendingFreeTextDraftsForSave?: () => void;
 }
 
 export function createPdfAnnotationEditorCompatibility(
     options: ICreatePdfAnnotationEditorCompatibilityOptions,
 ) {
-    const editor = {
-        getMarkupSubtypeOverrides: () => new Map(options.canonicalMarkupSubtypeHints),
-        getMarkupSubtypeHints: () => [],
-        commitPendingFreeTextDraftsForSave: () => {
-            options.commitPendingFreeTextDraftsForSave?.();
-        },
-    };
+    const editor = {commitPendingFreeTextDraftsForSave: () => {
+        options.commitPendingFreeTextDraftsForSave?.();
+    }};
 
     function selectionMarkupStyle(subtype: TMarkupSubtype) {
         const settings = options.annotationSettings.value;

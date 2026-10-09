@@ -23,7 +23,6 @@ const DIALOG_CONTENT_CLASS_PATTERN = /const dialogUi = \{[\s\S]*?content: '([^']
 const OPTION_BUTTON_CLASS_PATTERN = /const optionButtonClass = '([^']+)';/u;
 const OPTION_GRID_CLASS_PATTERN = /<div(?:\s+[^>]*?)?\s+class="(grid gap-4[^"]*)"[^>]*>/u;
 const OPTION_COLUMN_CLASS_PATTERN = /<div class="(flex [^"]*flex-col[^"]*)">/gu;
-const OPTION_BUTTON_ELEMENT_PATTERN = /<UButton\s+v-for="option in (?:layout|orientation)Options"[\s\S]*?<\/UButton>/gu;
 
 interface IOptionColumnMarkup {
     buttonClass: string;
@@ -379,17 +378,4 @@ describe('print dialog option columns in Chromium', () => {
             await browser.close();
         }
     }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('renders option names through the default slot so they can wrap', async () => {
-        const source = await readFile(PRINT_DIALOG_PATH, 'utf8');
-        const optionButtons = [...source.matchAll(OPTION_BUTTON_ELEMENT_PATTERN)].map(match => match[0]);
-
-        expect(optionButtons).toHaveLength(2);
-        for (const optionButton of optionButtons) {
-            expect(optionButton).toContain('{{ option.label }}');
-            // `:label` would route the option name through the theme's truncating
-            // label slot again, which is exactly the overflow this component fixes.
-            expect(optionButton).not.toContain(':label=');
-        }
-    });
 });

@@ -8,10 +8,10 @@ EVB Viewer exposes a local, desktop-only MCP server from the Electron main proce
 
 There are two agent-facing entry points:
 
-- **Embedded EVB Assistant**: When the user enables the assistant setting and opens the assistant panel, EVB Viewer owns a sandboxed `codex app-server` child process, an isolated `CODEX_HOME`, and a private random-port MCP server protected by a bearer token. This powers the in-app assistant panel, works with empty workspaces as well as open documents, uses the system browser for ChatGPT sign-in, and does not mutate global Codex configuration.
+- **Embedded EVB Assistant**: When the user enables the assistant setting and opens the assistant panel, EVB Viewer runs the chat provider the user selects: a sandboxed `codex app-server` child process with an isolated `CODEX_HOME`, or a Claude Agent SDK session. Both connect to one private random-port MCP server protected by a bearer token. This powers the in-app assistant panel, works with empty workspaces as well as open documents, uses the system browser for ChatGPT sign-in, and does not mutate global Codex configuration.
 - **External MCP Server**: the advanced Settings switch starts the fixed-port MCP server and registers it in global Codex settings using the Codex CLI. The same HTTP server URL can be configured manually in other MCP clients such as Claude Code or Cursor.
 
-The embedded assistant panel has its own normal app preference, separate from the external MCP switch. The assistant preference defaults off; enabling it makes the sidebar and launcher available, and disabling it hides the UI and shuts down the embedded Codex runtime and private MCP server. It does not start, stop, or register the external MCP server.
+The embedded assistant panel has its own normal app preference, separate from the external MCP switch. The assistant preference defaults off; enabling it makes the sidebar and launcher available, and disabling it hides the UI and shuts down the embedded Codex and Claude runtimes and the private MCP server. It does not start, stop, or register the external MCP server.
 
 When the external switch is enabled, EVB Viewer starts the local MCP server and registers it in global Codex settings using the Codex CLI. When disabled, EVB Viewer removes the Codex MCP entry and shuts the local server down. Other clients use the same local URL while EVB Viewer is running and external MCP is enabled.
 
@@ -36,10 +36,12 @@ The embedded assistant uses the same MCP tool implementation, but through a sepa
 flowchart LR
     User["User opens EVB Assistant panel"] --> Renderer["Assistant UI"]
     Renderer --> AssistantIPC["typed assistant IPC"]
-    AssistantIPC --> Runtime["codexAssistant.ts"]
+    AssistantIPC --> Runtime["assistantService.ts"]
     Runtime --> AppServer["codex app-server child process"]
+    Runtime --> ClaudeSdk["Claude Agent SDK session"]
     Runtime --> PrivateMcp["private MCP server on 127.0.0.1:random with bearer token"]
     AppServer --> PrivateMcp
+    ClaudeSdk --> PrivateMcp
     PrivateMcp --> WorkspaceBridge
 ```
 
@@ -51,8 +53,23 @@ flowchart LR
 - `electron/features/agent/codexMcpIntegration.ts`
   End-user Codex integration: Codex CLI discovery, native permission dialogs, global Codex config mutation, status reporting, and startup sync with app settings.
 
-- `electron/features/agent/codexAssistant.ts`
-  Embedded assistant runtime: EVB-managed Codex install/login/status flow, isolated app-server process, assistant chat thread lifecycle, and renderer-safe event streaming.
+- `electron/features/agent/assistantService.ts`
+  Shared embedded assistant coordinator. It owns chat sessions for both providers, provider selection, turn sending and interruption, reset, and renderer-safe event streaming. It branches to the Codex or Claude path per provider.
+
+- `electron/features/agent/lazyAgentAssistant.ts`
+  Loads `assistantService.ts` on first use and forwards the assistant IPC calls to it, so the runtime is not imported at startup.
+
+- `electron/features/agent/createCodexAssistantAdapter.ts`
+  Codex-specific install, ChatGPT login and cancel flow for the embedded assistant, using the managed Codex install.
+
+- `electron/features/agent/assistantRuntimeLifecycle.ts`
+  Codex runtime lifecycle: the isolated `codex app-server` process, the feature enable/disable gate, the working directory, MCP tool counting and shutdown.
+
+- `electron/features/agent/claudeAgentSdkAssistant.ts`
+  `ClaudeAgentAssistantSession`, the Claude Agent SDK session wrapper. It connects to the private MCP server, allows only that server's tools, and resumes a session by id when one is given.
+
+- `electron/features/agent/claudeProviderMetadata.ts`
+  Claude Agent SDK discovery, install information, sign-in state detection, and the Claude fast-mode and context-continuation checks.
 
 - `electron/features/agent/codexCli.ts`
   Shared cross-platform Codex discovery, version checks, managed install directory, and official standalone installer execution.
@@ -412,7 +429,7 @@ Platform API:
 - Desktop preload implements the agent capability through IPC.
 - Browser runtime provides no-op agent methods and an unavailable MCP status so web builds remain type-compatible.
 - Embedded assistant status includes a `turn` object with `phase` values (`idle`, `starting`, `running`, `interrupting`, `error`) so the UI can distinguish ready, still-working, and stopping states.
-- `resetAssistantChat()` interrupts the active turn if needed, archives the previous Codex thread best-effort, clears local messages, and starts the next user message in a fresh ephemeral thread.
+- `resetAssistantChat()` in `assistantService.ts` resets the selected provider's chat. For either provider it attempts to interrupt the active turn if needed, clears local messages and the transcript, and drops the provider thread id. Codex then archives the previous thread best-effort, and the next message starts a new thread. Claude attempts to close its SDK session (a failed interrupt or close is logged, not raised) and drops the resume id, so the next message starts a new session without resuming the old one.
 
 ## Security And Safety Boundaries
 
@@ -422,7 +439,7 @@ Platform API:
 - Trusted IPC validation in `electron/platform-ipc/registerIpcHandlers.ts` rejects untrusted renderer URLs and non-main-frame senders.
 - Renderer bridge responses are accepted only from the window that received the request.
 - MCP tools are scoped to current EVB Viewer windows and open tabs.
-- The embedded assistant MCP server uses a random loopback port and bearer token known only to the sandboxed Codex app-server process.
+- The embedded assistant MCP server uses a random loopback port and bearer token held by the Electron main process and supplied only to the assistant provider process or SDK session that EVB Viewer starts: the sandboxed Codex app-server, or the Claude Agent SDK session.
 - The external fixed-port MCP server requires a bearer token stored by the app and passed to its stdio client configuration.
 
 ## Stdio Proxy

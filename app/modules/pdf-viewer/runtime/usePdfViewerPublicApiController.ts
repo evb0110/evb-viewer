@@ -362,8 +362,6 @@ export const usePdfViewerPublicApiController = (
             {source: 'user'},
         ),
         getAnnotationCommentsSnapshot: annotationCommentModel.getSnapshot,
-        getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
-        getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         updateSelectedTextMarkupAnnotationColor: (color, selected) => annotationMutationService.updateColor(
             {
                 color,

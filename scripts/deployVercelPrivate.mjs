@@ -6,6 +6,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    realpathSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -73,6 +74,21 @@ export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarge
     }
 
     return !isExcludedWebDeploySourceFileName(path.basename(sourcePath));
+}
+
+// The Vercel CLI reads Git metadata by walking up from the copy. TMPDIR may sit
+// inside a checkout (agent sessions use its .devkit), so stop git discovery at
+// the scratch root; otherwise the deployment carries the checkout's commit author.
+function withScratchGitCeiling(env, scratchRoot) {
+    const ceilings = [
+        realpathSync(scratchRoot),
+        env.GIT_CEILING_DIRECTORIES,
+    ]
+        .filter(Boolean);
+    return {
+        ...env,
+        GIT_CEILING_DIRECTORIES: ceilings.join(path.delimiter),
+    };
 }
 
 function shouldKeepVercelIgnoreLine(line, sourceRoot) {
@@ -702,6 +718,7 @@ export async function runPrivateVercelDeploy({
         appVersion,
         prebuilt,
     });
+    const vercelEnv = withScratchGitCeiling(env, prepared.scratchRoot);
     let releaseProductionDeployLock = async () => undefined;
 
     try {
@@ -724,7 +741,7 @@ export async function runPrivateVercelDeploy({
             ? inspectCurrentProductionDeployment({
                 aliasUrl: resolveProductionAliasUrl(deployTarget),
                 command,
-                env,
+                env: vercelEnv,
                 expectedProjectName: projectLink.projectName,
                 sourceRoot: prepared.sourceRoot,
                 spawnSyncImpl,
@@ -736,7 +753,7 @@ export async function runPrivateVercelDeploy({
         console.log(`> ${command} ${commandArgs.join(' ')}`);
         const result = spawnSyncImpl(spawnCommand, spawnArgs, {
             cwd: prepared.sourceRoot,
-            env,
+            env: vercelEnv,
             encoding: 'utf8',
             shell: useShell,
             stdio: [
@@ -793,7 +810,7 @@ export async function runPrivateVercelDeploy({
                     : rollbackArgs;
                 const rollbackResult = spawnSyncImpl(rollbackCommand, rollbackSpawnArgs, {
                     cwd: prepared.sourceRoot,
-                    env,
+                    env: vercelEnv,
                     shell: rollbackUseShell,
                     stdio: 'inherit',
                 });

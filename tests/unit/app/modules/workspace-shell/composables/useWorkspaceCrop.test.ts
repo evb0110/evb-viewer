@@ -83,7 +83,6 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         deleteAnnotationComment: vi.fn(async () => false),
         removeAnnotationFromDom: vi.fn(),
         removeAnnotationFromInternalCache: vi.fn(),
-        getMarkupSubtypeOverrides: () => new Map(),
         getAllShapes: () => [],
         getDeletedEmbeddedShapeAnnotationIds: () => [],
         clearShapes: vi.fn(),

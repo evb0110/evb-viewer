@@ -27,7 +27,6 @@ import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeAnnotationIdentityBindings,
-    normalizePdfNativeMutationSet,
     normalizePdfNativeNoteChanges,
     normalizePdfNativeNoteTextUpdates,
     type TPdfNativeMutationSetNativeToolPayload,
@@ -213,10 +212,6 @@ function normalizeModifiedAt(modifiedAt: unknown): ReturnType<typeof normalizePd
     } catch {
         throw new Error('Invalid PDF modification timestamp');
     }
-}
-
-function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSet {
-    return normalizePdfNativeMutationSet(rawMutations, 'native PDF mutations', {errorKind: 'error'});
 }
 
 function needsNativeIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
@@ -762,11 +757,10 @@ export async function handleNativeNoteChangesSave(
 export async function handleNativePdfMutationsApplyToWorkingCopy(
     context: IDocumentsSenderIdContext,
     workingPath: unknown,
-    rawMutations: unknown,
+    mutations: IPdfNativeMutationSet,
     rawModifiedAt: unknown,
     revisionOptions: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
-    const mutations = normalizeNativeMutationSet(rawMutations);
     return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, revisionOptions, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',

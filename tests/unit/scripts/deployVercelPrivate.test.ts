@@ -11,7 +11,10 @@ import {
 import {tmpdir} from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {execFileSync} from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {
     describe,
     expect,
@@ -463,6 +466,63 @@ describe('private Vercel deployment source', () => {
             expect(() => resolveViewerAppVersion(projectRoot))
                 .toThrow('no release tag reaches HEAD');
         } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('hides the checkout from the Vercel CLI when TMPDIR is inside it', async () => {
+        const projectRoot = createProjectFixture();
+        const previousTmpdir = process.env.TMPDIR;
+        const tmpInsideCheckout = path.join(projectRoot, '.devkit');
+        const env = {
+            ...process.env,
+            CI: 'true',
+        };
+        const discoverRepository = (cwd: string, probeEnv: NodeJS.ProcessEnv) => spawnSync('git', [
+            'rev-parse',
+            '--show-toplevel',
+        ], {
+            cwd,
+            encoding: 'utf8',
+            env: probeEnv,
+        }).status;
+        let controlStatus: number | null = null;
+        let cliChildStatus: number | null = null;
+
+        try {
+            mkdirSync(tmpInsideCheckout);
+            process.env.TMPDIR = tmpInsideCheckout;
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env,
+                projectRoot,
+                rawArgs: [],
+                spawnSyncImpl: (_command: string, _args: string[], options: {
+                    cwd: string;
+                    env: NodeJS.ProcessEnv
+                }) => {
+                    controlStatus = discoverRepository(options.cwd, env);
+                    cliChildStatus = discoverRepository(options.cwd, options.env);
+                    return {
+                        stderr: '',
+                        stdout: '',
+                        status: 0,
+                    };
+                },
+            })).resolves.toBe(0);
+            expect(controlStatus).toBe(0);
+            expect(cliChildStatus).not.toBe(0);
+        } finally {
+            if (previousTmpdir === undefined) {
+                delete process.env.TMPDIR;
+            } else {
+                process.env.TMPDIR = previousTmpdir;
+            }
             rmSync(projectRoot, {
                 force: true,
                 maxRetries: 5,

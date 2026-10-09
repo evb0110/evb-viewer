@@ -1,13 +1,9 @@
-import type {
-    IAnnotationCommentSummary,
-    TMarkupSubtype,
-} from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {ISerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {
@@ -174,8 +170,6 @@ export interface IPdfViewerNativeMaterializationRequest extends IPdfViewerSaveTr
     rewriteShapeState?: boolean;
     /** Persistence services validate the working-copy target outside this transaction. */
     workingPath?: TDocumentRef | null;
-    markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;
-    markupSubtypeHints?: IMarkupSubtypeHint[] | undefined;
     source?: IPdfViewerSaveTransactionSource;
 }
 
