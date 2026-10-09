@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { isEqual } from 'es-toolkit/predicate';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { parseTabId } from '@contracts/windowTabs';
 import type {
@@ -141,15 +142,24 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         };
     }
 
-    const tabContextAvailabilityByPane = computed<Record<string, ITabContextAvailability>>(() => {
+    // Directional targets follow the split ratios, so a divider drag reruns
+    // this on every move; equal values keep their objects, and the tab bars
+    // that receive them do not re-render.
+    const tabContextAvailabilityByPane = computed<Record<string, ITabContextAvailability>>((previous) => {
         const result: Record<string, ITabContextAvailability> = {};
         const transitionsBusy = isTabTransitionBusy.value;
+        let unchanged = previous !== undefined && Object.keys(previous).length === panes.value.length;
 
         for (const pane of panes.value) {
-            result[pane.paneId] = buildTabContextAvailabilityForPane(pane, transitionsBusy);
+            const availability = buildTabContextAvailabilityForPane(pane, transitionsBusy);
+            const previousAvailability = previous?.[pane.paneId];
+            result[pane.paneId] = previousAvailability && isEqual(previousAvailability, availability)
+                ? previousAvailability
+                : availability;
+            unchanged &&= result[pane.paneId] === previousAvailability;
         }
 
-        return result;
+        return unchanged && previous ? previous : result;
     });
 
     // Split Right/Down shows the active tab's PDF in the new pane as a second

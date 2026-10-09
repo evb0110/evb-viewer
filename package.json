@@ -66,7 +66,7 @@
     "test:e2e": "pnpm run build && pnpm run build:native:e2e && pnpm run build:electron && bash scripts/test-electron-e2e-headless.sh --no-build",
     "test:e2e:visible-window": "pnpm run build && pnpm run build:native:e2e && pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose",
     "test:packaged-core-pdf-smoke": "pnpm exec tsx scripts/release/verifyPackagedCorePdfSmoke.ts",
-    "electron:run": "tsx scripts/electronRun.ts",
+    "electron:run": "node --import tsx scripts/electronRun.ts",
     "worktrees:prune": "node scripts/worktrees-prune.mjs",
     "electron:run:headless": "bash scripts/electron-run-headless.sh",
     "diag:pdf-navigation-blink-trace": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts",
