@@ -306,6 +306,14 @@ function walkTiffDirectoriesInBytes(bytes: Uint8Array, options: IIterateDecodedT
     return step.value;
 }
 
+/** The in-memory form of readTiffFrameDimensions: sizes and caps without decoding pixels. */
+export function readTiffFrameDimensionsFromBytes(
+    bytes: Uint8Array,
+    options: IIterateDecodedTiffFramesOptions,
+): ITiffFrameDimensions[] {
+    return checkTiffFrameSizes(walkTiffDirectoriesInBytes(bytes, options), options).filter(size => size !== null);
+}
+
 /**
  * Decodes the frames of an in-memory TIFF. The directories are walked and every
  * frame, pixel and total-pixel cap is checked before UTIF parses or decodes

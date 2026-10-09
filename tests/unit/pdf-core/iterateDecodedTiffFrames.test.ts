@@ -6,6 +6,7 @@ import {
 import {
     iterateDecodedTiffFrames,
     readTiffFrameDimensions,
+    readTiffFrameDimensionsFromBytes,
 } from '@pdf-core/iterateDecodedTiffFrames';
 import { createTiffBytes } from './createTiffBytes';
 
@@ -294,5 +295,36 @@ describe('readTiffFrameDimensions', () => {
     ])('reports a page directory chain that %s as damaged', async (_damage, bytes) => {
         await expect(readTiffFrameDimensions(createByteReader(bytes).read, {sourceLabel: 'damaged.tif'}))
             .rejects.toThrow('TIFF page directory is damaged or truncated: damaged.tif');
+    });
+});
+
+describe('readTiffFrameDimensionsFromBytes', () => {
+    it('reads in-memory frame sizes and enforces the total budget without decoding pixels', () => {
+        // Neither frame has strip data, so only the directories can supply these sizes.
+        const bytes = createTiffBytes([
+            {
+                width: 2550,
+                height: 3300,
+            },
+            {
+                width: 1700,
+                height: 2200,
+            },
+        ]);
+
+        expect(readTiffFrameDimensionsFromBytes(bytes, {})).toEqual([
+            {
+                width: 2550,
+                height: 3300,
+            },
+            {
+                width: 1700,
+                height: 2200,
+            },
+        ]);
+        expect(() => readTiffFrameDimensionsFromBytes(bytes, {
+            maxTotalPixels: 10_000_000,
+            sourceLabel: 'scan.tif',
+        })).toThrow('TIFF aggregate decoded pixels are capped at 10000000: scan.tif');
     });
 });
