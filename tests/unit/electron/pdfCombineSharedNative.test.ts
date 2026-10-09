@@ -7,14 +7,18 @@ import {
 } from 'vitest';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
+import { createTiffBytes } from '../pdf-core/createTiffBytes';
 
 const mocks = vi.hoisted(() => {
     const nativeCombine = vi.fn();
     let headerPrefix: Uint8Array = new Uint8Array();
+    const fileReads = {bytes: 0};
     const openFileClose = vi.fn();
-    const openFileRead = vi.fn(async (buffer: Uint8Array) => {
-        buffer.set(headerPrefix);
-        return { bytesRead: headerPrefix.byteLength };
+    const openFileRead = vi.fn(async (buffer: Uint8Array, offset = 0, length = buffer.byteLength, position = 0) => {
+        const chunk = headerPrefix.subarray(position, position + length);
+        buffer.set(chunk, offset);
+        fileReads.bytes += chunk.byteLength;
+        return { bytesRead: chunk.byteLength };
     });
     const open = vi.fn(async () => ({
         read: openFileRead,
@@ -66,6 +70,7 @@ const mocks = vi.hoisted(() => {
         set headerPrefix(value: Uint8Array) {
             headerPrefix = value;
         },
+        fileReads,
         open,
         openFileClose,
         openFileRead,
@@ -113,6 +118,7 @@ describe('createCombinedPdf native image fast path', () => {
         vi.clearAllMocks();
         mocks.nativeCombine.mockResolvedValue(null);
         mocks.headerPrefix = new Uint8Array();
+        mocks.fileReads.bytes = 0;
         mocks.readFile.mockResolvedValue(new Uint8Array([
             1,
             2,
@@ -348,6 +354,108 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.nativeImageCreateFromPath).not.toHaveBeenCalled();
         expect(mocks.embedPng).not.toHaveBeenCalled();
+    });
+});
+
+describe('TIFF combine preflight', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.fileReads.bytes = 0;
+        mocks.stat.mockResolvedValue({
+            isFile: () => true,
+            size: 1024,
+        });
+    });
+
+    it('passes a multi-frame TIFF to the native combiner after reading only its page directories', async () => {
+        mocks.headerPrefix = createTiffBytes(Array.from({length: 3}, () => ({
+            width: 2550,
+            height: 3300,
+        })), {pixelBytesPerFrame: 512 * 1024});
+        mocks.nativeCombine.mockResolvedValueOnce(new Uint8Array([
+            5,
+            5,
+        ]));
+
+        await expect(createCombinedPdf(['/tmp/scan.tif'], {unsupportedFileError: path => `Unsupported: ${path}`}))
+            .resolves.toEqual(new Uint8Array([
+                5,
+                5,
+            ]));
+
+        expect(mocks.nativeCombine).toHaveBeenCalledWith(['/tmp/scan.tif'], expect.any(Object));
+        expect(mocks.fileReads.bytes).toBeLessThan(512);
+        expect(mocks.readFile).not.toHaveBeenCalled();
+    });
+
+    it('counts every TIFF frame toward the combined page cap', async () => {
+        mocks.headerPrefix = createTiffBytes(Array.from({length: 200}, () => ({
+            width: 100,
+            height: 100,
+        })));
+
+        await expect(stageNativeCombineInputs([
+            '/tmp/first.tif',
+            '/tmp/second.tif',
+        ])).resolves.toMatchObject({inputPaths: [
+            '/tmp/first.tif',
+            '/tmp/second.tif',
+        ]});
+        await expect(stageNativeCombineInputs([
+            '/tmp/first.tif',
+            '/tmp/second.tif',
+            '/tmp/third.tif',
+        ])).rejects.toThrow('Combined PDF is capped at 500 pages');
+    });
+
+    it.each([
+        [
+            'more frames than the TIFF frame cap',
+            createTiffBytes(Array.from({length: 251}, () => ({
+                width: 10,
+                height: 10,
+            }))),
+            'TIFF frame count is capped at 250: /tmp/scan.tif',
+        ],
+        [
+            'a frame over the pixel cap',
+            createTiffBytes([{
+                width: 10_000,
+                height: 9_000,
+            }]),
+            'TIFF frame dimensions are too large to decode safely: /tmp/scan.tif',
+        ],
+        [
+            'a page directory chain that loops',
+            createTiffBytes([
+                {
+                    width: 10,
+                    height: 10,
+                },
+                {
+                    width: 10,
+                    height: 10,
+                },
+            ], {loopLastDirectoryToFirst: true}),
+            'TIFF page directory is damaged or truncated: /tmp/scan.tif',
+        ],
+        [
+            'no image directory',
+            createTiffBytes([{height: 10}]),
+            'No decodable TIFF pages found in /tmp/scan.tif',
+        ],
+        [
+            'bytes that are not a TIFF',
+            new TextEncoder().encode('not a TIFF at all'),
+            'No decodable TIFF pages found in /tmp/scan.tif',
+        ],
+    ])('refuses %s before the native combiner runs', async (_case, bytes, message) => {
+        mocks.headerPrefix = bytes;
+
+        await expect(createCombinedPdf(['/tmp/scan.tif'], {unsupportedFileError: path => `Unsupported: ${path}`}))
+            .rejects.toThrow(message);
+
+        expect(mocks.nativeCombine).not.toHaveBeenCalled();
     });
 });
 
