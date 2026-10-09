@@ -94,6 +94,7 @@
     "check:production-dependency-audit": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts",
     "check:production-dependency-audit:production-only": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts --production-only",
     "check:static:assets": "node scripts/check-web-deploy-source.mjs",
+    "check:locales": "pnpm exec tsx scripts/checkLocales.ts --target=all",
     "check:build-artifacts:hygiene": "node scripts/check-build-artifacts-hygiene.mjs",
     "check:architecture": "eslint app electron packages scripts server tests eslint-plugin-custom.mjs vitest.config.ts vitest.shared.config.ts --cache --cache-location .devkit/cache/eslint --max-warnings=0 --report-unused-disable-directives && EVB_ESLINT_NAMING_ONLY=1 eslint landing --cache --cache-location .devkit/cache/eslint --max-warnings=0 --report-unused-disable-directives && pnpm exec depcruise --config .dependency-cruiser.cjs app electron landing packages scripts server",
     "preversion": "pnpm run fetch:runtime-binaries",

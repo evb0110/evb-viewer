@@ -175,6 +175,10 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:assets
 
+      - name: Locale parity
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:locales
+
   unit:
     name: Typecheck And Unit Tests
     runs-on: ubuntu-latest
