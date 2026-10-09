@@ -1,11 +1,9 @@
 import {
     mkdir,
-    open,
     readdir,
     rm,
     writeFile,
 } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
     app,
@@ -18,6 +16,7 @@ import type {
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import { hashFileSha256 } from '@electron/utils/hashFileSha256';
 
 const logger = createLogger('bug-report');
 const BUG_REPORT_ROOT_DIRECTORY = 'bug-reports';
@@ -27,8 +26,6 @@ const BUG_REPORT_RETAINED_BUNDLES = 20;
 const BUNDLE_DIRECTORY_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/u;
 /** Enough to match a corpus manifest's sha256 prefix without being the file. */
 const SOURCE_HASH_HEX_LENGTH = 16;
-/** The one buffer the source is hashed through, whatever its size. */
-const SOURCE_HASH_CHUNK_BYTES = 1024 * 1024;
 const UNAVAILABLE = 'unavailable';
 
 const REFUSED: IHostBugReportWriteResult = {
@@ -54,23 +51,7 @@ async function hashDocumentSource(sourcePath: string) {
         return UNAVAILABLE;
     }
     try {
-        // Chunked, so a large document never sits in memory whole or holds
-        // the main process for the length of its hash.
-        const handle = await open(sourcePath, 'r');
-        try {
-            const hash = createHash('sha256');
-            const buffer = Buffer.allocUnsafe(SOURCE_HASH_CHUNK_BYTES);
-            for (;;) {
-                const {bytesRead} = await handle.read(buffer, 0, buffer.byteLength, null);
-                if (bytesRead === 0) {
-                    break;
-                }
-                hash.update(buffer.subarray(0, bytesRead));
-            }
-            return hash.digest('hex').slice(0, SOURCE_HASH_HEX_LENGTH);
-        } finally {
-            await handle.close().catch(() => undefined);
-        }
+        return (await hashFileSha256(sourcePath)).slice(0, SOURCE_HASH_HEX_LENGTH);
     } catch {
         // A web build, an unsaved document, or a path the status bar shortened.
         return UNAVAILABLE;

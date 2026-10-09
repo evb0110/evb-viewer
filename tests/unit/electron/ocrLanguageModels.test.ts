@@ -323,7 +323,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
             Buffer.from('third model chunk'),
         ];
         mocks.createReadStream.mockReturnValue(Readable.from(chunks));
-        const { hashFileSha256 } = await import('@electron/features/ocr/languageModels');
+        const { hashFileSha256 } = await import('@electron/utils/hashFileSha256');
 
         await expect(hashFileSha256('/tmp/eng.traineddata')).resolves.toBe(
             createHash('sha256').update(Buffer.concat(chunks)).digest('hex'),
@@ -406,7 +406,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
         const destroy = vi.spyOn(stream, 'destroy');
         mocks.createReadStream.mockReturnValue(stream);
         const controller = new AbortController();
-        const { hashFileSha256 } = await import('@electron/features/ocr/languageModels');
+        const { hashFileSha256 } = await import('@electron/utils/hashFileSha256');
         const checksumPromise = hashFileSha256('/tmp/eng.traineddata', controller.signal);
 
         await secondReadStarted;

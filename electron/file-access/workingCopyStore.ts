@@ -63,9 +63,16 @@ export interface IWorkingCopyOriginalEntry {
     sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
 }
 
+/** A fingerprint a copy took of every source byte it read, and the source identity that held throughout. */
+export interface ICopiedSourceFingerprint {
+    contentFingerprint: string;
+    sourceStat: BigIntStats;
+}
+
 interface ISetWorkingCopyOriginalPathOptions {
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
     backingState?: TWorkingCopyBackingState;
+    copiedSourceFingerprint?: ICopiedSourceFingerprint;
     deferOriginalFileExpectation?: boolean;
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
     role?: TWorkingCopyRole;
@@ -668,6 +675,18 @@ export async function setWorkingCopyOriginalPath(
     // materialization that copies it, which publishes that fingerprint with
     // the bytes it copied. Scanning here would read the same source twice.
     if (entry.backingState === 'lazy-original' || entry.backingState === 'materializing') {
+        delete entry.originalFileExpectationAbortController;
+        return;
+    }
+    // An eager copy that read the original verbatim hashed it as it went. That
+    // hash stands for this baseline only when the identity the copy held is
+    // the baseline's, the same check the scan makes before and after reading.
+    const copied = options.copiedSourceFingerprint;
+    if (expectation && copied && expectationMatchesStat(expectation, copied.sourceStat)) {
+        entry.originalFileExpectation = {
+            ...expectation,
+            contentFingerprint: copied.contentFingerprint,
+        };
         delete entry.originalFileExpectationAbortController;
         return;
     }
