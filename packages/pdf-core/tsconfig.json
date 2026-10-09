@@ -14,7 +14,6 @@
         ]
     },
     "include": [
-        "./**/*.ts",
-        "../../types/vendor/utif.d.ts"
+        "./**/*.ts"
     ]
 }
