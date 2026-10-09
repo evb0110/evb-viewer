@@ -25,13 +25,9 @@
         :data-chassis-resize-anchor-page="retainedResizeAnchor?.pageNumber ?? ''"
         :data-chassis-resizing="props.isResizing === true"
         :aria-busy="isOpening ? 'true' : undefined"
-        :class="{'document-viewer-chassis--fling-backdrop': chassisAuthority.viewportFlingBackdrop.value !== null}"
+        :class="{'document-viewer-chassis--fling-backdrop': hasViewportFlingBackdrop}"
     >
-        <DocumentViewerFlingBackdrop
-            v-if="chassisAuthority.viewportFlingBackdrop.value"
-            :backdrop="chassisAuthority.viewportFlingBackdrop.value"
-            :viewport="chassisAuthority.viewportElement.value"
-        />
+        <DocumentViewerFlingBackdrop v-if="hasViewportFlingBackdrop" />
         <DocumentViewportHost
             :viewport-id="viewportId"
             :set-viewport="chassisAuthority.bindViewportElement"
@@ -534,6 +530,9 @@ const chassisViewportStyle = computed(() => {
 });
 let handoffGeneration = 0;
 provide(documentViewerRuntimeKey, chassisAuthority);
+// The backdrop's row geometry follows every zoom and pane resize; the chassis
+// reads only whether there is one, and the backdrop reads the rest itself.
+const hasViewportFlingBackdrop = computed(() => chassisAuthority.viewportFlingBackdrop.value !== null);
 
 // Feature packs publish their render source through the chassis authority. Keep
 // the compatibility event as a projection of that authoritative state so a
