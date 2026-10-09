@@ -2669,12 +2669,12 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
     let filter_source = dark_background_filter_source
         .as_ref()
         .unwrap_or(&rendered_source_gray);
-    let (binary, despeckle_fallback, binarization_mode, binarization_diagnostics) =
+    let (binary, despeckle_fallback, binarization_mode, binarization_diagnostics, restored_strokes) =
         if let Some(binary) = dark_background_binary {
             // The dark-cover detector has already produced the polarity-correct
             // OCR stencil. Do not spend time running the ordinary light-on-dark
             // threshold and postprocess stages just to discard their output.
-            (binary, false, None, None)
+            (binary, false, None, None, None)
         } else {
             let routing_diagnostics = spread_plan.map_or_else(
                 || resolve_binarization_diagnostics(canonical_routing_sample, options),
@@ -2684,19 +2684,24 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
             let global_threshold_source =
                 (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
             let binarization_started = Instant::now();
-            let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
-                binarize_normalized_with_diagnostics(BinarizationInput {
-                    normalized: &rendered_gray,
-                    raw_source: &rendered_source_gray,
-                    routing_diagnostics,
-                    global_threshold_source,
-                    options,
-                    calibration,
-                    picture_mask: rendered_picture_mask,
-                    text_vicinity: rendered_text_vicinity_mask,
-                    spread_plan,
-                    detect_dark_background: !dark_background_detector_removed_by_picture_mask,
-                });
+            let (
+                fresh_binary,
+                diagnostics,
+                fresh_despeckle_fallback,
+                stage_timings,
+                fresh_restored,
+            ) = binarize_normalized_with_diagnostics(BinarizationInput {
+                normalized: &rendered_gray,
+                raw_source: &rendered_source_gray,
+                routing_diagnostics,
+                global_threshold_source,
+                options,
+                calibration,
+                picture_mask: rendered_picture_mask,
+                text_vicinity: rendered_text_vicinity_mask,
+                spread_plan,
+                detect_dark_background: !dark_background_detector_removed_by_picture_mask,
+            });
             timings.threshold_preparation_ms += stage_timings.preparation_ms;
             timings.thresholding_ms += stage_timings.thresholding_ms;
             timings.binary_postprocess_ms += stage_timings.postprocess_ms;
@@ -2714,18 +2719,28 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
                     && binary.width() == rendered_gray.width()
                     && binary.height() == rendered_gray.height()
             });
-            let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-                postprocess_binary_with_diagnostics_and_raw(
-                    binary,
+            let (binary, despeckle_fallback, restored) = if let Some(binary) = reusable {
+                // The reused analysis cut is a global one: restore its
+                // hairlines as the global route does.
+                let restored = restored_thin_strokes(binary, &rendered_source_gray, calibration);
+                let (binary, despeckle_fallback) = postprocess_binary_with_diagnostics_and_raw(
+                    &binary.or(&restored),
                     Some(&rendered_gray),
                     Some(&rendered_source_gray),
                     options,
                     calibration,
-                )
+                );
+                (binary, despeckle_fallback, Some(restored))
             } else {
-                (fresh_binary, fresh_despeckle_fallback)
+                (fresh_binary, fresh_despeckle_fallback, fresh_restored)
             };
-            (binary, despeckle_fallback, Some(mode), Some(diagnostics))
+            (
+                binary,
+                despeckle_fallback,
+                Some(mode),
+                Some(diagnostics),
+                restored,
+            )
         };
     // This fallback reconstructs horizontal rules from the ordinary dark-ink
     // polarity. A dark cover already has a polarity-correct global mask, and
@@ -2751,6 +2766,7 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
         rendered_text_mask,
         rendered_text_vicinity_mask,
         options.dpi,
+        restored_strokes.as_ref(),
     );
     let binary = enforce_source_ink_support(
         binary,
@@ -2998,7 +3014,7 @@ fn process_mixed_without_picture(input: MixedProcessingInput<'_>) -> MixedProces
     let global_threshold_source =
         (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
     let binarization_started = Instant::now();
-    let (binary, diagnostics, despeckle_fallback, stage_timings) =
+    let (binary, diagnostics, despeckle_fallback, stage_timings, restored_strokes) =
         binarize_normalized_with_diagnostics(BinarizationInput {
             normalized: &rendered_gray,
             raw_source: &rendered_source_gray,
@@ -3032,6 +3048,7 @@ fn process_mixed_without_picture(input: MixedProcessingInput<'_>) -> MixedProces
         rendered_text_mask.as_ref(),
         rendered_text_vicinity_mask.as_ref(),
         options.dpi,
+        restored_strokes.as_ref(),
     );
     let binary = enforce_source_ink_support(
         binary,
@@ -3168,7 +3185,7 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
             |plan| plan.diagnostics(),
         );
         let binarization_started = Instant::now();
-        let (binary, diagnostics, despeckle_fallback, stage_timings) =
+        let (binary, diagnostics, despeckle_fallback, stage_timings, restored_strokes) =
             binarize_normalized_with_diagnostics_excluding(
                 &rendered_gray,
                 &rendered_source_gray,
@@ -3237,6 +3254,7 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
             rendered_text_mask.as_ref(),
             rendered_text_vicinity_mask.as_ref(),
             options.dpi,
+            restored_strokes.as_ref(),
         );
         // Producer MRC selections are excellent glyph evidence,
         // but they can also contain dark samples from photographs

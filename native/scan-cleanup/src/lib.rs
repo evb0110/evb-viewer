@@ -22,5 +22,6 @@ pub mod png;
 pub mod protocol;
 pub mod split;
 pub mod text_tone;
+mod thin_strokes;
 
 pub use domain::options::*;

@@ -6,7 +6,7 @@ use evb_scan_cleanup::{
     NormalizedRect, NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode,
     PictureZone, PictureZoneLayer,
 };
-use scan_primitives::GrayImage;
+use scan_primitives::{BinaryImage, ComponentMap, GrayImage};
 use serde_json::Value;
 use std::{
     fs,
@@ -2169,6 +2169,123 @@ fn auto_resolved_bw_writes_bilevel_output_and_reports_recommendation() {
     assert_eq!(metadata["outputMode"], "bw");
     assert_eq!(metadata["bilevelWritten"], true);
     assert!(fs::read(&bilevel_output).unwrap().starts_with(b"P4\n"));
+}
+
+/// A page of `n` glyphs from a high-contrast face: two stems joined by a
+/// sub-pixel hairline shoulder that the scan records lighter than the
+/// paper/ink midpoint. On every other line the hairline straddles two pixel
+/// rows, as rendering a page puts it at any sub-pixel phase. Returns the scan,
+/// its number of glyphs and its printed ink area in pixels.
+fn hairline_glyph_page() -> (GrayImage, usize, f64) {
+    const LINES: usize = 24;
+    const GLYPHS: usize = 24;
+    let (width, height) = (1700, 2400);
+    let mut coverage = vec![0.0f64; width * height];
+    let mut fill = |left: usize, top: usize, w: usize, h: usize, value: f64| {
+        for y in top..top + h {
+            for x in left..left + w {
+                coverage[y * width + x] = value;
+            }
+        }
+    };
+    for line in 0..LINES {
+        let top = 300 + line * 80;
+        for glyph in 0..GLYPHS {
+            let left = 200 + glyph * 52;
+            fill(left, top, 6, 36, 1.0);
+            fill(left + 28, top, 6, 36, 1.0);
+            if line % 2 == 0 {
+                fill(left + 6, top + 4, 22, 1, 0.525);
+            } else {
+                fill(left + 6, top + 4, 22, 2, 0.2625);
+            }
+        }
+    }
+    // The narrow [1, 6, 1] / 8 blur of a sharp 300 DPI scan.
+    let blur = |source: &[f64], dx: usize, dy: usize| {
+        let mut output = vec![0.0; source.len()];
+        for y in dy..height - dy {
+            for x in dx..width - dx {
+                let at = |x: usize, y: usize| source[y * width + x];
+                output[y * width + x] =
+                    (at(x - dx, y - dy) + 6.0 * at(x, y) + at(x + dx, y + dy)) / 8.0;
+            }
+        }
+        output
+    };
+    let scanned = blur(&blur(&coverage, 1, 0), 0, 1);
+    let mut image = GrayImage::new(width, height, 225);
+    for y in 0..height {
+        for x in 0..width {
+            image.set(x, y, (225.0 - scanned[y * width + x] * 165.0).round() as u8);
+        }
+    }
+    (image, LINES * GLYPHS, coverage.iter().sum())
+}
+
+#[test]
+fn final_cli_keeps_hairline_joined_letters_whole_on_the_global_route() {
+    let scratch = Scratch::new("hairline-joins");
+    let (page, glyphs, printed) = hairline_glyph_page();
+    let input = scratch.path("hairline-page.png");
+    fs::write(&input, encode_gray(&page).unwrap()).unwrap();
+    let output = scratch.path("hairline-clean.png");
+    let output_metadata = scratch.path("hairline-clean.json");
+    let page_metadata = scratch.path("hairline-page.json");
+    let manifest = scratch.path("hairline-manifest.json");
+    let options = CleanupOptions {
+        dpi: 300.0,
+        source_dpi: Some(300.0),
+        requested_render_dpi: Some(300.0),
+        binarization: BinarizationMode::Otsu,
+        output_mode: OutputMode::Bw,
+        layout: LayoutMode::Single,
+        normalize_illumination: true,
+        crop_content: false,
+        match_page_size: false,
+        ..CleanupOptions::default()
+    };
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "render",
+        "renderMode": "final",
+        "canvasScope": "document",
+        "pages": [{
+            "inputPath": input,
+            "sourcePageIndex": 0,
+            "pageMetadataPath": page_metadata,
+            "options": options,
+            "outputs": [{
+                "outputPath": output,
+                "metadataPath": output_metadata,
+            }],
+        }],
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stdout={}\nstderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let cleaned = decode_gray(&fs::read(&output).unwrap(), 8_000_000, 4_000).unwrap();
+    let ink = BinaryImage::from_fn_parallel(cleaned.width(), cleaned.height(), |x, y| {
+        cleaned.get(x, y) < 128
+    });
+    let letters = ComponentMap::from_binary(&ink)
+        .components()
+        .iter()
+        .filter(|component| component.area >= 50)
+        .count();
+    // One shape per letter: the shoulder still joins both stems.
+    assert_eq!(letters, glyphs);
+    // Whole letters, not bolder ones: the ink stays near the printed area.
+    assert!((ink.count_black() as f64) < printed * 1.1);
 }
 
 #[test]

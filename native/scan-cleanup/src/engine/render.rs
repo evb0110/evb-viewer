@@ -60,6 +60,7 @@ use crate::{
         apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
         outside_tonal_evidence_with_mask, OutsideTonalEvidence, TextToneDiagnostics,
     },
+    thin_strokes::restored_thin_strokes,
     CleanupOptions, OrthogonalRotation, OutputMode, ResolvedOutputMode,
 };
 use rayon::prelude::*;
@@ -2860,6 +2861,7 @@ fn filter_soft_shallow_bleed_components(
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
+    restored_strokes: Option<&BinaryImage>,
 ) -> BinaryImage {
     debug_assert_eq!(binary.width(), raw.width());
     debug_assert_eq!(binary.height(), raw.height());
@@ -2982,7 +2984,9 @@ fn filter_soft_shallow_bleed_components(
     // shallow and locally soft, while every genuine glyph pixel is either
     // deep (stroke interior) or crisp (antialiased edge). Erasing only the
     // pixels that fail both tests strips the strike and leaves the glyphs
-    // it crossed intact.
+    // it crossed intact. A hairline restored from its gray valley is often
+    // shallow and soft too, but it already passed a stricter test of shape
+    // and context; cutting it here would leave the rest as loose specks.
     let stripped = BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
         let label = components.label_at(x, y) as usize;
         retained.get(x, y)
@@ -2992,7 +2996,8 @@ fn filter_soft_shallow_bleed_components(
                     >= crispness_floor
                 || protected_picture
                     .as_ref()
-                    .is_some_and(|mask| mask.get(x, y)))
+                    .is_some_and(|mask| mask.get(x, y))
+                || restored_strokes.is_some_and(|strokes| strokes.get(x, y)))
     });
     stripped
 }
