@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {createDocxFromTextAsync} from '@app/utils/docx';
+import {createDocxFromTextAsync} from '@app/utils/createDocxFromTextAsync';
 import {
     createDocxFromTextChunks,
     DOCX_STREAM_CHUNK_BYTES,
@@ -62,6 +62,55 @@ describe('createDocxFromTextChunks', () => {
         expect(xml.match(/<w:br w:type="page"\/>/g)).toHaveLength(1);
         expect(xml.indexOf('cover page')).toBeLessThan(xml.indexOf('<w:br w:type="page"/>'));
         expect(xml.indexOf('<w:br w:type="page"/>')).toBeLessThan(xml.indexOf('inner title page'));
+    });
+
+    it('sets a page an OCR layer reads in two columns side by side, a cell per column', async () => {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of createDocxFromTextChunks([
+            'preface',
+            {
+                text: 'Title\nleft one\nright one',
+                layout: {regions: [
+                    {columns: [['Title']]},
+                    {columns: [
+                        [
+                            'left one',
+                            'left two',
+                        ],
+                        ['right one'],
+                    ]},
+                ]},
+            },
+            'appendix',
+        ])) {
+            chunks.push(chunk);
+        }
+        const xml = new TextDecoder().decode(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))));
+        // The body in order: paragraph text, page breaks, and table cells.
+        const body = [...xml.matchAll(/<w:t xml:space="preserve">([^<]*)<\/w:t>|<w:br w:type="page"\/>|<w:tc>|<\/w:tbl>/gu)]
+            .map(([
+                match,
+                text,
+            ]) => text ?? {
+                '<w:br w:type="page"/>': 'page break',
+                '<w:tc>': 'cell',
+                '</w:tbl>': 'end of columns',
+            }[match]);
+        expect(body).toEqual([
+            'preface',
+            'page break',
+            'Title',
+            'cell',
+            'left one',
+            'left two',
+            'cell',
+            'right one',
+            'end of columns',
+            'page break',
+            'appendix',
+        ]);
+        // The columns have no borders.
+        expect(xml).toContain('<w:tblBorders><w:top w:val="nil"/>');
     });
 
     it('uses an RTL language hint only when text has no detected strong direction', () => {

@@ -55,7 +55,7 @@ export interface ITesseractWord {
     text: string;
 }
 
-/** Replaces a word's text in Tesseract's PDF with text of the same length. */
+/** Replaces a word's text in Tesseract's PDF; the new text may be longer or hold spaces. */
 export interface IOcrWordEdit {
     word: number;
     from: string;
@@ -79,8 +79,8 @@ export interface IOcrFileResult {
     unsupportedOptions?: string[];
     /** Edits that pageData already carries and Tesseract's PDF does not. */
     wordEdits?: IOcrWordEdit[];
-    /** Why a page that looks printed with the long s was read without the long-s models. */
-    longSUnavailable?: string;
+    /** Why a page that looks like early print was read without the early-print models. */
+    earlyPrintUnavailable?: string;
 }
 
 export type TOcrJobResult =

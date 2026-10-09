@@ -455,14 +455,14 @@ describe('scan-cleanup source text omission evidence', () => {
             stderr: '',
             stdout: JSON.stringify({
                 format: 'evb-pdf-ocr-text-visibility',
-                schemaVersion: 2,
+                schemaVersion: 3,
                 pages: pages.map(page => ({
                     evbOcrLayer: false,
                     paintedText: false,
                     hiddenText: false,
                     uncertain: null,
                     unsupported: null,
-                    evbOcrText: null,
+                    evbOcrLines: null,
                     ...page,
                 })),
             }),

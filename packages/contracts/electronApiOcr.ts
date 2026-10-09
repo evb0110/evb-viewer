@@ -89,7 +89,7 @@ export const OCR_DIAGNOSTIC_CODES = [
     'OCR_SOURCE_DPI_LIMITED',
     'OCR_EXISTING_TEXT_SKIPPED',
     'OCR_ENGINE_OPTION_UNSUPPORTED',
-    'OCR_LONG_S_UNAVAILABLE',
+    'OCR_EARLY_PRINT_UNAVAILABLE',
 ] as const;
 
 export type TOcrDiagnosticCode = typeof OCR_DIAGNOSTIC_CODES[number];

@@ -1,127 +1,148 @@
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {gunzipSync} from 'node:zlib';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
 import {
-    canRecognizeLongS,
+    canReadEarlyPrint,
+    createEarlyPrintDictionary,
     hasLongSSignature,
-    planLongSWordEdits,
-} from '@electron/features/ocr/pipeline/longSRecognition';
+    planEarlyPrintWordEdits,
+} from '@electron/features/ocr/pipeline/earlyPrintReading';
 import {
-    parseTsvOcrData,
-    readTesseractWords,
-} from '@electron/features/ocr/pipeline/tesseractRunner';
+    hocrWordText,
+    readHocrLines,
+    type IHocrLine,
+} from '@electron/features/ocr/pipeline/hocrReading';
+import {readTraineddataWordList} from '@electron/features/ocr/pipeline/traineddataWordList';
+import type {IOcrWordEdit} from '@electron/features/ocr/pipeline/types';
 
-const TSV_HEADER = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
+const FIXTURES = join(process.cwd(), 'tests/fixtures/electron/early-print');
 
-function readFixtureTsv(name: string) {
-    return readFileSync(join(process.cwd(), 'tests/fixtures/electron/early-print', name), 'utf8').trim();
+function readReading(model: string) {
+    return readHocrLines(gunzipSync(readFileSync(join(FIXTURES, `breviary-1677-rubrics.${model}.hocr.gz`))).toString('utf8'));
 }
 
-function tsvOfLines(lines: string[], confidence = 95) {
-    return [
-        TSV_HEADER,
-        ...lines.flatMap((line, lineIndex) => line.split(' ').map((word, wordIndex) => (
-            `5\t1\t1\t1\t${lineIndex + 1}\t${wordIndex + 1}\t${wordIndex * 60}\t${lineIndex * 30}\t50\t20\t${confidence}\t${word}`
-        ))),
-    ].join('\n');
+function pageText(lines: readonly IHocrLine[], edits: readonly IOcrWordEdit[] = []) {
+    const edited = new Map(edits.map(edit => [
+        edit.word,
+        edit.to,
+    ]));
+    let ordinal = 0;
+    return lines.map(line => line.words.map(word => edited.get(ordinal++) ?? hocrWordText(word)).join(' ')).join('\n');
 }
 
-describe('long-s recognition of early printed pages', () => {
-    // The 1677 breviary page a user reported: `lat` reads every long s as f.
-    const modernTsv = readFixtureTsv('breviary-1677-rubrics.lat.tsv');
-    const longSTsv = readFixtureTsv('breviary-1677-rubrics.long-s.tsv');
+const words = (text: string) => text.replace(/-\n/gu, '').match(/[\p{L}&]+/gu) ?? [];
 
-    it('writes the long s where the long-s models saw it and keeps every real f', () => {
-        const words = readTesseractWords(modernTsv);
-        expect(hasLongSSignature(words)).toBe(true);
-        const before = parseTsvOcrData(modernTsv).text;
-        const after = parseTsvOcrData(modernTsv, {}, planLongSWordEdits(words, readTesseractWords(longSTsv))).text;
+/** Share of the transcription's words a reading has, in order. */
+function wordsReadRight(transcription: string, reading: string) {
+    const expected = words(transcription);
+    const read = words(reading);
+    let previous = new Array<number>(read.length + 1).fill(0);
+    for (const word of expected) {
+        const current = [0];
+        read.forEach((candidate, index) => {
+            current.push(candidate === word ? previous[index]! + 1 : Math.max(previous[index + 1]!, current[index]!));
+        });
+        previous = current;
+    }
+    return previous[read.length]! / expected.length;
+}
+
+describe('early-print reading', () => {
+    // The 1677 breviary a user reported, read by `lat`, `ita_old` and `fra`.
+    // The dictionary is the part of `lat`'s that these readings look up.
+    const transcription = readFileSync(join(FIXTURES, 'breviary-1677-rubrics.gt.txt'), 'utf8');
+    const dictionary = createEarlyPrintDictionary(
+        readFileSync(join(FIXTURES, 'breviary-1677-rubrics.dictionary.txt'), 'utf8').split('\n'),
+        true,
+    );
+    const readings = () => ({
+        base: readReading('lat'),
+        longS: readReading('ita_old'),
+        ligatures: readReading('fra'),
+    });
+
+    it('reads the long s, æ, œ and the ct ligature as the page prints them', () => {
+        const {
+            base, ...others
+        } = readings();
+        expect(hasLongSSignature(base.flatMap(line => line.words.map(hocrWordText)))).toBe(true);
+        const before = pageText(base);
+        const after = pageText(base, planEarlyPrintWordEdits({
+            base,
+            ...others,
+        }, dictionary, {latin: true}));
 
         for (const word of [
-            'feſto',
-            'Chriſti',
             'uſque',
-            'ſequentibus',
-            'Feſtum',
+            'Paſchæ',
+            'Cœna',
+            'Chriſti',
+            'feſto',
+            'Eccleſiæ',
+            'hæc',
+            'Sanctorum',
+            'Defunctorum',
+            'depoſitionis',
+            'prædicta',
         ]) {
             expect(before).not.toContain(word);
             expect(after).toContain(word);
         }
-        expect(after).not.toMatch(/\b(?:fefto|Chrifti|ufque|fequentibus|Feftum)\b/u);
+        expect(after).not.toMatch(/ufque|Pafchz|Ecclefix|Defun&torum|San&torum/u);
         // "Officium fit Duplex" and "Officium fit de Duplici" print a real f.
         expect(after.match(/\bOfficium fit\b/gu)).toHaveLength(2);
-        expect(after.replaceAll('ſ', 'f')).toBe(before);
+        // `lat` alone reads 72% of the transcription's words; the three models 94%.
+        expect(wordsReadRight(transcription, before)).toBeLessThan(0.75);
+        expect(wordsReadRight(transcription, after)).toBeGreaterThan(0.92);
     });
 
-    it('leaves a modern page as its own model read it', () => {
-        const modern = tsvOfLines([
-            'The first sessions of the society were held after the harvest,',
-            'so the minutes list its founders, their offices and the subjects',
-            'discussed: soft soils, fast streams, fishing rights and seasonal fairs.',
-            'Several members asked for a fuller survey of these questions first.',
-        ]);
-        const words = readTesseractWords(modern);
-        expect(hasLongSSignature(words)).toBe(false);
+    it('keeps the page as its own model read it when the early-print model finds no long s', () => {
+        const {
+            base, ligatures,
+        } = readings();
+        expect(planEarlyPrintWordEdits({
+            base,
+            longS: base,
+            ligatures,
+        }, dictionary, {latin: true})).toEqual([]);
     });
 
-    it('ignores a few stray long s the long-s models read on a page that only looked like long-s print', () => {
-        const words = readTesseractWords(modernTsv);
-        const historical = readTesseractWords(modernTsv).map(word => (
-            word.text === 'Trinitatis,' ? {
-                ...word,
-                text: 'Trinitatiſ,',
-            } : word
-        ));
-        expect(planLongSWordEdits(words, historical)).toEqual([]);
+    it('sees long-s print only where f outnumbers s inside words', () => {
+        expect(hasLongSSignature('The first of these is so set as to suffer the least stress of us all'.repeat(3).split(' '))).toBe(false);
+        expect(hasLongSSignature('ufque fefto Chrifti feftum eft nifi fint fed'.repeat(4).split(' '))).toBe(true);
     });
 
-    it('numbers words as Tesseract writes them, low-confidence words included', () => {
-        const tsv = [
-            TSV_HEADER,
-            '5\t1\t1\t1\t1\t1\t0\t0\t40\t20\t95\tin',
-            '5\t1\t1\t1\t1\t2\t50\t0\t40\t20\t10\t~',
-            '5\t1\t1\t1\t1\t3\t100\t0\t40\t20\t-1\t',
-            '5\t1\t1\t1\t1\t4\t150\t0\t60\t20\t95\tfefto',
-        ].join('\n');
-        expect(readTesseractWords(tsv).map(word => [
-            word.ordinal,
-            word.text,
-        ])).toEqual([
-            [
-                0,
-                'in',
-            ],
-            [
-                1,
-                '~',
-            ],
-            [
-                2,
-                'fefto',
-            ],
-        ]);
-        expect(parseTsvOcrData(tsv, {}, [{
-            word: 2,
-            from: 'fefto',
-            to: 'feſto',
-        }]).text).toBe('in ~ feſto');
-    });
-
-    it('runs only for Latin-script languages', () => {
-        expect(canRecognizeLongS(['lat'])).toBe(true);
-        expect(canRecognizeLongS([
+    it('reads early print in Latin-script languages only', () => {
+        expect(canReadEarlyPrint(['lat'])).toBe(true);
+        expect(canReadEarlyPrint([
+            'lat',
             'eng',
-            'deu',
         ])).toBe(true);
-        expect(canRecognizeLongS([
-            'eng',
-            'rus',
+        expect(canReadEarlyPrint([
+            'lat',
+            'ell',
         ])).toBe(false);
-        expect(canRecognizeLongS(['ell'])).toBe(false);
-        expect(canRecognizeLongS([])).toBe(false);
+        expect(canReadEarlyPrint([])).toBe(false);
+    });
+});
+
+describe('traineddata word lists', () => {
+    it('reads the dictionary Tesseract packed into a model', async () => {
+        // Built with wordlist2dawg and combine_tessdata from eight words.
+        expect((await readTraineddataWordList(join(FIXTURES, 'eight-latin-words.traineddata')))?.sort()).toEqual([
+            'Domini',
+            'Dominica',
+            'Octava',
+            'Octavam',
+            'Paschae',
+            'eodem',
+            'festo',
+            'à',
+        ]);
     });
 });

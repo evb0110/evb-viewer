@@ -10,6 +10,7 @@ import type { TSessionId } from '@contracts/shared';
 import {
     resolveDocxParagraphDirection,
     type TDocxParagraphDirection,
+    type TDocxTextPage,
     type TDocxTextPageSource,
 } from '@app/utils/docxStreaming';
 import {hasRtlOcrLanguage} from '@app/utils/ocr/hasRtlOcrLanguage';
@@ -27,7 +28,7 @@ import {
 } from '@app/utils/platformDocuments';
 
 type TDocxBuilder = (
-    text: string,
+    pages: readonly TDocxTextPage[],
     direction: TDocxParagraphDirection,
     signal?: AbortSignal,
 ) => Uint8Array | Promise<Uint8Array>;
@@ -48,13 +49,16 @@ function isAbortError(error: unknown) {
     return error instanceof Error && error.name === 'AbortError';
 }
 
-function* getNonEmptyPageTexts(
-    catalogPages: ReadonlyArray<{text: string}> | null,
-): Generator<string> {
+function* getNonEmptyPages(
+    catalogPages: ReadonlyArray<Exclude<TDocxTextPage, string>> | null,
+): Generator<TDocxTextPage> {
     for (const page of catalogPages ?? []) {
-        const pageText = page.text.trim();
-        if (pageText) {
-            yield pageText;
+        const text = page.text.trim();
+        if (text) {
+            yield {
+                text,
+                ...(page.layout === undefined ? {} : {layout: page.layout}),
+            };
         }
     }
 }
@@ -225,26 +229,23 @@ export async function exportTextAsDocx(params: {
                         throw new Error('DOCX streaming output is unavailable on this desktop platform');
                     }
                     const docxChunks = params.signal === undefined
-                        ? await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction)
-                        : await params.buildDocxChunks(getNonEmptyPageTexts(catalogPages), direction, params.signal);
+                        ? await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction)
+                        : await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction, params.signal);
                     await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
                 } else {
                     let catalogTextLength = 0;
-                    const catalogTextParts: string[] = [];
-                    for (const page of catalogPages ?? []) {
+                    const pages: TDocxTextPage[] = [];
+                    for (const page of getNonEmptyPages(catalogPages)) {
                         throwIfAborted(params.signal);
-                        const pageText = page.text.trim();
-                        if (!pageText) continue;
-                        catalogTextLength += pageText.length + (catalogTextParts.length > 0 ? 2 : 0);
+                        catalogTextLength += typeof page === 'string' ? page.length : page.text.length;
                         if (catalogTextLength > BROWSER_DOCX_MAX_TEXT_CHARACTERS) {
                             throw new RangeError('Browser DOCX export text exceeds its bounded Blob budget');
                         }
-                        catalogTextParts.push(pageText);
+                        pages.push(page);
                     }
-                    const text = catalogTextParts.join('\n\n');
                     const docxBytes = params.signal === undefined
-                        ? await params.buildDocx(text, direction)
-                        : await params.buildDocx(text, direction, params.signal);
+                        ? await params.buildDocx(pages, direction)
+                        : await params.buildDocx(pages, direction, params.signal);
                     throwIfAborted(params.signal);
                     if (docxBytes.byteLength > BROWSER_DOCX_MAX_OUTPUT_BYTES) {
                         throw new RangeError('Browser DOCX export exceeds its bounded Blob size');

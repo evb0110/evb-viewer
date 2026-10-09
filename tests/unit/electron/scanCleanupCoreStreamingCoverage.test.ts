@@ -216,7 +216,7 @@ async function rasterTextVisibilityResult(args: readonly string[]) {
         stderr: '',
         stdout: JSON.stringify({
             format: 'evb-pdf-ocr-text-visibility',
-            schemaVersion: 2,
+            schemaVersion: 3,
             pages: pages.map(pageNumber => ({
                 pageNumber,
                 evbOcrLayer: false,
@@ -224,7 +224,7 @@ async function rasterTextVisibilityResult(args: readonly string[]) {
                 hiddenText: false,
                 uncertain: null,
                 unsupported: null,
-                evbOcrText: null,
+                evbOcrLines: null,
             })),
         }),
     };

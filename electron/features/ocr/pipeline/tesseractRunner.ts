@@ -1,5 +1,6 @@
 import {
     open,
+    rename,
     stat,
     unlink,
 } from 'fs/promises';
@@ -9,20 +10,22 @@ import {
     AGENT_OCR_PAGE_SEGMENTATION_MODES,
     isSupportedPageSegmentationMode,
 } from '@contracts/agentOcr';
-import {
-    isGreekOcrLanguage,
-    LONG_S_MODEL_CODES,
-} from '@contracts/ocrLanguages';
+import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
 import type {
     IOcrFileResult,
     IOcrWordEdit,
     ITesseractWord,
 } from '@electron/features/ocr/pipeline/types';
 import {
-    canRecognizeLongS,
+    canReadEarlyPrint,
     hasLongSSignature,
-    planLongSWordEdits,
-} from '@electron/features/ocr/pipeline/longSRecognition';
+    planEarlyPrintWordEdits,
+} from '@electron/features/ocr/pipeline/earlyPrintReading';
+import {
+    hocrWordText,
+    readHocrLines,
+} from '@electron/features/ocr/pipeline/hocrReading';
+import {loadEarlyPrintDictionary} from '@electron/features/ocr/pipeline/traineddataWordList';
 import {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
 import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
@@ -43,6 +46,7 @@ const PNG_SIGNATURE = Buffer.from([
 const FILE_BASED_OCR_TIMEOUT_MS = 3 * 60 * 1000;
 const FILE_BASED_OCR_MAX_STDERR_BYTES = 262_144;
 const FILE_BASED_OCR_MAX_TSV_BYTES = 64 * 1024 * 1024;
+const FILE_BASED_OCR_MAX_HOCR_BYTES = 256 * 1024 * 1024;
 const OCR_TSV_MAX_ROWS = 500_000;
 const OCR_TSV_MAX_WORDS = 250_000;
 const OCR_TSV_MAX_TEXT_CHARACTERS = 16 * 1024 * 1024;
@@ -52,7 +56,7 @@ async function readUtf8FileBounded(path: string, maxBytes: number) {
     try {
         const before = await handle.stat();
         if (!before.isFile() || before.size > maxBytes) {
-            throw new Error(`Tesseract TSV output exceeds the ${maxBytes}-byte limit`);
+            throw new Error(`Tesseract output exceeds the ${maxBytes}-byte limit`);
         }
         const bytes = Buffer.allocUnsafe(before.size + 1);
         let offset = 0;
@@ -153,12 +157,19 @@ interface ITesseractRun {
     options?: IOcrSearchablePdfOptions;
 }
 
+interface ITesseractOutputs {
+    pdf?: boolean;
+    tsv?: boolean;
+    /** hOCR with each character's box and the alternatives Tesseract weighed. */
+    hocr?: boolean;
+}
+
 /** Runs Tesseract on the page raster and returns its stderr; outputs land beside `outputBase`. */
 async function runTesseract(
     run: ITesseractRun,
     outputBase: string,
     languages: readonly string[],
-    outputs: {pdf: boolean},
+    outputs: ITesseractOutputs,
 ) {
     const languageConfig = resolveTesseractLanguageConfig([...languages], {preserveDictionaries: shouldPreserveDictionaries(run.options)});
     const args = [
@@ -172,13 +183,23 @@ async function runTesseract(
         String(run.extractionDpi),
         ...languageConfig.extraConfigArgs,
         ...buildTesseractProfileArgs(run.options),
-        '-c',
-        'tessedit_create_tsv=1',
+        ...(outputs.tsv ? [
+            '-c',
+            'tessedit_create_tsv=1',
+        ] : []),
         ...(outputs.pdf ? [
             '-c',
             'tessedit_create_pdf=1',
             '-c',
             'textonly_pdf=1',
+        ] : []),
+        ...(outputs.hocr ? [
+            '-c',
+            'tessedit_create_hocr=1',
+            '-c',
+            'hocr_char_boxes=1',
+            '-c',
+            'lstm_choice_mode=2',
         ] : []),
     ];
     return (await runNativeToolCommand(run.tesseractBinary, args, {
@@ -190,19 +211,26 @@ async function runTesseract(
     })).stderr;
 }
 
+async function readHocr(path: string) {
+    return readHocrLines(await readUtf8FileBounded(path, FILE_BASED_OCR_MAX_HOCR_BYTES));
+}
+
 /**
- * On a page that a modern model read with the long-s signature, reads the
- * raster again with the long-s models and takes their ſ for that model's f.
- * The page keeps the modern reading when those models cannot run.
+ * On a page its own model read with the long-s signature, reads the raster
+ * again: the same model, now also writing hOCR, then the early-print models.
+ * Plans the edits that make their joint reading the page's text, and replaces
+ * the first PDF and TSV with the rerun's only when every pass succeeded.
  */
-async function recognizeLongS(
+async function readEarlyPrint(
     run: ITesseractRun,
     outputBase: string,
+    languages: readonly string[],
     tsvContent: string,
-    prepareLongSModels: () => Promise<void>,
+    prepareEarlyPrintModels: () => Promise<void>,
 ): Promise<{
+    tsvContent: string;
     wordEdits: IOcrWordEdit[];
-    unavailable?: string
+    unavailable?: string;
 }> {
     // A TSV that cannot be read fails the page when it is parsed for its words.
     const words = (() => {
@@ -212,27 +240,62 @@ async function recognizeLongS(
             return [];
         }
     })();
-    if (!hasLongSSignature(words)) {
-        return {wordEdits: []};
+    if (!hasLongSSignature(words.map(word => word.text))) {
+        return {
+            tsvContent,
+            wordEdits: [],
+        };
     }
-    const longSOutputBase = `${outputBase}-long-s`;
+    const bases = {
+        base: `${outputBase}-early`,
+        longS: `${outputBase}-ita_old`,
+        ligatures: `${outputBase}-fra`,
+    };
     try {
-        await prepareLongSModels();
-        await runTesseract(run, longSOutputBase, LONG_S_MODEL_CODES, {pdf: false});
-        const historicalWords = readTesseractWords(
-            (await readUtf8FileBounded(`${longSOutputBase}.tsv`, FILE_BASED_OCR_MAX_TSV_BYTES)).trim(),
-        );
-        return {wordEdits: planLongSWordEdits(words, historicalWords)};
+        await prepareEarlyPrintModels();
+        await runTesseract(run, bases.base, languages, {
+            pdf: true,
+            tsv: true,
+            hocr: true,
+        });
+        await runTesseract(run, bases.longS, ['ita_old'], {hocr: true});
+        await runTesseract(run, bases.ligatures, ['fra'], {hocr: true});
+        const rereadTsv = (await readUtf8FileBounded(`${bases.base}.tsv`, FILE_BASED_OCR_MAX_TSV_BYTES)).trim();
+        const base = await readHocr(`${bases.base}.hocr`);
+        // Edits name words by their place in the TSV, which lists the hOCR's words in order.
+        const hocrWords = base.flatMap(line => line.words.map(word => hocrWordText(word).trim()));
+        const tsvWords = readTesseractWords(rereadTsv).map(word => word.text);
+        if (hocrWords.length !== tsvWords.length || hocrWords.some((word, index) => word !== tsvWords[index])) {
+            throw new Error('Tesseract listed different words in its hOCR and TSV');
+        }
+        const wordEdits = planEarlyPrintWordEdits({
+            base,
+            longS: await readHocr(`${bases.longS}.hocr`),
+            ligatures: await readHocr(`${bases.ligatures}.hocr`),
+        }, await loadEarlyPrintDictionary(run.tessdataPath, languages), {latin: languages.includes('lat')});
+        await rename(`${bases.base}.pdf`, `${outputBase}.pdf`);
+        await rename(`${bases.base}.tsv`, `${outputBase}.tsv`);
+        return {
+            tsvContent: rereadTsv,
+            wordEdits,
+        };
     } catch (error) {
         if (isAbortError(error) || run.signal?.aborted) {
             throw error;
         }
         return {
+            tsvContent,
             wordEdits: [],
             unavailable: getErrorMessage(error),
         };
     } finally {
-        await safeUnlink(`${longSOutputBase}.tsv`);
+        await Promise.all([
+            `${bases.base}.pdf`,
+            `${bases.base}.tsv`,
+            `${bases.base}.hocr`,
+            `${bases.longS}.hocr`,
+            `${bases.ligatures}.hocr`,
+        ].map(safeUnlink));
     }
 }
 
@@ -247,7 +310,7 @@ export async function runOcrFileBased(
     threads?: number,
     signal?: AbortSignal,
     options?: IOcrSearchablePdfOptions,
-    prepareLongSModels?: () => Promise<void>,
+    prepareEarlyPrintModels?: () => Promise<void>,
 ): Promise<IOcrFileResult> {
     const outputBase = imagePath.replace(/\.png$/, '') + '-ocr';
     const tsvPath = `${outputBase}.tsv`;
@@ -277,7 +340,10 @@ export async function runOcrFileBased(
     let stderrText: string;
     let tsvContent: string;
     try {
-        stderrText = await runTesseract(run, outputBase, languages, {pdf: true});
+        stderrText = await runTesseract(run, outputBase, languages, {
+            pdf: true,
+            tsv: true,
+        });
         tsvContent = (await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES)).trim();
     } catch (error) {
         const result = await failure(getErrorMessage(error));
@@ -287,11 +353,14 @@ export async function runOcrFileBased(
         return result;
     }
 
-    const longS = prepareLongSModels === undefined || !canRecognizeLongS(languages)
-        ? {wordEdits: []}
-        : await recognizeLongS(run, outputBase, tsvContent, prepareLongSModels);
+    const earlyPrint = prepareEarlyPrintModels === undefined || !canReadEarlyPrint(languages)
+        ? {
+            tsvContent,
+            wordEdits: [],
+        }
+        : await readEarlyPrint(run, outputBase, languages, tsvContent, prepareEarlyPrintModels);
     try {
-        const parsedTsv = parseTsvOcrData(tsvContent, {}, longS.wordEdits);
+        const parsedTsv = parseTsvOcrData(earlyPrint.tsvContent, {}, earlyPrint.wordEdits);
         const {words} = parsedTsv;
         let pageText = parsedTsv.text;
         if (shouldNormalizeGreekMicroSign(languages)) {
@@ -308,8 +377,8 @@ export async function runOcrFileBased(
         return {
             success: true,
             ...(unsupportedOptions.length > 0 ? {unsupportedOptions} : {}),
-            ...(longS.wordEdits.length > 0 ? {wordEdits: longS.wordEdits} : {}),
-            ...(longS.unavailable === undefined ? {} : {longSUnavailable: longS.unavailable}),
+            ...(earlyPrint.wordEdits.length > 0 ? {wordEdits: earlyPrint.wordEdits} : {}),
+            ...(earlyPrint.unavailable === undefined ? {} : {earlyPrintUnavailable: earlyPrint.unavailable}),
             pageData: {
                 pageNumber: 0,
                 words,

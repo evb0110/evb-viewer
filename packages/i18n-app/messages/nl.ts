@@ -948,7 +948,7 @@ export default {
             'preprocessingUnavailable': 'Pagina {page}: scan opschonen is niet beschikbaar; de oorspronkelijke afbeelding is gebruikt.',
             'preprocessingFailed': 'Pagina {page}: scan opschonen is mislukt; de oorspronkelijke afbeelding is gebruikt.',
             'engineOptionUnsupported': 'Pagina {page}: de OCR-engine ondersteunt de gekozen herkenningsmodus niet, dus is zonder die modus herkend.',
-            'longSUnavailable': 'Pagina {page} is gedrukt met de lange s (ſ), maar de modellen voor oude drukken waren niet beschikbaar, dus ſ kan als f zijn gelezen.',
+            'earlyPrintUnavailable': 'Pagina {page} lijkt een oude druk, maar de modellen voor oude drukken waren niet beschikbaar, dus de lange s (ſ), de æ en ligaturen kunnen verkeerd gelezen worden.',
             'preprocessingGeometryChanged': 'Pagina {page}: scan opschonen heeft de paginageometrie gewijzigd; de oorspronkelijke afbeelding is gebruikt.',
             'sourceDpiLimited': 'Pagina {page}: de bronresolutie beperkte de effectieve OCR-DPI.',
             'existingTextSkipped': 'Pagina {page}: bestaande tekst is behouden.',

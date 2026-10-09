@@ -11,7 +11,7 @@ import {
     RTL_OCR_LANGUAGE_CODES,
     isGreekOcrLanguage,
     isRtlOcrLanguage,
-    LONG_S_MODEL_CODES,
+    EARLY_PRINT_MODEL_CODES,
 } from '@contracts/ocrLanguages';
 import { resolveTesseractLanguageConfig } from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 
@@ -27,11 +27,13 @@ describe('resolveTesseractLanguageConfig', () => {
         expect(AVAILABLE_OCR_LANGUAGES.length).toBeGreaterThan(BUNDLED_OCR_LANGUAGE_CODES.length);
     });
 
-    it('pins one SHA-256 digest for every language model and every long-s model', () => {
-        expect(Object.keys(OCR_LANGUAGE_MODEL_SHA256).sort()).toEqual([
+    it('pins one SHA-256 digest for every language model and every early-print model', () => {
+        expect(Object.keys(OCR_LANGUAGE_MODEL_SHA256).sort()).toEqual([...new Set([
             ...AVAILABLE_OCR_LANGUAGES.map(language => language.code),
-            ...LONG_S_MODEL_CODES,
-        ].sort());
+            ...EARLY_PRINT_MODEL_CODES,
+            // Pinned for the development tessdata archive, which carries it.
+            'spa_old',
+        ])].sort());
         expect(Object.values(OCR_LANGUAGE_MODEL_SHA256).every(digest =>
             /^[a-f0-9]{64}$/u.test(digest))).toBe(true);
     });

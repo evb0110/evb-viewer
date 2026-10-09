@@ -1,7 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { createDocxFromTextAsync } from '@app/utils/docx';
+import { createDocxFromTextAsync } from '@app/utils/createDocxFromTextAsync';
 import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';

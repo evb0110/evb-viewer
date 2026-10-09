@@ -949,7 +949,7 @@ export default {
             'preprocessingUnavailable': 'Page {page} : le nettoyage du scan n’est pas disponible ; l’image originale a été utilisée.',
             'preprocessingFailed': 'Page {page} : le nettoyage du scan a échoué ; l’image originale a été utilisée.',
             'engineOptionUnsupported': 'Page {page} : le moteur OCR ne prend pas en charge le mode de reconnaissance choisi ; la page a été reconnue sans lui.',
-            'longSUnavailable': 'La page {page} est imprimée avec le s long (ſ), mais les modèles d’imprimés anciens n’étaient pas disponibles ; ſ peut donc être lu comme f.',
+            'earlyPrintUnavailable': 'La page {page} ressemble à un imprimé ancien, mais les modèles d’imprimés anciens n’étaient pas disponibles : le s long (ſ), le æ et les ligatures peuvent être mal lus.',
             'preprocessingGeometryChanged': 'Page {page} : le nettoyage du scan a modifié la géométrie de la page ; l’image originale a été utilisée.',
             'sourceDpiLimited': 'Page {page} : la résolution source a limité les DPI OCR effectifs.',
             'existingTextSkipped': 'Page {page} : le texte existant a été conservé.',
