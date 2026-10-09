@@ -2,7 +2,10 @@
 // from jbig2enc (Copyright 2006 Google Inc.), Apache License 2.0. The bitmap
 // classifier and all verification code are original and deliberately stricter.
 
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    hash::{BuildHasher, RandomState},
+};
 
 #[cfg(not(target_family = "wasm"))]
 use rayon::prelude::*;
@@ -59,7 +62,9 @@ pub struct SymbolEncodeLimits {
     pub max_components: usize,
     /// Maximum distinct, strictly verified exemplars in one shared dictionary.
     pub max_symbols: usize,
-    /// Maximum near-class exemplar comparisons in one dictionary chunk.
+    /// Maximum classifier comparisons in one dictionary chunk: near-class
+    /// exemplar comparisons plus exact-bucket comparisons against a different
+    /// bitmap with the same digest.
     pub max_class_comparisons: usize,
     /// Maximum near-class exemplar comparisons for one component. Reaching
     /// this fence starts a new exact exemplar instead of scanning an
@@ -107,8 +112,9 @@ pub struct SymbolDocument {
     pub fallback_pages: Vec<SymbolPageFallback>,
     pub symbol_count: usize,
     pub component_count: usize,
-    /// Deterministic near-class work consumed by this chunk. Exact hash hits
-    /// do not consume this budget.
+    /// Classifier work consumed by this chunk: near-class comparisons and
+    /// exact-bucket comparisons that miss (a 64-bit hash collision). Exact
+    /// hits do not consume this budget.
     pub class_comparison_count: usize,
 }
 
@@ -169,9 +175,12 @@ pub fn encode_pdf_symbol_pages_verified(
     }
 
     let mut symbols = Vec::<Symbol>::new();
-    // Buckets keyed by a cheap sampled digest. Class assignment still requires
-    // full bitmap equality inside the bucket, so a digest collision costs one
-    // extra comparison and never changes classification.
+    // Buckets keyed by a randomly keyed hash of the whole bitmap, so neither
+    // chance nor a crafted page can pile distinct bitmaps into one bucket.
+    // Class assignment still requires full bitmap equality inside the bucket,
+    // so a collision never changes classification; each colliding bitmap
+    // compared draws one comparison from the classifier budget.
+    let digest_state = RandomState::new();
     let mut exact_classes = HashMap::<u64, Vec<(SymbolKey, (usize, i32, i32))>>::new();
     let mut near_classes = HashMap::<(u32, u32), Vec<usize>>::new();
     let mut class_comparisons = 0usize;
@@ -180,20 +189,28 @@ pub fn encode_pdf_symbol_pages_verified(
     for components in extracted_pages {
         let mut placements = Vec::with_capacity(components.len());
         for component in components {
-            let digest = symbol_key_digest(
+            let digest = digest_state.hash_one((
                 component.symbol.width,
                 component.symbol.height,
                 &component.symbol.rows,
-            );
+            ));
             let bucket = exact_classes.entry(digest).or_default();
-            let exact_match = bucket
-                .iter()
-                .find(|(key, _)| {
-                    key.width == component.symbol.width
-                        && key.height == component.symbol.height
-                        && key.rows == component.symbol.rows
-                })
-                .map(|&(_, class)| class);
+            let mut exact_match = None;
+            for (key, class) in bucket.iter() {
+                if key.width == component.symbol.width
+                    && key.height == component.symbol.height
+                    && key.rows == component.symbol.rows
+                {
+                    exact_match = Some(*class);
+                    break;
+                }
+                if class_comparisons >= limits.max_class_comparisons {
+                    return Err(Jbig2Error::Unsupported(
+                        "symbol classifier comparison budget exceeded",
+                    ));
+                }
+                class_comparisons += 1;
+            }
             let (symbol, alignment_x, alignment_y) = match exact_match {
                 Some(class) => class,
                 None => {
@@ -717,34 +734,6 @@ struct SymbolKey {
     width: u32,
     height: u32,
     rows: Vec<u8>,
-}
-
-/// FNV-1a over the dimensions, row length, and up to 32 sampled row bytes.
-/// Cheap enough to probe with borrowed data; exactness comes from the full
-/// bitmap comparison inside the digest bucket, not from this hash.
-fn symbol_key_digest(width: u32, height: u32, rows: &[u8]) -> u64 {
-    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-    const SAMPLES: usize = 32;
-    let mut hash = OFFSET_BASIS;
-    let mut mix = |value: u64| {
-        hash ^= value;
-        hash = hash.wrapping_mul(PRIME);
-    };
-    mix(u64::from(width));
-    mix(u64::from(height));
-    mix(rows.len() as u64);
-    if rows.len() <= SAMPLES {
-        for &byte in rows {
-            mix(u64::from(byte));
-        }
-    } else {
-        let step = rows.len() / SAMPLES;
-        for index in 0..SAMPLES {
-            mix(u64::from(rows[index * step]));
-        }
-    }
-    hash
 }
 
 impl From<&Symbol> for SymbolKey {

@@ -96,9 +96,15 @@
                 @insert-pages="handleInsertPages"
             />
         </template>
-        <template v-if="toolbarHasPdf && canUseOcr && isDesktopRuntime" #scan-cleanup="{ isCollapsed }">
-            <AppTooltip :text="scanCleanupTriggerTooltip" :delay-duration="1200">
-                <span v-if="!isCollapsed(1)" class="scan-cleanup-trigger-wrap">
+        <!-- Every slot is passed unconditionally: a conditional slot makes PdfToolbar
+             re-render slotted components on each of its own updates. -->
+        <template #scan-cleanup="{ isCollapsed }">
+            <AppTooltip
+                v-if="toolbarHasPdf && canUseOcr && isDesktopRuntime && !isCollapsed(1)"
+                :text="scanCleanupTriggerTooltip"
+                :delay-duration="1200"
+            >
+                <span class="scan-cleanup-trigger-wrap">
                     <UButton
                         class="scan-cleanup-trigger"
                         :class="{'is-active': isScanCleanupRunning}"
@@ -116,11 +122,11 @@
                     </UButton>
                     <span v-if="isScanCleanupRunning" class="scan-cleanup-running-dot" aria-hidden="true" />
                 </span>
-                <span v-else class="hidden-trigger" aria-hidden="true" />
             </AppTooltip>
         </template>
-        <template v-if="canUseOcr" #ocr>
+        <template #ocr>
             <ToolbarButton
+                v-if="canUseOcr"
                 :icon="getReaderCommandToolbarIcon('ocr')"
                 :active="ocrPopupOpen"
                 :tooltip="t('ocr.button')"
@@ -241,10 +247,10 @@
                 @toggle-fullscreen="handleToggleFullscreen"
             />
         </template>
-        <template v-if="canUseOcr" #persistent-actions>
+        <template #persistent-actions>
             <!-- The dialog for the document's OCR run; the toolbar slot above is its trigger. -->
             <OcrPopup
-                v-if="ocr"
+                v-if="canUseOcr && ocr"
                 :presenter="ocr"
                 :current-page="snapshot.currentPage"
                 :total-pages="snapshot.totalPages"
@@ -703,10 +709,6 @@ function handleOpenOcr() {
     background: var(--ui-primary);
     animation: scan-cleanup-pulse 1.4s ease-in-out infinite;
     pointer-events: none;
-}
-
-.hidden-trigger {
-    display: none;
 }
 
 @keyframes scan-cleanup-pulse {

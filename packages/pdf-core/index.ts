@@ -25,7 +25,6 @@ export {
     DEFAULT_TIFF_DECODE_LIMITS,
     DEFAULT_TIFF_DECODE_MAX_FRAMES,
     DEFAULT_TIFF_DECODE_MAX_PIXELS,
-    iterateDecodedTiffFrames,
 } from '@pdf-core/iterateDecodedTiffFrames';
 export type { IIterateDecodedTiffFramesOptions } from '@pdf-core/iterateDecodedTiffFrames';
 export {
@@ -53,6 +52,7 @@ export {
     buildPdfSearchRegex,
     buildOcrTextLayerIndexText,
     assembleSearchablePageText,
+    assembleSearchablePageTextItems,
     collapseRepeatedPdfSearchPageText,
     escapeSearchRegex,
     findPdfSearchMatches,

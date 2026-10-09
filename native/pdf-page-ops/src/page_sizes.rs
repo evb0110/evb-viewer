@@ -13,9 +13,9 @@ use std::{
 
 use crate::{
     assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect,
-    load_annotation_index_pdf_path, load_pdf_path, reclassify_domain_error, resolve_inherited_box,
-    resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
-    NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, Result,
+    load_dictionary_incremental_pdf_path, load_pdf_path, reclassify_domain_error,
+    resolve_inherited_box, resolve_page_rotation, resolve_page_user_unit, resolve_page_view,
+    AppendedRevision, NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, Result,
     MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
 };
 
@@ -231,8 +231,7 @@ fn decode_page_content_with_limit(
     page_id: ObjectId,
     max_decompressed_bytes: usize,
 ) -> Result<Content<Vec<Operation>>> {
-    let bytes = document
-        .get_page_content_with_limit(page_id, max_decompressed_bytes)
+    let bytes = crate::page_content_with_limit(document, page_id, max_decompressed_bytes)
         .map_err(|error| {
             if matches!(
                 error,
@@ -522,33 +521,38 @@ pub(crate) fn write_page_sizes_path(
     let encoded_len = fs::metadata(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .len();
-    if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
+    let eager_sized = encoded_len <= MAX_ENCODED_PDF_BYTES as u64;
+    if eager_sized && !metadata_only {
         let document = load_pdf_path(input_path)
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
         assert_plaintext_base(
             &document,
             "Encrypted PDFs are not supported by native page ops",
         )?;
-        return if metadata_only {
-            write_page_sizes_sidecar(&document, output_path)
-        } else {
-            write_page_sizes_sidecar_document(&document, output_path)
-        };
+        return write_page_sizes_sidecar_document(&document, output_path);
     }
 
-    let qpdf_path = qpdf_path.ok_or_else(|| {
-        domain_error(
+    // Box metadata reads only dictionaries, and above the eager-load ceiling it
+    // is all a page-size read reports, so both take the dictionary load.
+    if !eager_sized && qpdf_path.is_none() {
+        return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Large page-size input requires the bundled qpdf structural reader",
-        )
-    })?;
-    let incremental = load_annotation_index_pdf_path(input_path, Some(qpdf_path))?;
+        ));
+    }
+    let incremental =
+        load_dictionary_incremental_pdf_path(input_path, qpdf_path).map_err(|error| {
+            if eager_sized {
+                classify_pdf_load_error(error, "Failed to parse PDF structure")
+            } else {
+                error
+            }
+        })?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
     )?;
-    let structural = AppendedRevision::new(&incremental);
-    write_page_sizes_sidecar(&structural, output_path)
+    write_page_sizes_sidecar(&AppendedRevision::new(&incremental), output_path)
 }
 
 fn page_sizes_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {

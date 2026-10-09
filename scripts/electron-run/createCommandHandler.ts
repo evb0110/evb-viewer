@@ -1,12 +1,9 @@
+import { join } from 'node:path';
 import {
-    basename,
-    join,
-} from 'node:path';
-import { mkdirSync } from 'node:fs';
-import {
-    countBy,
-    maxBy,
-} from 'es-toolkit/array';
+    mkdirSync,
+    realpathSync,
+} from 'node:fs';
+import { countBy } from 'es-toolkit/array';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -212,26 +209,6 @@ interface ICommandContext {
 }
 
 type TSessionCommandHandler = (context: ICommandContext, args: unknown[]) => Promise<unknown> | unknown;
-
-interface IViewerComponentSnapshot {
-    exposed?: IViewerComponentExposed | null;
-    setupState: IViewerSetupState;
-}
-
-interface IViewerVueComponent {
-    exposed?: IViewerComponentExposed | null;
-    setupState?: IViewerSetupState;
-}
-
-interface IViewerComponentExposed {getCurrentPage?: () => number;}
-
-interface IViewerSetupState {
-    numPages?: number;
-    currentPage?: number;
-    isLoading?: boolean;
-    workingCopyPath?: string | null;
-    activeDocumentRecord?: {tab?: {originalPath?: string | null;} | null;} | null;
-}
 
 async function installPageEvaluationShims(page: Page) {
     const source = 'window.__name = window.__name || ((fn) => fn);';
@@ -444,262 +421,106 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
     };
 }
 
-async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
-    const { page } = context.sessionState;
-    const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
-    const requestedBasename = basename(pdfPath).toLowerCase();
-    await installPageEvaluationShims(page);
-    interface IViewerSnapshot {
-        viewerIndex: number;
-        isVisible: boolean;
-        documentPath: string | null;
-        numPages: number | null;
-        currentPage: number | null;
-        isLoading: boolean | null;
+interface IOpenPdfState {
+    /** The active workspace, as the app's automation API reports it. */
+    activeDocument: {
+        originalPath: string | null;
         workingCopyPath: string | null;
-        renderedPageContainers: number;
-        renderedCanvasCount: number;
-        renderedTextSpanCount: number;
-        visibleSkeletonCount: number;
-        visibleLoadingCount: number;
-        visibleErrorCount: number;
+        numPages: number;
+        currentPage: number;
+        hasPdf: boolean;
+        hasOpenError: boolean;
+    } | null;
+    /** Pages of the active viewer whose canvas is painted and on screen. */
+    paintedPageCount: number;
+    openTrigger: Required<IElectronRunOpenPdfTrigger> | null;
+}
+
+// Compares paths as the file system does: through symlinks, and ignoring case
+// only on macOS and Windows, whose default file systems ignore it; Linux does not.
+function toComparablePath(path: string) {
+    let resolved = path;
+    try {
+        resolved = realpathSync(path);
+    } catch {
+        // A path that does not resolve is compared as given.
     }
-    interface IOpenPdfState {
-        numPages: number | null;
-        currentPage: number | null;
-        isLoading: boolean | null;
-        workingCopyPath: string | null;
-        renderedPageContainers: number;
-        renderedCanvasCount: number;
-        renderedTextSpanCount: number;
-        visibleSkeletonCount: number;
-        visibleLoadingCount: number;
-        visibleErrorCount: number;
-        hasViewer: boolean;
-        hasEmptyState: boolean;
-        viewerIndex: number | null;
-        viewerCount: number;
-        visibleViewerCount: number;
-        matchingViewerCount: number;
-        viewers: IViewerSnapshot[];
-        openTrigger?: {
-            token: string;
-            status: 'pending' | 'resolved' | 'rejected';
-            error: string | null;
-        } | null;
-    }
+    return process.platform === 'linux' ? resolved : resolved.replace(/\\/gu, '/').toLowerCase();
+}
 
-    const isRequestedDocumentLoaded = (documentPath: string | null | undefined) => {
-        if (!documentPath) {
-            return false;
-        }
-        return basename(documentPath).toLowerCase() === requestedBasename;
-    };
-    const isViewerReady = (viewer: Pick<IViewerSnapshot, 'numPages' | 'isLoading' | 'renderedPageContainers' | 'renderedCanvasCount' | 'renderedTextSpanCount'>) => {
-        const hasPages = (viewer.numPages ?? 0) > 0 || viewer.renderedPageContainers > 0;
-        const notLoading = viewer.isLoading === false || viewer.isLoading === null;
-        const hasRenderedContent = viewer.renderedCanvasCount > 0 || viewer.renderedTextSpanCount > 0;
-        return hasPages && notLoading && hasRenderedContent;
-    };
-    const scoreReadyViewer = (viewer: Pick<IViewerSnapshot, 'isVisible' | 'viewerIndex'>) => (
-        (viewer.isVisible ? 10_000 : 0) + viewer.viewerIndex
-    );
-    const findRequestedReadyViewer = (state: IOpenPdfState) => {
-        return maxBy(
-            state.viewers.filter(viewer => (
-                isRequestedDocumentLoaded(viewer.documentPath)
-                            && isViewerReady(viewer)
-            )),
-            scoreReadyViewer,
-        ) ?? null;
-    };
-
-    const readViewerState = (token?: string) => page.evaluate((requestedPathBasename: string, requestedToken?: string) => {
-        const hosts = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer'));
-        const isElementVisible = (element: HTMLElement | null) => {
-            if (!element?.isConnected) {
-                return false;
-            }
-
-            let current: HTMLElement | null = element;
-            while (current) {
-                const style = window.getComputedStyle(current);
-                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-                    return false;
-                }
-                current = current.parentElement;
-            }
-
-            const rect = element.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-        };
-        const viewers = hosts.map((host, viewerIndex) => {
-            const resolveDocumentPath = () => {
-                let current: HTMLElement | null = host;
-                while (current) {
-                    const component = (current as HTMLElement & {__vueParentComponent?: IViewerVueComponent})
-                        .__vueParentComponent;
-                    const originalPath = component?.setupState?.activeDocumentRecord?.tab?.originalPath;
-                    if (typeof originalPath === 'string' && originalPath.length > 0) {
-                        return originalPath;
-                    }
-                    current = current.parentElement;
-                }
-                return null;
-            };
-            const resolveViewerComponent = (): IViewerComponentSnapshot | null => {
-                let current: HTMLElement | null = host;
-                while (current) {
-                    const component = (current as HTMLElement & {__vueParentComponent?: IViewerVueComponent})
-                        .__vueParentComponent;
-                    const setupState = component?.setupState;
-                    if (
-                        setupState
-                        && (
-                            'numPages' in setupState
-                            || 'currentPage' in setupState
-                            || 'workingCopyPath' in setupState
-                        )
-                    ) {
-                        return {
-                            exposed: component.exposed ?? null,
-                            setupState,
-                        };
-                    }
-                    current = current.parentElement;
-                }
-                return null;
-            };
-            const component = resolveViewerComponent();
-            const setupState = component?.setupState ?? null;
-            const exposed = component?.exposed ?? null;
-            const pageContainers = host.querySelectorAll('.page_container');
-            const visibleLoadingCount = Array.from(host.querySelectorAll([
-                '.pdf-loading',
-                '.pdf-loading-overlay',
-                '.loading',
-                '[data-loading="true"]',
-                '[aria-busy="true"]',
-            ].join(',')))
-                .filter(node => isElementVisible(node as HTMLElement))
-                .length;
-            const visibleErrorCount = Array.from(host.querySelectorAll([
-                '.pdf-error',
-                '.error-state',
-                '.viewer-error',
-                '[role="alert"]',
-                '[data-error="true"]',
-            ].join(',')))
-                .filter(node => isElementVisible(node as HTMLElement))
-                .length;
-            return {
-                viewerIndex,
-                isVisible: isElementVisible(host),
-                documentPath: resolveDocumentPath() ?? setupState?.workingCopyPath ?? null,
-                numPages: setupState?.numPages ?? null,
-                currentPage: setupState?.currentPage ?? exposed?.getCurrentPage?.() ?? null,
-                isLoading: setupState?.isLoading ?? null,
-                workingCopyPath: setupState?.workingCopyPath ?? null,
-                renderedPageContainers: pageContainers.length,
-                renderedCanvasCount: host.querySelectorAll('.page_container .page_canvas canvas').length,
-                renderedTextSpanCount: host.querySelectorAll('.page_container .text-layer span, .page_container .textLayer span').length,
-                visibleSkeletonCount: Array.from(host.querySelectorAll('.page_container .document-page-skeleton'))
-                    .filter(node => isElementVisible(node as HTMLElement))
-                    .length,
-                visibleLoadingCount,
-                visibleErrorCount,
-            };
-        });
-        const getPathBasename = (path: string | null) => {
-            return (path ?? '')
-                .replace(/\\/g, '/')
-                .split('/')
-                .pop()
-                ?.toLowerCase() ?? '';
-        };
-        const scoreViewer = (viewer: typeof viewers[number]) => {
-            let score = 0;
-            if (requestedPathBasename && getPathBasename(viewer.documentPath) === requestedPathBasename) {
-                score += 1_000_000;
-            }
-            if (viewer.isVisible) {
-                score += 10_000;
-            }
-            if ((viewer.numPages ?? 0) > 0 || viewer.renderedPageContainers > 0) {
-                score += 500;
-            }
-            if (viewer.renderedCanvasCount > 0 || viewer.renderedTextSpanCount > 0) {
-                score += 250;
-            }
-            if (viewer.isLoading === false) {
-                score += 100;
-            }
-            return score;
-        };
-
-        const selectedViewer = viewers.reduce<typeof viewers[number] | null>((best, viewer) => {
-            if (!best) {
-                return viewer;
-            }
-            return scoreViewer(viewer) > scoreViewer(best) ? viewer : best;
-        }, null);
-
+// Reads the open from the app's automation API and the painted page canvases,
+// never from framework internals. The function runs in the page from its
+// source text, so it uses page globals only.
+function readOpenPdfState(page: Page, triggerToken: string) {
+    return page.evaluate((requestedToken: string): IOpenPdfState => {
         const automationWindow = window as IElectronRunOpenPdfWindow;
         const trigger = automationWindow.__electronRunOpenPdfTrigger;
-        const openTrigger = (
-            requestedToken
-                        && trigger
-                        && trigger.token === requestedToken
-        )
+        const openTrigger = trigger?.token === requestedToken
             ? {
-                token: trigger.token ?? '',
+                token: trigger.token,
                 status: trigger.status ?? 'pending',
                 error: trigger.error ?? null,
             }
             : null;
-        const visibleEmptyStates = Array.from(document.querySelectorAll('.empty-state'))
-            .filter(node => isElementVisible(node as HTMLElement));
-        const selected = selectedViewer ?? {
-            viewerIndex: -1,
-            documentPath: null,
-            numPages: null,
-            currentPage: null,
-            isLoading: null,
-            workingCopyPath: null,
-            renderedPageContainers: 0,
-            renderedCanvasCount: 0,
-            renderedTextSpanCount: 0,
-            visibleSkeletonCount: 0,
-            visibleLoadingCount: 0,
-            visibleErrorCount: 0,
+
+        const api = automationWindow.__evbTestApi;
+        const toolbar = api?.getActiveToolbarSnapshot?.() ?? null;
+        const workspace = api?.readActiveWorkspaceStateValues?.([
+            'originalPath',
+            'workingCopyPath',
+            'totalPages',
+        ]) ?? null;
+
+        const isShown = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
         };
-        const matchingViewerCount = viewers.filter((viewer) => {
-            return getPathBasename(viewer.documentPath) === requestedPathBasename;
-        }).length;
+        const shownViewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer')).filter(isShown);
+        const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
+        const viewer = activeViewer && shownViewers.includes(activeViewer)
+            ? activeViewer
+            : (shownViewers.length === 1 ? shownViewers[0] ?? null : null);
+        const viewerRect = viewer?.getBoundingClientRect() ?? null;
+        const paintedPageCount = viewer && viewerRect
+            ? Array.from(viewer.querySelectorAll<HTMLElement>('.page_container--rendered')).filter((pageElement) => {
+                const pageRect = pageElement.getBoundingClientRect();
+                const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top);
+                const canvas = pageElement.querySelector('canvas');
+                return visibleHeight > 8 && pageRect.width > 0 && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+            }).length
+            : 0;
 
+        const workspacePages = workspace?.totalPages;
         return {
-            numPages: selected.numPages,
-            currentPage: selected.currentPage,
-            isLoading: selected.isLoading,
-            workingCopyPath: selected.workingCopyPath,
-            renderedPageContainers: selected.renderedPageContainers,
-            renderedCanvasCount: selected.renderedCanvasCount,
-            renderedTextSpanCount: selected.renderedTextSpanCount,
-            visibleSkeletonCount: selected.visibleSkeletonCount,
-            visibleLoadingCount: selected.visibleLoadingCount,
-            visibleErrorCount: selected.visibleErrorCount,
-            hasViewer: viewers.length > 0,
-            hasEmptyState: visibleEmptyStates.length > 0,
-            viewerIndex: selected.viewerIndex >= 0 ? selected.viewerIndex : null,
-            viewerCount: viewers.length,
-            visibleViewerCount: viewers.filter(viewer => viewer.isVisible).length,
-            matchingViewerCount,
-            viewers,
+            activeDocument: toolbar && workspace
+                ? {
+                    originalPath: typeof workspace.originalPath === 'string' ? workspace.originalPath : null,
+                    workingCopyPath: typeof workspace.workingCopyPath === 'string' ? workspace.workingCopyPath : null,
+                    numPages: typeof workspacePages === 'number' && workspacePages > 0 ? workspacePages : toolbar.totalPages,
+                    currentPage: toolbar.currentPage,
+                    hasPdf: toolbar.hasPdf,
+                    hasOpenError: toolbar.hasOpenError,
+                }
+                : null,
+            paintedPageCount,
             openTrigger,
-        } satisfies IOpenPdfState;
-    }, requestedBasename, token);
+        };
+    }, triggerToken);
+}
 
-    const beforeState = await readViewerState();
+function describeOpenPdfState(state: IOpenPdfState) {
+    const active = state.activeDocument;
+    return active
+        ? `active document ${active.originalPath ?? '<none>'}, ${active.numPages} pages, ${state.paintedPageCount} painted, open ${state.openTrigger?.status ?? 'unknown'}`
+        : '__evbTestApi reports no active workspace';
+}
+
+async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
+    const { page } = context.sessionState;
+    const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
+    const requestedPath = toComparablePath(pdfPath);
+    await installPageEvaluationShims(page);
+
     const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
         type TElectronRunOpenPdfWindow = Window & {
             __allowRendererFileOpenForAutomation?: unknown;
@@ -769,51 +590,39 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         return token;
     }, pdfPath, OPEN_PDF_TRIGGER_TIMEOUT_MS);
 
-    const start = Date.now();
-    let lastState: IOpenPdfState = beforeState;
-    while (Date.now() - start < OPEN_PDF_READY_TIMEOUT_MS) {
-        lastState = await readViewerState(triggerToken);
-
-        if (lastState.openTrigger?.status === 'rejected') {
-            const triggerError = lastState.openTrigger.error;
-            throw new Error(triggerError && triggerError.length > 0 ? triggerError : 'openPdf failed');
+    // The open call has to finish first: before it does, the active tab can
+    // still be an earlier tab that shows the same file.
+    const isRequestedDocument = (state: IOpenPdfState) => state.openTrigger?.status === 'resolved'
+        && state.activeDocument?.originalPath != null
+        && toComparablePath(state.activeDocument.originalPath) === requestedPath;
+    const startedAt = Date.now();
+    let state = await readOpenPdfState(page, triggerToken);
+    while (!(
+        isRequestedDocument(state)
+        && state.activeDocument?.hasPdf === true
+        && state.activeDocument.numPages > 0
+        && state.paintedPageCount > 0
+    )) {
+        if (state.openTrigger?.status === 'rejected') {
+            const triggerError = state.openTrigger.error;
+            throw new Error(triggerError !== null && triggerError.length > 0 ? triggerError : 'openPdf failed');
         }
-
-        if (findRequestedReadyViewer(lastState)) {
-            await delay(250);
-            break;
+        if (isRequestedDocument(state) && state.activeDocument?.hasOpenError === true) {
+            throw new Error(`The renderer opened ${pdfPath} with an open error`);
         }
-
-        await delay(250);
+        if (Date.now() - startedAt >= OPEN_PDF_READY_TIMEOUT_MS) {
+            throw new Error(`openPdf readiness timeout for ${pdfPath} (${describeOpenPdfState(state)})`);
+        }
+        await delay(100);
+        state = await readOpenPdfState(page, triggerToken);
     }
-
-    const state = await readViewerState();
-    const readyViewer = findRequestedReadyViewer(state);
-    if (!readyViewer) {
-        const loadedPaths = state.viewers
-            .map(viewer => `${viewer.viewerIndex}:${viewer.documentPath ?? '<none>'}${viewer.isVisible ? ':visible' : ''}`)
-            .join(', ');
-        throw new Error(`openPdf readiness timeout for ${pdfPath} (viewer paths: ${loadedPaths || '<none>'})`);
-    }
-
-    const normalizedState: IOpenPdfState = {
-        ...state,
-        numPages: readyViewer.numPages,
-        currentPage: readyViewer.currentPage,
-        isLoading: readyViewer.isLoading,
-        workingCopyPath: readyViewer.workingCopyPath,
-        renderedPageContainers: readyViewer.renderedPageContainers,
-        renderedCanvasCount: readyViewer.renderedCanvasCount,
-        renderedTextSpanCount: readyViewer.renderedTextSpanCount,
-        visibleSkeletonCount: readyViewer.visibleSkeletonCount,
-        visibleLoadingCount: readyViewer.visibleLoadingCount,
-        visibleErrorCount: readyViewer.visibleErrorCount,
-        viewerIndex: readyViewer.viewerIndex,
-    };
 
     return {
         opened: pdfPath,
-        state: normalizedState,
+        state: {
+            ...state.activeDocument,
+            paintedPageCount: state.paintedPageCount,
+        },
     };
 }
 

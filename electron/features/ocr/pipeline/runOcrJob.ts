@@ -62,7 +62,7 @@ import {
     iterateOcrPageRequestBatches,
 } from '@electron/features/ocr/contracts';
 import {selectOcrPagesForSupersession} from '@electron/features/ocr/pipeline/selectOcrPagesForSupersession';
-import {sha256OcrFile} from '@electron/features/ocr/pipeline/sha256OcrFile';
+import {hashFileSha256} from '@electron/utils/hashFileSha256';
 import {
     createOcrPageSizeSource,
     type IOcrPageSizeInches,
@@ -278,7 +278,7 @@ async function readPageCheckpoint(
             checkpoint.version === 4
             && checkpointPdfStat.size > 0
             && checkpointPdfStat.size === checkpoint.pdfSize
-            && await sha256OcrFile(checkpointPdfPath, context.signal) === checkpoint.pdfSha256
+            && await hashFileSha256(checkpointPdfPath, context.signal) === checkpoint.pdfSha256
             && checkpoint.pageData?.pageNumber === page.pageNumber
             && checkpoint.pageData.imageWidth > 0
             && checkpoint.pageData.imageHeight > 0
@@ -477,7 +477,7 @@ async function processOcrPage(
                 diagnostics,
             },
             pageNumber: page.pageNumber,
-            sha256File: path => sha256OcrFile(path, context.signal),
+            sha256File: path => hashFileSha256(path, context.signal),
             signal: context.signal,
             sourcePdfPath: ocrResult.pdfPath,
             storageBudget: context.storageBudget,
@@ -984,7 +984,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         await durableManifest.markNode('assembled-document', 'verified');
 
         throwIfAborted(jobSignal);
-        const resultSha256 = await sha256OcrFile(mergedPdfPath, jobSignal);
+        const resultSha256 = await hashFileSha256(mergedPdfPath, jobSignal);
         await durableManifest.markNode('verified-result', 'verified');
         publish(lastPage, requestedPageCount, {
             phase: 'indexing',

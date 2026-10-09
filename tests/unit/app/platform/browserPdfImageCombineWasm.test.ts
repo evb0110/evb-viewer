@@ -14,6 +14,7 @@ import {
     encodeTiffIfds,
 } from '@pdf-core';
 import type {ITiffEncoderModule} from '@pdf-core/tiffEncoding';
+import {createTiffBytes} from '../../pdf-core/createTiffBytes';
 
 const NativeWebAssembly = WebAssembly;
 const wasmGlobalMockBase = {Memory: NativeWebAssembly.Memory};
@@ -487,6 +488,30 @@ describe('tryCombineImageInputsWithWasm', () => {
             id: 1,
             ok: false,
             errorEnvelope: {code: 'too-large'},
+        });
+        expect(response).not.toHaveProperty('data');
+        expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('leaves TIFF pixel decoding to WASM, which reports corrupt frame data', async () => {
+        const fetchMock = await stubSuccessfulImageCombineWasmFetch();
+        // Valid page directories over a strip that is not a Deflate stream.
+        const tiff = createTiffBytes([{
+            width: 16,
+            height: 16,
+            grayPixels: new Uint8Array(64).fill(0xff),
+            compression: 8,
+        }]);
+
+        const response = await runBrowserPdfCombineWorker([{
+            fileName: 'corrupt.tiff',
+            data: tiff,
+        }]);
+
+        expect(response).toMatchObject({
+            id: 1,
+            ok: false,
+            errorEnvelope: {code: 'native-failure'},
         });
         expect(response).not.toHaveProperty('data');
         expect(fetchMock).toHaveBeenCalledOnce();
