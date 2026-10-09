@@ -106,11 +106,11 @@ interface ITiffLayout {
 }
 
 interface ITiffDirectoryWalk {
+    bigTiff: boolean;
     frames: Array<{
         width: number | null;
         height: number | null;
     }>;
-    damaged: boolean;
 }
 
 const TIFF_TAG_IMAGE_WIDTH = 256;
@@ -178,20 +178,20 @@ function readTiffDimensionTag(directory: Uint8Array, entryCount: number, tag: nu
     return null;
 }
 
+function createTiffDirectoryDamagedError(options: IIterateDecodedTiffFramesOptions) {
+    return new Error(`TIFF page directory is damaged or truncated${getSourceSuffix(options.sourceLabel)}`);
+}
+
 /**
  * Walks the page directories of a classic or BigTIFF file and reads each one's
  * width and height without touching pixel data. It asks for byte ranges, so a
  * caller holding the whole file and one reading a file handle share this parser.
- * Only the frame cap throws; each caller decides what a damaged chain means.
+ * A chain that points outside the file or back into itself is damaged.
  */
 function* walkTiffDirectories(
-    options: Pick<IIterateDecodedTiffFramesOptions, 'maxFrames' | 'sourceLabel'>,
+    options: IIterateDecodedTiffFramesOptions,
 ): Generator<ITiffByteRange, ITiffDirectoryWalk, Uint8Array> {
     const frames: ITiffDirectoryWalk['frames'] = [];
-    const damaged = () => ({
-        frames,
-        damaged: true,
-    });
     const header = yield {
         offset: 0,
         length: 16,
@@ -199,8 +199,8 @@ function* walkTiffDirectories(
     const layout = readTiffLayout(header);
     if (!layout) {
         return {
+            bigTiff: false,
             frames,
-            damaged: false,
         };
     }
     const countBytes = layout.bigTiff ? 8 : 2;
@@ -210,7 +210,7 @@ function* walkTiffDirectories(
     let directoryOffset = readTiffOffset(header, layout.bigTiff ? 8 : 4, layout);
     while (directoryOffset > 0n) {
         if (directoryOffset > MAX_SAFE_TIFF_OFFSET || visitedOffsets.has(directoryOffset)) {
-            return damaged();
+            throw createTiffDirectoryDamagedError(options);
         }
         visitedOffsets.add(directoryOffset);
         const offset = Number(directoryOffset);
@@ -219,14 +219,14 @@ function* walkTiffDirectories(
             length: countBytes,
         };
         if (countData.byteLength < countBytes) {
-            return damaged();
+            throw createTiffDirectoryDamagedError(options);
         }
         assertTiffFrameCount(visitedOffsets.size, options);
         const entryCount = layout.bigTiff
             ? readTiffUint64(countData, 0, layout.littleEndian)
             : BigInt(readTiffUint16(countData, 0, layout.littleEndian));
         if (entryCount > TIFF_DIRECTORY_MAX_ENTRIES) {
-            return damaged();
+            throw createTiffDirectoryDamagedError(options);
         }
         const entriesLength = Number(entryCount) * entryBytes;
         const directory = yield {
@@ -234,7 +234,7 @@ function* walkTiffDirectories(
             length: entriesLength + offsetBytes,
         };
         if (directory.byteLength < entriesLength + offsetBytes) {
-            return damaged();
+            throw createTiffDirectoryDamagedError(options);
         }
         frames.push({
             width: readTiffDimensionTag(directory, Number(entryCount), TIFF_TAG_IMAGE_WIDTH, layout),
@@ -243,89 +243,100 @@ function* walkTiffDirectories(
         directoryOffset = readTiffOffset(directory, entriesLength, layout);
     }
     return {
+        bigTiff: layout.bigTiff,
         frames,
-        damaged: false,
     };
 }
 
 /**
+ * Checks every directory's frame against the per-frame and total pixel caps.
+ * Returns each directory's size, or null for one without an image: UTIF's
+ * decoder skips a directory without a width.
+ */
+function checkTiffFrameSizes(
+    walk: ITiffDirectoryWalk,
+    options: IIterateDecodedTiffFramesOptions,
+): Array<ITiffFrameDimensions | null> {
+    let totalPixels = 0;
+    return walk.frames.map(({
+        width,
+        height,
+    }) => {
+        if (width === null || width <= 0) {
+            return null;
+        }
+        if (height === null) {
+            throw createTiffDirectoryDamagedError(options);
+        }
+        if (height <= 0) {
+            return null;
+        }
+        assertTiffPixelCount(width, height, options);
+        totalPixels += width * height;
+        assertTiffTotalPixelCount(totalPixels, options);
+        return {
+            width,
+            height,
+        };
+    });
+}
+
+/**
  * Reads every TIFF frame's dimensions from its page directory and enforces the
- * frame and per-frame pixel caps, reading only directory bytes. A directory
- * without a width holds no image, as UTIF's decoder treats it; a chain that
- * points outside the file or back into itself is damaged.
+ * frame and pixel caps, reading only directory bytes.
  */
 export async function readTiffFrameDimensions(
     read: TTiffByteReader,
-    options: Pick<IIterateDecodedTiffFramesOptions, 'maxFrames' | 'maxPixels' | 'sourceLabel'>,
+    options: IIterateDecodedTiffFramesOptions,
 ): Promise<ITiffFrameDimensions[]> {
     const walker = walkTiffDirectories(options);
     let step = walker.next();
     while (!step.done) {
         step = walker.next(await read(step.value.offset, step.value.length));
     }
-    const damagedError = new Error(`TIFF page directory is damaged or truncated${getSourceSuffix(options.sourceLabel)}`);
-    if (step.value.damaged) {
-        throw damagedError;
-    }
-    const dimensions: ITiffFrameDimensions[] = [];
-    for (const {
-        width,
-        height,
-    } of step.value.frames) {
-        if (width === null || width <= 0) {
-            continue;
-        }
-        if (height === null) {
-            throw damagedError;
-        }
-        if (height > 0) {
-            assertTiffPixelCount(width, height, options);
-            dimensions.push({
-                width,
-                height,
-            });
-        }
-    }
-    return dimensions;
+    return checkTiffFrameSizes(step.value, options).filter(size => size !== null);
 }
 
-function preflightTiffIfdCount(bytes: Uint8Array, options: IIterateDecodedTiffFramesOptions) {
+function walkTiffDirectoriesInBytes(bytes: Uint8Array, options: IIterateDecodedTiffFramesOptions) {
     const walker = walkTiffDirectories(options);
     let step = walker.next();
     while (!step.done) {
         step = walker.next(bytes.subarray(step.value.offset, step.value.offset + step.value.length));
     }
+    return step.value;
 }
 
+/**
+ * Decodes the frames of an in-memory TIFF. The directories are walked and every
+ * frame, pixel and total-pixel cap is checked before UTIF parses or decodes
+ * anything, and only frames that passed are decoded.
+ */
 export function* iterateDecodedTiffFrames(
     bytes: Uint8Array,
     options: IIterateDecodedTiffFramesOptions = {},
 ): Generator<IDecodedTiffFrame> {
-    preflightTiffIfdCount(bytes, options);
+    const walk = walkTiffDirectoriesInBytes(bytes, options);
+    const sizes = checkTiffFrameSizes(walk, options);
+    // UTIF reads only classic TIFF; a BigTIFF or a file without an image has no
+    // frame it can decode.
+    if (walk.bigTiff || sizes.every(size => size === null)) {
+        return;
+    }
     const frames = decode(bytes);
-    assertTiffFrameCount(frames.length, options);
-
-    let totalPixels = 0;
-    for (const frame of frames) {
-        const width = typeof frame.width === 'number' ? frame.width : 0;
-        const height = typeof frame.height === 'number' ? frame.height : 0;
-        if (width <= 0 || height <= 0) {
-            continue;
-        }
-        assertTiffPixelCount(width, height, options);
-        totalPixels += width * height;
-        assertTiffTotalPixelCount(totalPixels, options);
+    if (frames.length !== sizes.length) {
+        throw createTiffDirectoryDamagedError(options);
     }
 
-    for (const frame of frames) {
-        let width = typeof frame.width === 'number' ? frame.width : 0;
-        let height = typeof frame.height === 'number' ? frame.height : 0;
-        if (width > 0 && height > 0) {
-            assertTiffPixelCount(width, height, options);
+    for (const [
+        index,
+        frame,
+    ] of frames.entries()) {
+        if (sizes[index] === null) {
+            continue;
         }
         decodeImage(bytes, frame);
-        width = typeof frame.width === 'number' ? frame.width : 0;
-        height = typeof frame.height === 'number' ? frame.height : 0;
+        const width = typeof frame.width === 'number' ? frame.width : 0;
+        const height = typeof frame.height === 'number' ? frame.height : 0;
         if (width <= 0 || height <= 0) {
             continue;
         }

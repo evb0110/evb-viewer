@@ -1,9 +1,7 @@
 import {
-    beforeEach,
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     iterateDecodedTiffFrames,
@@ -11,125 +9,125 @@ import {
 } from '@pdf-core/iterateDecodedTiffFrames';
 import { createTiffBytes } from './createTiffBytes';
 
-const utifMock = vi.hoisted(() => ({
-    decode: vi.fn(),
-    decodeImage: vi.fn(),
-    toRGBA8: vi.fn(),
-}));
-
-vi.mock('utif', () => {
-    const decode = (...args: unknown[]) => utifMock.decode(...args);
-    const decodeImage = (...args: unknown[]) => utifMock.decodeImage(...args);
-    const toRGBA8 = (...args: unknown[]) => utifMock.toRGBA8(...args);
-    return {
-        decode,
-        decodeImage,
-        toRGBA8,
-        default: {
-            decode,
-            decodeImage,
-            toRGBA8,
-        },
-    };
-});
+function decodeAll(bytes: Uint8Array, options: Parameters<typeof iterateDecodedTiffFrames>[1] = {}) {
+    return [...iterateDecodedTiffFrames(bytes, options)].map(({
+        width,
+        height,
+        rgba,
+    }) => ({
+        width,
+        height,
+        rgba: Buffer.from(rgba).toString('hex'),
+    }));
+}
 
 describe('iterateDecodedTiffFrames', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        utifMock.decode.mockReturnValue([]);
-        utifMock.decodeImage.mockImplementation(() => undefined);
-        utifMock.toRGBA8.mockReturnValue(new Uint8Array());
-    });
-
-    it('yields decoded RGBA frames within the configured limits', () => {
-        const frame = {
-            width: 2,
-            height: 3,
-        };
-        const rgba = new Uint8Array(2 * 3 * 4).fill(255);
-        utifMock.decode.mockReturnValue([frame]);
-        utifMock.toRGBA8.mockReturnValue(rgba);
-
-        expect([...iterateDecodedTiffFrames(new Uint8Array([1]), {
-            maxFrames: 1,
-            maxPixels: 6,
-            sourceLabel: 'scan.tif',
-        })]).toEqual([{
-            frame,
-            width: 2,
-            height: 3,
-            rgba,
-        }]);
-    });
-
-    it('rejects oversized frame counts before decoding image data', () => {
-        utifMock.decode.mockReturnValue([
-            {},
-            {},
+    it('decodes each frame of a real TIFF to RGBA', () => {
+        const bytes = createTiffBytes([
+            {
+                width: 3,
+                height: 1,
+                grayPixels: Uint8Array.of(0, 128, 255),
+            },
+            {
+                width: 1,
+                height: 2,
+                grayPixels: Uint8Array.of(40, 200),
+            },
         ]);
 
-        expect(() => [...iterateDecodedTiffFrames(new Uint8Array([1]), {
-            maxFrames: 1,
-            sourceLabel: 'scan.tif',
-        })]).toThrow('TIFF frame count is capped at 1: scan.tif');
-        expect(utifMock.decodeImage).not.toHaveBeenCalled();
-        expect(utifMock.toRGBA8).not.toHaveBeenCalled();
+        expect(decodeAll(bytes, {sourceLabel: 'scan.tif'})).toEqual([
+            {
+                width: 3,
+                height: 1,
+                rgba: '000000ff808080ffffffffff',
+            },
+            {
+                width: 1,
+                height: 2,
+                rgba: '282828ffc8c8c8ff',
+            },
+        ]);
     });
 
-    it('preflights a valid TIFF IFD chain before asking UTIF to parse every frame', () => {
-        const bytes = new Uint8Array(20);
-        const view = new DataView(bytes.buffer);
-        bytes.set([
-            0x49,
-            0x49,
-        ], 0);
-        view.setUint16(2, 42, true);
-        view.setUint32(4, 8, true);
-        view.setUint16(8, 0, true);
-        view.setUint32(10, 14, true);
-        view.setUint16(14, 0, true);
-        view.setUint32(16, 0, true);
+    it('rejects more frames than the cap before decoding any of them', () => {
+        const bytes = createTiffBytes(Array.from({length: 3}, () => ({
+            width: 1,
+            height: 1,
+            grayPixels: Uint8Array.of(7),
+        })));
 
-        expect(() => [...iterateDecodedTiffFrames(bytes, {
-            maxFrames: 1,
-            sourceLabel: 'ifd-chain.tif',
-        })]).toThrow('TIFF frame count is capped at 1: ifd-chain.tif');
-        expect(utifMock.decode).not.toHaveBeenCalled();
+        expect(() => decodeAll(bytes, {
+            maxFrames: 2,
+            sourceLabel: 'many.tif',
+        })).toThrow('TIFF frame count is capped at 2: many.tif');
     });
 
-    it('rejects oversized decoded dimensions before allocating RGBA output', () => {
-        const frame = {
-            width: 10_000,
-            height: 10_000,
-        };
-        utifMock.decode.mockReturnValue([frame]);
+    it('rejects a frame over the pixel cap from its directory instead of allocating it', () => {
+        // Decoding this frame would ask UTIF for a 10-gigabyte buffer.
+        const bytes = createTiffBytes([{
+            width: 100_000,
+            height: 100_000,
+        }]);
 
-        expect(() => [...iterateDecodedTiffFrames(new Uint8Array([1]), {
+        expect(() => decodeAll(bytes, {
             maxPixels: 80_000_000,
             sourceLabel: 'huge.tif',
-        })]).toThrow('TIFF frame dimensions are too large to decode safely: huge.tif');
-        expect(utifMock.decodeImage).not.toHaveBeenCalled();
-        expect(utifMock.toRGBA8).not.toHaveBeenCalled();
+        })).toThrow('TIFF frame dimensions are too large to decode safely: huge.tif');
     });
 
-    it('rejects aggregate frame pixels before decoding any frame', () => {
-        utifMock.decode.mockReturnValue([
-            {
-                width: 10,
-                height: 10,
-            },
-            {
-                width: 10,
-                height: 10,
-            },
-        ]);
+    it('rejects total pixels over the budget before decoding any frame', () => {
+        const bytes = createTiffBytes(Array.from({length: 2}, () => ({
+            width: 10,
+            height: 10,
+            grayPixels: new Uint8Array(100).fill(90),
+        })));
 
-        expect(() => [...iterateDecodedTiffFrames(new Uint8Array([1]), {
+        expect(() => decodeAll(bytes, {
             maxPixels: 100,
             maxTotalPixels: 150,
-            sourceLabel: 'many.tif',
-        })]).toThrow('TIFF aggregate decoded pixels are capped at 150: many.tif');
-        expect(utifMock.decodeImage).not.toHaveBeenCalled();
+            sourceLabel: 'budget.tif',
+        })).toThrow('TIFF aggregate decoded pixels are capped at 150: budget.tif');
+    });
+
+    it.each([
+        [
+            'loops back to an earlier directory',
+            createTiffBytes([
+                {
+                    width: 1,
+                    height: 1,
+                    grayPixels: Uint8Array.of(1),
+                },
+                {
+                    width: 1,
+                    height: 1,
+                    grayPixels: Uint8Array.of(2),
+                },
+            ], {loopLastDirectoryToFirst: true}),
+        ],
+        [
+            'is truncated before its last directory',
+            createTiffBytes([
+                {
+                    width: 32,
+                    height: 32,
+                    grayPixels: new Uint8Array(1024),
+                },
+                {
+                    width: 32,
+                    height: 32,
+                    grayPixels: new Uint8Array(1024),
+                },
+            ]).slice(0, 1500),
+        ],
+    ])('fails on a page directory chain that %s instead of handing it to UTIF', (_damage, bytes) => {
+        expect(() => decodeAll(bytes, {sourceLabel: 'damaged.tif'}))
+            .toThrow('TIFF page directory is damaged or truncated: damaged.tif');
+    });
+
+    it('yields nothing for bytes that are not a TIFF', () => {
+        expect(decodeAll(new TextEncoder().encode('not a TIFF'))).toEqual([]);
     });
 });
 
