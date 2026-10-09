@@ -231,7 +231,7 @@ describe('feature IPC codec maps', () => {
         })).toThrow('invalid native PDF save result');
     });
 
-    it('deeply validates workspace snapshots at the platform boundary', () => {
+    it('passes workspace snapshot responses to the bridge for their single parse', () => {
         const codec = agentCodec(AGENT_CHANNELS.submitWorkspaceSnapshot);
         const snapshot = {
             capturedAt: '2026-08-10T01:02:03.000Z',
@@ -259,14 +259,15 @@ describe('feature IPC codec maps', () => {
             ok: true,
             snapshot,
         }]);
-        expect(() => codec.decodeArgs([{
+        const malformed = {
             requestId: 'snapshot-1',
             ok: true,
             snapshot: {
                 ...snapshot,
                 panes: [42],
             },
-        }])).toThrow('invalid workspace snapshot response');
+        };
+        expect(codec.decodeArgs([malformed])).toEqual([malformed]);
     });
 
     it('preserves the source identity needed to validate cached opening geometry', () => {

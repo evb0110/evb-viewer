@@ -114,6 +114,14 @@ function getSnapshotRequest(window: IFakeWindow, index = 0) {
     return request;
 }
 
+function getCommandRequestId(window: IFakeWindow) {
+    const request: unknown = window.webContents.send.mock.calls[0]?.[1];
+    if (typeof request !== 'object' || request === null || !('requestId' in request) || typeof request.requestId !== 'string') {
+        throw new Error('Expected command request at send call 0');
+    }
+    return request.requestId;
+}
+
 function createWorkspaceSnapshot(): IAgentWorkspaceSnapshot {
     return {
         capturedAt: requireIsoTimestamp('2026-06-22T00:00:00.000Z'),
@@ -553,6 +561,53 @@ describe('agent workspace bridge', () => {
                     ...createWorkspaceSnapshot(),
                     panes: [42],
                 },
+            },
+        )).toEqual({
+            accepted: false,
+            reason: 'invalid-payload',
+        });
+
+        await expect(pending).rejects.toThrow('did not match the expected contract');
+    });
+
+    it('rejects a snapshot response with an unsafe revision through its matching pending request', async () => {
+        const window = createFakeWindow(608);
+        mocks.fromWebContents.mockReturnValue(window);
+        const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window));
+        const request = getSnapshotRequest(window);
+
+        expect(submitAgentWorkspaceSnapshotResponse(
+            createResponseEvent(window),
+            {
+                requestId: request.requestId,
+                windowId: request.windowId,
+                ok: true,
+                revision: Number.MAX_SAFE_INTEGER + 1,
+                snapshot: createWorkspaceSnapshot(),
+            },
+        )).toEqual({
+            accepted: false,
+            reason: 'invalid-payload',
+        });
+
+        await expect(pending).rejects.toThrow('did not match the expected contract');
+    });
+
+    it('rejects a malformed command response through its matching pending request', async () => {
+        const window = createFakeWindow(609);
+        mocks.fromWebContents.mockReturnValue(window);
+        const pending = requestAgentCommand(toBrowserWindow(window), {
+            name: 'activate_tab',
+            arguments: {tabId: requireTabId('tab-1')},
+        });
+        const requestId = getCommandRequestId(window);
+
+        expect(submitAgentCommandResponse(
+            createResponseEvent(window),
+            {
+                requestId,
+                ok: true,
+                result: 'not-a-record',
             },
         )).toEqual({
             accepted: false,
