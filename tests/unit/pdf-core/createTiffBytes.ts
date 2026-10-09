@@ -3,8 +3,10 @@ export interface ITiffTestFrame {
     width?: number;
     /** Omitted: the directory has no ImageLength tag. */
     height?: number;
-    /** Uncompressed 8-bit gray samples; the frame then decodes with UTIF. */
+    /** 8-bit gray strip bytes; the frame then decodes with UTIF. */
     grayPixels?: Uint8Array;
+    /** TIFF Compression of `grayPixels`, uncompressed (1) by default. */
+    compression?: number;
 }
 
 export interface ICreateTiffBytesOptions {
@@ -51,7 +53,7 @@ export function createTiffBytes(frames: ITiffTestFrame[], options: ICreateTiffBy
         tags.set(BITS_PER_SAMPLE, 8);
         tags.set(STRIP_OFFSETS, cursor);
         if (frame.grayPixels) {
-            tags.set(COMPRESSION, 1);
+            tags.set(COMPRESSION, frame.compression ?? 1);
             tags.set(PHOTOMETRIC_INTERPRETATION, 1);
             tags.set(SAMPLES_PER_PIXEL, 1);
             tags.set(ROWS_PER_STRIP, frame.height ?? 0);

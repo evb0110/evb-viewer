@@ -1,6 +1,6 @@
 import {
     DEFAULT_TIFF_DECODE_LIMITS,
-    iterateDecodedTiffFrames,
+    readTiffFrameDimensionsFromBytes,
 } from '@pdf-core/iterateDecodedTiffFrames';
 import type {
     IBrowserPdfCombineInput,
@@ -112,19 +112,19 @@ function validateWorkerInput(
         return;
     }
     if (extension === '.tif' || extension === '.tiff') {
-        let frameCount = 0;
+        // Frame sizes come from the page directories; WASM decodes the pixels once.
+        const frames = readTiffFrameDimensionsFromBytes(input.data, {
+            ...DEFAULT_TIFF_DECODE_LIMITS,
+            sourceLabel: input.fileName,
+        });
         for (const {
             width,
             height,
-        } of iterateDecodedTiffFrames(input.data, {
-                ...DEFAULT_TIFF_DECODE_LIMITS,
-                sourceLabel: input.fileName,
-            })) {
+        } of frames) {
             assertImageDimensions(width, height, input.fileName);
             consumeDecodedWorkingSet(budget, width, height, input.fileName);
-            frameCount += 1;
         }
-        if (frameCount === 0) {
+        if (frames.length === 0) {
             throw new Error(`ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:${input.fileName}`);
         }
         return;
