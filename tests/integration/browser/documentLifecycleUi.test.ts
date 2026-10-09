@@ -201,6 +201,87 @@ afterAll(async () => {
     await stopServer();
 });
 
+async function addNote(page: Page, text: string, position: {
+    x: number;
+    y: number
+}) {
+    await page.getByRole('button', {
+        name: 'Place a sticky note on the page.',
+        exact: true,
+    }).click();
+    await page.locator('.page_container[data-page="1"]').first().click({position});
+    await page.getByRole('textbox', {
+        name: 'Write annotation note',
+        exact: true,
+    }).fill(text);
+    await page.getByRole('button', {
+        name: 'Minimize note',
+        exact: true,
+    }).click();
+}
+
+function noteTexts(document: PDFDocument) {
+    const annots = document.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+    return new Set(Array.from({length: annots?.size() ?? 0}, (_, index) =>
+        annots!.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())
+        .filter((text): text is string => text !== undefined));
+}
+
+// Each recovery record's owner and the notes in its recovery bytes.
+async function readRecoveries(page: Page) {
+    const records = await page.evaluate(async () => {
+        const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+            const request = indexedDB.open('evb-viewer-browser-documents');
+            request.onsuccess = () => resolveDb(request.result);
+            request.onerror = () => rejectDb(request.error);
+        });
+        try {
+            const rows = await new Promise<Array<{
+                ownerId: string;
+                checkpoint: {tabs: Array<{
+                    isDirty: boolean;
+                    workingCopyRef: string | null
+                }>}
+            }>>((resolveRows, rejectRows) => {
+                const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
+                request.onsuccess = () => resolveRows(request.result);
+                request.onerror = () => rejectRows(request.error);
+            });
+            return rows.map(row => ({
+                ownerId: row.ownerId,
+                ref: row.checkpoint.tabs.find(tab => tab.isDirty)?.workingCopyRef ?? null,
+            }));
+        } finally {
+            db.close();
+        }
+    });
+    return Promise.all(records.map(async record => ({
+        ownerId: record.ownerId,
+        notes: record.ref
+            ? noteTexts(await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, record.ref))))
+            : new Set<string>(),
+    })));
+}
+
+// The lease owners whose lock a window holds, and those a window waits for.
+function readLeaseOwnerLocks(page: Page) {
+    return page.evaluate(async () => {
+        const {
+            held = [],
+            pending = [],
+        } = await navigator.locks.query();
+        const owners = (locks: LockInfo[]) => locks.flatMap(({name}) => (
+            name?.startsWith('evb-viewer:browser-lease-owner:')
+                ? [name.slice('evb-viewer:browser-lease-owner:'.length)]
+                : []
+        )).sort();
+        return {
+            held: owners(held),
+            pending: owners(pending),
+        };
+    });
+}
+
 async function clickCenter(page: Page, selector: string, button: 'left' | 'right' = 'left') {
     const box = await page.locator(selector).first().boundingBox();
     if (!box) {
@@ -2381,73 +2462,6 @@ describe('browser document lifecycle UI', () => {
                 await waitForOpenFileReady(page);
                 return page;
             }
-            async function addNote(page: Page, text: string, position: {
-                x: number;
-                y: number
-            }) {
-                await page.getByRole('button', {
-                    name: 'Place a sticky note on the page.',
-                    exact: true,
-                }).click();
-                await page.locator('.page_container[data-page="1"]').first().click({position});
-                await page.getByRole('textbox', {
-                    name: 'Write annotation note',
-                    exact: true,
-                }).fill(text);
-                await page.getByRole('button', {
-                    name: 'Minimize note',
-                    exact: true,
-                }).click();
-            }
-            function noteTexts(document: PDFDocument) {
-                const annots = document.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-                return new Set(Array.from({length: annots?.size() ?? 0}, (_, index) =>
-                    annots!.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())
-                    .filter((text): text is string => text !== undefined));
-            }
-            // Each recovery record's owner and the notes in its recovery bytes.
-            async function readRecoveries(page: Page) {
-                const records = await page.evaluate(async () => {
-                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                        const request = indexedDB.open('evb-viewer-browser-documents');
-                        request.onsuccess = () => resolveDb(request.result);
-                        request.onerror = () => rejectDb(request.error);
-                    });
-                    try {
-                        const rows = await new Promise<Array<{
-                            ownerId: string;
-                            checkpoint: {tabs: Array<{
-                                isDirty: boolean;
-                                workingCopyRef: string | null
-                            }>}
-                        }>>((resolveRows, rejectRows) => {
-                            const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
-                            request.onsuccess = () => resolveRows(request.result);
-                            request.onerror = () => rejectRows(request.error);
-                        });
-                        return rows.map(row => ({
-                            ownerId: row.ownerId,
-                            ref: row.checkpoint.tabs.find(tab => tab.isDirty)?.workingCopyRef ?? null,
-                        }));
-                    } finally {
-                        db.close();
-                    }
-                });
-                return Promise.all(records.map(async record => ({
-                    ownerId: record.ownerId,
-                    notes: record.ref
-                        ? noteTexts(await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, record.ref))))
-                        : new Set<string>(),
-                })));
-            }
-            function readLiveLeaseOwners(page: Page) {
-                return page.evaluate(async () => ((await navigator.locks.query()).held ?? []).flatMap(({name}) => (
-                    name?.startsWith('evb-viewer:browser-lease-owner:')
-                        ? [name.slice('evb-viewer:browser-lease-owner:'.length)]
-                        : []
-                )));
-            }
-
             const owner = await openWindow();
             keepFileChooserInterceptionEnabled(owner);
             const chooser = owner.waitForEvent('filechooser');
@@ -2469,7 +2483,7 @@ describe('browser document lifecycle UI', () => {
                 .toEqual([[firstNote]]);
             const [ownerRecord] = await readRecoveries(owner);
             const ownerId = ownerRecord!.ownerId;
-            await expect.poll(() => readLiveLeaseOwners(owner), {timeout: 15_000}).toContain(ownerId);
+            await expect.poll(async () => (await readLeaseOwnerLocks(owner)).held, {timeout: 15_000}).toContain(ownerId);
 
             const resumeOwner = await freezeWindow(context, owner);
 
@@ -2480,7 +2494,7 @@ describe('browser document lifecycle UI', () => {
                 const now = Date.now.bind(Date);
                 Date.now = () => now() + aheadMs;
             }, 60_000));
-            expect(await readLiveLeaseOwners(second)).toContain(ownerId);
+            expect((await readLeaseOwnerLocks(second)).held).toContain(ownerId);
             expect((await readRecoveries(second)).map(record => record.ownerId)).toEqual([ownerId]);
             expect(await second.locator('.page_container').count()).toBe(0);
 
@@ -2503,7 +2517,7 @@ describe('browser document lifecycle UI', () => {
             // Closing the window releases its lock, the browser's proof that
             // the owner is gone; its record is recoverable at once.
             await owner.close();
-            await expect.poll(() => readLiveLeaseOwners(second), {timeout: 15_000}).not.toContain(ownerId);
+            await expect.poll(async () => (await readLeaseOwnerLocks(second)).held, {timeout: 15_000}).not.toContain(ownerId);
             const recovered = await openWindow();
             await recovered.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
             await expect.poll(
@@ -2526,6 +2540,127 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 90_000);
+
+    // T2 (#1313): a duplicated tab copies window.name, so two windows start
+    // with one owner id. If the window holding the owner's lease lock gave
+    // up the id and kept the lock, the copy waited for that lock forever and
+    // none of its notes reached recovery, and the lock outlived the copy, so
+    // no other window could recover its record after it closed.
+    it('keeps a duplicated window\'s notes recoverable and releases its lease lock when it closes', async () => {
+        const consoleProblems: string[][] = [];
+        const browser = await chromium.launch({headless: true});
+        try {
+            const context = await browser.newContext({viewport: {
+                width: 1_280,
+                height: 800,
+            }});
+            await context.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            async function openWindow(prepare?: (page: Page) => Promise<unknown>) {
+                const page = await context.newPage();
+                consoleProblems.push(collectConsoleProblems(page));
+                keepFileChooserInterceptionEnabled(page);
+                await prepare?.(page);
+                await page.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+                return page;
+            }
+            async function openPdf(page: Page, fileName: string) {
+                const pdf = await PDFDocument.create();
+                const font = await pdf.embedFont(StandardFonts.Helvetica);
+                pdf.addPage([
+                    612,
+                    792,
+                ]).drawText(fileName, {
+                    x: 72,
+                    y: 720,
+                    font,
+                    size: 18,
+                });
+                const chooser = page.waitForEvent('filechooser');
+                await page.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
+                await (await chooser).setFiles({
+                    name: fileName,
+                    mimeType: 'application/pdf',
+                    buffer: Buffer.from(await pdf.save()),
+                });
+                await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            }
+
+            const original = await openWindow();
+            await openPdf(original, 'original.pdf');
+            await addNote(original, 'Original note', {
+                x: 200,
+                y: 200,
+            });
+            await expect.poll(async () => (await readRecoveries(original)).map(record => [...record.notes]), {timeout: 15_000})
+                .toEqual([['Original note']]);
+            const [originalRecord] = await readRecoveries(original);
+            const originalOwnerId = originalRecord!.ownerId;
+            await expect.poll(async () => (await readLeaseOwnerLocks(original)).held, {timeout: 15_000})
+                .toEqual([originalOwnerId]);
+
+            // The copy's instance nonce sorts first, so the nonces alone would
+            // make the original, which holds the lock, give up the id.
+            const copy = await openWindow(page => page.addInitScript((windowName) => {
+                if (!window.name) window.name = windowName;
+                Reflect.set(window, '__evbBrowserWindowTabsState', {recoveryInstanceNonce: '!'});
+            }, `evb-viewer-window:${originalOwnerId.slice('window:'.length)}`));
+            // A copy that kept the id shows the original's recovered document.
+            if (await copy.locator('.page_container').count() === 0) {
+                await openPdf(copy, 'copy.pdf');
+            }
+            await addNote(copy, 'Copy note', {
+                x: 200,
+                y: 200,
+            });
+            await addNote(original, 'Second original note', {
+                x: 300,
+                y: 400,
+            });
+            await expect.poll(async () => (await readRecoveries(original)).flatMap(record => [...record.notes]), {timeout: 15_000})
+                .toEqual(expect.arrayContaining([
+                    'Copy note',
+                    'Second original note',
+                ]));
+            const records = await readRecoveries(original);
+            const ownerOf = (note: string) => records.find(record => record.notes.has(note))!.ownerId;
+            // Each owner id's lock is held, and no window waits for one.
+            expect(await readLeaseOwnerLocks(original)).toEqual({
+                held: [
+                    ownerOf('Copy note'),
+                    ownerOf('Second original note'),
+                ].sort(),
+                pending: [],
+            });
+            expect(records.map(record => [...record.notes].sort().join(', ')).sort()).toEqual([
+                'Copy note',
+                'Original note, Second original note',
+            ]);
+
+            // Closing the copy releases its lock and only its lock, and its
+            // record is recoverable at once.
+            await copy.close();
+            await expect.poll(async () => (await readLeaseOwnerLocks(original)).held, {timeout: 15_000})
+                .toEqual([ownerOf('Second original note')]);
+            const recovered = await openWindow();
+            await recovered.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await expect.poll(
+                () => recovered.locator('.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind="note"]').count(),
+                {timeout: 15_000},
+            ).toBe(1);
+            expect(await recovered.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain('copy.pdf');
+            expect(consoleProblems.flat()).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
 
     it('opens URI destinations by pointer and Enter with no opener or console failure', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-external-url-${process.pid}`);

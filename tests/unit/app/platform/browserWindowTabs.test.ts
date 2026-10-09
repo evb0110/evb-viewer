@@ -419,6 +419,38 @@ describe('browserWindowTabsCapability', () => {
         await expect(claim).resolves.toBe(closed.checkpoint);
     });
 
+    it('gives up an owner whose lease lock another window holds, with its wait for that lock', async () => {
+        const ownerLockName = 'evb-viewer:browser-lease-owner:window:321';
+        const locks = new FakeLockManager();
+        locks.holdElsewhere(ownerLockName);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=321', locks);
+        const originalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const module = await import('@app/platform/browserWindowTabs');
+        const leases = await import('@app/platform/browser/browserDocumentLeaseStore');
+        expect(module.getBrowserWindowRecoveryOwnerId()).toBe('window:321');
+
+        // A copy of a frozen window hears no answer, keeps the id and waits
+        // for the original's lock at its first lease save.
+        const firstSave = leases.saveBrowserDocumentLiveLease('window:321', 0, 'active', []);
+        // The original resumes. Its nonce sorts last, so the nonces alone
+        // would keep the copy on the id.
+        originalWindow.postMessage({
+            type: 'announce',
+            windowId: 321,
+            instanceNonce: '~',
+            label: 'Original tab',
+            ready: true,
+        });
+
+        await expect(firstSave).rejects.toThrow('aborted');
+        const ownerId = module.getBrowserWindowRecoveryOwnerId();
+        expect(ownerId).not.toBe('window:321');
+        // When the original closes, its lock does not pass to the copy.
+        locks.releaseElsewhere(ownerLockName);
+        expect((await locks.query()).held).toEqual([{name: `evb-viewer:browser-lease-owner:${ownerId}`}]);
+        await expect(leases.saveBrowserDocumentLiveLease('window:321', 0, 'active', [])).rejects.toThrow('does not own');
+    });
+
     it('claims an expired recovery owner when live-peer discovery is unavailable', async () => {
         vi.setSystemTime(100_000);
         stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');

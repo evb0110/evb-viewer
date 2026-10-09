@@ -24,7 +24,11 @@ import {
     loadBrowserWorkspaceRecovery,
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
-import { loadLiveLeaseOwnerIds } from '@app/platform/browser/browserDocumentLeaseStore';
+import {
+    holdLeaseOwnerLock,
+    holdsLeaseOwnerLock,
+    loadLiveLeaseOwnerIds,
+} from '@app/platform/browser/browserDocumentLeaseStore';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
@@ -396,9 +400,13 @@ function resolveCurrentWindowId() {
     return windowId;
 }
 
+function recoveryOwnerId(windowId: number) {
+    return `window:${String(windowId)}`;
+}
+
 export function getBrowserWindowRecoveryOwnerId() {
     initializeBrowserWindowTabs();
-    return currentWindowId > 0 ? `window:${String(currentWindowId)}` : null;
+    return currentWindowId > 0 ? recoveryOwnerId(currentWindowId) : null;
 }
 
 function ensureChannel() {
@@ -666,12 +674,17 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
         message.windowId === currentWindowId
         && message.instanceNonce !== currentRecoveryInstanceNonce
     ) {
-        // A duplicated/restored tab can clone window.name. Resolve the collision
-        // deterministically so exactly one live context retains the old owner.
-        if (currentRecoveryInstanceNonce > message.instanceNonce) {
+        // A duplicated/restored tab can clone window.name. The context that
+        // holds the owner's lease lock keeps the owner with its leases and
+        // records; a context that does not takes a new id and that id's lock.
+        // Without a lock manager the instance nonces decide which one keeps it.
+        const retainsOwner = holdsLeaseOwnerLock(recoveryOwnerId(currentWindowId))
+            ?? currentRecoveryInstanceNonce < message.instanceNonce;
+        if (!retainsOwner) {
             const retainedWindowId = currentWindowId;
             knownWindows.delete(currentWindowId);
             currentWindowId = createWindowId();
+            holdLeaseOwnerLock(recoveryOwnerId(currentWindowId));
             const state = getBrowserWindowTabsState();
             if (state) state.windowId = currentWindowId;
             rememberNamedWindowId(currentWindowId);
@@ -982,7 +995,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             return exact.checkpoint;
         }
 
-        const activeOwnerIds = new Set(Array.from(knownWindows.keys(), id => `window:${String(id)}`));
+        const activeOwnerIds = new Set(Array.from(knownWindows.keys(), recoveryOwnerId));
         const liveOwnerIds = await loadLiveLeaseOwnerIds();
         const now = Date.now();
         const orphaned = (await loadBrowserWorkspaceRecoveries())

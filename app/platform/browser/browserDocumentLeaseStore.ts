@@ -27,7 +27,8 @@ interface ILockManager {
         name: string,
         options: {
             mode: 'exclusive';
-            ifAvailable?: boolean
+            ifAvailable?: boolean;
+            signal?: AbortSignal
         },
         callback: (lock: unknown) => Promise<T>,
     ): Promise<T>;
@@ -44,32 +45,57 @@ function resolveLockManager() {
         : null;
 }
 
-const heldOwnerLocks = new Set<string>();
+// The owner id this context publishes leases for, and its lock.
+let ownerLock: {
+    ownerId: string;
+    held: boolean;
+    granted: Promise<void>;
+    release: AbortController;
+} | null = null;
 
 // The lock is what makes a lease's owner observable. The agent releases it when
 // the window closes, crashes, or is killed, which is the only death signal a
 // browser gives us; a quiet heartbeat is not one, since a throttled or frozen
-// tab looks identical to a dead one. The promise is never resolved, so the lock
-// is held for the lifetime of the context.
-async function holdLeaseOwnerLock(ownerId: string) {
-    if (heldOwnerLocks.has(ownerId)) {
-        return;
-    }
+// tab looks identical to a dead one. A context holds the lock of the one owner
+// id it speaks for until it takes another id, and then releases it or withdraws
+// its request, so a lock always belongs to the context that owns its id.
+export function holdLeaseOwnerLock(ownerId: string) {
     const locks = resolveLockManager();
-    if (!locks) {
+    if (!locks || ownerLock?.ownerId === ownerId) {
         return;
     }
-    heldOwnerLocks.add(ownerId);
-    await new Promise<void>((granted) => {
-        void locks.request(
+    ownerLock?.release.abort();
+    const release = new AbortController();
+    const released = new Promise<void>(resolveReleased => release.signal.addEventListener('abort', () => resolveReleased()));
+    const lock = {
+        ownerId,
+        held: false,
+        granted: Promise.resolve(),
+        release,
+    };
+    lock.granted = new Promise<void>((resolveGranted, rejectGranted) => {
+        locks.request(
             leaseOwnerLockName(ownerId),
-            {mode: 'exclusive'},
-            () => {
-                granted();
-                return new Promise<never>(() => {});
+            {
+                mode: 'exclusive',
+                signal: release.signal,
             },
-        );
+            () => {
+                lock.held = true;
+                resolveGranted();
+                return released;
+            },
+        ).catch(rejectGranted);
     });
+    // A request withdrawn before its grant rejects; a save waiting for it fails.
+    lock.granted.catch(() => undefined);
+    ownerLock = lock;
+}
+
+// Whether this context holds the owner's lock, or null where the browser has no
+// lock manager to tell.
+export function holdsLeaseOwnerLock(ownerId: string) {
+    return resolveLockManager() ? ownerLock?.ownerId === ownerId && ownerLock.held : null;
 }
 
 export async function saveBrowserDocumentLiveLease(
@@ -79,8 +105,15 @@ export async function saveBrowserDocumentLiveLease(
     protectedDependencies: IBrowserDocumentLeaseDependency[],
 ) {
     // Take the liveness lock before publishing, so no sweep can observe a lease
-    // whose owner has not yet become observable.
-    await holdLeaseOwnerLock(ownerId);
+    // whose owner has not yet become observable. A context without an owner id
+    // takes this one; it never speaks for an id it does not own.
+    if (!ownerLock) {
+        holdLeaseOwnerLock(ownerId);
+    }
+    if (ownerLock && ownerLock.ownerId !== ownerId) {
+        throw new Error(`This browser context does not own lease owner ${ownerId}.`);
+    }
+    await ownerLock?.granted;
     const result = await runObjectStoreTransaction<IBrowserDocumentLiveLease | null>(
         BROWSER_LIVE_LEASES_STORE,
         'readwrite',

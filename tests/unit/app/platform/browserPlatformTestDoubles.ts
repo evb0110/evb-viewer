@@ -557,37 +557,69 @@ export class FakeIndexedDbFactory {
     }
 }
 
-/** One origin's Web Locks; `holdElsewhere` stands for a lock another browser context holds. */
+/** One origin's Web Locks; `holdElsewhere` stands for a lock another browser context holds until `releaseElsewhere`. */
 export class FakeLockManager {
     private readonly heldNames = new Set<string>();
+    private readonly waiting = new Map<string, Array<() => void>>();
 
     public holdElsewhere(name: string) {
         this.heldNames.add(name);
+    }
+
+    public releaseElsewhere(name: string) {
+        this.release(name);
     }
 
     // Required by the LockManager-shaped object consumed structurally by the browser lease store.
     // fallow-ignore-next-line unused-class-member
     public async request<T>(
         name: string,
-        options: {ifAvailable?: boolean},
+        options: {
+            ifAvailable?: boolean;
+            signal?: AbortSignal
+        },
         callback: (lock: {name: string} | null) => Promise<T>,
     ): Promise<T> {
         if (this.heldNames.has(name)) {
             if (options.ifAvailable) {
                 return callback(null);
             }
-            throw new Error(`The fake lock manager does not queue requests for ${name}.`);
+            // A waiting request is granted when the lock is released, or
+            // withdrawn when its signal aborts first.
+            await new Promise<void>((granted, withdrawn) => {
+                const queue = this.waiting.get(name) ?? [];
+                const grant = () => {
+                    options.signal?.removeEventListener('abort', withdraw);
+                    granted();
+                };
+                const withdraw = () => {
+                    queue.splice(queue.indexOf(grant), 1);
+                    withdrawn(new DOMException('The lock request was aborted.', 'AbortError'));
+                };
+                options.signal?.addEventListener('abort', withdraw, {once: true});
+                queue.push(grant);
+                this.waiting.set(name, queue);
+            });
         }
         this.heldNames.add(name);
         try {
             return await callback({name});
         } finally {
-            this.heldNames.delete(name);
+            this.release(name);
         }
     }
 
     // fallow-ignore-next-line unused-class-member
     public async query() {
         return {held: Array.from(this.heldNames, name => ({name}))};
+    }
+
+    private release(name: string) {
+        const next = this.waiting.get(name)?.shift();
+        if (next) {
+            next();
+            return;
+        }
+        this.heldNames.delete(name);
     }
 }
