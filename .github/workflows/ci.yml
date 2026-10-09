@@ -255,10 +255,33 @@ jobs:
       - name: Rust formatting and clippy
         run: pnpm run lint:rust
 
-      - name: Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@v2
+      # Pinned release binary, not a Docker image: the image pulled a base
+      # layer from Docker Hub, whose auth endpoint outage failed unrelated PRs.
+      - name: Restore cargo-deny archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          manifest-path: native/Cargo.toml
+          path: ${{ runner.temp }}/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+          key: cargo-deny-0.20.2-x86_64-unknown-linux-musl
+
+      - name: Install cargo-deny
+        env:
+          CARGO_DENY_ARCHIVE: ${{ runner.temp }}/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+        run: |
+          set -euo pipefail
+          if [ ! -f "$CARGO_DENY_ARCHIVE" ]; then
+            curl --fail --silent --show-error --location --output "$CARGO_DENY_ARCHIVE" \
+              https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz
+          fi
+          echo "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f  $CARGO_DENY_ARCHIVE" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          tar -xzf "$CARGO_DENY_ARCHIVE" -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1 --wildcards '*/cargo-deny'
+
+      # Same invocation as EmbarkStudios/cargo-deny-action@v2 with its defaults
+      # (log-level warn, arguments --all-features, command check).
+      - name: Rust dependency policy
+        env:
+          CARGO_TERM_COLOR: always
+        run: "$RUNNER_TEMP/cargo-deny-bin/cargo-deny --log-level warn --manifest-path native/Cargo.toml --all-features check"
 
       - name: Rust tests
         run: pnpm run test:rust
