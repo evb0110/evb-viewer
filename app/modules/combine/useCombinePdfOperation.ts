@@ -133,7 +133,11 @@ export const useCombinePdfOperation = <T extends {
             return;
         }
         try {
-            const savedPath = await getDocumentFilesCapability().savePdfAs(pending.workingPath, undefined);
+            // No document opened this file, so its revision comes from the
+            // working copy's owner rather than a document session.
+            const documentFiles = getDocumentFilesCapability();
+            const {token} = await documentFiles.getDocumentRevision(pending.workingPath);
+            const savedPath = await documentFiles.savePdfAs(pending.workingPath, undefined, {expectedDocumentRevisionToken: token});
             if (savedPath) {
                 combineError.value = null;
                 combineFailure.value = null;
