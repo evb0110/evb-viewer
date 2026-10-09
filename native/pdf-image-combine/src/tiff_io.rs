@@ -278,8 +278,8 @@ fn read_tiff_dpi<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<u32> {
     read_tiff_dpi_axes(decoder).map(|(dpi_x, dpi_y)| dpi_x.max(dpi_y))
 }
 
-/// Horizontal and vertical DPI; an axis without a positive resolution takes
-/// the other axis's value.
+/// Horizontal and vertical DPI; an axis without a resolution that rounds to
+/// at least 1 DPI takes the other axis's value.
 fn read_tiff_dpi_axes<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<(u32, u32)> {
     let mut resolution = |tag| {
         decoder
@@ -306,10 +306,14 @@ fn read_tiff_dpi_axes<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<(u32, 
         3 => CM_PER_INCH,
         _ => return None,
     };
-    Some((
+    match (
         (x_resolution * scale).round() as u32,
         (y_resolution * scale).round() as u32,
-    ))
+    ) {
+        (0, 0) => None,
+        (0, dpi) | (dpi, 0) => Some((dpi, dpi)),
+        axes => Some(axes),
+    }
 }
 
 /// Reads a 1-bit frame as PBM rows, in which a set bit is a black pixel.
@@ -971,6 +975,36 @@ mod tests {
             "evb-pdf-image-combine-{label}-{}-{nanos}.tiff",
             process::id()
         ))
+    }
+
+    #[test]
+    fn an_axis_resolution_below_one_dpi_takes_the_other_axis() {
+        let dpi_axes = |x: Rational, y: Rational| {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            let mut encoder = TiffEncoder::new(&mut bytes).unwrap();
+            let mut image = encoder.new_image::<colortype::Gray8>(1, 1).unwrap();
+            image.resolution_unit(ResolutionUnit::Inch);
+            image.x_resolution(x);
+            image.y_resolution(y);
+            image.write_data(&[0]).unwrap();
+            let mut decoder = Decoder::new(std::io::Cursor::new(bytes.into_inner())).unwrap();
+            read_tiff_dpi_axes(&mut decoder)
+        };
+        let below_one = || Rational { n: 2, d: 5 };
+
+        assert_eq!(
+            dpi_axes(Rational { n: 300, d: 1 }, below_one()),
+            Some((300, 300))
+        );
+        assert_eq!(
+            dpi_axes(below_one(), Rational { n: 200, d: 1 }),
+            Some((200, 200))
+        );
+        assert_eq!(dpi_axes(below_one(), below_one()), None);
+        assert_eq!(
+            dpi_axes(Rational { n: 204, d: 1 }, Rational { n: 98, d: 1 }),
+            Some((204, 98))
+        );
     }
 
     fn write_tiff<C: ColorType<Inner = u8>>(
