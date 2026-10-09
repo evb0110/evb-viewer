@@ -1,0 +1,29 @@
+electron/features/ocr/languageModels.ts
+  s_ecd9d295ef2e8d::t_26ba1087d7fe11 45
+electron/writeHostBugReportBundle.ts
+  s_ecd9d295ef2e8d::t_26ba1087d7fe11 19,54
+tests/unit/electron/ocrWorkerHashing.test.ts
+  s_ecd9d295ef2e8d::t_bce5b1dd1aeb92 8,13,15,22-32,34,36,38,46,50,52
+electron/features/ocr/pipeline/runOcrJob.ts
+  s_ecd9d295ef2e8d::t_26ba1087d7fe11 65,277,461,962
+electron/utils/hashFileSha256.ts
+  s_ecd9d295ef2e8d::t_849b6e75e6f699 1-3,5-6,11-19,22-37,39-42
+tests/unit/electron/ocrLanguageModels.test.ts
+  s_ecd9d295ef2e8d::t_bce5b1dd1aeb92 326,409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "790e935cf92b191f4c211230e6e7d6fe50d107a6",
+  "prompts": {},
+  "sessions": {
+    "s_ecd9d295ef2e8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4d73a2e-5676-48b0-bb58-29497cf26a8f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
