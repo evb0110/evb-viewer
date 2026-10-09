@@ -407,9 +407,6 @@ fn prepare_analysis_page_impl(
                 );
             }
         }
-        if prepare_quality_raster && options.normalize_illumination {
-            split.reusable_binary = None;
-        }
         if (analysis.scale_x < 1.0
             || analysis.scale_y < 1.0
             || analysis.effective_dpi < SPLIT_ANALYSIS_DPI)
@@ -1525,6 +1522,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
             let recommendation = recommend_output_mode_with_tone(
                 PreparedModeEvidence {
                     analysis: rotated,
+                    flattened: layout_normalized,
                     analysis_rgb,
                     picture_mask,
                     picture_tone_evidence,
@@ -1561,6 +1559,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
                     recommend_output_mode_with_tone(
                         PreparedModeEvidence {
                             analysis: rotated,
+                            flattened: layout_normalized,
                             analysis_rgb,
                             picture_mask,
                             picture_tone_evidence,

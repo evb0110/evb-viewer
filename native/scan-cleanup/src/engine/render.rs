@@ -23,10 +23,9 @@ use crate::{
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
         binary_to_gray, dark_background_ocr_mask, is_horizontally_fused_extent_admissible,
-        paper_reference, picture_protection_radius, postprocess_binary_with_diagnostics_and_raw,
-        resolve_binarization_diagnostics, resolve_spread_binarization_plans,
-        BinarizationDiagnostics, BinarizationInput, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR,
-        BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
+        paper_reference, picture_protection_radius, resolve_binarization_diagnostics,
+        resolve_spread_binarization_plans, BinarizationDiagnostics, BinarizationInput,
+        SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR, BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
     calibration::{CalibrationConfig, PageCalibration},
@@ -60,7 +59,6 @@ use crate::{
         apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
         outside_tonal_evidence_with_mask, OutsideTonalEvidence, TextToneDiagnostics,
     },
-    thin_strokes::restored_thin_strokes,
     CleanupOptions, OrthogonalRotation, OutputMode, ResolvedOutputMode,
 };
 use rayon::prelude::*;
@@ -2545,14 +2543,9 @@ fn split_result_bytes(split: &SplitResult) -> usize {
         .split_seam
         .as_ref()
         .map_or(0, |seam| seam.points.len() * std::mem::size_of::<Point>());
-    let binary = split
-        .reusable_binary
-        .as_ref()
-        .map_or(0, |binary| std::mem::size_of_val(binary.words()));
     std::mem::size_of::<SplitResult>()
         .saturating_add(polygons)
         .saturating_add(seam)
-        .saturating_add(binary)
 }
 
 fn gutter_band_needs_raw_remeasurement(split: &SplitResult) -> bool {
@@ -2861,7 +2854,7 @@ fn filter_soft_shallow_bleed_components(
     text_mask: Option<&BinaryImage>,
     text_vicinity_mask: Option<&BinaryImage>,
     dpi: f64,
-    restored_strokes: Option<&BinaryImage>,
+    local_route: bool,
 ) -> BinaryImage {
     debug_assert_eq!(binary.width(), raw.width());
     debug_assert_eq!(binary.height(), raw.height());
@@ -2978,16 +2971,18 @@ fn filter_soft_shallow_bleed_components(
                 && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
         }
     });
-    // A bleed rule that crosses a running head merges with the glyphs into
-    // one component that the verdict above rightly keeps, so the merged
-    // strike must be removed pixelwise: a bleed pixel is simultaneously
-    // shallow and locally soft, while every genuine glyph pixel is either
-    // deep (stroke interior) or crisp (antialiased edge). Erasing only the
-    // pixels that fail both tests strips the strike and leaves the glyphs
-    // it crossed intact. A hairline restored from its gray valley is often
-    // shallow and soft too, but it already passed a stricter test of shape
-    // and context; cutting it here would leave the rest as loose specks.
-    let stripped = BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
+    // A local threshold (Wolf, Sauvola) normalizes contrast per window, so
+    // heavy show-through can cross it: a bleed rule that crosses a running
+    // head then merges with the glyphs into one component that the verdict
+    // above rightly keeps, and the merged strike must be removed pixelwise. A
+    // bleed pixel is simultaneously shallow and locally soft, while a crisp
+    // print's glyph pixel is either deep or crisp. The midpoint route cuts each
+    // stroke relative to its own ink, so faint bleed never reaches its stencil;
+    // there the same test would only erase the blurred hairlines of soft scans.
+    if !local_route {
+        return retained;
+    }
+    BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
         let label = components.label_at(x, y) as usize;
         retained.get(x, y)
             && (underline_components[label]
@@ -2996,10 +2991,8 @@ fn filter_soft_shallow_bleed_components(
                     >= crispness_floor
                 || protected_picture
                     .as_ref()
-                    .is_some_and(|mask| mask.get(x, y))
-                || restored_strokes.is_some_and(|strokes| strokes.get(x, y)))
-    });
-    stripped
+                    .is_some_and(|mask| mask.get(x, y)))
+    })
 }
 
 /// Reclaims only exact raw-dark pixels from a coherent horizontal rule that

@@ -117,12 +117,10 @@ fn default_output_directory() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::corpus;
-    use evb_scan_cleanup::{
-        bw::clean_black_and_white_with_calibration_config,
-        calibration::CalibrationConfig,
-        engine::render::{clean_page_with_canonical_analysis, CanonicalAnalysisPlane},
-        BinarizationMode,
+    use evb_scan_cleanup::engine::render::{
+        clean_page_with_canonical_analysis, CanonicalAnalysisPlane,
     };
+
     #[test]
     #[ignore = "the complete 51-page corpus across three render DPIs is release-only"]
     fn tracked_corpus_routes_reconciliation_and_leaf_resolution_are_dpi_identical() {
@@ -191,36 +189,6 @@ mod tests {
                 "{} changed route/reconciliation/leaf resolution: {identities:?}",
                 entry.id,
             );
-        }
-    }
-
-    #[test]
-    fn canonical_wolf_fixture_routes_are_pinned() {
-        let expected_wolf = [
-            "hard-04-dict-mandaic-old-p00125",
-            "spread-spread-ishodad-p00001",
-            "spread-spread-ishodad-p00002",
-            "spread-spread-walton-p00002",
-            "spread-spread-walton-p00191",
-            "spread-spread-walton-p00382",
-            "spread-spread-walton-p00573",
-            "spread-spread-walton-p00764",
-            "synthetic-border-noise-black-edges",
-        ];
-        let corpus = corpus::build_corpus().unwrap();
-        for id in expected_wolf {
-            let entry = corpus
-                .iter()
-                .find(|entry| entry.id == id)
-                .unwrap_or_else(|| panic!("{id} missing from the tracked corpus"));
-            let mut options = entry.options.clone();
-            options.despeckle = false;
-            let result = clean_black_and_white_with_calibration_config(
-                &entry.image,
-                &options,
-                CalibrationConfig::default(),
-            );
-            assert_eq!(result.mode, BinarizationMode::Wolf, "{id} route drifted");
         }
     }
 }

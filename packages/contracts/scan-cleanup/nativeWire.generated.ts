@@ -412,7 +412,7 @@ export type SplitDiagnostics = { foldBand: FoldBand, analysisDpi: number, deskew
 
 export type SplitSeamPolyline = { points: Array<Point>, };
 
-export type SpreadBinarizationPlanDecision = "sharedJoint" | "perLeafRouteMismatch" | "perLeafAnchorDrift" | "perLeafRadiusDrift" | "perLeafFaintInkDrift";
+export type SpreadBinarizationPlanDecision = "sharedJoint" | "perLeafAnchorDrift" | "perLeafRadiusDrift" | "perLeafFaintInkDrift";
 
 export type SpreadBinarizationPlanDiagnostics = { route: BinarizationMode, thresholdAnchor: number, thresholdRadius: number, strokeWidthAnchorPx: number, xHeightAnchorPx: number, documentAnchor: boolean, jointCandidateRoute: BinarizationMode, leftCandidateRoute: BinarizationMode, rightCandidateRoute: BinarizationMode, decision: SpreadBinarizationPlanDecision, };
 

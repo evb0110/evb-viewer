@@ -230,6 +230,9 @@ struct LuminanceEvidence {
 #[derive(Clone, Copy)]
 pub(crate) struct PreparedModeEvidence<'a> {
     pub analysis: &'a GrayImage,
+    /// `analysis` with its paper flattened: shading such as a gutter shadow
+    /// removed. Equal to `analysis` when illumination is not normalized.
+    pub flattened: &'a GrayImage,
     pub analysis_rgb: Option<&'a RgbImage>,
     pub picture_mask: &'a BinaryImage,
     /// True only when the owner was corroborated by distributed tone,
@@ -1095,8 +1098,18 @@ pub(crate) fn recommend_output_mode(
     // size. Faint media (pencil, low-contrast reproduction) keeps the
     // grayscale fallback: its mode separation is genuinely small and
     // thresholding would destroy the marks.
+    //
+    // Shading hides that separation on a sparse page: a gutter shadow or a
+    // darker fore-edge outweighs a few lines of ink and takes the dark Otsu
+    // class, so the separation is measured again once the paper is flattened.
+    // Midtones stay measured on the raw page, where tone is not yet removed.
+    let flattened_mode_distance = if std::ptr::eq(evidence.flattened, evidence.analysis) {
+        luminance.mode_distance
+    } else {
+        luminance_evidence(evidence.flattened).mode_distance
+    };
     if has_text
-        && luminance.mode_distance >= MIN_LUMINANCE_MODE_DISTANCE
+        && luminance.mode_distance.max(flattened_mode_distance) >= MIN_LUMINANCE_MODE_DISTANCE
         && luminance.midtone_fraction <= MAX_BW_MIDTONE_FRACTION
     {
         return recommendation(
@@ -2071,6 +2084,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -2219,6 +2233,7 @@ mod tests {
             let recommendation = recommend_output_mode(PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
+                flattened: &gray,
                 analysis_rgb: None,
                 picture_mask: &BinaryImage::new(gray.width(), gray.height()),
                 picture_tone_evidence: false,
@@ -2254,6 +2269,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &BinaryImage::new(gray.width(), gray.height()),
             picture_tone_evidence: false,
@@ -2396,6 +2412,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -2752,6 +2769,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: true,
@@ -2796,6 +2814,7 @@ mod tests {
             PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
+                flattened: &gray,
                 analysis_rgb: None,
                 picture_mask: &owned_picture_mask,
                 picture_tone_evidence: true,
@@ -2819,6 +2838,7 @@ mod tests {
             PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
+                flattened: &gray,
                 analysis_rgb: None,
                 picture_mask: &empty_picture_mask,
                 picture_tone_evidence: false,
@@ -2845,6 +2865,7 @@ mod tests {
             PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
+                flattened: &gray,
                 analysis_rgb: None,
                 picture_mask: &subfloor_picture_mask,
                 picture_tone_evidence: false,
@@ -2918,6 +2939,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, Some(&rgb)),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: Some(&rgb),
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -2961,6 +2983,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -2988,6 +3011,7 @@ mod tests {
         let text_only = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &empty_picture_mask,
             picture_tone_evidence: false,
@@ -3022,6 +3046,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: true,
@@ -3108,6 +3133,7 @@ mod tests {
                 Some(&dominant_plate),
             ),
             analysis: &dominant_gray,
+            flattened: &dominant_gray,
             analysis_rgb: Some(&dominant_plate),
             picture_mask: &dominant_picture_mask,
             picture_tone_evidence: true,
@@ -3160,6 +3186,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, Some(&rgb)),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: Some(&rgb),
             picture_mask: &BinaryImage::new(gray.width(), gray.height()),
             picture_tone_evidence: false,
@@ -3213,6 +3240,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, Some(&cover)),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: Some(&cover),
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3232,6 +3260,46 @@ mod tests {
             recommendation.reason,
             OutputModeRecommendationReason::ColorChroma,
         );
+    }
+
+    #[test]
+    fn sparse_contents_page_with_a_gutter_shadow_is_bw() {
+        // A table of contents: a few short lines of dark type on gray paper
+        // and a soft gutter shadow along the binding edge. The shadow covers
+        // more of the page than the ink does.
+        let mut gray = GrayImage::new(620, 877, 222);
+        for y in 0..gray.height() {
+            for x in 0..56 {
+                gray.set(x, y, 180 + (x * 20 / 56) as u8);
+            }
+        }
+        for row in 0..7 {
+            let top = 300 + row * 28;
+            for column in 0..6 {
+                let left = 140 + column * 22;
+                for y in top..top + 14 {
+                    for x in left..left + 12 {
+                        if x < left + 2 || y < top + 2 || y >= top + 12 {
+                            gray.set(x, y, 100);
+                        }
+                    }
+                }
+            }
+        }
+
+        // The app normalizes illumination by default; the shadow is judged
+        // on the flattened page.
+        let options = CleanupOptions {
+            normalize_illumination: true,
+            ..auto_options()
+        };
+        let recommendation =
+            analyze_page_with_color_and_document_prior(&gray, None, &options, None)
+                .unwrap()
+                .output_mode_recommendation
+                .expect("automatic mode emits a recommendation");
+        report("sparse-contents-gutter-shadow", recommendation);
+        assert_eq!(recommendation.mode, OutputMode::Bw, "{recommendation:?}");
     }
 
     #[test]
@@ -3304,6 +3372,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: true,
@@ -3339,6 +3408,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: true,
@@ -3389,6 +3459,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3413,6 +3484,7 @@ mod tests {
         let low_contrast_recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&low_contrast, None),
             analysis: &low_contrast,
+            flattened: &low_contrast,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3438,6 +3510,7 @@ mod tests {
         let tonal_recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&tonal, None),
             analysis: &tonal,
+            flattened: &tonal,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3457,6 +3530,7 @@ mod tests {
         let recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3476,6 +3550,7 @@ mod tests {
         let no_line_recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
+            flattened: &gray,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3496,6 +3571,7 @@ mod tests {
         let faint_recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&faint, None),
             analysis: &faint,
+            flattened: &faint,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3519,6 +3595,7 @@ mod tests {
         let sparse_recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&sparse, None),
             analysis: &sparse,
+            flattened: &sparse,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,
@@ -3543,6 +3620,7 @@ mod tests {
         let blob_recommendation = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&solid_blob, None),
             analysis: &solid_blob,
+            flattened: &solid_blob,
             analysis_rgb: None,
             picture_mask: &picture_mask,
             picture_tone_evidence: false,

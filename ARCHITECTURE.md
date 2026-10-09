@@ -79,11 +79,11 @@ binarization, post-processing, and finally render and write. The stage timings
 struct is exhaustive on purpose: adding a stage fails to compile until every
 accounting site handles it.
 
-Binarization picks a route per page. Otsu handles flat, evenly lit text, Wolf
-handles local contrast and illumination evidence, and Sauvola handles heavy
-illumination deviation with thin strokes. The routing decision is made on the
-page's canonical analysis plane so that changing the working render DPI cannot
-change the route. Detection, preview and final cleanup take that plane's DPI
+Auto binarization cuts each stroke between the paper and the ink core around
+it, so text keeps its printed weight; Wolf and Sauvola run only when chosen
+explicitly. Routing evidence is measured on the page's canonical analysis plane
+so that changing the working render DPI cannot change it. Detection, preview
+and final cleanup take that plane's DPI
 from one function of the page alone: 150 DPI, never finer than the page's own
 scan, and low enough for the raster to fit the cap every reader of it applies.
 

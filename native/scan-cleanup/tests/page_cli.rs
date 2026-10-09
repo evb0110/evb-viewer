@@ -2341,7 +2341,7 @@ fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
     assert_eq!((cleaned.width(), cleaned.height()), (1830, 77));
     assert_eq!(
         cleaned.data().iter().filter(|&&value| value < 128).count(),
-        20_973,
+        21_272,
         "the public final-render path changed the adjudicated ink outcome",
     );
 }
@@ -2559,135 +2559,6 @@ fn final_cli_keeps_every_word_stroke_run_within_source_tolerance() {
              ratio {ratio:.3} outside the stroke-neutral band 0.95..=1.05",
         );
     }
-}
-
-#[test]
-fn canonical_cli_pins_the_calibrated_dark_border_routing_band() {
-    let scratch = Scratch::new("canonical-routing-band");
-    let cases = [
-        ("below", 0.085, 0.08, 0.099, "wolf"),
-        ("inside", 0.095, 0.099, 0.110_25, "otsu"),
-        ("above", 0.105, 0.110_25, 0.14, "wolf"),
-    ];
-    let mut pages = Vec::new();
-    let mut metadata_paths = Vec::new();
-
-    for (source_page_index, (name, injected_coverage, _, _, _)) in cases.iter().enumerate() {
-        let mut canonical = GrayImage::new(300, 400, 245);
-        for row in 0..12 {
-            let top = 62 + row * 23;
-            for word in 0..9 {
-                let left = 38 + word * 25;
-                for y in top..top + 3 {
-                    for x in left..left + 15 {
-                        canonical.set(x, y, 24);
-                    }
-                }
-            }
-        }
-        let band = canonical.width().min(canonical.height()).div_ceil(30);
-        let border = (0..canonical.height())
-            .flat_map(|y| (0..canonical.width()).map(move |x| (x, y)))
-            .filter(|&(x, y)| {
-                x < band
-                    || y < band
-                    || x + band >= canonical.width()
-                    || y + band >= canonical.height()
-            })
-            .collect::<Vec<_>>();
-        let dark_count = (*injected_coverage * border.len() as f64).round() as usize;
-        for &(x, y) in border.iter().take(dark_count) {
-            canonical.set(x, y, 24);
-        }
-
-        let source = canonical.resample_to_dimensions(600, 800);
-        let canonical_path = scratch.path(&format!("{name}-canonical.png"));
-        let source_path = scratch.path(&format!("{name}-source.png"));
-        let output_path = scratch.path(&format!("{name}-output.png"));
-        let metadata_path = scratch.path(&format!("{name}-output.json"));
-        let page_metadata_path = scratch.path(&format!("{name}-page.json"));
-        fs::write(&canonical_path, encode_gray(&canonical).unwrap()).unwrap();
-        fs::write(&source_path, encode_gray(&source).unwrap()).unwrap();
-        pages.push(serde_json::json!({
-            "inputPath": source_path,
-            "analysisInputPath": canonical_path,
-            "analysisDpi": 150,
-            "sourcePageIndex": source_page_index,
-            "pageMetadataPath": page_metadata_path,
-            "options": CleanupOptions {
-                dpi: 300.0,
-                source_dpi: Some(300.0),
-                requested_render_dpi: Some(300.0),
-                binarization: BinarizationMode::Auto,
-                output_mode: OutputMode::Bw,
-                layout: LayoutMode::Single,
-                manual_skew_degrees: Some(0.0),
-                normalize_illumination: false,
-                crop_content: false,
-                match_page_size: false,
-                despeckle: false,
-                ..CleanupOptions::default()
-            },
-            "outputs": [{
-                "outputPath": output_path,
-                "metadataPath": metadata_path,
-            }],
-        }));
-        metadata_paths.push(metadata_path);
-    }
-
-    let manifest = scratch.path("canonical-routing-band-manifest.json");
-    fs::write(
-        &manifest,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "version": 3,
-            "operation": "render",
-            "renderMode": "final",
-            "canvasScope": "document",
-            "pages": pages,
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
-        .args(["--manifest", manifest.to_str().unwrap()])
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "stdout={}\nstderr={}",
-        String::from_utf8_lossy(&result.stdout),
-        String::from_utf8_lossy(&result.stderr),
-    );
-
-    let observations = cases
-        .into_iter()
-        .zip(metadata_paths)
-        .map(
-            |((name, _, coverage_floor, coverage_ceiling, expected_route), metadata_path)| {
-                let metadata: Value =
-                    serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
-                let diagnostics = metadata["binarizationDiagnostics"].clone();
-                let actual_coverage = diagnostics["darkBorderCoverage"].as_f64().unwrap();
-                (
-                    name,
-                    coverage_floor,
-                    coverage_ceiling,
-                    expected_route,
-                    actual_coverage,
-                    diagnostics,
-                )
-            },
-        )
-        .collect::<Vec<_>>();
-    assert!(
-        observations.iter().all(
-            |(_, floor, ceiling, expected_route, coverage, diagnostics)| {
-                coverage >= floor && coverage < ceiling && diagnostics["route"] == *expected_route
-            }
-        ),
-        "canonical CLI routing observations crossed their calibrated boundaries: {observations:#?}",
-    );
 }
 
 /// The fallback analysis path (no canonical `analysisInputPath`) must measure

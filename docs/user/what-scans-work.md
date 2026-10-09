@@ -20,25 +20,21 @@ margins, alignment, and page mapping are part of the output contract.
 
 ## Automatic routes
 
-The router makes its decision from the canonical analysis plane, so working
-render DPI must not change the route for an unchanged document.
+Auto binarizes every page with the paper/ink midpoint route (reported as
+Otsu). Each stroke is cut between the paper and the ink core measured within
+one and a half x-heights of it, slightly toward the paper, so a stroke keeps
+its printed weight and a hairline narrower than the scanner's blur stays
+joined. Where the nearby ink is less than half as deep as the page's ink, the
+page-wide midpoint applies, so faint show-through stays paper.
 
-- Otsu is the normal route for flat-lit text pages. The landed Stylites-book
-  inventory contains 288 Otsu leaves.
-- Wolf handles text pages whose local contrast or illumination evidence needs
-  an adaptive threshold. The same inventory contains 27 Wolf leaves.
-- Sauvola handles high-illumination-deviation pages whose sampled stroke width
-  remains at most eight routing-sample pixels. No accepted reference-book leaf
-  currently needs this arm, so a production-sized synthetic fixture with
-  illumination deviation above 12 protects its end-to-end reachability.
-- A route may be intentionally unresolved when no trustworthy content crop can
-  be measured. The sole reference example is 126L: deskew confidence is 0.000,
-  the content crop is skipped, and the output is still typed as a successful
-  black-and-white page rather than an analysis error.
+Wolf and Sauvola remain available as explicit choices. They normalize contrast
+per window, which thickens light words more than dark ones; Auto no longer
+selects them.
 
-The final reference inventory is therefore 288 Otsu, 27 Wolf, 0 Sauvola, and
-1 intentionally unresolved leaf. The earlier 281/34/1 count was the pre-band
-candidate, not the landed distribution.
+A page may be intentionally unresolved when no trustworthy content crop can
+be measured. The sole reference example is 126L: deskew confidence is 0.000,
+the content crop is skipped, and the output is still typed as a successful
+black-and-white page rather than an analysis error.
 
 ## Not supported or not promised
 
