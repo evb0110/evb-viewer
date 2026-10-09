@@ -1,5 +1,9 @@
+import {readFileSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {
+    join,
+    resolve,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -7,8 +11,10 @@ import {
 } from 'vitest';
 import {
     decodePdfOcrTextVisibilityReport,
+    type IPdfOcrLayerLine,
     type IPdfOcrPageTextVisibility,
 } from '@contracts/pdfOcrTextVisibility';
+import {readOcrLayerLayout} from '@electron/features/search/readOcrLayerLayout';
 import {
     classifyOcrPageText,
     shouldOcrClassifiedPage,
@@ -22,7 +28,7 @@ function visibility(overrides: Partial<IPdfOcrPageTextVisibility> = {}): IPdfOcr
         hiddenText: false,
         uncertain: null,
         unsupported: null,
-        evbOcrText: null,
+        evbOcrLines: null,
         ...overrides,
     };
 }
@@ -187,5 +193,59 @@ describe('OCR page text classification and supersession', () => {
             visibility: evbLayer,
             languages: ['rus'],
         })).toBe('evb-current-generation');
+    });
+});
+
+// The lines evb-pdf-page-ops reads from page 1 of the 1677 breviary a user
+// reported, as an OCR layer EVB wrote: a title across the page over two columns.
+const lines: IPdfOcrLayerLine[] = JSON.parse(readFileSync(
+    join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-page-1.layer-lines.json'),
+    'utf8',
+));
+
+describe('OCR layer layout', () => {
+    it('sets a two-column page as its title over two columns of paragraphs', () => {
+        const {regions} = readOcrLayerLayout(lines);
+        expect(regions.map(region => region.columns.length)).toEqual([
+            1,
+            2,
+            1,
+        ]);
+        expect(regions[0]!.columns[0]).toEqual(['RUBRICZE GENERALES BREVIARIL']);
+        const [
+            left,
+            right,
+        ] = regions[1]!.columns as [string[], string[]];
+        // The left column ends where the right begins; neither takes the other's text.
+        expect(left.join(' ')).not.toContain('De Dominicis');
+        expect(right.join(' ')).not.toContain('Semiduplicifit');
+        // Paragraphs join their lines, and a line-end hyphen joins its word.
+        expect(left).toContainEqual(expect.stringMatching(
+            /^3\. Habet primas .* de Concurrentia Officii; & totum Officium fit de Duplici\. incipiendo à primis .* ponitur,$/u,
+        ));
+        // Lines beside a drop cap stay in their paragraph.
+        expect(right).toContainEqual(expect.stringMatching(/^Fficium fit Simplex in diebus Ferialibus , quando occurrit fieri de Feria/u));
+        expect(right.at(-1)).toBe('à. De');
+        // The edge of the facing page is not a third column.
+        expect(regions[2]!.columns[0]!.join(' ').length).toBeLessThan(40);
+    });
+
+    it('keeps a one-column page in one run', () => {
+        const page = [
+            'A heading',
+            'The first line of a paragraph that runs the',
+            'whole width of the page and continues here.',
+        ].map((text, index) => ({
+            block: index === 0 ? 0 : 1,
+            text,
+            left: index === 0 ? 300 : 100,
+            right: index === 0 ? 500 : 900,
+            baseline: 1000 - 40 * index,
+            size: 30,
+        }));
+        expect(readOcrLayerLayout(page).regions).toEqual([{columns: [[
+            'A heading',
+            'The first line of a paragraph that runs the whole width of the page and continues here.',
+        ]]}]);
     });
 });

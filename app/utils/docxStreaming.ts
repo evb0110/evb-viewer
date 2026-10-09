@@ -1,11 +1,18 @@
+import type { IDocumentTextPageLayout } from '@contracts/documentTextCatalog';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
 }
 
+/** A page of text: its lines, or how its OCR layout sets them in regions and columns. */
+export type TDocxTextPage = string | {
+    readonly text: string;
+    readonly layout?: IDocumentTextPageLayout;
+};
+
 /** Text pages are kept separate so callers do not need to merge a catalog first. */
-export type TDocxTextPageSource = Iterable<string> | AsyncIterable<string>;
+export type TDocxTextPageSource = Iterable<TDocxTextPage> | AsyncIterable<TDocxTextPage>;
 
 /** Keep renderer-to-main writes small enough for a predictable memory ceiling. */
 export const DOCX_STREAM_CHUNK_BYTES = 64 * 1024;
@@ -217,12 +224,136 @@ function paragraphSuffix() {
     return '</w:r></w:p>';
 }
 
-const DOCUMENT_XML_PREFIX = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+export const DOCUMENT_XML_PREFIX = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>';
-const DOCUMENT_XML_SUFFIX = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>' +
-    '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
-    '</w:sectPr></w:body></w:document>';
 const DOCUMENT_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+const DOCUMENT_SECTION_PROPERTIES = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>'
+    + '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
+    + '</w:sectPr>';
+// Columns sit in a borderless table that spans the text width, a gutter of
+// a quarter inch (360 twips) after each but the last.
+const COLUMN_GUTTER_TWIPS = 360;
+// Letter width less one-inch margins.
+const TEXT_WIDTH_TWIPS = 9360;
+const FULL_WIDTH_PERCENT_FIFTIETHS = 5000;
+
+function columnsTableStart(columns: number, rtl: boolean) {
+    const borders = [
+        'top',
+        'left',
+        'bottom',
+        'right',
+        'insideH',
+        'insideV',
+    ].map(edge => `<w:${edge} w:val="nil"/>`).join('');
+    return '<w:tbl><w:tblPr>'
+        + (rtl ? '<w:bidiVisual/>' : '')
+        + `<w:tblW w:w="${FULL_WIDTH_PERCENT_FIFTIETHS}" w:type="pct"/><w:tblLayout w:type="fixed"/>`
+        + `<w:tblBorders>${borders}</w:tblBorders>`
+        + `<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="${COLUMN_GUTTER_TWIPS}" w:type="dxa"/></w:tblCellMar>`
+        + '</w:tblPr><w:tblGrid>'
+        + `<w:gridCol w:w="${Math.floor(TEXT_WIDTH_TWIPS / columns)}"/>`.repeat(columns)
+        + '</w:tblGrid><w:tr>';
+}
+
+/** What the document body holds, in order: markup, or a paragraph of text. */
+export type TDocxBodyPart =
+    | {
+        readonly kind: 'markup';
+        readonly xml: string
+    }
+    | {
+        readonly kind: 'paragraph';
+        readonly text: string;
+        readonly rtl: boolean
+    };
+
+/**
+ * Lays pages out as the document body, each page on a new page. A page whose
+ * OCR layout sets text in columns puts each run of columns in a borderless
+ * table of one row, a cell per column, so every viewer shows the columns side
+ * by side as the page prints them; Quick Look and Pages ignore Word's section
+ * columns.
+ */
+export class DocxBodyWriter {
+    private hasContent = false;
+
+    private endsWithTable = false;
+
+    constructor(private readonly direction: TDocxParagraphDirection) {}
+
+    private isRtl(text: string) {
+        return typeof this.direction === 'function'
+            ? this.direction(text)
+            : resolveDocxParagraphDirection(text, this.direction);
+    }
+
+    private* paragraphs(texts: Iterable<string>): Generator<TDocxBodyPart> {
+        for (const text of texts) {
+            yield {
+                kind: 'paragraph',
+                text,
+                rtl: this.isRtl(text),
+            };
+            this.endsWithTable = false;
+        }
+    }
+
+    * page(page: TDocxTextPage): Generator<TDocxBodyPart> {
+        if (this.hasContent) {
+            yield {
+                kind: 'markup',
+                xml: DOCUMENT_PAGE_BREAK,
+            };
+        }
+        this.hasContent = true;
+        const text = typeof page === 'string' ? page : page.text;
+        const regions = typeof page === 'string' || !page.layout || page.layout.regions.length === 0
+            ? null
+            : page.layout.regions;
+        if (!regions) {
+            yield* this.paragraphs(iterateLines(text));
+            return;
+        }
+        for (const region of regions) {
+            if (region.columns.length === 1) {
+                yield* this.paragraphs(region.columns[0]!);
+                continue;
+            }
+            // Columns come left to right; a right-to-left page reads its right
+            // column first, and a bidi table shows that first cell on the right.
+            const first = region.columns.flat()[0];
+            const rtl = first !== undefined && this.isRtl(first);
+            yield {
+                kind: 'markup',
+                xml: columnsTableStart(region.columns.length, rtl),
+            };
+            const cellWidth = Math.floor(FULL_WIDTH_PERCENT_FIFTIETHS / region.columns.length);
+            for (const column of rtl ? [...region.columns].reverse() : region.columns) {
+                yield {
+                    kind: 'markup',
+                    xml: `<w:tc><w:tcPr><w:tcW w:w="${cellWidth}" w:type="pct"/></w:tcPr>`,
+                };
+                // A cell holds at least one paragraph.
+                yield* this.paragraphs(column.length > 0 ? column : ['']);
+                yield {
+                    kind: 'markup',
+                    xml: '</w:tc>',
+                };
+            }
+            yield {
+                kind: 'markup',
+                xml: '</w:tr></w:tbl>',
+            };
+            this.endsWithTable = true;
+        }
+    }
+
+    /** The body ends with a paragraph, as Word requires after a table. */
+    end() {
+        return `${this.endsWithTable ? '<w:p/>' : ''}${DOCUMENT_SECTION_PROPERTIES}</w:body></w:document>`;
+    }
+}
 
 const CONTENT_TYPES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -358,11 +489,8 @@ export async function* createDocxFromTextChunks(
         throwIfAborted(signal);
         yield* emitDocumentBytes(encodeUtf8(text));
     };
-    const emitParagraph = async function* (line: string): AsyncGenerator<Uint8Array> {
+    const emitParagraph = async function* (line: string, isRtl: boolean): AsyncGenerator<Uint8Array> {
         throwIfAborted(signal);
-        const isRtl = typeof direction === 'function'
-            ? direction(line)
-            : resolveDocxParagraphDirection(line, direction);
         yield* emitDocumentText(paragraphPrefix(isRtl));
         if (line.length === 0) {
             yield* emitDocumentText(runPrefix(isRtl));
@@ -384,24 +512,21 @@ export async function* createDocxFromTextChunks(
 
     throwIfAborted(signal);
     yield* emitDocumentText(DOCUMENT_XML_PREFIX);
-    let emittedPage = false;
+    const body = new DocxBodyWriter(direction);
     for await (const page of pages) {
         throwIfAborted(signal);
-        if (typeof page !== 'string') {
-            throw new TypeError('DOCX text pages must yield strings');
+        if (typeof page !== 'string' && (typeof page !== 'object' || page === null || typeof page.text !== 'string')) {
+            throw new TypeError('DOCX text pages must yield text');
         }
-        if (emittedPage) {
-            yield* emitDocumentText(DOCUMENT_PAGE_BREAK);
-        }
-        emittedPage = true;
-        for (const line of iterateLines(page)) {
+        for (const part of body.page(page)) {
             throwIfAborted(signal);
-            yield* emitParagraph(line);
+            if (part.kind === 'markup') yield* emitDocumentText(part.xml);
+            else yield* emitParagraph(part.text, part.rtl);
         }
     }
 
     throwIfAborted(signal);
-    yield* emitDocumentText(DOCUMENT_XML_SUFFIX);
+    yield* emitDocumentText(body.end());
     const finalDocumentCrc = (documentCrc ^ 0xFFFFFFFF) >>> 0;
     yield* emit(makeDataDescriptor(finalDocumentCrc, documentSize));
     centralDirectory.push({

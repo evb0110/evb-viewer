@@ -15,6 +15,16 @@ import {
 
 export type TDocumentTextSource = 'pdf-native' | 'foreign-ocr' | 'evb-ocr';
 
+/** A run of a page's text: across the page, or set in columns, each a list of paragraphs. */
+export interface IDocumentTextRegion {readonly columns: ReadonlyArray<readonly string[]>;}
+
+/**
+ * How a page sets its text, read from where an EVB OCR layer places its
+ * lines: its regions from top to bottom, each column's paragraphs joined
+ * from its lines.
+ */
+export interface IDocumentTextPageLayout {readonly regions: readonly IDocumentTextRegion[];}
+
 export interface IDocumentTextCatalogPage {
     readonly pageNumber: TPageNumber;
     readonly text: string;
@@ -29,6 +39,7 @@ export interface IDocumentTextCatalogPage {
         };
     };
     readonly languages?: readonly string[];
+    readonly layout?: IDocumentTextPageLayout;
     readonly contentDigest: string;
 }
 
@@ -79,6 +90,28 @@ export const MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH = 8 * 1024 * 1024;
 export const MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES = 64;
 export const MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH = 64 * 1024 * 1024;
 export const MAX_DOCUMENT_OCR_AVAILABILITY_RANGES = 4_096;
+const MAX_DOCUMENT_TEXT_PAGE_LAYOUT_REGIONS = 4_096;
+const MAX_DOCUMENT_TEXT_REGION_COLUMNS = 8;
+
+function decodeDocumentTextPageLayout(candidate: unknown): IDocumentTextPageLayout | null {
+    if (!isRecord(candidate) || !Array.isArray(candidate.regions)
+        || candidate.regions.length > MAX_DOCUMENT_TEXT_PAGE_LAYOUT_REGIONS) {
+        return null;
+    }
+    const regions: IDocumentTextRegion[] = [];
+    let textLength = 0;
+    for (const region of candidate.regions) {
+        if (!isRecord(region) || !Array.isArray(region.columns) || region.columns.length === 0
+            || region.columns.length > MAX_DOCUMENT_TEXT_REGION_COLUMNS || !region.columns.every(isStringArray)) {
+            return null;
+        }
+        const columns = region.columns.map(column => [...column]);
+        textLength += columns.flat().reduce((length, paragraph) => length + paragraph.length, 0);
+        if (textLength > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH) return null;
+        regions.push({columns});
+    }
+    return {regions};
+}
 
 const DOCUMENT_TEXT_SOURCES = [
     'pdf-native',
@@ -121,6 +154,10 @@ function decodeDocumentTextCatalogPage(
     ) {
         return null;
     }
+    const layout = candidate.layout === undefined ? undefined : decodeDocumentTextPageLayout(candidate.layout);
+    if (layout === null) {
+        return null;
+    }
     let render: IDocumentTextCatalogPage['render'];
     if (candidate.render !== undefined) {
         if (
@@ -150,6 +187,7 @@ function decodeDocumentTextCatalogPage(
         ...(candidate.generation === undefined ? {} : {generation: candidate.generation}),
         ...(candidate.languages === undefined ? {} : {languages: [...candidate.languages]}),
         ...(render === undefined ? {} : {render}),
+        ...(layout === undefined ? {} : {layout}),
     };
 }
 

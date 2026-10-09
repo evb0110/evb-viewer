@@ -12,11 +12,11 @@ import {abortErrorFromSignal} from '@electron/utils/abort';
 import type {TOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 
 import {
-    LONG_S_MODEL_CODES,
+    EARLY_PRINT_MODEL_CODES,
     OCR_LANGUAGE_MODEL_SHA256,
     type TOcrModelCode,
 } from '@contracts/ocrLanguages';
-import {canRecognizeLongS} from '@electron/features/ocr/pipeline/longSRecognition';
+import {canReadEarlyPrint} from '@electron/features/ocr/pipeline/earlyPrintReading';
 import {
     getNativeToolBuildIdentity,
     getRuntimeToolArchiveIdentity,
@@ -39,7 +39,7 @@ export function createOcrCheckpointFingerprint(job: {
         : selection.kind === 'pages' ? selection.pages.flatMap(page => page.languages) : selection.languages;
     const models = [...new Set([
         ...languages,
-        ...(canRecognizeLongS(languages) ? LONG_S_MODEL_CODES : []),
+        ...(canReadEarlyPrint(languages) ? EARLY_PRINT_MODEL_CODES : []),
     ])].sort() as TOcrModelCode[];
     return createHash('sha256').update(JSON.stringify({
         sourcePdfPath: job.sourcePdfPath,
@@ -47,7 +47,7 @@ export function createOcrCheckpointFingerprint(job: {
         pages: selection,
         options: job.options,
         recipe: {
-            version: 2,
+            version: 3,
             scanCleanup: getNativeToolBuildIdentity('evb-scan-cleanup'),
             pageOps: getNativeToolBuildIdentity('evb-pdf-page-ops'),
             tesseract: getRuntimeToolArchiveIdentity('tesseract'),

@@ -188,18 +188,22 @@ export const AVAILABLE_OCR_LANGUAGES = [
 export type TOcrLanguageCode = (typeof AVAILABLE_OCR_LANGUAGES)[number]['code'];
 
 /**
- * Historical models that tell the long s (ſ) of books printed before about
- * 1800 from f, which every modern Latin-script model reads as f. They are not
- * offered as languages: a Latin-script run consults them only on pages printed
- * with the long s, and only for that letter.
+ * The models that read a Latin-script page printed before about 1800 beside
+ * its language's own: `ita_old` reads the long s (ſ) and grave accents, `fra`
+ * reads æ and œ. A run consults them only on a page its own model read with
+ * the long-s signature.
  */
-export const LONG_S_MODEL_CODES = [
+export const EARLY_PRINT_MODEL_CODES = [
     'ita_old',
-    'spa_old',
+    'fra',
 ] as const;
 
-/** A tessdata_best model file: each language's own model, plus the long-s models. */
-export type TOcrModelCode = TOcrLanguageCode | (typeof LONG_S_MODEL_CODES)[number];
+/**
+ * A tessdata_best model file: each language's own model, plus `ita_old`. OCR
+ * no longer reads with `spa_old`; it stays pinned because the published
+ * development tessdata archive carries it.
+ */
+export type TOcrModelCode = TOcrLanguageCode | (typeof EARLY_PRINT_MODEL_CODES)[number] | 'spa_old';
 
 // isAvailableOcrLanguageCode narrows to TOcrLanguageCode, so a caller able to
 // add to this set could mint that type for any string.

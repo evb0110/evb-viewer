@@ -53,10 +53,11 @@ can search.
   two-page spreads. This runs in a native Rust engine, not a filter chain.
 - **OCR** the pages with Tesseract and `tessdata-best` models. English and
   Russian are bundled for offline use; 29 more languages download on demand,
-  including Ancient Greek, Hebrew, Arabic, Syriac and Latin. Pages printed with
-  the long s (ſ) of books before about 1800 keep it in any Latin-script
+  including Ancient Greek, Hebrew, Arabic, Syriac and Latin. Books printed
+  before about 1800 keep their long s (ſ), æ, œ and ct in any Latin-script
   language.
-- **Export** a searchable PDF, or DOCX, PNG, JPG, and multi-page TIFF.
+- **Export** a searchable PDF, or DOCX (in the page's columns), PNG, JPG, and
+  multi-page TIFF.
 - **Annotate** with free text, ink, highlight, shapes, arrows, notes, and
   placed images. Edit bookmarks, page labels, and page order from the sidebar.
 - **Work at scale** across tabs, split panes, and multiple windows, with tab

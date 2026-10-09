@@ -96,7 +96,7 @@ describe('loadOcrText', () => {
         const iterator = pageStream![Symbol.asyncIterator]();
         await expect(iterator.next()).resolves.toMatchObject({
             done: false,
-            value: 'Page 1',
+            value: {text: 'Page 1'},
         });
         expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledTimes(1);
     });

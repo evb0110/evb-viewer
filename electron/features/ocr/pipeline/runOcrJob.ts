@@ -122,8 +122,8 @@ export interface IOcrJob {
     signal: AbortSignal;
     publish: (progress: IOcrJobProgress) => void;
     log: TWorkerLog;
-    /** Installs the long-s models into `paths.tessdataPath`; called once, when a page first needs them. */
-    prepareLongSModels?: (signal: AbortSignal) => Promise<void>;
+    /** Installs the early-print models into `paths.tessdataPath`; called once, when a page first needs them. */
+    prepareEarlyPrintModels?: (signal: AbortSignal) => Promise<void>;
 }
 
 function throwIfAborted(signal: AbortSignal) {
@@ -255,7 +255,7 @@ export interface IOcrPageProcessingContext {
     signal: AbortSignal;
     storageBudget: TOcrJobStorageBudget;
     trackTempFile: (path: string) => string;
-    prepareLongSModels?: () => Promise<void>;
+    prepareEarlyPrintModels?: () => Promise<void>;
 }
 
 async function readPageCheckpoint(
@@ -421,7 +421,7 @@ async function processOcrPage(
             getTesseractThreadLimit(lease.resources.cpuTokens),
             context.signal,
             context.options,
-            context.prepareLongSModels,
+            context.prepareEarlyPrintModels,
         );
 
         if (!ocrResult.success || !ocrResult.pageData || !ocrResult.pdfPath) {
@@ -446,16 +446,16 @@ async function processOcrPage(
             });
         }
 
-        if (ocrResult.longSUnavailable !== undefined) {
-            log('warn', 'Long-s recognition unavailable for OCR page', {
+        if (ocrResult.earlyPrintUnavailable !== undefined) {
+            log('warn', 'Early-print reading unavailable for OCR page', {
                 pageNumber: page.pageNumber,
-                error: ocrResult.longSUnavailable,
+                error: ocrResult.earlyPrintUnavailable,
             });
             diagnostics.push({
-                code: 'OCR_LONG_S_UNAVAILABLE',
+                code: 'OCR_EARLY_PRINT_UNAVAILABLE',
                 severity: 'warning',
                 pageNumber: requirePageNumber(page.pageNumber),
-                message: `The page is printed with the long s, but the long-s models could not run: ${ocrResult.longSUnavailable}`,
+                message: `The page looks like early print, but the early-print models could not run: ${ocrResult.earlyPrintUnavailable}`,
             });
         }
 
@@ -685,7 +685,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         documentRevision,
         options,
         log,
-        prepareLongSModels,
+        prepareEarlyPrintModels,
     } = job;
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
@@ -808,7 +808,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         let firstCheckpointMarked = false;
         // One preparation per job, failed or not: the download already retries
         // with backoff, and later pages must not wait out a dead network again.
-        let longSModels: Promise<void> | undefined;
+        let earlyPrintModels: Promise<void> | undefined;
         const manifest = durableManifest;
         const planContext: TOcrPlanContext = {
             jobId: job.jobId,
@@ -833,7 +833,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             storageBudget,
             trackTempFile,
             ...(popplerEnv === undefined ? {} : {popplerEnv}),
-            ...(prepareLongSModels === undefined ? {} : {prepareLongSModels: () => longSModels ??= prepareLongSModels(jobSignal)}),
+            ...(prepareEarlyPrintModels === undefined ? {} : {prepareEarlyPrintModels: () => earlyPrintModels ??= prepareEarlyPrintModels(jobSignal)}),
         };
         await durableManifest.markNode('page-raster', 'running');
         await durableManifest.markNode('preprocessed', 'running');

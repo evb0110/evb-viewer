@@ -826,7 +826,7 @@ describe('Electron E2E - OCR journey', () => {
     }, 300_000);
 
     // The OCR dialog belongs to the view that opened it (T4); only the run is shared.
-    it('reads the long s of an early printed page as ſ when the user picks Latin', async () => {
+    it('reads an early printed page as printed, with its long s, æ, œ and ct, when the user picks Latin', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;
         const sourcePath = await createEarlyPrintFixturePdf('ocr-journey-early-print.pdf');
@@ -856,20 +856,48 @@ describe('Electron E2E - OCR journey', () => {
         );
         console.log('ocr-early-print-text-layer', JSON.stringify(text));
 
-        // Every modern Latin-script model reads this page's long s as f.
-        const longSWords = [
-            'uſque',
-            'ſequentibus',
-            'feſto',
-            'Chriſti',
-            'Feſtis',
-            'quaſdam',
-            'ſolemniter',
-            'Feſtum',
-        ];
-        const read = longSWords.filter(word => text.includes(word));
-        const misread = longSWords.map(word => word.replaceAll('ſ', 'f')).filter(word => text.includes(word));
-        expect(read.length, `long-s words read: ${read.join(', ')}`).toBeGreaterThanOrEqual(6);
+        // Latin's own model reads this page's long s as f, its æ as z or x,
+        // and its ct ligature as é or &.
+        const printed = {
+            longS: [
+                'uſque',
+                'ſequentibus',
+                'feſto',
+                'Chriſti',
+                'Feſtis',
+                'quaſdam',
+                'ſolemniter',
+                'Feſtum',
+            ],
+            ligatures: [
+                'Paſchæ',
+                'Eccleſiæ',
+                'hæc',
+                'propriæ',
+                'Cœna',
+            ],
+            ct: [
+                'Sanctorum',
+                'Defunctorum',
+                'Defuncti',
+                'Octavam',
+                'prædicta',
+            ],
+        };
+        for (const [
+            kind,
+            words,
+        ] of Object.entries(printed)) {
+            const read = words.filter(word => text.includes(word));
+            expect(read.length, `${kind} words read: ${read.join(', ')}`).toBeGreaterThanOrEqual(words.length - 1);
+        }
+        const misread = [
+            ...printed.longS.map(word => word.replaceAll('ſ', 'f')),
+            'Pafchz',
+            'Ecclefix',
+            'Defun&torum',
+            'San&torum',
+        ].filter(word => text.includes(word));
         expect(misread).toEqual([]);
     }, 300_000);
 

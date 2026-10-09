@@ -19,6 +19,7 @@ import {
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import { streamItems } from '@electron/features/search/streamItems';
 import type { IPageText } from '@electron/features/search/pageText';
+import { readOcrLayerLayout } from '@electron/features/search/readOcrLayerLayout';
 import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
 import * as v from 'valibot';
 
@@ -152,7 +153,8 @@ function resolvePageOpsBinary() {
 
 /**
  * Reads the pages whose only text is an invisible OCR layer in the order the
- * recognizer wrote it: column by column, one recognized line per line. On a
+ * recognizer wrote it: column by column, one recognized line per line, and
+ * how the page sets them in regions and columns. On a
  * skewed scan each OCR line has a rotated baseline that Poppler's layout
  * analysis breaks into short, often reversed fragments. EVB's own layer is
  * decoded by the writer; another tool's layer is reread with `-raw`. Painted
@@ -174,10 +176,11 @@ async function readOcrLayersInRecognitionOrder(
     for (const pageNumber of textPageNumbers) {
         const page = inspection.visibility.get(pageNumber);
         if (page === undefined || page.paintedText) continue;
-        if (page.evbOcrLayer && page.evbOcrText !== null) {
+        if (page.evbOcrLayer && page.evbOcrLines !== null) {
             ocrLayerTexts.set(pageNumber, {
                 pageNumber,
-                text: normalizePopplerPageText(page.evbOcrText),
+                text: normalizePopplerPageText(page.evbOcrLines.map(line => line.text).join('\n')),
+                layout: readOcrLayerLayout(page.evbOcrLines),
             });
         } else if (page.evbOcrLayer || page.hiddenText) {
             foreignLayerPages.push(pageNumber);

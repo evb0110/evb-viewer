@@ -35,30 +35,71 @@ and packaging selection together. The resource generator checks those inputs.
 Portuguese uses the upstream shared Portuguese model, including Brazilian
 Portuguese.
 
-### Long s
+### Early print
 
-Every modern Latin-script model reads the long s (ſ) of books printed before
-about 1800 as f. The early-print models `ita_old` and `spa_old` read it, but are
-worse at the other letters, cannot write æ or œ, and adding a modern model to
-them brings the f back, because Tesseract keeps the more confident reading. So
-they are not offered as languages. A page whose languages are all Latin-script
-is read with the selected models first. When at least 45% of its in-word f and
-s are f (61% to 99% on the breviary, 8% to 27% on modern German and English
-scans), `tesseractRunner` reads the raster again with `ita_old+spa_old`, aligns each
-line with the first reading, and turns an f into ſ where the second reading has
-ſ. The page keeps the first reading unless that changes at least a fifth of its
-in-word f, so a misjudged modern page is left alone. On the 1677 breviary that
-prompted it, Latin went from 6.4% character error and no long s to 4.1% with 38
-of 43, against 5.8% for `ita_old+spa_old` alone.
+Books printed before about 1800 set the long s (ſ), the æ and œ ligatures and
+a ct ligature that no Latin-script language model has seen: Latin reads ſ as f
+or l, æ as z or x, and ct as é, & or a lone c. Two other pinned models read
+what it misses: `ita_old` reads ſ and grave accents, `fra` reads æ and œ.
+Every ſ, æ and œ they read on the 1677 breviary that prompted this was right.
 
-An edit swaps one UTF-16 unit for another, so word boxes do not move. The page
-data carries the edited words, and `ocr-text-layer` applies the same edits to
-Tesseract's PDF before copying its text: Tesseract writes one `TJ` per
-non-empty TSV word in order, except a word whose baseline has no length, so an
-edit falls back to the nearest earlier word with its text. Edits persist in the
-page checkpoint. The models download the first time a page needs them; when
-they cannot, the page keeps its first reading and reports
-`OCR_LONG_S_UNAVAILABLE`. Digests, downloads and installed state are per model.
+A page whose languages are all Latin-script is read with the selected models
+first. When at least 45% of its in-word f and s are f (61% to 99% on the
+breviary, 8% to 27% on modern German and English scans), `tesseractRunner`
+reads the raster again: the selected models writing hOCR with each letter's
+box and alternatives, then `ita_old` and `fra`. `earlyPrintReading` aligns
+each of their lines with the first reading's and:
+
+- writes ſ where `ita_old` read it, or ranked it second at 40 or more (59-85
+  under a printed ſ it read as f, at most 23 under a printed f);
+- writes æ and œ where `fra` read them, and a grave where `ita_old` read one
+  over a letter the selected model saw accented or in a word of four letters
+  or more (`ita_old` puts graves on bare short words: `Sì` for `Si`);
+- in a word outside the dictionary, changes a letter both other models read
+  otherwise; they share some misreadings (`codem` for `eodem`), so a word the
+  dictionary knows keeps its letters;
+- decodes a word outside the dictionary from the selected model's own letter
+  alternatives and the known confusions (ct for é or &, æ for z), at most
+  three letters;
+- restores a word space where a capital follows a small letter, or where the
+  print shows a gap and every part, at most three, is a dictionary word.
+
+The dictionary is the selected languages' own: their models' LSTM word lists,
+read from the `.traineddata` files. Latin's list is web text that holds OCR of
+old books, so words with an f no Latin word has (`fefto`, `poft`) are dropped
+from it. The page keeps its first reading unless `ita_old` finds ſ under at
+least a fifth of its in-word f, so a misjudged modern page is left alone.
+
+Against a hand transcription of two breviary pages, `lat` alone read 72% and
+70% of the words; the three models read 92% on both, losing one word `lat` had
+right on each against 197 and 73 gained. Words with ſ went from none to 92% and
+95%, with æ or œ from none to 89% and 100%, with ct from about a third to 91%
+and 83%. Character error fell from 7.9% to 3.6%. An affected page takes
+about four times as long: the selected model twice, then `ita_old` and `fra`.
+
+The page data carries the edited words, and `ocr-text-layer` applies the same
+edits to Tesseract's PDF before copying its text: Tesseract writes one `TJ`
+per non-empty TSV word in order, except a word whose baseline has no length,
+so an edit falls back to the nearest earlier word with its text. A word that
+gains or loses glyphs keeps its box: the writer scales the word's `Tz` by the
+old glyph count over the new. Edits persist in the page checkpoint. The models
+download the first time a page needs them; when they cannot, the page keeps
+its first reading and reports `OCR_EARLY_PRINT_UNAVAILABLE`. Digests, downloads
+and installed state are per model.
+
+### Page layout
+
+`ocr-text-visibility --with-evb-ocr-text` returns an EVB layer's lines with
+their text block, first and last glyph origins, baseline and size.
+`readOcrLayerLayout` sets a page from them: blocks that span the gutter run across
+the page, blocks on one side of it read in the same stretch form columns, and
+blocks narrower than a tenth of the text are asides (the edge of a facing
+page). A column's lines join into paragraphs: a block, an indent past the
+neighbouring lines and the line before, or a line after a short one starts a
+paragraph, and a line-end hyphen joins its word. DOCX export writes text
+across the page as paragraphs and each run of columns as a borderless table of
+one row, a cell per column: Quick Look and Pages ignore Word's section columns,
+and a cell keeps each column's text beside the column it faces in print.
 
 ## Recognition options
 

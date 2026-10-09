@@ -1,9 +1,6 @@
 import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
-import {
-    basename,
-    isAbsolute,
-} from 'node:path';
+import { isAbsolute } from 'node:path';
 import {
     createManagedScratchTempDir,
     removeManagedScratchTempDir,
@@ -46,6 +43,11 @@ import {
     isNativeErrorEnvelope,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
+import {
+    POPPLER_MEMORY_LIMIT_BYTES,
+    watchPopplerMemory,
+    withPopplerMemoryLimit,
+} from '@electron/native-tools/popplerMemoryLimit';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -266,19 +268,6 @@ function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: numb
     };
 }
 
-// Poppler decodes font and content streams without a size limit, so a small
-// crafted PDF can make it allocate many gigabytes (#1255). On Linux it runs
-// under a data-segment limit far above any page the app renders; the shell
-// execs it, so the process id and binary stay Poppler's. macOS does not apply
-// RLIMIT_DATA to mapped memory and Windows has no spawn-time limit.
-const POPPLER_TOOL_NAMES = new Set([
-    'pdfimages',
-    'pdfinfo',
-    'pdftoppm',
-    'pdftotext',
-]);
-const POPPLER_MAX_DATA_KIB = 4 * 1024 * 1024;
-
 function spawnNativeProcess(
     command: string,
     args: string[],
@@ -286,17 +275,10 @@ function spawnNativeProcess(
     windowsHide: boolean,
     pipeStdin: boolean,
 ): TNativeProcess {
-    const dataLimited = process.platform === 'linux' && POPPLER_TOOL_NAMES.has(basename(command));
-    const spawnCommand = dataLimited ? '/bin/sh' : command;
-    const spawnArgs = dataLimited
-        ? [
-            '-c',
-            'ulimit -S -d "$0" 2>/dev/null; exec "$@"',
-            String(POPPLER_MAX_DATA_KIB),
-            command,
-            ...args,
-        ]
-        : args;
+    const {
+        command: spawnCommand,
+        args: spawnArgs,
+    } = withPopplerMemoryLimit(command, args);
     const location = {
         ...(context.effectiveCwd === undefined ? {} : {cwd: context.effectiveCwd}),
         ...(context.effectiveEnv === undefined ? {} : {env: context.effectiveEnv}),
@@ -504,6 +486,7 @@ async function runNativeCommandCore(
         let settlementExitCode: number | null = null;
         let settlementSignal: NodeJS.Signals | null = null;
         let processAdmitted = false;
+        let stopMemoryWatch: (() => void) | null = null;
         const startedAt = performance.now();
         let stdoutDataHandler: ((data: Buffer) => void) | null = null;
         let stderrDataHandler: ((data: Buffer) => void) | null = null;
@@ -634,6 +617,7 @@ async function runNativeCommandCore(
                     signal: settlementSignal,
                 });
             }
+            stopMemoryWatch?.();
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
@@ -772,6 +756,13 @@ async function runNativeCommandCore(
         proc.stderr.on('data', stderrDataHandler);
 
         armTimeout();
+        if (typeof proc.pid === 'number') {
+            stopMemoryWatch = watchPopplerMemory(command, proc.pid, (bytes) => {
+                const message = `${context.displayName} stopped after using more than ${POPPLER_MEMORY_LIMIT_BYTES / 1024 ** 3} GiB of memory`;
+                log?.('error', `${message} (${bytes} bytes); cmd=${context.displayCommand}`);
+                requestTermination(new Error(message));
+            });
+        }
         if (signal?.aborted) {
             requestTermination(abortErrorFromSignal(signal));
         }

@@ -69,10 +69,6 @@ function columnLine(column: number, line: number) {
 }
 
 const LINES_PER_COLUMN = 24;
-const SOURCE_LINES = [
-    0,
-    1,
-].flatMap(column => Array.from({length: LINES_PER_COLUMN}, (_, line) => columnLine(column, line)));
 
 const tempRoot = mkdtempSync(join(tmpdir(), 'evb-e2e-ocr-columns-docx-'));
 const docxPath = join(tempRoot, 'columns.docx');
@@ -116,9 +112,13 @@ async function createSkewedTwoColumnScanPdf(path: string) {
     writeFileSync(path, await doc.save());
 }
 
-/** Paragraph texts of the uncompressed DOCX EVB Viewer writes. */
-function readDocxParagraphs(path: string) {
-    const xml = readFileSync(path).toString('utf8');
+/** The body of the uncompressed DOCX EVB Viewer writes. */
+function readDocxDocument(path: string) {
+    return readFileSync(path).toString('utf8');
+}
+
+/** Paragraph texts of a DOCX body. */
+function docxParagraphs(xml: string) {
     return Array.from(xml.matchAll(/<w:p>(.*?)<\/w:p>/gsu), paragraph => Array.from(
         paragraph[1]!.matchAll(/<w:t[^>]*>(.*?)<\/w:t>/gsu),
         run => run[1],
@@ -137,7 +137,7 @@ async function clickVisibleButton(page: Page, scope: string, name: string, timeo
 }
 
 describe('DOCX export of an OCR layer on a skewed two-column scan', () => {
-    it('keeps every recognized line whole and in column order', async () => {
+    it('sets the two columns side by side in DOCX, every recognized line whole and in column order', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;
         const sourcePath = join(tempRoot, 'skewed-two-column-scan.pdf');
@@ -174,22 +174,28 @@ describe('DOCX export of an OCR layer on a skewed two-column scan', () => {
         await waitForFunctionInPage(page, () => document.body.innerText.includes('DOCX saved'), {timeout: 60_000});
         expect(existsSync(docxPath)).toBe(true);
 
-        const paragraphs = readDocxParagraphs(docxPath);
-        console.log('ocr-columns-docx-paragraphs', JSON.stringify(paragraphs));
-        const words = paragraphs.map(paragraph => paragraph.toLowerCase().split(/\s+/u).join(' '));
-        const lineIndexes = SOURCE_LINES.map((line) => {
-            const lineWords = line.split(' ');
-            const label = lineWords.slice(-2).join(' ');
-            // One paragraph holds exactly one printed line; recognition may
-            // misread a word inside it, but not merge or split lines.
-            return words.findIndex(paragraph => paragraph.split(' ').length === lineWords.length
-                && paragraph.startsWith(`${lineWords[0]!} `)
-                && paragraph.endsWith(` ${label}`));
+        const xml = readDocxDocument(docxPath);
+        console.log('ocr-columns-docx-paragraphs', JSON.stringify(docxParagraphs(xml)));
+        // The page's columns sit side by side, a table cell each.
+        expect(xml.match(/<w:tbl>/gu)).toHaveLength(1);
+        const cells = Array.from(xml.matchAll(/<w:tc>(.*?)<\/w:tc>/gsu), cell => (
+            ` ${docxParagraphs(cell[1]!).map(paragraph => paragraph.toLowerCase().split(/\s+/u).join(' ')).join(' ')} `
+        ));
+        expect(cells).toHaveLength(2);
+        // Paragraphs join a column's lines. Each printed line reads whole in
+        // its own column's cell, in order; recognition may misread a word,
+        // but not break, reorder or move lines.
+        [
+            0,
+            1,
+        ].forEach((column) => {
+            const lineIndexes = Array.from({length: LINES_PER_COLUMN}, (_, line) => cells[column]!.indexOf(` ${columnLine(column, line)} `));
+            const recovered = lineIndexes.filter(index => index >= 0);
+            expect(recovered.length).toBeGreaterThanOrEqual(LINES_PER_COLUMN * 0.8);
+            expect(recovered).toEqual([...recovered].sort((left, right) => left - right));
+            const otherCell = cells[1 - column]!;
+            expect(Array.from({length: LINES_PER_COLUMN}, (_, line) => columnLine(column, line))
+                .filter(line => otherCell.includes(` ${line} `))).toEqual([]);
         });
-        const recovered = lineIndexes.filter(index => index >= 0);
-        // Recognition may misread a word, but a line stays one paragraph
-        // and the left column precedes the right one.
-        expect(recovered.length).toBeGreaterThanOrEqual(SOURCE_LINES.length * 0.8);
-        expect(lineIndexes.filter(index => index >= 0)).toEqual([...recovered].sort((left, right) => left - right));
     }, 420_000);
 });
