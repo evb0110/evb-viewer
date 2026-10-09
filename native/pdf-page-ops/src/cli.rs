@@ -12,7 +12,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut source_path = None;
     let mut output_path = None;
     let mut pages_file = None;
-    let mut pages_stdin = false;
     let mut mutations_file = None;
     let mut password_file = None;
     let mut identity_bindings_file = None;
@@ -106,7 +105,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--qpdf" | "--qpdf-path" => {
                 qpdf_path = Some(PathBuf::from(args.next().ok_or("Missing --qpdf value")?))
             }
-            "--pages-stdin" => pages_stdin = true,
             "--with-evb-ocr-text" => {
                 with_evb_ocr_text = true;
             }
@@ -152,10 +150,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         return Err("--password-file is only valid for decrypt".into());
     }
 
-    if pages_stdin && (command != "ocr-text-visibility" || pages_file.is_some()) {
-        return Err("--pages-stdin requires ocr-text-visibility without --pages-file".into());
-    }
-
     let operation = match command.as_str() {
         "split-pages" => Operation::SplitPages {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
@@ -168,11 +162,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
         },
         "ocr-text-visibility" => Operation::OcrTextVisibility {
-            pages_file: if pages_stdin {
-                None
-            } else {
-                Some(pages_file.ok_or("Missing --pages-file value")?)
-            },
+            pages_file: pages_file.ok_or("Missing --pages-file value")?,
             with_evb_ocr_text,
         },
         "crop" => Operation::Crop {
