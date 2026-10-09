@@ -15,6 +15,7 @@ export {
     buildPdfSearchRegex,
     buildOcrTextLayerIndexText,
     assembleSearchablePageText,
+    assembleSearchablePageTextItems,
     collapseRepeatedPdfSearchPageText,
     escapeSearchRegex,
     findPdfSearchMatches,

@@ -11,6 +11,7 @@ import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 const {
     buildPdfSearchExcerpt,
     assembleSearchablePageText,
+    assembleSearchablePageTextItems,
     collapseRepeatedPdfSearchPageText,
     collectSearchMatchWords,
     findPdfSearchMatches,
@@ -421,6 +422,80 @@ describe('assembleSearchablePageText', () => {
         }))).flat();
 
         expect(findPdfSearchMatches(assembleSearchablePageText(items).text, 'aaaaaaaaa')).toHaveLength(400 * 40);
+    });
+
+    it('gives callers without a character map the same text and item spans', () => {
+        const spans = (offsets: ReadonlyArray<{
+            startOffset: number;
+            endOffset: number
+        }>) => offsets
+            .map(({
+                startOffset, endOffset,
+            }) => `${startOffset}-${endOffset}`).join(' ');
+        const joined = [
+            {
+                text: 'Cafe\u0301 ex-',
+                separatorAfter: 'line' as const,
+            },
+            {text: ''},
+            {
+                text: '\uFB01le',
+                separatorAfter: 'space' as const,
+            },
+            {text: 'next'},
+            {text: 'ex-'},
+            {text: '\nample'},
+        ];
+        const assembled = assembleSearchablePageTextItems(joined);
+        expect(assembled.text).toBe('Cafe\u0301 ex\uFB01le next example');
+        expect(spans(assembled.itemOffsets)).toBe('0-8 0-0 8-12 12-16 16-19 19-24');
+        // Hyphenation drops source offsets 8, 18 and 19, the last pair across
+        // two items; inserted spaces map to empty ranges.
+        expect(spans(assembleSearchablePageText(joined).sourceOffsets)).toBe([
+            '0-1 1-2 2-3 3-4 4-5 5-6 6-7 7-8 9-10 10-11 11-12 12-12',
+            '12-13 13-14 14-15 15-16 16-16 16-17 17-18 20-21 21-22 22-23 23-24 24-25',
+        ].join(' '));
+
+        const line = {
+            text: 'The same heading drawn again over itself, word for word.',
+            separatorAfter: 'line' as const,
+        };
+        const drawnInPlace = [
+            0,
+            1,
+            2,
+        ].map(() => ({
+            ...line,
+            origin: {
+                x: 10,
+                y: 700,
+            },
+        }));
+        const drawnLower = [
+            0,
+            1,
+            2,
+        ].map(copy => ({
+            ...line,
+            origin: {
+                x: 10,
+                y: 700 - copy * 20,
+            },
+        }));
+        expect(spans(assembleSearchablePageTextItems(drawnInPlace).itemOffsets)).toBe('0-57 0-0 0-0');
+        expect(spans(assembleSearchablePageTextItems(drawnLower).itemOffsets)).toBe('0-57 57-114 114-171');
+        for (const items of [
+            joined,
+            drawnInPlace,
+            drawnLower,
+        ]) {
+            const full = assembleSearchablePageText(items);
+            expect(assembleSearchablePageTextItems(items)).toEqual({
+                text: full.text,
+                itemOffsets: full.itemOffsets,
+            });
+            expect(full.sourceOffsets).toHaveLength(full.text.length);
+        }
     });
 
     it('preserves source Unicode offsets while joining line hyphenation', () => {

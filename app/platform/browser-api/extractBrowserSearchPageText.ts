@@ -1,7 +1,7 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
-    buildOcrTextLayerIndexText, assembleSearchablePageText,
+    buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
 } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
 import {
@@ -71,7 +71,7 @@ async function extractTextContentPageText(
         }
     }
 
-    return assembleSearchablePageText(textItems).text;
+    return assembleSearchablePageTextItems(textItems).text;
 }
 
 async function cleanupBrowserSearchPage(page: IBrowserSearchTextPageLike) {
