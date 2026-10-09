@@ -1,0 +1,20 @@
+tests/e2e/electron/documents/jp2Open.e2e.test.ts
+  s_9246268e97c55d::t_df3cd7da21248d 133-178,180
+  s_9246268e97c55d::t_6c0ed28a8f3699 179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99c5b3b9b045704e4fdd30280596f4d8e76b4399",
+  "prompts": {},
+  "sessions": {
+    "s_9246268e97c55d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4114c64a-e9b1-4d4f-9985-ff838cb41126",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
