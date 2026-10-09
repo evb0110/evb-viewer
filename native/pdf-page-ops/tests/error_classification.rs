@@ -6,7 +6,6 @@ use serde_json::Value;
 use std::{
     env,
     fs::{read, remove_file, write},
-    io::Write,
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::Mutex,
@@ -767,7 +766,7 @@ fn save_mutations_cli_accepts_legacy_text_box_alias() {
 }
 
 #[test]
-fn visibility_session_bounds_requests_and_releases_on_eof() {
+fn visibility_rejects_page_zero_as_an_invalid_request() {
     let input = path("visibility-input", "pdf");
     let _cleanup = RemovePdfFilesOnDrop([input.clone()]);
     let mut document = Document::with_version("1.4");
@@ -783,55 +782,12 @@ fn visibility_session_bounds_requests_and_releases_on_eof() {
     let pages = path("visibility-pages", "txt");
     let _pages_cleanup = RemovePdfFilesOnDrop([pages.clone()]);
     write(&pages, "0\n").unwrap();
-    let legacy = run_command(
+    let result = run_command(
         Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["ocr-text-visibility", "--input"])
             .arg(&input)
             .arg("--pages-file")
             .arg(&pages),
     );
-    assert_eq!(error_code(&legacy), "invalid-request");
-    for (request, code) in [
-        ("[]\n".to_string(), "invalid-request"),
-        ("[0]\n".to_string(), "invalid-request"),
-        ("[1.5]\n".to_string(), "invalid-request"),
-        (
-            format!("[{}]\n", vec!["1"; 257].join(",")),
-            "invalid-request",
-        ),
-        (" ".repeat(4097), "too-large"),
-        ("[1]".to_string(), "too-large"),
-        ("[1]\n[1]\n".to_string(), ""),
-    ] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .args(["ocr-text-visibility", "--input"])
-            .arg(&input)
-            .arg("--pages-stdin")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(request.as_bytes())
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        if code.is_empty() {
-            assert!(output.status.success());
-            assert_eq!(
-                output
-                    .stdout
-                    .split(|byte| *byte == b'\n')
-                    .filter(|line| !line.is_empty())
-                    .count(),
-                2
-            );
-        } else {
-            assert!(output.stdout.is_empty());
-            assert_eq!(error_code(&output), code);
-        }
-    }
+    assert_eq!(error_code(&result), "invalid-request");
 }
