@@ -21,6 +21,7 @@ import {
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import {
     requirePageIndex,
     requirePageNumber,
@@ -46,7 +47,7 @@ function createDeferred() {
 }
 
 describe('usePdfSinglePageNavigationController', () => {
-    it('requests text-first target hydration only for text-layer navigation readiness', async () => {
+    it('lands a search result once the layer its readiness names is ready', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -61,6 +62,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 writable: true,
             },
         });
+        const pages = new Map<number, HTMLElement>();
         for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container';
@@ -69,6 +71,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
                 : '<div class="document-page-skeleton"></div>';
             viewer.append(page);
+            pages.set(pageNumber, page);
         }
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 3}, () => ({
@@ -86,21 +89,11 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const freshPages = new Set([1]);
-        const waitForPageTextLayerReady = vi.fn(async () => true);
+        // The renderer paints a canvas; a page's text layer is built later and
+        // reports ready only when this test builds it.
+        const textLayerBuilt = createDeferred();
         const viewportWrites = createTestPdfViewportWritePort();
-        const renderVisiblePages = vi.fn(async (range: {
-            start: number;
-            end: number
-        }) => {
-            const target = viewer.querySelector<HTMLElement>(
-                `.page_container[data-page="${String(range.start)}"]`,
-            );
-            if (target) {
-                target.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div><div class="text-layer" data-pdf-text-layer-ready="true"></div>';
-            }
-            freshPages.add(range.start);
-            return true;
-        });
+        const pageIndicator = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -115,14 +108,23 @@ describe('usePdfSinglePageNavigationController', () => {
                 getMostVisiblePage: vi.fn(() => 1),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages,
-                waitForPageTextLayerReady,
+                renderVisiblePages: async (range) => {
+                    pages.get(range.start)!.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+                    freshPages.add(range.start);
+                    return true;
+                },
+                waitForPageTextLayerReady: async () => {
+                    await textLayerBuilt.promise;
+                    return true;
+                },
                 isPageFreshlyRenderedForNavigation: pageNumber => freshPages.has(pageNumber),
                 visibleRange: ref({
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: vi.fn(),
+                emitCurrentPage: (page) => {
+                    pageIndicator.value = page;
+                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
@@ -149,23 +151,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 source: 'search',
                 supersession: 'latest-wins',
             })).toBe(true);
+            // A canvas-ready result lands without its text layer.
             await vi.waitFor(() => {
-                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+                expect(pageIndicator.value).toBe(2);
+                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
             });
-            expect(renderVisiblePages).toHaveBeenNthCalledWith(
-                1,
-                {
-                    start: 2,
-                    end: 2,
-                },
-                {
-                    authoritativeRaster: true,
-                    preserveRenderedPages: true,
-                    retainOnlyCurrentResidentRaster: true,
-                    suppressResidentRasterDemand: false,
-                },
-            );
-            expect(waitForPageTextLayerReady).not.toHaveBeenCalled();
+            expect(pages.get(2)!.querySelector('canvas')).not.toBeNull();
 
             expect(controller.submitNavigationRequest({
                 target: {
@@ -184,26 +175,20 @@ describe('usePdfSinglePageNavigationController', () => {
                 source: 'search',
                 supersession: 'latest-wins',
             })).toBe(true);
+            // A result that needs its text layer for the highlight is still
+            // navigating once its canvas is painted.
             await vi.waitFor(() => {
-                expect(controller.viewportAuthority.currentPage.value).toBe(3);
+                expect(pages.get(3)!.querySelector('canvas')).not.toBeNull();
             });
-            expect(renderVisiblePages).toHaveBeenNthCalledWith(
-                2,
-                {
-                    start: 3,
-                    end: 3,
-                },
-                {
-                    authoritativeRaster: true,
-                    preserveRenderedPages: true,
-                    prioritizeTextLayer: true,
-                    retainOnlyCurrentResidentRaster: true,
-                    suppressResidentRasterDemand: false,
-                },
-            );
-            expect(waitForPageTextLayerReady).toHaveBeenCalledOnce();
-            expect(waitForPageTextLayerReady).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+            await yieldToBrowser();
+            expect(controller.isProgrammaticNavigationActive.value).toBe(true);
 
+            pages.get(3)!.insertAdjacentHTML('beforeend', '<div class="text-layer" data-pdf-text-layer-ready="true"></div>');
+            textLayerBuilt.resolve();
+            await vi.waitFor(() => {
+                expect(pageIndicator.value).toBe(3);
+                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+            });
         } finally {
             scope.stop();
         }
@@ -272,6 +257,7 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const viewportWrites = createTestPdfViewportWritePort();
+        const pageIndicator = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -292,7 +278,9 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: vi.fn(),
+                emitCurrentPage: (page) => {
+                    pageIndicator.value = page;
+                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
@@ -305,7 +293,7 @@ describe('usePdfSinglePageNavigationController', () => {
 
             expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
-                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+                expect(pageIndicator.value).toBe(2);
             });
             expect(requireLayoutPageTop(layout, 1)).toBeLessThan(1_000);
             expect(viewportWrites.writes.at(-1)?.top).toBe(2_380);
@@ -426,11 +414,7 @@ describe('usePdfSinglePageNavigationController', () => {
             await vi.waitFor(() => {
                 expect(viewportWrites.writes).toHaveLength(1);
             });
-            expect(viewportWrites.writes[0]).toMatchObject({
-                left: 0,
-                reason: 'viewport-authority:navigate',
-            });
-            expect(viewportWrites.writes[0]?.top).toBe(890);
+            expect(viewer.scrollTop).toBe(890);
             expect(viewer.scrollLeft).toBe(0);
         } finally {
             scope.stop();
@@ -477,6 +461,7 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const viewportWrites = createTestPdfViewportWritePort();
+        const pageIndicator = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -497,7 +482,9 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: vi.fn(),
+                emitCurrentPage: (page) => {
+                    pageIndicator.value = page;
+                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
@@ -510,7 +497,7 @@ describe('usePdfSinglePageNavigationController', () => {
 
             expect(controller.scrollToPage(requirePageNumber(3))).toBe(true);
             await vi.waitFor(() => {
-                expect(controller.viewportAuthority.currentPage.value).toBe(3);
+                expect(pageIndicator.value).toBe(3);
             });
             expect(getLayoutPageTop(layout, requirePageIndex(2))).toBeGreaterThan(viewer.scrollHeight);
             expect(viewportWrites.writes.at(-1)?.top).toBe(0);
@@ -561,6 +548,8 @@ describe('usePdfSinglePageNavigationController', () => {
         }
         const preparation = createDeferred();
         const viewportWrites = createTestPdfViewportWritePort();
+        const pageIndicator = ref(1);
+        const navigationFeedbackPage = ref<number | null>(null);
         const preventDefault = vi.fn();
 
         try {
@@ -583,7 +572,12 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: vi.fn(),
+                emitCurrentPage: (page) => {
+                    pageIndicator.value = page;
+                },
+                emitNavigationFeedbackPage: (page) => {
+                    navigationFeedbackPage.value = page;
+                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
@@ -606,17 +600,18 @@ describe('usePdfSinglePageNavigationController', () => {
                     timeStamp,
                 })).toBe(true);
             }
-            expect(controller.navigationAnchorPage.value).toBe(4);
-            expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
-            expect(controller.viewportAuthority.currentPage.value).toBe(1);
+            // Three flips are acknowledged as one destination while the
+            // viewport waits on page 1 for the layout.
+            expect(navigationFeedbackPage.value).toBe(4);
             expect(preventDefault).toHaveBeenCalledTimes(3);
+            await yieldToBrowser();
+            expect(pageIndicator.value).toBe(1);
+            expect(viewportWrites.writes).toHaveLength(0);
 
             preparation.resolve();
             await vi.waitFor(() => {
-                expect(controller.viewportAuthority.currentPage.value).toBe(4);
-            });
-            await vi.waitFor(() => {
-                expect(controller.navigationVisualHandoffTargetPage.value).toBeNull();
+                expect(pageIndicator.value).toBe(4);
+                expect(navigationFeedbackPage.value).toBeNull();
             });
             expect(viewportWrites.writes).toHaveLength(1);
             expect(controller.handleWheel({
@@ -678,6 +673,7 @@ describe('usePdfSinglePageNavigationController', () => {
         const shortLayout = buildLayout(0.25);
         let layout = wideLayout;
         const viewportWrites = createTestPdfViewportWritePort();
+        const pageIndicator = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -698,7 +694,9 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 3,
                     end: 3,
                 }),
-                emitCurrentPage: vi.fn(),
+                emitCurrentPage: (page) => {
+                    pageIndicator.value = page;
+                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
@@ -709,18 +707,19 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            // getLayoutPageTop takes a zero-based row index.
+            // The user scrolls into page 3. getLayoutPageTop takes a
+            // zero-based row index.
             viewer.scrollTop = requireLayoutPageTop(wideLayout, 2) + 300;
-            const scrolledAnchor = controller.captureCurrentSemanticAnchor();
-            expect(scrolledAnchor?.page).toBe(3);
-            controller.viewportAuthority.observeUserScroll(scrolledAnchor!);
-            expect(controller.viewportAuthority.currentPage.value).toBe(3);
+            controller.cancelProgrammaticNavigation('viewer-scroll-interaction');
+            await nextTick();
+            expect(pageIndicator.value).toBe(3);
 
+            // A fit change keeps the top of the page the indicator names.
             controller.relayout(() => {
                 layout = shortLayout;
-            }, getRequestAnchor(undefined, controller.viewportAuthority.currentPage.value));
+            }, getRequestAnchor(undefined, pageIndicator.value));
             await nextTick();
-            expect(controller.viewportAuthority.currentPage.value).toBe(3);
+            expect(pageIndicator.value).toBe(3);
             // The viewport lands on page 3's row under the new metrics
             // instead of staying at the offset that now points past page 6.
             const settledTop = viewportWrites.writes.at(-1)?.top ?? -1;

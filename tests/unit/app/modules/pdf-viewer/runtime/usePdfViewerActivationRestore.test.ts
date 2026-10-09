@@ -50,9 +50,21 @@ function createHarness(options: {
         start: 1,
         end: 2,
     });
-    const renderVisiblePages = vi.fn(async () => {});
-    const scrollToPage = vi.fn();
-    const applySearchHighlights = vi.fn();
+    // The viewer as the user sees it: where it is scrolled, which pages hold
+    // painted pixels, and whether search highlights are drawn.
+    const view = {
+        scrolledToPage: null as number | null,
+        paintedPages: new Set<number>(),
+        highlightsDrawn: false,
+    };
+    const renderVisiblePages = vi.fn(async (range: {
+        start: number;
+        end: number;
+    }) => {
+        for (let page = range.start; page <= range.end; page += 1) {
+            view.paintedPages.add(page);
+        }
+    });
     const viewerContainer = document.createElement('div');
     Object.defineProperties(viewerContainer, {
         clientHeight: {value: 700},
@@ -84,36 +96,37 @@ function createHarness(options: {
         visibleRange,
         viewMode: computed(() => 'facing'),
         getVisiblePageRange: () => options.measuredRange === undefined ? visibleRange.value : options.measuredRange,
-        scrollToPage,
+        scrollToPage: (page) => {
+            view.scrolledToPage = page;
+        },
         renderVisiblePages,
-        applySearchHighlights,
+        applySearchHighlights: () => {
+            view.highlightsDrawn = true;
+        },
     });
     return {
-        applySearchHighlights,
         isActive,
         pdfDocument,
         renderVisiblePages,
         restore,
-        scrollToPage,
+        view,
         visibleRange,
     };
 }
 
 describe('usePdfViewerActivationRestore', () => {
-    it('resumes through one semantic scroll and one normal render demand', async () => {
+    it('returns to the current facing row, paints it and redraws search highlights', async () => {
         const harness = createHarness();
         const runId = harness.restore.nextActivationRestoreRunId();
 
         await harness.restore.renderActiveDocumentAfterActivation(runId);
 
-        expect(harness.scrollToPage).toHaveBeenCalledOnce();
-        expect(harness.scrollToPage).toHaveBeenCalledWith(6);
-        expect(harness.renderVisiblePages).toHaveBeenCalledOnce();
-        expect(harness.renderVisiblePages).toHaveBeenCalledWith({
-            start: 5,
-            end: 6,
-        }, {preserveRenderedPages: true});
-        expect(harness.applySearchHighlights).toHaveBeenCalledOnce();
+        expect(harness.view.scrolledToPage).toBe(6);
+        expect([...harness.view.paintedPages]).toEqual([
+            5,
+            6,
+        ]);
+        expect(harness.view.highlightsDrawn).toBe(true);
     });
 
     it('retains deep-page demand while activation has no measured visibility', async () => {
@@ -135,11 +148,11 @@ describe('usePdfViewerActivationRestore', () => {
             start: 482,
             end: 518,
         });
-        expect(harness.scrollToPage).toHaveBeenCalledExactlyOnceWith(500);
-        expect(harness.renderVisiblePages).toHaveBeenCalledExactlyOnceWith({
-            start: 499,
-            end: 500,
-        }, {preserveRenderedPages: true});
+        expect(harness.view.scrolledToPage).toBe(500);
+        expect([...harness.view.paintedPages]).toEqual([
+            499,
+            500,
+        ]);
     });
 
     it('fences a late completion after a newer activation run', async () => {
@@ -150,12 +163,12 @@ describe('usePdfViewerActivationRestore', () => {
         }));
         const oldRun = harness.restore.nextActivationRestoreRunId();
         const pending = harness.restore.renderActiveDocumentAfterActivation(oldRun);
-        await vi.waitFor(() => expect(harness.renderVisiblePages).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(finish).toBeDefined());
         harness.restore.nextActivationRestoreRunId();
         finish();
         await pending;
 
-        expect(harness.applySearchHighlights).not.toHaveBeenCalled();
+        expect(harness.view.highlightsDrawn).toBe(false);
     });
 
     it('fences a late completion after the document changes', async () => {
@@ -165,6 +178,6 @@ describe('usePdfViewerActivationRestore', () => {
         });
         const runId = harness.restore.nextActivationRestoreRunId();
         await harness.restore.renderActiveDocumentAfterActivation(runId);
-        expect(harness.applySearchHighlights).not.toHaveBeenCalled();
+        expect(harness.view.highlightsDrawn).toBe(false);
     });
 });

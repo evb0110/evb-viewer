@@ -91,7 +91,7 @@ function createResidentCanvasFixture(
     document.body.append(viewerContainer);
 
     const currentPage = ref(2);
-    const commitCurrentViewportIfSettled = vi.fn((pageNumber: number) => {
+    const commitCurrentViewportIfSettled = (pageNumber: number) => {
         const snapshot = surface.snapshot.value;
         const viewportIntentId = surface.viewportSession.value.viewportIntent!.id;
         return surface.commitViewport({
@@ -104,7 +104,7 @@ function createResidentCanvasFixture(
             left: 0,
             top: 0,
         });
-    });
+    };
     const viewport = createViewportFixture(currentPage, commitCurrentViewportIfSettled);
     const chassisAuthority = createChassisAuthority(surface);
     const renderOwner = surface.claimRenderOwner();
@@ -157,7 +157,6 @@ function createResidentCanvasFixture(
 
     return {
         initialVisual,
-        commitCurrentViewportIfSettled,
         emitInitialVisualReady,
         mountPageCanvas,
         surface,
@@ -194,7 +193,6 @@ describe('createPdfInitialVisualCommit', () => {
             requestedPage: 2,
             committedPage: 2,
         });
-        expect(fixture.commitCurrentViewportIfSettled).toHaveBeenCalledExactlyOnceWith(2);
         expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 2});
 
         fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
@@ -212,9 +210,9 @@ describe('createPdfInitialVisualCommit', () => {
             phase: 'pending',
             geometry: null,
             committedRender: null,
+            committedViewport: null,
         });
         expect(fixture.surface.viewportSession.value.renderFence).toBeNull();
-        expect(fixture.commitCurrentViewportIfSettled).not.toHaveBeenCalled();
         expect(fixture.emitInitialVisualReady).not.toHaveBeenCalled();
 
         fixture.viewerContainer.remove();

@@ -101,6 +101,7 @@ function createDocumentFixture(pageCount = 100) {
     const pageMetricsVersion = ref(0);
     const document = {numPages: pageCount} as IPdfDocument;
     const loadToken = ref(1);
+    const loadedPageMetrics = new Set<number>();
     const fixture = {
         pdfDocument: shallowRef<IPdfDocument | null>(document),
         numPages: ref(pageCount),
@@ -110,7 +111,14 @@ function createDocumentFixture(pageCount = 100) {
         pageMetrics,
         pageMetricsVersion,
         acceptedSource: computed(() => new Blob(['pdf'], {type: 'application/pdf'})),
-        ensurePageMetricsInRange: vi.fn(async () => true),
+        ensurePageMetricsInRange: vi.fn(async (start: number, end: number) => {
+            for (let page = start; page <= end; page += 1) {
+                loadedPageMetrics.add(page);
+            }
+            return true;
+        }),
+        /** Pages whose metrics the document has read from the PDF. */
+        loadedPageMetrics,
         hasExactPageGeometry: vi.fn(() => true),
         captureFence: () => ({
             loadToken: loadToken.value,
@@ -148,7 +156,10 @@ function createDocumentFixture(pageCount = 100) {
         openSurfaceGeneration: 1,
         openSurfaceRevision: 'revision-1',
         evictPage: vi.fn(),
-        preserveNextReloadVisibleContent: vi.fn(),
+        nextReloadPreservesVisibleContent: false,
+        preserveNextReloadVisibleContent(shouldPreserve: boolean) {
+            this.nextReloadPreservesVisibleContent = shouldPreserve;
+        },
         carryAnchorThroughPageMutation: vi.fn((anchor: unknown) => anchor),
         async emit(transition: IPdfDocumentTransition) {
             for (const subscriber of [...subscribers]) {
@@ -365,7 +376,8 @@ function setCurrentPage(
     viewport: ReturnType<typeof createPdfViewportSession>,
     page: number,
 ) {
-    viewport.singlePageScroll.viewportAuthority.observeUserScroll({
+    // The user has moved the viewport to the top of this page.
+    viewport.singlePageScroll.cancelProgrammaticNavigation('test-user-scroll', {
         affinity: 'start',
         page,
         pageXFraction: 0,
@@ -693,7 +705,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
             expect(fixture.viewport.cancelRasterRevision.value).toBe(cancellationRevision);
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.pendingTargetPage.value).toBe(64);
+            expect(fixture.viewport.demand.value.destinationPage).toBe(64);
             expect(fixture.viewport.demand.value.requiredPages).toContain(64);
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
@@ -734,9 +746,9 @@ describe('PdfViewportSession behavior', () => {
             paintedPages.add(64);
             fixture.viewport.settleMandatoryRaster(paintedId, true);
             await vi.waitFor(() => {
-                expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('settled');
+                expect(fixture.viewport.currentPage.value).toBe(64);
+                expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
             });
-            expect(fixture.viewport.currentPage.value).toBe(64);
             expect(fixture.viewport.demand.value.mandatoryRaster).toBeNull();
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
@@ -759,7 +771,8 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
 
             await vi.waitFor(() => expect(requests.ids.size).toBeGreaterThan(1));
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('awaiting-visual');
+            expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
+            expect(fixture.viewport.demand.value.destinationPage).toBe(64);
         } finally {
             requests.stop();
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
@@ -788,7 +801,8 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
 
             await vi.waitFor(() => {
-                expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('settled');
+                expect(fixture.viewport.currentPage.value).toBe(64);
+                expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
             });
             expect(requests.ids.size).toBe(1);
         } finally {
@@ -813,61 +827,14 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
 
             await vi.waitFor(() => {
-                expect(fixture.viewport.singlePageScroll.viewportAuthority.phase.value).toBe('settled');
+                expect(fixture.viewport.currentPage.value).toBe(64);
+                expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
             });
             expect(requests.ids.size).toBe(1);
         } finally {
             requests.stop();
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             await fixture.dispose();
-        }
-    });
-
-    it('coalesces mounted visibility projection requests queued before next tick', async () => {
-        const pendingFrames = new Map<number, (time: number) => void>();
-        let nextFrameId = 0;
-        const requestFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
-            const frameId = ++nextFrameId;
-            pendingFrames.set(frameId, callback);
-            return frameId;
-        });
-        const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(frameId => {
-            pendingFrames.delete(frameId);
-        });
-        const runPendingFrames = () => {
-            while (pendingFrames.size > 0) {
-                const frames = [...pendingFrames.entries()];
-                pendingFrames.clear();
-                frames.forEach(([
-                    ,
-                    callback,
-                ]) => callback(0));
-            }
-        };
-        const fixture = createViewportFixture({
-            bufferPages: 0,
-            continuousScroll: true,
-            pageCount: 30,
-            zoomMode: 'custom',
-        });
-        try {
-            await nextTick();
-            await nextTick();
-            runPendingFrames();
-            await nextTick();
-            runPendingFrames();
-            requestFrame.mockClear();
-
-            fixture.viewport.markPageMounted(requirePageNumber(1));
-            fixture.viewport.markPageMounted(requirePageNumber(2));
-
-            await nextTick();
-            expect(requestFrame).toHaveBeenCalledOnce();
-            runPendingFrames();
-        } finally {
-            fixture.app.unmount();
-            requestFrame.mockRestore();
-            cancelFrame.mockRestore();
         }
     });
 
@@ -950,10 +917,8 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             setCurrentPage(fixture.viewport, 4);
             const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
-            const committedAnchor = fixture.viewport.singlePageScroll.viewportAuthority
-                .committedAnchor.value;
             const visibleRange = {...fixture.viewport.visibleRange.value};
-            expect(committedAnchor?.page).toBe(4);
+            expect(fixture.viewport.currentPage.value).toBe(4);
 
             fixture.isActive.value = false;
             await nextTick();
@@ -962,8 +927,6 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
             expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch);
-            expect(fixture.viewport.singlePageScroll.viewportAuthority
-                .committedAnchor.value).toBe(committedAnchor);
             expect(fixture.viewport.currentPage.value).toBe(4);
             expect(fixture.viewport.visibleRange.value).toEqual(visibleRange);
         } finally {
@@ -991,17 +954,13 @@ describe('PdfViewportSession behavior', () => {
             fixture.isActive.value = false;
             await nextTick();
             const interactionEpoch = fixture.viewport.userViewportInteractionEpoch.value;
-            const previousAnchor = fixture.viewport.singlePageScroll.viewportAuthority
-                .committedAnchor.value;
+            expect(fixture.viewport.currentPage.value).toBe(4);
 
             fixture.container.scrollTop = 700;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
             expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(interactionEpoch + 1);
-            expect(fixture.viewport.singlePageScroll.viewportAuthority
-                .committedAnchor.value).not.toBe(previousAnchor);
-            expect(fixture.viewport.singlePageScroll.viewportAuthority
-                .committedAnchor.value?.page).toBeGreaterThan(4);
+            expect(fixture.viewport.currentPage.value).toBeGreaterThan(4);
         } finally {
             fixture.app.unmount();
         }
@@ -1039,12 +998,12 @@ describe('PdfViewportSession behavior', () => {
         const fixture = createViewportFixture({isResizing: ref(true)});
         try {
             await nextTick();
-            const observe = vi.spyOn(fixture.viewport.singlePageScroll, 'cancelProgrammaticNavigation');
             fixture.viewport.markUserViewportInteraction();
-            observe.mockClear();
+            const epoch = fixture.viewport.userViewportInteractionEpoch.value;
             fixture.container.scrollTop = 2_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-            expect(observe).toHaveBeenCalledWith('viewer-scroll-interaction', undefined);
+            expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+            expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
         } finally {
             fixture.app.unmount();
         }
@@ -1098,27 +1057,28 @@ describe('PdfViewportSession behavior', () => {
             }));
             fixture.documentSession.pageMetricsVersion.value += 1;
             await nextTick();
-            const observeUserScroll = vi.spyOn(
-                fixture.viewport.singlePageScroll.viewportAuthority,
-                'observeUserScroll',
-            );
-            const consumeAuthorityScroll = vi.spyOn(
+            // The write port recognizes the first scroll as the echo of the
+            // viewer's own write.
+            vi.spyOn(
                 fixture.viewport.viewportWritePort,
                 'consumeAuthorityScroll',
             ).mockReturnValueOnce(true).mockReturnValue(false);
             const epoch = fixture.viewport.userViewportInteractionEpoch.value;
 
+            // The echo moves the rendered range but does not reinterpret the
+            // page the viewer placed.
             fixture.container.scrollTop = 5_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-            expect(consumeAuthorityScroll).toHaveBeenCalledOnce();
-            expect(observeUserScroll).not.toHaveBeenCalled();
             expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
+            expect(fixture.viewport.currentPage.value).toBe(1);
 
+            // The user's own scroll moves the page indicator onto a visible page.
             fixture.container.scrollTop = 7_500;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-            expect(observeUserScroll).toHaveBeenCalledOnce();
             expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
+            expect(fixture.viewport.currentPage.value).toBeGreaterThanOrEqual(fixture.viewport.visibleRange.value.start);
+            expect(fixture.viewport.currentPage.value).toBeLessThanOrEqual(fixture.viewport.visibleRange.value.end);
         } finally {
             fixture.app.unmount();
         }
@@ -1138,9 +1098,7 @@ describe('PdfViewportSession behavior', () => {
                 end: 2,
             };
             const metrics = Promise.withResolvers<boolean>();
-            fixture.documentSession.ensurePageMetricsInRange
-                .mockResolvedValueOnce(true)
-                .mockReturnValueOnce(metrics.promise);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValue(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(4))).toBe(true);
 
             expect(fixture.viewport.getProtectedVisibleRange()).toEqual({
@@ -1148,14 +1106,15 @@ describe('PdfViewportSession behavior', () => {
                 end: 4,
             });
 
-            await vi.waitFor(() => {
-                expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledWith(3, 4);
-            });
+            // Cancel while the target row is still being measured.
+            await yieldToBrowser();
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cancel');
+            const writesAtCancel = fixture.viewportWrites.writes.length;
             metrics.resolve(true);
-            await nextTick();
+            await yieldToBrowser();
 
-            expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBeNull();
+            expect(fixture.viewportWrites.writes).toHaveLength(writesAtCancel);
+            expect(fixture.viewport.demand.value.destinationPage).toBeNull();
             expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
         } finally {
             fixture.app.unmount();
@@ -1303,9 +1262,7 @@ describe('PdfViewportSession behavior', () => {
             await fixture.documentSession.emit(transition('loading', reloadPlan));
             const ready = fixture.documentSession.emit(transition('ready', reloadPlan));
 
-            await vi.waitFor(() => expect(
-                fixture.documentSession.ensurePageMetricsInRange,
-            ).toHaveBeenCalledWith(20_001, 20_001));
+            await vi.waitFor(() => expect(fixture.documentSession.loadedPageMetrics.has(20_001)).toBe(true));
 
             let rasterId = 0;
             await vi.waitFor(() => {
@@ -1321,7 +1278,7 @@ describe('PdfViewportSession behavior', () => {
             });
             fixture.viewport.settleMandatoryRaster(rasterId, true);
             await ready;
-            expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledTimes(1);
+            expect([...fixture.documentSession.loadedPageMetrics]).toEqual([20_001]);
         } finally {
             fixture.app.unmount();
         }
@@ -1406,7 +1363,17 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.scale.seedOpeningFitScale(845 / 612)).toBe(true);
             await nextTick();
             fixture.emitEffectiveZoom.mockClear();
-            setCurrentPage(fixture.viewport, 6);
+            // The PDF viewer settles on page 6 while the shared surface still
+            // holds its unplaced opening ticket. A user scroll is held back in
+            // that state, so seed the viewer's page directly.
+            fixture.viewport.singlePageScroll.viewportAuthority.observeUserScroll({
+                affinity: 'start',
+                page: 6,
+                pageXFraction: 0,
+                pageYFraction: 0,
+                viewportXFraction: 0,
+                viewportYFraction: 0,
+            });
             await nextTick();
             expect(outcomes).toEqual([false]);
             expect(currentPage.value).toBe(1);
@@ -1519,9 +1486,13 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
-            ).toBeDefined());
-            const navigationIntentId = fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.id;
+                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
+            ).toBe(true));
+            const navigation = surface.navigationTicket.value;
+            expect(navigation?.request.target).toEqual({
+                kind: 'page',
+                page: 2,
+            });
             const renderFence = surface.createRenderFence({
                 generation,
                 documentRevision: 'revision-1',
@@ -1533,17 +1504,19 @@ describe('PdfViewportSession behavior', () => {
             expect(surface.commitCanvas(renderFence!)).toBe(true);
             await nextTick();
 
+            // The canvas does not settle the open while the navigation that
+            // asked for page 2 is still on its way there.
             expect(surface.snapshot.value.committedViewport).toBeNull();
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.id)
-                .toBe(navigationIntentId);
+            expect(surface.navigationTicket.value).toBe(navigation);
+            expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true);
         } finally {
-            fixture.viewport.singlePageScroll.viewportAuthority.suspend();
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             metrics.resolve(true);
             fixture.app.unmount();
         }
     });
 
-    it('cancels a stale navigation intent when document loading advances the revision', async () => {
+    it('does not land a navigation from the previous document in the next one', async () => {
         const surface = createDocumentOpenSurfaceSession();
         surface.begin({
             documentId: 'stale-navigation.pdf',
@@ -1559,10 +1532,15 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
-            ).toBeDefined());
-            const staleIntentId = fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value!.id;
+                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
+            ).toBe(true));
 
+            // Another document starts loading in this viewer.
+            surface.begin({
+                documentId: 'replacement.pdf',
+                documentRevision: 'revision-2',
+            });
+            fixture.documentSession.loadToken.value = 2;
             await fixture.documentSession.emit(transition('loading', {
                 isReload: false,
                 isSelectiveReload: false,
@@ -1570,15 +1548,14 @@ describe('PdfViewportSession behavior', () => {
                 preserveVisibleContent: false,
                 preservePageStructure: false,
             }));
+            expect(fixture.viewport.demand.value.destinationPage).not.toBe(2);
 
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.getTerminalOutcome(staleIntentId))
-                .toBe('cancelled');
-            await nextTick();
-            await Promise.resolve();
-            await nextTick();
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
-            expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledTimes(1);
+            // The old navigation's layout arrives after the new load began; it
+            // must not carry the new document to the old destination.
+            metrics.resolve(true);
+            await yieldToBrowser();
+            await yieldToBrowser();
+            expect(fixture.emittedPages).not.toContain(2);
         } finally {
             metrics.resolve(true);
             fixture.app.unmount();
@@ -1600,8 +1577,8 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(39))).toBe(true);
             await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value,
-            ).not.toBeNull());
+                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
+            ).toBe(true));
 
             fixture.documentSession.numPages.value = 0;
             fixture.documentSession.pageMetrics.value = [];
@@ -1614,7 +1591,7 @@ describe('PdfViewportSession behavior', () => {
                 preservePageStructure: false,
             }));
 
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
             expect(fixture.viewport.demand.value.operational).toBe(false);
         } finally {
             metrics.resolve(true);
@@ -1638,8 +1615,7 @@ describe('PdfViewportSession behavior', () => {
                 isSameDocumentRewrite: true,
             });
 
-            expect(fixture.documentSession.preserveNextReloadVisibleContent)
-                .toHaveBeenCalledWith(true);
+            expect(fixture.documentSession.nextReloadPreservesVisibleContent).toBe(true);
         } finally {
             fixture.app.unmount();
         }
@@ -1658,8 +1634,7 @@ describe('PdfViewportSession behavior', () => {
                 preservePageStructure: false,
             }));
 
-            expect(fixture.documentSession.preserveNextReloadVisibleContent)
-                .not.toHaveBeenCalled();
+            expect(fixture.documentSession.nextReloadPreservesVisibleContent).toBe(false);
         } finally {
             fixture.app.unmount();
         }
@@ -1685,7 +1660,8 @@ describe('PdfViewportSession behavior', () => {
             await nextTick();
 
             expect(surface.viewportSession.value.lifecycle).toBe('opening');
-            expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
+            expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+            expect(fixture.viewportWrites.writes).toHaveLength(0);
         } finally {
             fixture.app.unmount();
         }

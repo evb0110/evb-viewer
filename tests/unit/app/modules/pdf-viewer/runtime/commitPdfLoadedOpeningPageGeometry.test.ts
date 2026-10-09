@@ -4,53 +4,26 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
-import {
-    ref,
-    type Ref,
-} from 'vue';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
-function createChassisAuthority(
-    snapshot: Ref<IDocumentOpenSurfaceSnapshot>,
-    commitOpeningPageGeometry: (...args: never[]) => boolean,
-): IDocumentViewerRuntime {
-    // This lifecycle unit reads only the open-surface snapshot and commit
-    // method from the larger viewer authority.
-    return {openSurface: {
-        snapshot,
-        commitOpeningPageGeometry,
-    }} as IDocumentViewerRuntime;
-}
-
-function createHarness() {
+function createHarness(surfaceDocumentId = '/tmp/scan.pdf') {
     const source = {
         kind: 'path',
         path: requireDocumentRef('/tmp/scan.pdf'),
         size: 28_000_000,
     } as const;
-    const snapshot = ref<IDocumentOpenSurfaceSnapshot>({
-        generation: 4,
-        identity: {
-            documentId: '/tmp/scan.pdf',
-            documentRevision: 'open:4',
-        },
-        phase: 'pending',
-        presentation: 'idle',
-        geometry: null,
-        openingPageGeometry: null,
-        openingPageFrame: null,
-        committedRender: null,
-        committedViewport: null,
-        failure: null,
+    const surface = createDocumentOpenSurfaceSession();
+    const generation = surface.begin({
+        documentId: surfaceDocumentId,
+        documentRevision: 'open:4',
     });
-    const commitOpeningPageGeometry = vi.fn(() => true);
-    const authority = createChassisAuthority(snapshot, commitOpeningPageGeometry);
+    // This lifecycle unit reads only the open surface from the viewer runtime.
+    const authority = {openSurface: surface} as IDocumentViewerRuntime;
     const input = {
-        expectedGeneration: 4,
+        expectedGeneration: generation,
         documentId: '/tmp/scan.pdf',
         metricSource: source,
         currentSource: source,
@@ -65,9 +38,9 @@ function createHarness() {
     };
     return {
         authority,
-        commitOpeningPageGeometry,
         input,
-        snapshot,
+        /** The page frame the open surface shows before the first raster. */
+        openingPageGeometry: () => surface.snapshot.value.openingPageGeometry,
         source,
     };
 }
@@ -77,7 +50,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
         const harness = createHarness();
 
         expect(commitPdfLoadedOpeningPageGeometry(harness.authority, harness.input)).toBe(true);
-        expect(harness.commitOpeningPageGeometry).toHaveBeenCalledExactlyOnceWith(4, {
+        expect(harness.openingPageGeometry()).toMatchObject({
             documentId: '/tmp/scan.pdf',
             pageNumber: 1,
             pageCount: 431,
@@ -94,18 +67,11 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             ...harness.input,
             currentSource: {...harness.source},
         })).toBe(true);
-        expect(harness.commitOpeningPageGeometry).toHaveBeenCalledOnce();
+        expect(harness.openingPageGeometry()?.pageNumber).toBe(1);
     });
 
     it('commits under the session identity when the accepted native source uses an alias path', () => {
-        const harness = createHarness();
-        harness.snapshot.value = {
-            ...harness.snapshot.value,
-            identity: {
-                documentId: '/var/tmp/scan.pdf',
-                documentRevision: 'open:4',
-            },
-        };
+        const harness = createHarness('/var/tmp/scan.pdf');
         const aliasedSource = {
             kind: 'path',
             path: requireDocumentRef('/private/var/tmp/scan.pdf'),
@@ -118,7 +84,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             metricSource: aliasedSource,
             currentSource: {...aliasedSource},
         })).toBe(true);
-        expect(harness.commitOpeningPageGeometry).toHaveBeenCalledWith(4, expect.objectContaining({documentId: '/var/tmp/scan.pdf'}));
+        expect(harness.openingPageGeometry()?.documentId).toBe('/var/tmp/scan.pdf');
     });
 
     it('rejects a path descriptor whose size revision changed', () => {
@@ -131,7 +97,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
                 size: harness.source.size + 1,
             },
         })).toBe(false);
-        expect(harness.commitOpeningPageGeometry).not.toHaveBeenCalled();
+        expect(harness.openingPageGeometry()).toBeNull();
     });
 
     it.each([
@@ -158,7 +124,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             ...harness.input,
             ...override,
         })).toBe(false);
-        expect(harness.commitOpeningPageGeometry).not.toHaveBeenCalled();
+        expect(harness.openingPageGeometry()).toBeNull();
     });
 
     it('rejects metrics captured for a stale source', () => {
@@ -172,6 +138,6 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
                 size: 28_000_000,
             },
         })).toBe(false);
-        expect(harness.commitOpeningPageGeometry).not.toHaveBeenCalled();
+        expect(harness.openingPageGeometry()).toBeNull();
     });
 });
