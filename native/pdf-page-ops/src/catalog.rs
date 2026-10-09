@@ -90,12 +90,14 @@ pub(crate) fn read_pdf_combine_catalog(
             let outlines = resolve_catalog_dictionary(document, outlines_object, "Outlines")?;
             let first = outlines.get(b"First").ok().cloned();
             let mut state = CatalogWalkState::new();
+            let mut named_destinations = None;
             read_outline_items(
                 document,
                 catalog,
                 first.as_ref(),
                 0,
                 &mut state,
+                &mut named_destinations,
                 &mut page_ids,
             )?
         }
@@ -131,7 +133,7 @@ pub(crate) fn write_pdf_combine_catalog(
     qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let incremental = load_incremental_pdf_path(input_path, qpdf_path)?;
+    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)?;
     let source = AppendedRevision::new(&incremental);
     let catalog = read_pdf_combine_catalog(&source)?;
     serde_json::to_writer(output, &catalog)?;
@@ -169,12 +171,13 @@ fn resolve_catalog_dictionary<'a>(
         .map_err(|error| format!("PDF catalog /{label} must be a dictionary: {error}").into())
 }
 
-fn read_outline_items(
-    document: &impl PdfObjectSource,
-    catalog: &Dictionary,
+fn read_outline_items<'a>(
+    document: &'a impl PdfObjectSource,
+    catalog: &'a Dictionary,
     first: Option<&Object>,
     depth: usize,
     state: &mut CatalogWalkState,
+    named_destinations: &mut Option<HashMap<String, &'a Object>>,
     page_ids: &mut HashSet<ObjectId>,
 ) -> Result<Vec<RawPdfCombineBookmarkEntry>> {
     if depth >= CATALOG_WALK_DEPTH_LIMIT {
@@ -208,7 +211,7 @@ fn read_outline_items(
         });
         let page_id = destination
             .as_ref()
-            .map(|value| destination_page_id(document, catalog, value))
+            .map(|value| destination_page_id(document, catalog, named_destinations, value))
             .transpose()?
             .flatten();
         if let Some(page_id) = page_id {
@@ -231,6 +234,7 @@ fn read_outline_items(
                 first_child.as_ref(),
                 depth + 1,
                 state,
+                named_destinations,
                 page_ids,
             )?,
             bold: flags & 2 != 0,
@@ -246,14 +250,17 @@ fn read_outline_items(
     Ok(output)
 }
 
-fn destination_page_id(
-    document: &impl PdfObjectSource,
-    catalog: &Dictionary,
+fn destination_page_id<'a>(
+    document: &'a impl PdfObjectSource,
+    catalog: &'a Dictionary,
+    named_destinations: &mut Option<HashMap<String, &'a Object>>,
     value: &Object,
 ) -> Result<Option<ObjectId>> {
     let mut destination = document.resolved(value)?.clone();
     if let Some(name) = pdf_name_or_string(&destination) {
-        let Some(named_destination) = find_named_destination(document, catalog, &name)? else {
+        let Some(named_destination) =
+            find_named_destination(document, catalog, named_destinations, &name)?
+        else {
             return Ok(None);
         };
         destination = document.resolved(&named_destination)?.clone();
@@ -273,9 +280,13 @@ fn destination_page_id(
     Ok(first.as_reference().ok())
 }
 
-fn find_named_destination(
-    document: &impl PdfObjectSource,
-    catalog: &Dictionary,
+/// Looks a name up in the legacy `/Dests` dictionary, then in the `/Names
+/// /Dests` tree. The tree is walked once per catalog read, on the first named
+/// destination, so each further bookmark costs one map lookup.
+fn find_named_destination<'a>(
+    document: &'a impl PdfObjectSource,
+    catalog: &'a Dictionary,
+    named_destinations: &mut Option<HashMap<String, &'a Object>>,
     name: &str,
 ) -> Result<Option<Object>> {
     if let Ok(dests_object) = catalog.get(b"Dests") {
@@ -285,64 +296,76 @@ fn find_named_destination(
         }
     }
 
+    let named_destinations = match named_destinations {
+        Some(named_destinations) => named_destinations,
+        None => named_destinations.insert(read_named_destination_tree(document, catalog)?),
+    };
+    Ok(named_destinations.get(name).copied().cloned())
+}
+
+fn read_named_destination_tree<'a>(
+    document: &'a impl PdfObjectSource,
+    catalog: &'a Dictionary,
+) -> Result<HashMap<String, &'a Object>> {
+    let mut entries = HashMap::new();
     let names_object = match catalog.get(b"Names") {
         Ok(names_object) => names_object,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(entries),
     };
     let names = resolve_catalog_dictionary(document, names_object, "Names")?;
     let dests_object = match names.get(b"Dests") {
         Ok(dests_object) => dests_object,
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(entries),
     };
     let mut state = CatalogWalkState::new();
-    find_named_destination_in_tree(document, dests_object, name, 0, &mut state)
+    collect_named_destination_tree(document, dests_object, 0, &mut state, &mut entries);
+    Ok(entries)
 }
 
-fn find_named_destination_in_tree(
-    document: &impl PdfObjectSource,
-    node_object: &Object,
-    name: &str,
+/// Collects the tree in depth-first order, keeping the first value of a
+/// repeated name. A malformed node ends only its own subtree, and the shared
+/// walk state bounds the whole tree by depth, node count and cycles.
+fn collect_named_destination_tree<'a>(
+    document: &'a impl PdfObjectSource,
+    node_object: &'a Object,
     depth: usize,
     state: &mut CatalogWalkState,
-) -> Result<Option<Object>> {
+    entries: &mut HashMap<String, &'a Object>,
+) {
     if depth >= CATALOG_WALK_DEPTH_LIMIT || !state.enter(node_object) {
-        return Ok(None);
+        return;
     }
     let Ok(node) = resolve_catalog_dictionary(document, node_object, "destination name tree")
     else {
-        return Ok(None);
+        return;
     };
     if let Ok(entries_object) = node.get(b"Names") {
-        let Some(entries) = document
+        let Some(pairs) = document
             .resolved(entries_object)
             .ok()
             .and_then(|value| value.as_array().ok())
         else {
-            return Ok(None);
+            return;
         };
-        for pair in entries.chunks_exact(2) {
-            if pdf_name_or_string(&pair[0]).as_deref() == Some(name) {
-                return Ok(Some(pair[1].clone()));
+        for pair in pairs.chunks_exact(2) {
+            if let Some(name) = pdf_name_or_string(&pair[0]) {
+                entries.entry(name).or_insert(&pair[1]);
             }
         }
     }
     let Ok(kids_object) = node.get(b"Kids") else {
-        return Ok(None);
+        return;
     };
     let Some(kids) = document
         .resolved(kids_object)
         .ok()
         .and_then(|value| value.as_array().ok())
     else {
-        return Ok(None);
+        return;
     };
     for kid in kids {
-        if let Some(found) = find_named_destination_in_tree(document, kid, name, depth + 1, state)?
-        {
-            return Ok(Some(found));
-        }
+        collect_named_destination_tree(document, kid, depth + 1, state, entries);
     }
-    Ok(None)
 }
 
 fn collect_catalog_page_indices(

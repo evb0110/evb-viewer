@@ -22,6 +22,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import { mainJobBroker } from '@electron/resources/jobBroker';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -714,25 +715,19 @@ function waitForFlight(
     });
 }
 
-export async function ensureWorkingCopyMaterialized(
+/** The registration's materialized result, or a flight that is not tearing down. */
+async function getMaterializedOrLiveFlight(
     logicalRef: string,
-    options: IEnsureWorkingCopyMaterializedOptions,
+    ownerWebContentsId: number | undefined,
+    reason: TWorkingCopyMaterializationReason,
+    backgroundLease: boolean,
 ) {
-    const normalizedRef = typeof logicalRef === 'string' ? logicalRef.trim() : '';
-    if (!normalizedRef) {
-        throw new Error('Invalid working copy path');
-    }
     for (let attempt = 0; attempt < 3; attempt += 1) {
-        const existingResult = alreadyMaterializedResult(normalizedRef, options.ownerWebContentsId);
+        const existingResult = alreadyMaterializedResult(logicalRef, ownerWebContentsId);
         if (existingResult) {
             return existingResult;
         }
-        const flight = getOrCreateFlight(
-            normalizedRef,
-            options.ownerWebContentsId,
-            options.reason,
-            false,
-        );
+        const flight = getOrCreateFlight(logicalRef, ownerWebContentsId, reason, backgroundLease);
         // A flight that is already tearing down has nothing to hand this
         // caller. Wait for it to release the registration and start a new one,
         // instead of adopting its cancellation as this request's answer.
@@ -740,7 +735,7 @@ export async function ensureWorkingCopyMaterialized(
             await flight.promise.catch(() => undefined);
             continue;
         }
-        return waitForFlight(flight, options);
+        return flight;
     }
     throw new WorkingCopyMaterializationError(
         'WORKING_COPY_MATERIALIZATION_FAILED',
@@ -749,6 +744,29 @@ export async function ensureWorkingCopyMaterialized(
     );
 }
 
+export async function ensureWorkingCopyMaterialized(
+    logicalRef: string,
+    options: IEnsureWorkingCopyMaterializedOptions,
+) {
+    const normalizedRef = typeof logicalRef === 'string' ? logicalRef.trim() : '';
+    if (!normalizedRef) {
+        throw new Error('Invalid working copy path');
+    }
+    const materialized = await getMaterializedOrLiveFlight(
+        normalizedRef,
+        options.ownerWebContentsId,
+        options.reason,
+        false,
+    );
+    return 'controller' in materialized ? waitForFlight(materialized, options) : materialized;
+}
+
+/**
+ * Prewarms a lazy copy so the document stops depending on its original. The
+ * copy is optional I/O, so it waits for the broker's background budget, one
+ * per window at a time. Nothing waits for that admission: a caller that needs
+ * the bytes starts its own flight, which the prewarm then keeps alive.
+ */
 export function startBackgroundWorkingCopyMaterialization(
     logicalRef: string,
     ownerWebContentsId?: number,
@@ -757,11 +775,36 @@ export function startBackgroundWorkingCopyMaterialization(
     if (existingResult) {
         return null;
     }
-    const flight = getOrCreateFlight(logicalRef, ownerWebContentsId, 'background', true);
-    return {
-        operationId: flight.operationId,
-        promise: flight.promise,
-    };
+    const admission = registerMainOperation({
+        kind: 'abortable-work',
+        ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
+        workingCopyPath: logicalRef,
+    });
+    const promise = mainJobBroker.acquire({
+        ownerId: `working-copy-materialization:${ownerWebContentsId ?? 'main'}`,
+        kind: 'working-copy-materialization',
+        priority: 'background',
+        perOwnerLimit: 1,
+        signal: admission.signal,
+        resources: {
+            cpuTokens: 0,
+            estimatedResidentBytes: 2 * MATERIALIZATION_CHUNK_BYTES,
+            nativeProcesses: 0,
+            ioWeight: 1,
+        },
+    })
+        .finally(() => {
+            admission.complete();
+        })
+        .then(async (lease) => {
+            try {
+                const materialized = await getMaterializedOrLiveFlight(logicalRef, ownerWebContentsId, 'background', true);
+                return 'controller' in materialized ? await materialized.promise : materialized;
+            } finally {
+                lease.release();
+            }
+        });
+    return {promise};
 }
 
 export function cancelWorkingCopyMaterialization(operationId: string, reason = 'Materialization cancelled') {

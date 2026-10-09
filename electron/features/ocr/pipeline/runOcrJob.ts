@@ -64,8 +64,9 @@ import {
 import {selectOcrPagesForSupersession} from '@electron/features/ocr/pipeline/selectOcrPagesForSupersession';
 import {sha256OcrFile} from '@electron/features/ocr/pipeline/sha256OcrFile';
 import {
-    readOcrPdfPageSizesInches,
+    createOcrPageSizeSource,
     type IOcrPageSizeInches,
+    type IOcrPageSizeSource,
     type TOcrPageSizeProbeResult,
 } from '@electron/features/ocr/pipeline/pdfPageSizeProbe';
 import {
@@ -121,6 +122,8 @@ export interface IOcrJob {
     signal: AbortSignal;
     publish: (progress: IOcrJobProgress) => void;
     log: TWorkerLog;
+    /** Installs the long-s models into `paths.tessdataPath`; called once, when a page first needs them. */
+    prepareLongSModels?: (signal: AbortSignal) => Promise<void>;
 }
 
 function throwIfAborted(signal: AbortSignal) {
@@ -252,6 +255,7 @@ export interface IOcrPageProcessingContext {
     signal: AbortSignal;
     storageBudget: TOcrJobStorageBudget;
     trackTempFile: (path: string) => string;
+    prepareLongSModels?: () => Promise<void>;
 }
 
 async function readPageCheckpoint(
@@ -417,6 +421,7 @@ async function processOcrPage(
             getTesseractThreadLimit(lease.resources.cpuTokens),
             context.signal,
             context.options,
+            context.prepareLongSModels,
         );
 
         if (!ocrResult.success || !ocrResult.pageData || !ocrResult.pdfPath) {
@@ -441,6 +446,19 @@ async function processOcrPage(
             });
         }
 
+        if (ocrResult.longSUnavailable !== undefined) {
+            log('warn', 'Long-s recognition unavailable for OCR page', {
+                pageNumber: page.pageNumber,
+                error: ocrResult.longSUnavailable,
+            });
+            diagnostics.push({
+                code: 'OCR_LONG_S_UNAVAILABLE',
+                severity: 'warning',
+                pageNumber: requirePageNumber(page.pageNumber),
+                message: `The page is printed with the long s, but the long-s models could not run: ${ocrResult.longSUnavailable}`,
+            });
+        }
+
         const pageData: IOcrPageWithWords = {
             pageNumber: page.pageNumber,
             words: mapOcrWordsThroughInverseTransform(ocrResult.pageData.words, preprocessInverse),
@@ -454,6 +472,7 @@ async function processOcrPage(
             checkpointData: {
                 pageData,
                 ...(preprocessInverse === undefined ? {} : {preprocessInverse}),
+                ...(ocrResult.wordEdits === undefined ? {} : {wordEdits: ocrResult.wordEdits}),
                 effectiveDpi,
                 diagnostics,
             },
@@ -583,6 +602,7 @@ async function buildOcrPageProcessingPlan(
     renderDpi: number | undefined,
     baseContext: TOcrPlanContext,
     sendStage: (phase: TOcrProgressPhase) => void,
+    pageSizeSource: IOcrPageSizeSource,
 ): Promise<{
     concurrency: number;
     pageSizeProbe: TOcrPageSizeProbeResult;
@@ -614,20 +634,12 @@ async function buildOcrPageProcessingPlan(
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(pages.length);
     sendStage('page-size-probing');
-    const pageSizeProbe = await readOcrPdfPageSizesInches({
-        pdfPath: popplerSourcePdfPath,
-        ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
-        qpdfBinary: paths.qpdfBinary,
-        tempDir: paths.tempDir,
-        pageNumbers: pages.map(page => page.pageNumber),
-        signal: baseContext.signal,
-        log,
-    });
+    const pageSizeProbe = await pageSizeSource.read(popplerSourcePdfPath, pages.map(page => page.pageNumber));
 
     if (pageSizeProbe.status === 'degraded' && pageSizeProbe.reason === 'native-tool-failed') {
         const prepared = await baseContext.preparePopplerFallback();
         if (prepared.pdfPath !== popplerSourcePdfPath) {
-            return buildOcrPageProcessingPlan(pages, prepared.pdfPath, renderDpi, baseContext, sendStage);
+            return buildOcrPageProcessingPlan(pages, prepared.pdfPath, renderDpi, baseContext, sendStage, pageSizeSource);
         }
     }
 
@@ -673,6 +685,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         documentRevision,
         options,
         log,
+        prepareLongSModels,
     } = job;
     const tempFiles = new Set<string>();
     const keepFiles = new Set<string>();
@@ -693,6 +706,13 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         signal,
         budgetAbort.signal,
     ]);
+    const pageSizeSource = createOcrPageSizeSource({
+        ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
+        qpdfBinary: paths.qpdfBinary,
+        tempDir: paths.tempDir,
+        signal: jobSignal,
+        log,
+    });
 
     const trackTempFile = (filePath: string) => {
         if (tempFiles.size < MAX_TRACKED_TEMP_FILES) {
@@ -786,6 +806,9 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         logPopplerEnvironment(log, popplerEnv);
 
         let firstCheckpointMarked = false;
+        // One preparation per job, failed or not: the download already retries
+        // with backoff, and later pages must not wait out a dead network again.
+        let longSModels: Promise<void> | undefined;
         const manifest = durableManifest;
         const planContext: TOcrPlanContext = {
             jobId: job.jobId,
@@ -810,6 +833,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             storageBudget,
             trackTempFile,
             ...(popplerEnv === undefined ? {} : {popplerEnv}),
+            ...(prepareLongSModels === undefined ? {} : {prepareLongSModels: () => longSModels ??= prepareLongSModels(jobSignal)}),
         };
         await durableManifest.markNode('page-raster', 'running');
         await durableManifest.markNode('preprocessed', 'running');
@@ -858,6 +882,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 options.renderDpi,
                 planContext,
                 phase => publish(batchFirstPage, processedPageCount, {phase}),
+                pageSizeSource,
             );
             if (pageSizeProbe.status === 'degraded' && !pageSizeWarningReported) {
                 appendMessages(jobWarnings, [pageSizeProbe.message]);
@@ -999,6 +1024,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         };
     } finally {
         await storageBudget?.stop();
+        await pageSizeSource.close();
         if (ownedCheckpointFingerprint) {
             activeCheckpointFingerprints.delete(ownedCheckpointFingerprint);
         }

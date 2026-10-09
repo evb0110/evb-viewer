@@ -58,6 +58,7 @@ import {
 import {detectDjvuHasText} from '@electron/features/djvu/main/textSearch';
 import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
+    estimateDjvuPdfConversionSource,
     evaluateDjvuPdfConversionPolicy,
     resolveDjvuCompactFidelityPreset,
     resolveDjvuPdfExportStrategy,
@@ -859,11 +860,11 @@ async function runDjvuPrintPath(
                 })
                 : await (async () => {
                     const subsample = resolveSubsample(options.subsample);
-                    const policy = evaluateDjvuPdfConversionPolicy({
+                    const policy = evaluateDjvuPdfConversionPolicy(estimateDjvuPdfConversionSource({
                         pageCount: selectedPages?.length ?? pageCount,
                         sourceDpi,
                         pageSizes,
-                    }, subsample);
+                    }), subsample);
                     if (!policy.isAllowed) {
                         return {
                             success: false as const,
@@ -1093,11 +1094,11 @@ async function runDjvuConvertToPdf(
                     })
                     : await (async () => {
                         const subsample = resolveSubsample(options.subsample);
-                        const policy = evaluateDjvuPdfConversionPolicy({
+                        const policy = evaluateDjvuPdfConversionPolicy(estimateDjvuPdfConversionSource({
                             pageCount,
                             sourceDpi,
                             pageSizes,
-                        }, subsample);
+                        }), subsample);
                         if (!policy.isAllowed) {
                             return {
                                 success: false as const,

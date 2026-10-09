@@ -46,7 +46,7 @@ describe('createIpcProgressPump replay', () => {
             value: 7,
         });
 
-        pump.subscribe({send: lateSend});
+        pump.replay({send: lateSend});
 
         expect(lateSend).toHaveBeenCalledTimes(2);
         expect(lateSend).toHaveBeenCalledWith('test:progress', {
@@ -67,7 +67,7 @@ describe('createIpcProgressPump replay', () => {
         });
         lateSend.mockClear();
 
-        pump.subscribe({send: lateSend});
+        pump.replay({send: lateSend});
 
         expect(lateSend).toHaveBeenCalledTimes(2);
         expect(lateSend).toHaveBeenCalledWith('test:progress', {
@@ -104,7 +104,7 @@ describe('createIpcProgressPump replay', () => {
         });
         pump.clear();
 
-        pump.subscribe({send: lateSend});
+        pump.replay({send: lateSend});
         expect(lateSend).toHaveBeenCalledWith('test:progress', {
             requestId: 'operation-a',
             phase: 'complete',
@@ -113,7 +113,7 @@ describe('createIpcProgressPump replay', () => {
 
         lateSend.mockClear();
         vi.advanceTimersByTime(30_000);
-        pump.subscribe({send: lateSend});
+        pump.replay({send: lateSend});
 
         expect(lateSend).not.toHaveBeenCalled();
         expect(onIdle).toHaveBeenCalled();
@@ -140,7 +140,7 @@ describe('createIpcProgressPump replay', () => {
         });
         expect(primarySend).toHaveBeenCalledTimes(1);
 
-        pump.subscribe({
+        pump.replay({
             key: 'sender:1',
             send: replaySend,
         });
@@ -164,9 +164,9 @@ describe('createIpcProgressPump replay', () => {
         expect(replaySend).not.toHaveBeenCalled();
     });
 
-    it('delivers keyed progress to every subscriber and unsubscribes independently', () => {
-        const firstSend = vi.fn();
-        const secondSend = vi.fn();
+    it('sends live progress only to the target it was published for', () => {
+        const ownerSend = vi.fn();
+        const otherSend = vi.fn();
         const pump = createIpcProgressPump<ITestProgress>({
             channel: 'test:progress',
             getTarget: () => null,
@@ -174,17 +174,15 @@ describe('createIpcProgressPump replay', () => {
             isTerminal: progress => progress.phase === 'complete',
         });
 
-        const unsubscribeFirst = pump.subscribe({key: 'sender:1', send: firstSend});
-        pump.subscribe({key: 'sender:1', send: secondSend});
+        pump.replay({key: 'sender:2', send: otherSend});
+        pump.enqueue({requestId: 'operation-a', phase: 'active', value: 1}, {key: 'sender:1', send: ownerSend});
+        pump.enqueue({requestId: 'operation-a', phase: 'complete', value: 100}, {key: 'sender:1', send: ownerSend});
 
-        pump.enqueue({requestId: 'operation-a', phase: 'active', value: 1});
-        expect(firstSend).toHaveBeenCalledOnce();
-        expect(secondSend).toHaveBeenCalledOnce();
-
-        unsubscribeFirst?.();
-        pump.enqueue({requestId: 'operation-a', phase: 'complete', value: 100});
-        expect(firstSend).toHaveBeenCalledOnce();
-        expect(secondSend).toHaveBeenCalledTimes(2);
+        expect(ownerSend.mock.calls).toEqual([
+            ['test:progress', {requestId: 'operation-a', phase: 'active', value: 1}],
+            ['test:progress', {requestId: 'operation-a', phase: 'complete', value: 100}],
+        ]);
+        expect(otherSend).not.toHaveBeenCalled();
     });
 
     it('delegates replay retention to an external owner', () => {
@@ -196,10 +194,10 @@ describe('createIpcProgressPump replay', () => {
             replayMode: {kind: 'external', getReplayPayloads: () => replay},
         });
         pump.enqueue({requestId: 'not-retained-internally', phase: 'active', value: 1});
-        pump.subscribe({send: replaySend});
+        pump.replay({send: replaySend});
         expect(replaySend.mock.calls).toEqual([['test:progress', replay[0]]]);
         replaySend.mockClear(); replay = [];
-        pump.subscribe({send: replaySend});
+        pump.replay({send: replaySend});
         expect(replaySend).not.toHaveBeenCalled();
     });
 });

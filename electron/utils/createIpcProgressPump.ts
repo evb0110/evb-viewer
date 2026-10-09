@@ -37,8 +37,6 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
     const pendingByKey = new Map<string, TPayload>();
     const pendingTargetsByKey = new Map<string, IProgressPumpTarget<TPayload> | null | undefined>();
     const timersByKey = new Map<string, ReturnType<typeof setTimeout>>();
-    const keyedSubscribers = new Map<string, Set<IProgressPumpTarget<TPayload>>>();
-    const unkeyedSubscribers = new Set<IProgressPumpTarget<TPayload>>();
     const retainedByKey = new Map<string, IRetainedProgress<TPayload>>();
     const replayMode = options.replayMode ?? {kind: 'internal'};
     const intervalMs = Math.max(0, options.intervalMs ?? DEFAULT_PROGRESS_PUMP_INTERVAL_MS);
@@ -61,30 +59,12 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         }
     }
 
-    function getTargetKey(target: IProgressPumpTarget<TPayload> | null | undefined) {
-        const key = target?.key?.trim();
-        return key && key.length > 0
-            ? key
-            : null;
-    }
-
+    // Live progress goes only to the target it was published for, its owner.
     function send(
         payload: TPayload,
-        primaryTarget: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget(),
+        target: IProgressPumpTarget<TPayload> | null | undefined = options.getTarget(),
     ) {
-        const primaryTargetKey = getTargetKey(primaryTarget);
-        sendToTarget(primaryTarget, payload);
-        for (const subscribers of keyedSubscribers.values()) {
-            for (const subscriber of subscribers) {
-                if (primaryTargetKey !== null && getTargetKey(subscriber) === primaryTargetKey) {
-                    continue;
-                }
-                sendToTarget(subscriber, payload);
-            }
-        }
-        for (const subscriber of unkeyedSubscribers) {
-            sendToTarget(subscriber, payload);
-        }
+        sendToTarget(target, payload);
     }
 
     function clearRetainedTimer(key: string) {
@@ -196,8 +176,6 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         timersByKey.clear();
         pendingByKey.clear();
         pendingTargetsByKey.clear();
-        keyedSubscribers.clear();
-        unkeyedSubscribers.clear();
         for (const [
             key,
             retained,
@@ -219,17 +197,10 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         notifyIdleIfEmpty();
     }
 
-    function subscribe(target: IProgressPumpTarget<TPayload>) {
+    /** Resends the retained progress a returning target missed, such as a reloaded owner. */
+    function replay(target: IProgressPumpTarget<TPayload>) {
         if (target.isDestroyed?.() === true) {
             return;
-        }
-        const targetKey = getTargetKey(target);
-        if (targetKey) {
-            const subscribers = keyedSubscribers.get(targetKey) ?? new Set<IProgressPumpTarget<TPayload>>();
-            subscribers.add(target);
-            keyedSubscribers.set(targetKey, subscribers);
-        } else {
-            unkeyedSubscribers.add(target);
         }
         const replayPayloads = replayMode.kind === 'external'
             ? replayMode.getReplayPayloads(target)
@@ -237,24 +208,12 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         for (const payload of replayPayloads) {
             sendToTarget(target, payload);
         }
-
-        return () => {
-            if (targetKey) {
-                const subscribers = keyedSubscribers.get(targetKey);
-                subscribers?.delete(target);
-                if (subscribers?.size === 0) {
-                    keyedSubscribers.delete(targetKey);
-                }
-                return;
-            }
-            unkeyedSubscribers.delete(target);
-        };
     }
 
     return {
         enqueue,
         flush,
-        subscribe,
+        replay,
         clearKey,
         clear,
         dispose,

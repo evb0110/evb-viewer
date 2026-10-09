@@ -161,7 +161,12 @@ export interface IMainJobRegistry<
         listener: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => void,
         onClose?: () => void,
     ): (() => void) | null;
-    subscribeOwner(actor: IMainJobActor<TSender>): () => void;
+    /**
+     * A renderer subscribing to this registry's progress channel. Live progress
+     * goes to each job's own sender only; this replays the actor's retained
+     * progress, which a reloaded owner has missed.
+     */
+    subscribeOwner(actor: IMainJobActor<TSender>): void;
     cancel(jobId: string, actor: IMainJobActor<TSender>, reason?: string): boolean;
     /** Main-process view of every record, for owners that look jobs up by content. */
     list(): Array<TMainJobSnapshot<TProgress, TResult, TError>>;
@@ -509,22 +514,12 @@ export function createMainJobRegistry<
             return subscription.close;
         },
         subscribeOwner: actor => {
-            if (!pump) {
-                return () => {};
-            }
-            const target: IProgressPumpTarget<TProgress> = {
+            pump?.replay({
                 key: ownerKeyOf(actor),
                 isDestroyed: () => actor.sender.isDestroyed(),
                 send: (channel, progress) => options.progress?.send ? options.progress.send(actor.sender, channel, progress)
                     : actor.sender.send(channel, progress),
-            };
-            const unsubscribe = pump.subscribe(target) ?? (() => {});
-            const stop = onSenderLifetimeEnd(actor.sender, () => cleanup(), {navigation: true});
-            const cleanup = () => {
-                unsubscribe();
-                stop();
-            };
-            return cleanup;
+            });
         },
         cancel: (jobId, actor, reason) => {
             const record = authorized(jobId, actor); return record ? requestCancel(record, reason) : false;

@@ -5,11 +5,10 @@ import {
 } from 'vitest';
 import {
     BROWSER_DJVU_CONVERSION_MAX_PAGES,
-    estimateDjvuPdfEffectivePixels,
+    estimateDjvuPdfConversionSource,
     evaluateDjvuPdfConversionPolicy,
     resolveBrowserDjvuConversionPreflight,
     resolveDjvuPdfExportStrategy,
-    resolveRecommendedDjvuPdfSubsample,
 } from '@contracts/djvuConversionPolicy';
 
 describe('djvuConversionPolicy', () => {
@@ -23,13 +22,14 @@ describe('djvuConversionPolicy', () => {
             })),
         };
 
-        expect(Math.round(estimateDjvuPdfEffectivePixels(metrics, 1) / 1_000_000_000)).toBe(19);
-        expect(resolveRecommendedDjvuPdfSubsample(metrics)).toBe(2);
-        expect(evaluateDjvuPdfConversionPolicy(metrics, 1)).toMatchObject({
+        const source = estimateDjvuPdfConversionSource(metrics);
+        expect(Math.round(evaluateDjvuPdfConversionPolicy(source, 1).effectivePixels / 1_000_000_000)).toBe(19);
+        expect(source.recommendedSubsample).toBe(2);
+        expect(evaluateDjvuPdfConversionPolicy(source, 1)).toMatchObject({
             recommendedSubsample: 2,
             isAllowed: false,
         });
-        expect(evaluateDjvuPdfConversionPolicy(metrics, 2)).toMatchObject({
+        expect(evaluateDjvuPdfConversionPolicy(source, 2)).toMatchObject({
             recommendedSubsample: 2,
             isAllowed: true,
         });
@@ -41,8 +41,9 @@ describe('djvuConversionPolicy', () => {
             sourceDpi: 300,
         };
 
-        expect(resolveRecommendedDjvuPdfSubsample(metrics)).toBe(1);
-        expect(evaluateDjvuPdfConversionPolicy(metrics, 1).isAllowed).toBe(true);
+        const source = estimateDjvuPdfConversionSource(metrics);
+        expect(source.recommendedSubsample).toBe(1);
+        expect(evaluateDjvuPdfConversionPolicy(source, 1).isAllowed).toBe(true);
     });
 
     it('allows browser conversion at the page-count limit and blocks above it', () => {

@@ -137,24 +137,6 @@ export const AVAILABLE_OCR_LANGUAGES = [
         script: 'latin',
     },
     {
-        // Early printed Latin: the historical models read long s, æ and the
-        // et ligature, which every modern Latin-script model reads as f.
-        code: 'lat_early',
-        script: 'latin',
-        models: [
-            'ita_old',
-            'spa_old',
-        ],
-    },
-    {
-        code: 'ita_old',
-        script: 'latin',
-    },
-    {
-        code: 'spa_old',
-        script: 'latin',
-    },
-    {
         code: 'tur',
         script: 'latin',
     },
@@ -201,13 +183,23 @@ export const AVAILABLE_OCR_LANGUAGES = [
 ] as const satisfies ReadonlyArray<{
     code: string;
     script: TOcrLanguageScript;
-    models?: readonly string[];
 }>;
 
 export type TOcrLanguageCode = (typeof AVAILABLE_OCR_LANGUAGES)[number]['code'];
-type TOcrComposedLanguage = Extract<(typeof AVAILABLE_OCR_LANGUAGES)[number], {models: readonly string[]}>;
-/** A tessdata_best model file. A language without `models` is recognized by the model of its own code. */
-export type TOcrModelCode = Exclude<TOcrLanguageCode, TOcrComposedLanguage['code']>;
+
+/**
+ * Historical models that tell the long s (ſ) of books printed before about
+ * 1800 from f, which every modern Latin-script model reads as f. They are not
+ * offered as languages: a Latin-script run consults them only on pages printed
+ * with the long s, and only for that letter.
+ */
+export const LONG_S_MODEL_CODES = [
+    'ita_old',
+    'spa_old',
+] as const;
+
+/** A tessdata_best model file: each language's own model, plus the long-s models. */
+export type TOcrModelCode = TOcrLanguageCode | (typeof LONG_S_MODEL_CODES)[number];
 
 // isAvailableOcrLanguageCode narrows to TOcrLanguageCode, so a caller able to
 // add to this set could mint that type for any string.
@@ -217,14 +209,6 @@ export const AVAILABLE_OCR_LANGUAGE_CODES: ReadonlySet<string> = new Set<string>
 
 export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguageCode {
     return typeof value === 'string' && AVAILABLE_OCR_LANGUAGE_CODES.has(value);
-}
-
-/** The tessdata_best models that recognize a language, in Tesseract's `-l` order. */
-export function resolveOcrLanguageModels(code: TOcrLanguageCode): readonly TOcrModelCode[] {
-    const language = AVAILABLE_OCR_LANGUAGES.find(candidate => candidate.code === code);
-    return language !== undefined && 'models' in language
-        ? language.models
-        : [code as TOcrModelCode];
 }
 
 /** SHA-256 digests for the exact tessdata_best commit used by runtime downloads. */
@@ -292,4 +276,14 @@ export function isRtlOcrLanguage(code: string) {
 
 export function isGreekOcrLanguage(code: string) {
     return GREEK_OCR_LANGUAGE_CODES.has(code);
+}
+
+const LATIN_SCRIPT_OCR_LANGUAGE_CODES = new Set<string>(
+    AVAILABLE_OCR_LANGUAGES
+        .filter(language => language.script === 'latin')
+        .map(language => language.code),
+);
+
+export function isLatinScriptOcrLanguage(code: string) {
+    return LATIN_SCRIPT_OCR_LANGUAGE_CODES.has(code);
 }

@@ -14,7 +14,7 @@ use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
 const FONT: &[u8] = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf");
-const FONT_VERSION: &str = "DejaVuSans-2.37-7da195a74c55bef9-v1";
+pub(crate) const FONT_VERSION: &str = "DejaVuSans-2.37-7da195a74c55bef9-v1";
 pub(crate) const LINE_HEIGHT: f64 = 1.35;
 pub(crate) const PADDING_X: f64 = 0.3;
 pub(crate) const PADDING_Y: f64 = 0.15;

@@ -202,25 +202,60 @@ pub(crate) fn load_incremental_pdf_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY)
+    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, false)
 }
 
 pub(crate) fn load_annotation_index_pdf_path(
     path: &Path,
     qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY)
+    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, false)
 }
 
+/// For callers that read and rewrite only dictionaries: page geometry, crop,
+/// the catalog and annotation-name index reads, and rotation and metadata
+/// saves. Their base streams are never read.
+pub(crate) fn load_dictionary_incremental_pdf_path(
+    path: &Path,
+    qpdf_path: Option<&Path>,
+) -> Result<IncrementalDocument> {
+    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, true)
+}
+
+/// Below this size an eager load is cheap in both memory and time.
+const DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES: u64 = 16 * 1024 * 1024;
+/// qpdf's structural pass costs about 50-70 us per object and reads no stream
+/// bytes; an eager load costs about 1.5 ms per encoded MiB and holds roughly
+/// twice the file. From about 45 KiB per object the structural pass is the
+/// faster one too, so 64 KiB keeps object-dense files on the eager path.
+const DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT: u64 = 64 * 1024;
+
+/// Above the byte-input ceiling every load is structural. Below it, a
+/// dictionary-only load is structural when the file's encoded bytes are
+/// mostly stream payloads, such as a scanned book's images. An encrypted
+/// file, or one whose cross-reference chain cannot be probed, stays eager and
+/// keeps its error classification.
 fn load_incremental_pdf_path_with_policy(
     path: &Path,
     qpdf_path: Option<&Path>,
     policy: PdfLoadPolicy,
+    dictionaries_only: bool,
 ) -> Result<IncrementalDocument> {
     let encoded_len = fs::metadata(path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .len();
-    let incremental = if encoded_len <= policy.max_encoded_bytes as u64 {
+    let structural = encoded_len > policy.max_encoded_bytes as u64
+        || (dictionaries_only
+            && qpdf_path.is_some()
+            && encoded_len >= DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES
+            && path_xref_chain(path, encoded_len).is_ok_and(|chain| {
+                !chain.encrypted
+                    && chain.size.is_some_and(|size| {
+                        size > 0
+                            && encoded_len / size >= DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT
+                    })
+            }));
+    let incremental = if !structural {
         let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
             .map_err(|error| Box::new(error) as Box<dyn Error>)?;
         let document = load_pdf_bytes_with_policy(&bytes, policy)?;
@@ -240,6 +275,25 @@ fn load_incremental_pdf_path_with_policy(
     };
     validate_loaded_document(incremental.get_prev_documents(), policy)?;
     Ok(incremental)
+}
+
+/// Walks a path's cross-reference chain with the eager preflight's parsers,
+/// reading each section through a window that grows only when it runs out.
+fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
+    let mut file =
+        File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+    let (root, _) = read_terminal_xref(path, encoded_len)?;
+    let input_len = usize::try_from(encoded_len)?;
+    check_xref_chain(
+        usize::try_from(root)?,
+        input_len,
+        PDF_PATH_LOAD_POLICY,
+        |offset, window_len| {
+            let window = read_window(&mut file, offset, window_len.min(input_len - offset))?;
+            let truncated = offset + window.len() < input_len;
+            Ok((std::borrow::Cow::Owned(window), truncated))
+        },
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -869,6 +923,7 @@ fn preflight_pdf_xref_chain(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
     check_xref_chain(root, bytes.len(), policy, |offset, _window_len| {
         Ok((std::borrow::Cow::Borrowed(&bytes[offset..]), false))
     })
+    .map(|_| ())
 }
 
 /// Walks a cross-reference chain from its terminal section through every
@@ -884,10 +939,14 @@ pub(crate) fn check_xref_chain<'a>(
     input_len: usize,
     policy: PdfLoadPolicy,
     mut section_at: impl FnMut(usize, usize) -> Result<(std::borrow::Cow<'a, [u8]>, bool)>,
-) -> Result<()> {
+) -> Result<XrefChain> {
     let mut pending = Vec::with_capacity(MAX_PDF_XREF_REVISIONS);
     let mut visited = HashSet::with_capacity(MAX_PDF_XREF_REVISIONS);
     let mut scanned_bytes = 0_usize;
+    let mut chain = XrefChain {
+        encrypted: false,
+        size: None,
+    };
     pending.push(root);
 
     while let Some(offset) = pending.pop() {
@@ -936,6 +995,10 @@ pub(crate) fn check_xref_chain<'a>(
                 "PDF cross-reference sections overlap or exceed the input",
             ));
         }
+        if offset == root {
+            chain.size = dictionary.size;
+        }
+        chain.encrypted |= dictionary.has_encrypt;
 
         for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
             let linked = usize::try_from(linked)
@@ -951,7 +1014,15 @@ pub(crate) fn check_xref_chain<'a>(
             pending.push(linked);
         }
     }
-    Ok(())
+    Ok(chain)
+}
+
+/// What a cross-reference chain says about a file without loading its body.
+pub(crate) struct XrefChain {
+    /// A real `/Encrypt` entry in any revision's trailer.
+    pub(crate) encrypted: bool,
+    /// The terminal trailer's `/Size`, one more than the highest object number.
+    pub(crate) size: Option<u64>,
 }
 
 fn parse_classic_xref_section(
@@ -2025,5 +2096,129 @@ mod tests {
         assert_too_large(
             preflight_pdf_structure(bytes, policy(bytes.len(), 1_024, 100, 10)).unwrap_err(),
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dictionary_loads_read_a_stream_dominated_file_through_qpdf_structure() {
+        const STREAM_BYTES: usize = 17 * 1024 * 1024;
+        struct RemoveOnDrop(Vec<std::path::PathBuf>);
+
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                for path in &self.0 {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let stem = std::env::temp_dir().join(format!(
+            "evb-dictionary-load-{}-{unique}",
+            std::process::id()
+        ));
+        let input_path = stem.with_extension("pdf");
+        let encrypted_path = stem.with_extension("encrypted.pdf");
+        let index_path = stem.with_extension("index.json");
+        let qpdf_path = stem.with_extension("qpdf");
+        let calls_path = stem.with_extension("calls");
+        let _cleanup = RemoveOnDrop(vec![
+            input_path.clone(),
+            encrypted_path.clone(),
+            index_path.clone(),
+            qpdf_path.clone(),
+            calls_path.clone(),
+        ]);
+
+        // One page over a 17 MiB image-like stream, as in a scanned book.
+        let mut document = Document::with_version("1.7");
+        document.objects.insert(
+            (1, 0),
+            Object::Dictionary(
+                dictionary! {"Type" => "Catalog", "Pages" => Object::Reference((2, 0))},
+            ),
+        );
+        document.objects.insert(
+            (2, 0),
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference((3, 0))],
+                "Count" => 1,
+            }),
+        );
+        document.objects.insert(
+            (3, 0),
+            Object::Dictionary(dictionary! {
+                "Type" => "Page",
+                "Parent" => Object::Reference((2, 0)),
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                "Contents" => Object::Reference((4, 0)),
+            }),
+        );
+        document.objects.insert(
+            (4, 0),
+            Object::Stream(Stream::new(dictionary! {}, vec![0; STREAM_BYTES])),
+        );
+        document.max_id = 4;
+        document.trailer.set("Root", Object::Reference((1, 0)));
+        document.save(&input_path).unwrap();
+        document.trailer.set(
+            "Encrypt",
+            dictionary! {"Filter" => "Standard", "V" => 1, "R" => 2, "P" => -4},
+        );
+        document.save(&encrypted_path).unwrap();
+
+        let structure = format!(
+            r#"{{"qpdf":[{{"jsonversion":2,"pdfversion":"1.7","maxobjectid":4}},{{"trailer":{{"value":{{"/Root":"1 0 R","/Size":5}}}},"obj:1 0 R":{{"value":{{"/Type":"/Catalog","/Pages":"2 0 R"}}}},"obj:2 0 R":{{"value":{{"/Type":"/Pages","/Kids":["3 0 R"],"/Count":1}}}},"obj:3 0 R":{{"value":{{"/Type":"/Page","/Parent":"2 0 R","/MediaBox":[0,0,200,100],"/Contents":"4 0 R"}}}},"obj:4 0 R":{{"stream":{{"dict":{{"/Length":{STREAM_BYTES}}}}}}}}}]}}"#
+        );
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in\n  *--json*) printf '%s' '{structure}' ;;\n  *) exit 9 ;;\nesac\n",
+            calls_path.display()
+        );
+        let _fake_qpdf = crate::write_fake_executable(&qpdf_path, &script);
+        let qpdf_calls = || {
+            std::fs::read_to_string(&calls_path)
+                .unwrap_or_default()
+                .lines()
+                .count()
+        };
+        let stream_len = |incremental: &IncrementalDocument| {
+            incremental
+                .get_prev_documents()
+                .get_object((4, 0))
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .content
+                .len()
+        };
+
+        // A caller that may read streams keeps the eager load and its bytes.
+        let eager = load_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
+        assert_eq!(stream_len(&eager), STREAM_BYTES);
+        assert_eq!(qpdf_calls(), 0);
+        drop(eager);
+
+        // A dictionary-only caller takes qpdf's structural view instead.
+        let structural =
+            load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
+        assert_eq!(stream_len(&structural), 0);
+        assert_eq!(qpdf_calls(), 1);
+        drop(structural);
+        let mut geometry = Vec::new();
+        write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
+        assert!(String::from_utf8(geometry)
+            .unwrap()
+            .contains(r#""width":200.0"#));
+        write_pdf_combine_catalog(&input_path, Some(&qpdf_path), &mut Vec::new()).unwrap();
+        write_annotation_name_index_path(&input_path, &index_path, Some(&qpdf_path)).unwrap();
+        assert_eq!(qpdf_calls(), 4);
+
+        // An encrypted file stays eager, so it keeps its error classification.
+        assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
+        assert_eq!(qpdf_calls(), 4);
     }
 }

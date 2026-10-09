@@ -125,6 +125,40 @@ describe('DjVu native streamed text search', () => {
         expect(pages[0]?.text).toBe('Предисловие line\nbreak Syriac ܐܪܡܝܐ 📖');
     });
 
+    it('reads escaped quotes and Unicode-separated atoms the same at every chunk boundary', () => {
+        const output = '(page 0 0 1000 2000 (line 0 0 1000 100 '
+            + '(word 0 0 100　100 "say \\"hi\\"") '
+            + '(word 110 0 300 100 "back\\\\slash")))';
+        const parse = (chunkLength: number) => {
+            const pages: unknown[] = [];
+            const parser = createDjvuTextSExpressionParser({onPage(page) {
+                pages.push(page);
+                return undefined;
+            }});
+            for (let offset = 0; offset < output.length; offset += chunkLength) {
+                parser.push(output.slice(offset, offset + chunkLength));
+            }
+            parser.finish();
+            return pages;
+        };
+
+        const whole = parse(output.length);
+        expect(whole).toMatchObject([{
+            text: 'say "hi" back\\slash',
+            zones: [
+                {word: {
+                    x: 0,
+                    width: 100,
+                    height: 100,
+                }},
+                {},
+            ],
+        }]);
+        for (let chunkLength = 1; chunkLength < output.length; chunkLength += 1) {
+            expect(parse(chunkLength)).toEqual(whole);
+        }
+    });
+
     it('attaches the word boxes of a match from its page text zones', async () => {
         streamOutput([
             '(page 0 0 1000 2000 (line 10 1500 900 1600',

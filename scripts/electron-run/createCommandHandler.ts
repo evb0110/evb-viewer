@@ -1,4 +1,3 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     basename,
     join,
@@ -734,24 +733,36 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
                     await allowRendererFileOpenForAutomation(path);
                 }
 
-                await Promise.race([
+                const opened = await Promise.race([
                     openFileDirect(path),
                     new Promise((_, reject) => {
                         setTimeout(() => reject(new Error('openFileDirect trigger timeout')), triggerTimeoutMs);
                     }),
                 ]);
-                automationWindow.__electronRunOpenPdfTrigger = {
-                    token,
-                    status: 'resolved',
-                    error: null,
-                };
+                // The renderer answers false when it refuses or fails the open,
+                // and logs the reason to its console.
+                automationWindow.__electronRunOpenPdfTrigger = opened === false
+                    ? {
+                        token,
+                        status: 'rejected',
+                        error: `The renderer did not open ${path}; its console errors say why (electron:run console error)`,
+                    }
+                    : {
+                        token,
+                        status: 'resolved',
+                        error: null,
+                    };
             })
             .catch((error: unknown) => {
-                const message = getErrorMessage(error);
+                // This function runs in the page, where none of this module's
+                // imports exist, so the message is read here directly. An error
+                // from another world (the preload bridge) is not instanceof the
+                // page's Error, so its message is read by shape.
+                const message: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'message') : undefined;
                 automationWindow.__electronRunOpenPdfTrigger = {
                     token,
                     status: 'rejected',
-                    error: message,
+                    error: typeof message === 'string' ? message : String(error),
                 };
             });
 

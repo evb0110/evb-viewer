@@ -1,6 +1,6 @@
 use super::*;
 use evb_native_support::output::AtomicOutput;
-use lopdf::dictionary;
+use lopdf::{dictionary, DecompressError, Error as LopdfError};
 
 /// Print layout places each selected page, with its printable annotation
 /// appearances flattened, on an A4 sheet as a Form XObject: one page per sheet
@@ -346,21 +346,43 @@ fn resolved_dictionary(document: &Document, object: Option<&Object>) -> Result<D
     }
 }
 
-fn decoded_page_content(document: &Document, page: &Dictionary) -> Result<Vec<u8>> {
+/// Appends the page's decoded content streams, in order, to the form content.
+/// The form is a single stream, so the page as a whole is held to the ceiling
+/// each of its streams already has; a page split across many streams cannot
+/// assemble more than that.
+fn append_decoded_page_content(
+    document: &Document,
+    page: &Dictionary,
+    page_number: u32,
+    content: &mut Vec<u8>,
+) -> Result<()> {
     let Ok(contents) = page.get(b"Contents") else {
-        return Ok(Vec::new());
+        return Ok(());
     };
     let streams = match document.dereference(contents)?.1 {
         Object::Array(items) => items.clone(),
         _ => vec![contents.clone()],
     };
-    let mut content = Vec::new();
+    let start = content.len();
     for item in &streams {
         let stream = document.dereference(item)?.1.as_stream()?;
-        content.extend(stream.decompressed_content_with_limit(MAX_DECOMPRESSED_PDF_STREAM_BYTES)?);
+        let remaining = MAX_DECOMPRESSED_PDF_STREAM_BYTES.saturating_sub(content.len() - start);
+        match stream.decompressed_content_with_limit(remaining) {
+            Ok(decoded) => content.extend_from_slice(&decoded),
+            Err(LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "PDF page {page_number} content exceeds the \
+                         {MAX_DECOMPRESSED_PDF_STREAM_BYTES}-byte print layout ceiling"
+                    ),
+                ));
+            }
+            Err(error) => return Err(error.into()),
+        }
         content.push(b'\n');
     }
-    Ok(content)
+    Ok(())
 }
 
 fn embed_page_as_form(
@@ -376,7 +398,7 @@ fn embed_page_as_form(
     });
     let mut resources = resolved_dictionary(document, page.get(b"Resources").ok())?;
     let mut content = b"q\n".to_vec();
-    content.extend(decoded_page_content(document, &page)?);
+    append_decoded_page_content(document, &page, page_number, &mut content)?;
     content.extend_from_slice(b"Q\n");
     flatten_printable_annotations(
         document,
@@ -1006,6 +1028,63 @@ mod tests {
         ));
         assert!(text_content.contains("/ActualText <FEFF041F044004380432043504420020043C04380440>"));
         assert!(sheet.get(b"Annots").is_err());
+    }
+
+    #[test]
+    fn a_page_split_across_streams_keeps_its_order_within_one_stream_ceiling() {
+        let split_page = |parts: Vec<Vec<u8>>| {
+            let mut document = page_document(&[(letter(), 0)]);
+            let page_id = *document.get_pages().get(&1).unwrap();
+            let contents = parts
+                .into_iter()
+                .map(|part| {
+                    Object::Reference(document.add_object(Stream::new(Dictionary::new(), part)))
+                })
+                .collect();
+            document
+                .get_dictionary_mut(page_id)
+                .unwrap()
+                .set("Contents", Object::Array(contents));
+            document
+        };
+
+        let mut document = split_page(vec![b"0 0 1 rg".to_vec(), b"0 0 10 10 re f".to_vec()]);
+        build_print_layout(
+            &mut document,
+            None,
+            PrintViewMode::Single,
+            PrintOrientation::Auto,
+        )
+        .unwrap();
+        let sheet_id = *document.get_pages().get(&1).unwrap();
+        let form_id = document
+            .get_dictionary(sheet_id)
+            .and_then(|sheet| sheet.get(b"Resources"))
+            .and_then(Object::as_dict)
+            .and_then(|resources| resources.get(b"XObject"))
+            .and_then(Object::as_dict)
+            .and_then(|xobjects| xobjects.get(b"P0"))
+            .and_then(Object::as_reference)
+            .unwrap();
+        let form = document.get_object(form_id).unwrap().as_stream().unwrap();
+        assert_eq!(
+            form.decompressed_content().unwrap(),
+            b"q\n0 0 1 rg\n0 0 10 10 re f\nQ\n"
+        );
+
+        // Each stream is within the per-stream ceiling; together they are not.
+        let half = vec![b' '; MAX_DECOMPRESSED_PDF_STREAM_BYTES / 2 + 1];
+        let mut oversized = split_page(vec![half.clone(), half]);
+        let error = build_print_layout(
+            &mut oversized,
+            None,
+            PrintViewMode::Single,
+            PrintOrientation::Auto,
+        )
+        .unwrap_err();
+        let error = error.downcast_ref::<NativeError>().unwrap();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(error.message.contains("PDF page 1 content exceeds"));
     }
 
     #[test]
