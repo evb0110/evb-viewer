@@ -254,16 +254,75 @@ describe('electron run window resize command', () => {
     });
 });
 
+interface IOpenedDocumentModel {
+    originalPath: string;
+    workingCopyPath: string;
+    totalPages: number;
+    hasOpenError: boolean;
+    paintedPages: number;
+}
+
+// What the renderer shows for the active tab: the app's automation API and
+// the viewer's laid-out pages, as `openPdf` reads them.
+function createRendererView() {
+    const view: {active: IOpenedDocumentModel | null} = {active: null};
+    const rect = (top: number, bottom: number, width: number) => ({
+        top,
+        bottom,
+        width,
+        height: bottom - top,
+    });
+    const viewer = {
+        getBoundingClientRect: () => rect(0, 800, 900),
+        querySelectorAll: (selector: string) => (selector === '.page_container--rendered'
+            ? Array.from({length: view.active?.paintedPages ?? 0}, () => ({
+                getBoundingClientRect: () => rect(16, 640, 600),
+                querySelector: () => ({
+                    width: 1200,
+                    height: 1560,
+                }),
+            }))
+            : []),
+    };
+    return {
+        view,
+        globals: {
+            __evbTestApi: {
+                getActiveToolbarSnapshot: () => (view.active
+                    ? {
+                        hasPdf: true,
+                        hasOpenError: view.active.hasOpenError,
+                        currentPage: 1,
+                        totalPages: view.active.totalPages,
+                    }
+                    : null),
+                readActiveWorkspaceStateValues: () => ({
+                    originalPath: view.active?.originalPath ?? null,
+                    workingCopyPath: view.active?.workingCopyPath ?? null,
+                    totalPages: view.active?.totalPages,
+                }),
+            },
+            document: {
+                querySelector: () => (view.active ? viewer : null),
+                querySelectorAll: (selector: string) => (selector === '#pdf-viewer' && view.active ? [viewer] : []),
+            },
+        },
+    };
+}
+
 describe('electron run openPdf command', () => {
     // Puppeteer sends a page function to the renderer as source text, so it
     // runs without this script's module scope. This page does the same: each
     // function is compiled again inside a context that holds only page globals.
     function createHandlerForPage(pageGlobals: Record<string, unknown>) {
         const pageContext = createContext({
+            document: {
+                querySelector: () => null,
+                querySelectorAll: () => [],
+            },
             ...pageGlobals,
             crypto: globalThis.crypto,
             setTimeout,
-            document: {querySelectorAll: () => []},
         });
         pageContext.window = pageContext;
         const page = cast<Page>({
@@ -293,5 +352,92 @@ describe('electron run openPdf command', () => {
         });
 
         await expect(handleCommand('openPdf', ['/documents/missing.pdf'])).rejects.toThrow('The renderer did not open /documents/missing.pdf');
+    });
+
+    it('returns the opened document once its first page is painted', async () => {
+        const renderer = createRendererView();
+        const handleCommand = createHandlerForPage({
+            ...renderer.globals,
+            __allowRendererFileOpenForAutomation: () => Promise.resolve(true),
+            __openFileDirect: () => {
+                renderer.view.active = {
+                    originalPath: '/documents/report.pdf',
+                    workingCopyPath: '/tmp/working-copies/report.pdf',
+                    totalPages: 4,
+                    hasOpenError: false,
+                    paintedPages: 0,
+                };
+                setTimeout(() => {
+                    if (renderer.view.active) {
+                        renderer.view.active.paintedPages = 1;
+                    }
+                }, 250);
+                return Promise.resolve(true);
+            },
+        });
+
+        await expect(handleCommand('openPdf', ['/documents/report.pdf'])).resolves.toEqual({
+            opened: '/documents/report.pdf',
+            state: {
+                originalPath: '/documents/report.pdf',
+                workingCopyPath: '/tmp/working-copies/report.pdf',
+                numPages: 4,
+                currentPage: 1,
+                hasPdf: true,
+                hasOpenError: false,
+                paintedPageCount: 1,
+            },
+        });
+    });
+
+    it('waits for a repeat open instead of returning the tab that already shows the file', async () => {
+        const renderer = createRendererView();
+        renderer.view.active = {
+            originalPath: '/documents/report.pdf',
+            workingCopyPath: '/tmp/working-copies/report.pdf',
+            totalPages: 4,
+            hasOpenError: false,
+            paintedPages: 1,
+        };
+        const handleCommand = createHandlerForPage({
+            ...renderer.globals,
+            __allowRendererFileOpenForAutomation: () => Promise.resolve(true),
+            __openFileDirect: () => new Promise((resolve) => {
+                setTimeout(() => {
+                    renderer.view.active = {
+                        originalPath: '/documents/report.pdf',
+                        workingCopyPath: '/tmp/working-copies/report-2.pdf',
+                        totalPages: 4,
+                        hasOpenError: false,
+                        paintedPages: 1,
+                    };
+                    resolve(true);
+                }, 300);
+            }),
+        });
+
+        const result = await handleCommand('openPdf', ['/documents/report.pdf']) as {state: {workingCopyPath: string;};};
+
+        expect(result.state.workingCopyPath).toBe('/tmp/working-copies/report-2.pdf');
+    });
+
+    it('fails at once when the document opens into an error state', async () => {
+        const renderer = createRendererView();
+        const handleCommand = createHandlerForPage({
+            ...renderer.globals,
+            __allowRendererFileOpenForAutomation: () => Promise.resolve(true),
+            __openFileDirect: () => {
+                renderer.view.active = {
+                    originalPath: '/documents/damaged.pdf',
+                    workingCopyPath: '/tmp/working-copies/damaged.pdf',
+                    totalPages: 0,
+                    hasOpenError: true,
+                    paintedPages: 0,
+                };
+                return Promise.resolve(true);
+            },
+        });
+
+        await expect(handleCommand('openPdf', ['/documents/damaged.pdf'])).rejects.toThrow('The renderer opened /documents/damaged.pdf with an open error');
     });
 });
