@@ -2123,15 +2123,22 @@ mod tests {
         let input_path = stem.with_extension("pdf");
         let encrypted_path = stem.with_extension("encrypted.pdf");
         let index_path = stem.with_extension("index.json");
+        let sidecar_paths = ["sizes", "eager-sizes", "parse", "eager-parse"]
+            .map(|extension| stem.with_extension(extension));
         let qpdf_path = stem.with_extension("qpdf");
         let calls_path = stem.with_extension("calls");
-        let _cleanup = RemoveOnDrop(vec![
-            input_path.clone(),
-            encrypted_path.clone(),
-            index_path.clone(),
-            qpdf_path.clone(),
-            calls_path.clone(),
-        ]);
+        let _cleanup = RemoveOnDrop(
+            [
+                input_path.clone(),
+                encrypted_path.clone(),
+                index_path.clone(),
+                qpdf_path.clone(),
+                calls_path.clone(),
+            ]
+            .into_iter()
+            .chain(sidecar_paths.iter().cloned())
+            .collect(),
+        );
 
         // One page over a 17 MiB image-like stream, as in a scanned book.
         let mut document = Document::with_version("1.7");
@@ -2217,8 +2224,26 @@ mod tests {
         write_annotation_name_index_path(&input_path, &index_path, Some(&qpdf_path)).unwrap();
         assert_eq!(qpdf_calls(), 4);
 
+        // Page-size metadata and a parse of a page without notes or stamps read
+        // the same view and print what an eager load (no qpdf) prints.
+        let [sizes, eager_sizes, parse, eager_parse] = &sidecar_paths;
+        write_page_sizes_path(&input_path, sizes, Some(&qpdf_path), true).unwrap();
+        write_page_sizes_path(&input_path, eager_sizes, None, true).unwrap();
+        write_annotation_parse_path(&input_path, parse, "D:20261009120000Z", Some(&qpdf_path))
+            .unwrap();
+        write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None).unwrap();
+        assert_eq!(qpdf_calls(), 6);
+        assert_eq!(
+            std::fs::read(sizes).unwrap(),
+            std::fs::read(eager_sizes).unwrap()
+        );
+        assert_eq!(
+            std::fs::read(parse).unwrap(),
+            std::fs::read(eager_parse).unwrap()
+        );
+
         // An encrypted file stays eager, so it keeps its error classification.
         assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
-        assert_eq!(qpdf_calls(), 4);
+        assert_eq!(qpdf_calls(), 6);
     }
 }
