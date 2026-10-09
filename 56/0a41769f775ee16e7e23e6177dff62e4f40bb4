@@ -1,0 +1,31 @@
+tests/unit/app/platform/browserPlatformTestDoubles.ts
+  s_71647ad39805ad::t_e4479faa64f205 560,563,569-572,577-580,587-602,608,616-623
+app/platform/browser/browserDocumentLeaseStore.ts
+  s_71647ad39805ad::t_e5993506986fee 77,79,82
+app/platform/browserWindowTabs.ts
+  s_71647ad39805ad::t_e5993506986fee 27,31
+  s_71647ad39805ad::t_ba0437984dff1b 403-406,409,681-683,687,998
+  s_71647ad39805ad::t_49c1481400502d 679-680
+tests/integration/browser/documentLifecycleUi.test.ts
+  s_71647ad39805ad::t_ca456a8ac181b5 204-284,2486,2497,2520
+  s_71647ad39805ad::t_28e1a2fe8ad19d 2544-2626,2629,2632-2633,2635-2641,2646-2664
+  s_71647ad39805ad::t_2dc9dd6aae4e2a 2627-2628,2630-2631,2634,2642-2645
+tests/unit/app/platform/browserWindowTabs.test.ts
+  s_71647ad39805ad::t_3cc8bdf707567a 422-453
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "560a41769f775ee16e7e23e6177dff62e4f40bb4",
+  "prompts": {},
+  "sessions": {
+    "s_71647ad39805ad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c890b126-1629-46c6-bfff-61607d50e2d7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
