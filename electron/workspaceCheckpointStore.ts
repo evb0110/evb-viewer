@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import {
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
-    workspaceCheckpointRecordSchema,
+    workspaceCheckpointSchema,
 } from '@contracts/workspaceCheckpoint';
 import {
     parseDocumentRef,
@@ -132,7 +132,7 @@ const storedCheckpointSchema = v.pipe(v.object({
     ownerWebContentsId: safeIntegerSchema,
     claimedByRecoveryId: v.optional(recoveryOwnerIdSchema),
     claimedByWebContentsId: v.optional(safeIntegerSchema),
-    checkpoint: workspaceCheckpointRecordSchema,
+    checkpoint: workspaceCheckpointSchema,
     lazyWorkingCopies: v.optional(v.array(lazyWorkingCopySchema)),
     workingCopies: v.optional(v.array(workingCopySchema)),
     sourceProvenance: v.optional(v.array(sourceProvenanceSchema)),
@@ -985,7 +985,8 @@ function getRestoreOpenedDocuments(checkpoint: IWorkspaceCheckpoint) {
 
 // Keeps those tabs as empty ones, so the next claim, by the recovery reload or
 // at the next launch, restores the rest of the workspace without reopening a
-// document that ended the renderer. The file stays in Recent Files.
+// document that ended the renderer, and names it so the user is told why. The
+// file stays in Recent Files.
 async function closeRestoreDocuments(
     recoveryId: string,
     documents: NonNullable<ReturnType<typeof restoresInFlight.get>>,
@@ -995,6 +996,7 @@ async function closeRestoreDocuments(
     if (!record) {
         return;
     }
+    const notReopened = [...record.checkpoint.notReopened ?? []];
     let closedTabCount = 0;
     const tabs = record.checkpoint.tabs.map((tab) => {
         if (tab.isDirty || !(documents.tabIds.has(tab.tabId)
@@ -1002,6 +1004,12 @@ async function closeRestoreDocuments(
             return tab;
         }
         closedTabCount += 1;
+        if (!notReopened.some(document => document.sourceRef === tab.sourceRef && document.fileName === tab.fileName)) {
+            notReopened.push({
+                fileName: tab.fileName,
+                sourceRef: tab.sourceRef,
+            });
+        }
         return {
             tabId: tab.tabId,
             paneId: tab.paneId,
@@ -1024,6 +1032,7 @@ async function closeRestoreDocuments(
         checkpoint: {
             ...record.checkpoint,
             tabs,
+            notReopened,
         },
     });
 }

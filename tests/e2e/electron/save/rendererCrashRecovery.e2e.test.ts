@@ -95,7 +95,7 @@ async function crashWhileSlowDocumentOpens(page: Page, sessionName: string) {
     void client.send('Page.crash').catch(() => undefined);
 }
 
-it('does not reopen a document whose restore ended the renderer, and keeps the workspace usable', async () => {
+it('does not reopen a document whose restore ended the renderer, says so, and keeps the workspace usable', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'evb-renderer-crash-'));
     const goodPath = join(directory, 'good.pdf');
     const slowPath = join(directory, SLOW_FILE_NAME);
@@ -118,11 +118,18 @@ it('does not reopen a document whose restore ended the renderer, and keeps the w
         await crashWhileSlowDocumentOpens(session.page, session.name);
         await crashWhileSlowDocumentOpens(session.page, session.name);
 
-        // The next recovery keeps the workspace and leaves that document closed.
+        // The next recovery keeps the workspace, leaves that document closed
+        // and says so.
         await expect.poll(() => readTabTitles(session.page).catch(() => []), {timeout: 60_000}).toEqual([
             'good.pdf',
             'New Tab',
         ]);
+        await expect.poll(() => session.page.evaluate(() => Array.from(
+            document.querySelectorAll<HTMLElement>('[role="alert"], li[data-state]'),
+            toast => toast.innerText,
+        ).join('\n')).catch(() => ''), {timeout: 30_000}).toContain(
+            `Document not reopened\n${SLOW_FILE_NAME} stopped the viewer while it was opening, so it was not reopened.`,
+        );
         const goodTab = await session.page.waitForSelector('::-p-xpath(//*[contains(@class, "tab") and normalize-space(.)="good.pdf"])', {visible: true});
         await clickAsUser(session.page, goodTab!);
         await waitForPdfLoaded(session.page, 60_000);

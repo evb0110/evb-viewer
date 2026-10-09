@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import type {
     IEvbTestCommandResult,
     IEvbTestApi,
@@ -77,7 +78,10 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const route = useRoute();
     const { t } = useTypedI18n();
     const { setFatalRuntimeError } = useFatalRuntimeError();
-    const { presentFailureToast } = useFailureToast();
+    const {
+        presentFailureToast,
+        presentNoticeToast,
+    } = useFailureToast();
     const {
         isActive,
         tabs,
@@ -452,6 +456,24 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         ));
     }
 
+    // A document whose restore ended the renderer comes back closed. The user
+    // is told which one, and that Recent Files still opens it.
+    function reportDocumentsNotReopened(checkpoint: IWorkspaceCheckpoint) {
+        for (const document of checkpoint.notReopened ?? []) {
+            const fileName = document.fileName ?? document.sourceRef;
+            if (fileName) {
+                presentNoticeToast({
+                    tone: 'warning',
+                    title: t('errors.workspace.documentNotReopenedTitle'),
+                    description: t('errors.workspace.documentNotReopenedDescription', {fileName}),
+                    // Startup can still be covered by its overlay.
+                    duration: Number.POSITIVE_INFINITY,
+                    progress: false,
+                });
+            }
+        }
+    }
+
     // Recovery is best effort. The main process refuses a checkpoint it
     // cannot authorize and keeps it as evidence; a refused or failed restore
     // reports the lost session and lets startup continue.
@@ -474,6 +496,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 if (lifecycle.isDisposed.valueOf()) {
                     return;
                 }
+                reportDocumentsNotReopened(workspaceCheckpoint);
                 if (failedCheckpointPaths.length === 0) {
                     await windowTabsCapability.acknowledgeWorkspaceCheckpoint();
                 } else {

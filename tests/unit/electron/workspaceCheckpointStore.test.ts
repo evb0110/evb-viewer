@@ -440,7 +440,16 @@ describe('workspace checkpoint store', () => {
         // The renderer dies while that restore opens the shown document.
         window.emit('render-process-gone', {}, {reason: 'oom'});
         reloadRenderer(window);
-        await expect(restoredSources()).resolves.toEqual([
+        const restored = await claimWorkspaceCheckpoint(11, window);
+        expect(restored?.notReopened).toEqual([{
+            fileName: 'shown.pdf',
+            sourceRef: shownPath,
+        }]);
+        expect(restored?.tabs.map(tab => [
+            tab.tabId,
+            tab.fileName,
+            tab.sourceRef,
+        ])).toEqual([
             [
                 'tab-1',
                 null,

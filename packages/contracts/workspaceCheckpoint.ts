@@ -131,17 +131,17 @@ export const workspaceCheckpointSchema = v.object({
     layout: layoutSchema,
     panes: v.pipe(v.array(paneSchema), v.maxLength(32)),
     tabs: v.array(checkpointTabSchema),
+    notReopened: v.optional(v.array(v.object({
+        fileName: v.nullable(v.string()),
+        sourceRef: nullableDocumentRefSchema,
+    }))),
 });
 
-export type TWorkspaceCheckpointSurfaceMode = 'reader' | 'scan-cleanup';
 export type IWorkspaceCheckpointAnnotationRecovery = v.InferOutput<typeof annotationRecoverySchema>;
 export type IWorkspaceCheckpointTab = v.InferOutput<typeof checkpointTabSchema>;
-export type IWorkspaceCheckpointPane = v.InferOutput<typeof paneSchema>;
 export type IWorkspaceCheckpoint = v.InferOutput<typeof workspaceCheckpointSchema>;
 
-export const workspaceCheckpointRecordSchema = workspaceCheckpointSchema;
-
 export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint | null {
-    const result = v.safeParse(workspaceCheckpointRecordSchema, value, {abortEarly: true});
+    const result = v.safeParse(workspaceCheckpointSchema, value, {abortEarly: true});
     return result.success ? result.output : null;
 }
