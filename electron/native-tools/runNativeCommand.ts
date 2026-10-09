@@ -1,6 +1,9 @@
 import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
-import { isAbsolute } from 'node:path';
+import {
+    basename,
+    isAbsolute,
+} from 'node:path';
 import {
     createManagedScratchTempDir,
     removeManagedScratchTempDir,
@@ -263,6 +266,19 @@ function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: numb
     };
 }
 
+// Poppler decodes font and content streams without a size limit, so a small
+// crafted PDF can make it allocate many gigabytes (#1255). On Linux it runs
+// under a data-segment limit far above any page the app renders; the shell
+// execs it, so the process id and binary stay Poppler's. macOS does not apply
+// RLIMIT_DATA to mapped memory and Windows has no spawn-time limit.
+const POPPLER_TOOL_NAMES = new Set([
+    'pdfimages',
+    'pdfinfo',
+    'pdftoppm',
+    'pdftotext',
+]);
+const POPPLER_MAX_DATA_KIB = 4 * 1024 * 1024;
+
 function spawnNativeProcess(
     command: string,
     args: string[],
@@ -270,12 +286,23 @@ function spawnNativeProcess(
     windowsHide: boolean,
     pipeStdin: boolean,
 ): TNativeProcess {
+    const dataLimited = process.platform === 'linux' && POPPLER_TOOL_NAMES.has(basename(command));
+    const spawnCommand = dataLimited ? '/bin/sh' : command;
+    const spawnArgs = dataLimited
+        ? [
+            '-c',
+            'ulimit -S -d "$0" 2>/dev/null; exec "$@"',
+            String(POPPLER_MAX_DATA_KIB),
+            command,
+            ...args,
+        ]
+        : args;
     const location = {
         ...(context.effectiveCwd === undefined ? {} : {cwd: context.effectiveCwd}),
         ...(context.effectiveEnv === undefined ? {} : {env: context.effectiveEnv}),
     };
     return pipeStdin
-        ? spawn(command, args, createDetachedChildProcessSpawnOptions({
+        ? spawn(spawnCommand, spawnArgs, createDetachedChildProcessSpawnOptions({
             shell: false,
             windowsHide,
             stdio: [
@@ -285,7 +312,7 @@ function spawnNativeProcess(
             ],
             ...location,
         }))
-        : spawn(command, args, createDetachedChildProcessSpawnOptions({
+        : spawn(spawnCommand, spawnArgs, createDetachedChildProcessSpawnOptions({
             shell: false,
             windowsHide,
             stdio: [
