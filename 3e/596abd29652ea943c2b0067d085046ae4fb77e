@@ -1,0 +1,41 @@
+electron/features/djvu/main/embedBookmarksIntoPdfFile.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1-3,122-125,128-160,163
+electron/utils/printHandoff.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1-6,537-538,543,551,566-568,1058
+electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1-5,55-56,63
+electron/utils/appTempDir.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 2,43,74
+electron/image/tryCreatePdfFromInputPathsNative.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1,3-6,421,467,780,783,855,882-894,896-903,905-910
+  s_44a4f89a8c59f7::t_9e0a0cc494175a 2
+electron/image/tryCreatePdfWithNativeImageCombiner.ts
+  s_44a4f89a8c59f7::t_d57501c3a0fa54 2
+  s_44a4f89a8c59f7::t_478727991f7a0d 1,3-5,334-338
+electron/features/documents/main/openInputPaths.service.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1-2,4,313-331,333-368
+electron/image/pdfCombineShared.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1,3-5,569-570,588,595
+  s_44a4f89a8c59f7::t_d57501c3a0fa54 2
+electron/features/djvu/main/estimateSizes.ts
+  s_44a4f89a8c59f7::t_478727991f7a0d 1-3,6,233-236,238-245,247-296,306-308,310
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_44a4f89a8c59f7::t_9ce755917d74b7 236-237,250
+  s_44a4f89a8c59f7::t_478727991f7a0d 1-2,244-245,290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3e596abd29652ea943c2b0067d085046ae4fb77e",
+  "prompts": {},
+  "sessions": {
+    "s_44a4f89a8c59f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-78c3-7a92-a92d-fea06f0cbbe2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}
