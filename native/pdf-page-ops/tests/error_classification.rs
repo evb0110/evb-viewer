@@ -70,19 +70,6 @@ fn run_page_geometry(input: &Path, page_number: u32) -> Output {
     )
 }
 
-fn run_append(input: &Path, output: &Path, updates: &Path) -> Output {
-    run_command(
-        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .args(["update-note-text", "--input"])
-            .arg(input)
-            .arg("--output")
-            .arg(output)
-            .arg("--updates-file")
-            .arg(updates)
-            .args(["--modified-at", "D:20260809120000Z", "--append"]),
-    )
-}
-
 fn run_save_mutations(input: &Path, output: &Path, mutations: &Path) -> Output {
     run_command(
         Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
@@ -388,7 +375,10 @@ fn missing_pdf_is_io_for_direct_and_append_paths() {
     .unwrap();
 
     assert_eq!(error_code(&run_page_sizes(&input, &output)), "io");
-    assert_eq!(error_code(&run_append(&input, &output, &updates)), "io");
+    assert_eq!(
+        error_code(&run_save_mutations(&input, &output, &updates)),
+        "io"
+    );
 
     let _ = remove_file(output);
     let _ = remove_file(updates);
@@ -409,7 +399,7 @@ fn corrupt_pdf_is_corrupt_xref_for_direct_and_append_paths() {
 
     assert_eq!(error_code(&run_page_sizes(&input, &output)), "corrupt-xref");
     assert_eq!(
-        error_code(&run_append(&input, &output, &updates)),
+        error_code(&run_save_mutations(&input, &output, &updates)),
         "corrupt-xref"
     );
 

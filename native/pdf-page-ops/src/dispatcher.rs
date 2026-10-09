@@ -228,13 +228,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             _ => None,
         };
         let append_in_place = match &config.operation {
-            Operation::UpdateNoteText {
-                append_in_place, ..
-            }
-            | Operation::SaveNoteChanges {
-                append_in_place, ..
-            }
-            | Operation::SaveMutations {
+            Operation::SaveMutations {
                 append_in_place, ..
             } => *append_in_place,
             _ => false,
@@ -290,43 +284,12 @@ pub(crate) fn classify_pdf_load_error(error: Box<dyn Error>, context: &str) -> B
     }
 }
 
-/// The three append commands differ only in the payload schema they accept, so
-/// they are normalized to one mutation set and share a single append path.
+/// `save-mutations` is the only note-writing command, so the append path reads
+/// the same payload that the non-append path reads.
 pub(crate) fn read_append_mutations(
     operation: &Operation,
 ) -> Result<Option<(NativeMutationsFile, &str)>> {
     let mutations = match operation {
-        Operation::UpdateNoteText {
-            updates_file,
-            modified_at,
-            append: true,
-            ..
-        } => (
-            NativeMutationsFile {
-                updates: read_note_text_updates(updates_file)?,
-                ..NativeMutationsFile::default()
-            },
-            modified_at.as_str(),
-        ),
-        Operation::SaveNoteChanges {
-            changes_file,
-            modified_at,
-            append: true,
-            ..
-        } => {
-            let changes = read_note_changes(changes_file)?;
-            (
-                NativeMutationsFile {
-                    updates: changes.updates,
-                    geometry_updates: changes.geometry_updates,
-                    notes: changes.notes,
-                    free_text_notes: changes.free_text_notes,
-                    deletes: changes.deletes,
-                    ..NativeMutationsFile::default()
-                },
-                modified_at.as_str(),
-            )
-        }
         Operation::SaveMutations {
             mutations_file,
             modified_at,
@@ -342,37 +305,6 @@ pub(crate) fn read_non_append_mutations(
     operation: &Operation,
 ) -> Result<Option<(NativeMutationsFile, &str)>> {
     let mutations = match operation {
-        Operation::UpdateNoteText {
-            updates_file,
-            modified_at,
-            append: false,
-            ..
-        } => (
-            NativeMutationsFile {
-                updates: read_note_text_updates(updates_file)?,
-                ..NativeMutationsFile::default()
-            },
-            modified_at.as_str(),
-        ),
-        Operation::SaveNoteChanges {
-            changes_file,
-            modified_at,
-            append: false,
-            ..
-        } => {
-            let changes = read_note_changes(changes_file)?;
-            (
-                NativeMutationsFile {
-                    updates: changes.updates,
-                    geometry_updates: changes.geometry_updates,
-                    notes: changes.notes,
-                    free_text_notes: changes.free_text_notes,
-                    deletes: changes.deletes,
-                    ..NativeMutationsFile::default()
-                },
-                modified_at.as_str(),
-            )
-        }
         Operation::SaveMutations {
             mutations_file,
             modified_at,

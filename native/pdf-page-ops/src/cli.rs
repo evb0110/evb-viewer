@@ -13,8 +13,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut output_path = None;
     let mut pages_file = None;
     let mut pages_stdin = false;
-    let mut updates_file = None;
-    let mut changes_file = None;
     let mut mutations_file = None;
     let mut password_file = None;
     let mut identity_bindings_file = None;
@@ -47,16 +45,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--pages-file" => {
                 pages_file = Some(PathBuf::from(
                     args.next().ok_or("Missing --pages-file value")?,
-                ))
-            }
-            "--updates-file" => {
-                updates_file = Some(PathBuf::from(
-                    args.next().ok_or("Missing --updates-file value")?,
-                ))
-            }
-            "--changes-file" => {
-                changes_file = Some(PathBuf::from(
-                    args.next().ok_or("Missing --changes-file value")?,
                 ))
             }
             "--mutations-file" => {
@@ -152,12 +140,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     if append_in_place && !append {
         return Err("--append-in-place requires --append".into());
     }
-    if append_in_place
-        && !matches!(
-            command.as_str(),
-            "update-note-text" | "save-note-changes" | "save-mutations"
-        )
-    {
+    if append_in_place && command != "save-mutations" {
         return Err("--append-in-place is only valid for native mutation saves".into());
     }
 
@@ -203,18 +186,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "remove-crop" => Operation::RemoveCrop {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
-        },
-        "update-note-text" => Operation::UpdateNoteText {
-            updates_file: updates_file.ok_or("Missing --updates-file value")?,
-            modified_at: modified_at.ok_or("Missing --modified-at value")?,
-            append,
-            append_in_place,
-        },
-        "save-note-changes" => Operation::SaveNoteChanges {
-            changes_file: changes_file.ok_or("Missing --changes-file value")?,
-            modified_at: modified_at.ok_or("Missing --modified-at value")?,
-            append,
-            append_in_place,
         },
         "save-mutations" => Operation::SaveMutations {
             mutations_file: mutations_file.ok_or("Missing --mutations-file value")?,

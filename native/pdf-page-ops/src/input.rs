@@ -64,26 +64,6 @@ fn read_pages_file_with_limits(
     Ok(pages)
 }
 
-pub(crate) fn read_note_text_updates(path: &Path) -> Result<Vec<NoteTextUpdate>> {
-    let parsed: NoteTextUpdatesFile = read_json_sidecar(path, "note text updates")?;
-    if parsed.updates.is_empty() {
-        return Err("At least one note text update is required".into());
-    }
-    if parsed.updates.len() > MAX_NOTE_TEXT_UPDATES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            format!("Too many note text updates (maximum {MAX_NOTE_TEXT_UPDATES})"),
-        ));
-    }
-    for update in &parsed.updates {
-        if update.object_number == 0 {
-            return Err("Invalid note update object number".into());
-        }
-    }
-    validate_note_text_budget(&parsed.updates)?;
-    Ok(parsed.updates)
-}
-
 pub(crate) fn validate_text_notes(notes: &[TextNote]) -> Result<()> {
     for note in notes {
         if note.stable_key.trim().is_empty() {
@@ -198,46 +178,6 @@ pub(crate) fn validate_note_geometry_updates(updates: &[NoteGeometryUpdate]) -> 
         }
     }
     Ok(())
-}
-
-pub(crate) fn read_note_changes(path: &Path) -> Result<NoteChangesFile> {
-    let parsed: NoteChangesFile = read_json_sidecar(path, "note changes")?;
-    if parsed.updates.is_empty()
-        && parsed.geometry_updates.is_empty()
-        && parsed.notes.is_empty()
-        && parsed.free_text_notes.is_empty()
-        && parsed.deletes.is_empty()
-    {
-        return Err("At least one note change is required".into());
-    }
-    for update in &parsed.updates {
-        if update.object_number == 0 {
-            return Err("Invalid note update object number".into());
-        }
-    }
-    validate_note_geometry_updates(&parsed.geometry_updates)?;
-    validate_text_notes(&parsed.notes)?;
-    validate_free_text_notes(&parsed.free_text_notes)?;
-    let note_count = parsed
-        .notes
-        .len()
-        .saturating_add(parsed.free_text_notes.len());
-    validate_note_change_caps(
-        parsed.updates.len(),
-        parsed.geometry_updates.len(),
-        note_count,
-        parsed.deletes.len(),
-    )?;
-    validate_annotation_deletes(&parsed.deletes)?;
-    validate_mutation_collection_budget(&[
-        parsed.updates.len(),
-        parsed.geometry_updates.len(),
-        parsed.notes.len(),
-        parsed.free_text_notes.len(),
-        parsed.deletes.len(),
-    ])?;
-    validate_note_changes_text_budget(&parsed)?;
-    Ok(parsed)
 }
 
 pub(crate) fn validate_page_labels_mutation(page_labels: &PageLabelsMutation) -> Result<()> {
@@ -887,42 +827,6 @@ fn consume_text_bytes(total: &mut usize, value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_note_text_budget(updates: &[NoteTextUpdate]) -> Result<()> {
-    let mut total = 0usize;
-    for update in updates {
-        consume_text_bytes(&mut total, &update.text)?;
-    }
-    Ok(())
-}
-
-fn validate_note_changes_text_budget(changes: &NoteChangesFile) -> Result<()> {
-    let mut total = 0usize;
-    for update in &changes.updates {
-        consume_text_bytes(&mut total, &update.text)?;
-    }
-    for update in &changes.geometry_updates {
-        if let Some(Some(color)) = update.color.as_ref() {
-            consume_text_bytes(&mut total, color)?;
-        }
-    }
-    for note in changes.notes.iter().chain(changes.free_text_notes.iter()) {
-        consume_text_bytes(&mut total, &note.stable_key)?;
-        consume_text_bytes(&mut total, &note.text)?;
-        for value in [note.author.as_deref(), note.color.as_deref()]
-            .into_iter()
-            .flatten()
-        {
-            consume_text_bytes(&mut total, value)?;
-        }
-    }
-    for delete in &changes.deletes {
-        if let Some(stable_key) = delete.stable_key.as_deref() {
-            consume_text_bytes(&mut total, stable_key)?;
-        }
-    }
-    Ok(())
-}
-
 fn consume_bookmark_text(total: &mut usize, items: &[BookmarkEntry]) -> Result<()> {
     for item in items {
         consume_text_bytes(total, &item.title)?;
@@ -1214,27 +1118,14 @@ mod bounded_input_tests {
     }
 
     #[test]
-    fn note_geometry_colors_count_toward_both_text_budgets() {
+    fn note_geometry_colors_count_toward_the_text_budget() {
         let color = "x".repeat(MAX_NOTE_GEOMETRY_COLOR_BYTES);
         let geometry_updates = (0..=MAX_AGGREGATE_TEXT_BYTES / color.len())
             .map(|_| note_geometry_update(color.clone()))
             .collect::<Vec<_>>();
-        let changes = NoteChangesFile {
-            updates: Vec::new(),
-            geometry_updates,
-            notes: Vec::new(),
-            free_text_notes: Vec::new(),
-            deletes: Vec::new(),
-        };
-        let error = validate_note_changes_text_budget(&changes)
-            .expect_err("note changes must count geometry colors in the text budget");
-        let native_error = error
-            .downcast_ref::<NativeError>()
-            .expect("text budget errors should carry a native error");
-        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
 
         let mutations = NativeMutationsFile {
-            geometry_updates: changes.geometry_updates,
+            geometry_updates,
             ..NativeMutationsFile::default()
         };
         let error = validate_native_mutation_text_budget(&mutations)
