@@ -1293,4 +1293,23 @@ describe('assistant chat persistence grant fields', () => {
         expect(record?.session).not.toHaveProperty('scopeBinding');
         expect(record?.session.providerThreadId).toBe('resume-original');
     });
+
+    it('drops grant fields when a torn tail rewrites a version-1 snapshot', async () => {
+        const persistence = createPersistence();
+        writeSnapshot(persistence, {
+            ...persistedSession(),
+            ...grantFields,
+        });
+        writeFileSync(persistence.sessionPath(scopeKey), '{"type":"session-snap', {flag: 'a'});
+
+        await persistence.recoverSessions();
+
+        const [record] = readFileSync(persistence.sessionPath(scopeKey), 'utf8')
+            .split(/\r?\n/u)
+            .filter(Boolean)
+            .map(line => JSON.parse(line) as {session: Record<string, unknown>});
+        expect(record?.session).not.toHaveProperty('lastSenderWindowId');
+        expect(record?.session).not.toHaveProperty('scopeBinding');
+        expect(record?.session.providerThreadId).toBe('resume-original');
+    });
 });
