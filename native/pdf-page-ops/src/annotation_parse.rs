@@ -976,9 +976,9 @@ fn stamp_appearance_cm_matrix(
     let Object::Stream(appearance_stream) = document.object(appearance_id).ok()? else {
         return None;
     };
-    let bytes = appearance_stream
-        .decompressed_content_with_limit(MAX_STAMP_APPEARANCE_STREAM_BYTES)
-        .ok()?;
+    let bytes =
+        decompressed_stream_with_limit(appearance_stream, MAX_STAMP_APPEARANCE_STREAM_BYTES)
+            .ok()?;
     let content = std::str::from_utf8(&bytes).ok()?;
     let mut values: Vec<f64> = Vec::with_capacity(6);
     for token in content.split_whitespace() {

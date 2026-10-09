@@ -55,12 +55,115 @@ impl PdfLoadPolicy {
     }
 }
 
+/// lopdf sizes predictor buffers from /DecodeParms before its output limit
+/// applies, with unchecked arithmetic: two PNG rows (predictors 10-15) of
+/// ceil(Columns * Colors * BitsPerComponent / 8) bytes, or for TIFF predictor 2
+/// a row of that width and a Colors-sample accumulator. Values are read as
+/// lopdf reads them: direct integers, at least 1. A row that cannot fit
+/// `max_bytes`, or whose size overflows, cannot decode within the limit.
+pub(crate) fn predictor_rows_fit(
+    predictor: i64,
+    columns: i64,
+    colors: i64,
+    bits_per_component: i64,
+    max_bytes: usize,
+) -> bool {
+    if predictor != 2 && !(10..=15).contains(&predictor) {
+        return true;
+    }
+    let [columns, colors, bits] =
+        [columns, colors, bits_per_component].map(|value| value.max(1) as u64);
+    let max_bytes = max_bytes as u64;
+    columns
+        .checked_mul(colors)
+        .and_then(|samples| samples.checked_mul(bits))
+        .is_some_and(|row_bits| row_bits.div_ceil(8) <= max_bytes)
+        && colors
+            .checked_mul(2)
+            .is_some_and(|accumulator| accumulator <= max_bytes)
+}
+
+/// Rejects a stream whose predictor rows cannot fit `max_bytes` with the
+/// error lopdf gives any other oversized stream, before lopdf allocates them.
+/// lopdf applies a direct /DecodeParms dictionary to Flate and LZW layers only.
+fn check_stream_predictor(stream: &Stream, max_bytes: usize) -> lopdf::Result<()> {
+    let Ok(params) = stream.dict.get(b"DecodeParms").and_then(Object::as_dict) else {
+        return Ok(());
+    };
+    let applies = stream.filters().is_ok_and(|filters| {
+        filters
+            .iter()
+            .any(|filter| *filter == b"FlateDecode" || *filter == b"LZWDecode")
+    });
+    let value = |key: &[u8], default| params.get(key).and_then(Object::as_i64).unwrap_or(default);
+    if !applies
+        || predictor_rows_fit(
+            value(b"Predictor", 1),
+            value(b"Columns", 1),
+            value(b"Colors", 1),
+            value(b"BitsPerComponent", 8),
+            max_bytes,
+        )
+    {
+        return Ok(());
+    }
+    Err(DecompressError::MemoryLimitExceeded { limit: max_bytes }.into())
+}
+
+/// `Stream::decompressed_content_with_limit` with its predictor rows bounded too.
+pub(crate) fn decompressed_stream_with_limit(
+    stream: &Stream,
+    max_bytes: usize,
+) -> lopdf::Result<Vec<u8>> {
+    check_stream_predictor(stream, max_bytes)?;
+    stream.decompressed_content_with_limit(max_bytes)
+}
+
+/// `Stream::get_plain_content_with_limit` with its predictor rows bounded too.
+pub(crate) fn plain_stream_with_limit(stream: &Stream, max_bytes: usize) -> lopdf::Result<Vec<u8>> {
+    check_stream_predictor(stream, max_bytes)?;
+    stream.get_plain_content_with_limit(max_bytes)
+}
+
+/// `Document::get_page_content_with_limit` decoding each content stream through
+/// [`decompressed_stream_with_limit`]: the remaining budget per stream, a raw
+/// fallback for a stream that fails for any reason but size, and one newline
+/// after each stream.
+pub(crate) fn page_content_with_limit(
+    document: &Document,
+    page_id: ObjectId,
+    max_bytes: usize,
+) -> lopdf::Result<Vec<u8>> {
+    let mut content = Vec::new();
+    for object_id in document.get_page_contents(page_id) {
+        let Ok(stream) = document.get_object(object_id).and_then(Object::as_stream) else {
+            continue;
+        };
+        let remaining = max_bytes.saturating_sub(content.len());
+        match decompressed_stream_with_limit(stream, remaining) {
+            Ok(data) => content.extend_from_slice(&data),
+            Err(LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                return Err(DecompressError::MemoryLimitExceeded { limit: max_bytes }.into());
+            }
+            Err(_) => {
+                if stream.content.len() > remaining {
+                    return Err(DecompressError::MemoryLimitExceeded { limit: max_bytes }.into());
+                }
+                content.extend_from_slice(&stream.content);
+            }
+        }
+        content.push(b'\n');
+    }
+    Ok(content)
+}
+
 fn admit_loaded_object(object_id: ObjectId, object: &mut Object) -> Option<(ObjectId, Object)> {
     if let Ok(stream) = object.as_stream() {
         let limit_exceeded = stream.dict.has_type(b"ObjStm")
             && matches!(
-                stream.decompressed_content_with_limit(
-                    ACTIVE_STREAM_LIMIT.load(AtomicOrdering::SeqCst)
+                decompressed_stream_with_limit(
+                    stream,
+                    ACTIVE_STREAM_LIMIT.load(AtomicOrdering::SeqCst),
                 ),
                 Err(LopdfError::Decompress(
                     DecompressError::MemoryLimitExceeded { .. }
@@ -298,11 +401,16 @@ fn path_xref_chain(path: &Path, encoded_len: u64) -> Result<XrefChain> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AdmissionKey {
+    BitsPerComponent,
+    Colors,
+    Columns,
     Count,
+    DecodeParms,
     First,
     Index,
     Length,
     N,
+    Predictor,
     Prev,
     Size,
     Type,
@@ -343,9 +451,22 @@ struct AdmissionArray {
     largest_range_end: u64,
 }
 
+/// The predictor entries of a direct /DecodeParms dictionary.
+#[derive(Clone, Copy, Default)]
+struct AdmissionPredictorParms {
+    predictor: Option<u64>,
+    columns: Option<u64>,
+    colors: Option<u64>,
+    bits_per_component: Option<u64>,
+}
+
 #[derive(Default)]
 struct AdmissionDictionary {
     dictionary_type: Option<AdmissionDictionaryType>,
+    /// This dictionary is the direct /DecodeParms value of its parent.
+    is_decode_parms: bool,
+    predictor_parms: AdmissionPredictorParms,
+    decode_parms: Option<AdmissionPredictorParms>,
     has_encrypt: bool,
     pending_key: Option<AdmissionKey>,
     count: Option<u64>,
@@ -614,11 +735,19 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 fn admission_key(name: &[u8]) -> Option<AdmissionKey> {
     [
+        (
+            b"BitsPerComponent".as_slice(),
+            AdmissionKey::BitsPerComponent,
+        ),
+        (b"Colors".as_slice(), AdmissionKey::Colors),
+        (b"Columns".as_slice(), AdmissionKey::Columns),
         (b"Count".as_slice(), AdmissionKey::Count),
+        (b"DecodeParms".as_slice(), AdmissionKey::DecodeParms),
         (b"First".as_slice(), AdmissionKey::First),
         (b"Index".as_slice(), AdmissionKey::Index),
         (b"Length".as_slice(), AdmissionKey::Length),
         (b"N".as_slice(), AdmissionKey::N),
+        (b"Predictor".as_slice(), AdmissionKey::Predictor),
         (b"Prev".as_slice(), AdmissionKey::Prev),
         (b"Size".as_slice(), AdmissionKey::Size),
         (b"Type".as_slice(), AdmissionKey::Type),
@@ -654,7 +783,16 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
             AdmissionToken::DictionaryStart => {
                 pending_stream_length = None;
                 pending_stream_dictionary = false;
-                dictionaries.push(AdmissionDictionary::default());
+                let is_decode_parms = dictionaries.last_mut().is_some_and(|parent| {
+                    parent
+                        .pending_key
+                        .take_if(|key| *key == AdmissionKey::DecodeParms)
+                        .is_some()
+                });
+                dictionaries.push(AdmissionDictionary {
+                    is_decode_parms,
+                    ..AdmissionDictionary::default()
+                });
                 enforce_structural_nesting(dictionaries.len(), array_depth, policy)?;
                 previous_integers = [None, None];
             }
@@ -668,6 +806,11 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                     policy,
                     &mut declared_object_stream_objects,
                 )?;
+                if dictionary.is_decode_parms {
+                    if let Some(parent) = dictionaries.last_mut() {
+                        parent.decode_parms = Some(dictionary.predictor_parms);
+                    }
+                }
                 if dictionaries.is_empty() {
                     pending_stream_dictionary = true;
                     pending_stream_length = dictionary
@@ -764,6 +907,16 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                             AdmissionKey::Prev => dictionary.prev = Some(value),
                             AdmissionKey::Size => dictionary.size = Some(value),
                             AdmissionKey::XrefStm => dictionary.xref_stm = Some(value),
+                            AdmissionKey::Predictor => {
+                                dictionary.predictor_parms.predictor = Some(value)
+                            }
+                            AdmissionKey::Columns => {
+                                dictionary.predictor_parms.columns = Some(value)
+                            }
+                            AdmissionKey::Colors => dictionary.predictor_parms.colors = Some(value),
+                            AdmissionKey::BitsPerComponent => {
+                                dictionary.predictor_parms.bits_per_component = Some(value)
+                            }
                             _ => {}
                         }
                     } else if dictionary.length_is_direct {
@@ -1386,6 +1539,30 @@ fn validate_admission_dictionary(
     policy: PdfLoadPolicy,
     declared_object_stream_objects: &mut u64,
 ) -> Result<()> {
+    // lopdf decodes cross-reference and object streams itself while loading,
+    // so their predictor rows are bounded here, before the load.
+    if let Some(parms) = dictionary.decode_parms.filter(|_| {
+        matches!(
+            dictionary.dictionary_type,
+            Some(AdmissionDictionaryType::ObjectStream | AdmissionDictionaryType::Xref)
+        )
+    }) {
+        let value = |value: Option<u64>, default: i64| {
+            value.map_or(default, |value| i64::try_from(value).unwrap_or(i64::MAX))
+        };
+        if !predictor_rows_fit(
+            value(parms.predictor, 1),
+            value(parms.columns, 1),
+            value(parms.colors, 1),
+            value(parms.bits_per_component, 8),
+            policy.max_decompressed_stream_bytes,
+        ) {
+            return Err(limit_error(format!(
+                "PDF stream predictor rows exceed the {}-byte decompression ceiling",
+                policy.max_decompressed_stream_bytes
+            )));
+        }
+    }
     match dictionary.dictionary_type {
         Some(AdmissionDictionaryType::ObjectStream) => {
             let declared = dictionary.n.unwrap_or(0);
@@ -2245,5 +2422,97 @@ mod tests {
         // An encrypted file stays eager, so it keeps its error classification.
         assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
         assert_eq!(qpdf_calls(), 6);
+    }
+
+    /// zlib of one PNG-predicted four-byte row, and of two Columns-2 rows
+    /// (None [1 2], then Up [1 1]) that decode to [1 2 2 3].
+    const OVERSIZED_ROW_ZLIB: [u8; 12] = [
+        0x78, 0x9c, 0x63, 0x62, 0x60, 0x60, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x03,
+    ];
+    const VALID_ROWS_ZLIB: [u8; 14] = [
+        0x78, 0x9c, 0x63, 0x60, 0x64, 0x62, 0x62, 0x64, 0x04, 0x00, 0x00, 0x1c, 0x00, 0x08,
+    ];
+
+    fn predicted_stream(decode_parms: Dictionary, content: &[u8]) -> Stream {
+        Stream::new(
+            dictionary! {"Filter" => "FlateDecode", "DecodeParms" => decode_parms},
+            content.to_vec(),
+        )
+    }
+
+    fn is_limit_error(result: lopdf::Result<Vec<u8>>, limit: usize) -> bool {
+        matches!(
+            result,
+            Err(LopdfError::Decompress(DecompressError::MemoryLimitExceeded { limit: actual }))
+                if actual == limit
+        )
+    }
+
+    #[test]
+    fn bounded_decodes_reject_predictor_rows_that_cannot_fit_the_limit() {
+        const LIMIT: usize = 1024;
+        for decode_parms in [
+            // PNG rows one byte wider than the limit: lopdf would allocate two.
+            dictionary! {"Predictor" => 12, "Columns" => 1025},
+            // A row size that overflows lopdf's unchecked product.
+            dictionary! {"Predictor" => 12, "Columns" => i64::MAX, "Colors" => 4},
+            // TIFF predictor 2 allocates a Colors-sample accumulator per row.
+            dictionary! {"Predictor" => 2, "Colors" => 1024, "BitsPerComponent" => 4},
+        ] {
+            let stream = predicted_stream(decode_parms, &OVERSIZED_ROW_ZLIB);
+            assert!(is_limit_error(
+                decompressed_stream_with_limit(&stream, LIMIT),
+                LIMIT
+            ));
+            assert!(is_limit_error(
+                plain_stream_with_limit(&stream, LIMIT),
+                LIMIT
+            ));
+        }
+
+        let mut document = Document::with_version("1.7");
+        let content_id = document.add_object(predicted_stream(
+            dictionary! {"Predictor" => 12, "Columns" => 1025},
+            &OVERSIZED_ROW_ZLIB,
+        ));
+        let page_id = document.add_object(dictionary! {"Type" => "Page", "Contents" => content_id});
+        assert!(is_limit_error(
+            page_content_with_limit(&document, page_id, LIMIT),
+            LIMIT
+        ));
+
+        // Rows within the limit decode exactly as lopdf decodes them.
+        let valid = predicted_stream(
+            dictionary! {"Predictor" => 12, "Columns" => 2},
+            &VALID_ROWS_ZLIB,
+        );
+        assert_eq!(
+            decompressed_stream_with_limit(&valid, LIMIT).unwrap(),
+            valid.decompressed_content_with_limit(LIMIT).unwrap()
+        );
+        assert_eq!(
+            decompressed_stream_with_limit(&valid, LIMIT).unwrap(),
+            [1, 2, 2, 3]
+        );
+    }
+
+    #[test]
+    fn preflight_rejects_oversized_predictor_rows_lopdf_decodes_while_loading() {
+        for stream_type in ["ObjStm/N 1/First 4", "XRef/Size 2/W[1 1 1]"] {
+            let oversized = format!(
+                "%PDF-1.7\n1 0 obj\n<</Type/{stream_type}/Length 0/Filter/FlateDecode/DecodeParms<</Predictor 12/Columns 1025>>>>\nstream\n\nendstream\nendobj\n"
+            );
+            let bytes = oversized.as_bytes();
+            assert_too_large(
+                preflight_pdf_structure(bytes, policy(bytes.len(), 1024, 100, 10)).unwrap_err(),
+            );
+
+            // lopdf ignores the array form of /DecodeParms, and so does the check.
+            let array_form = oversized
+                .replace("/DecodeParms<<", "/DecodeParms[<<")
+                .replace(">>>>", ">>]>>");
+            let bytes = array_form.as_bytes();
+            assert!(preflight_pdf_structure(bytes, policy(bytes.len(), 1024, 100, 10)).is_ok());
+        }
     }
 }

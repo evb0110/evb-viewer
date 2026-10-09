@@ -231,8 +231,7 @@ fn decode_page_content_with_limit(
     page_id: ObjectId,
     max_decompressed_bytes: usize,
 ) -> Result<Content<Vec<Operation>>> {
-    let bytes = document
-        .get_page_content_with_limit(page_id, max_decompressed_bytes)
+    let bytes = crate::page_content_with_limit(document, page_id, max_decompressed_bytes)
         .map_err(|error| {
             if matches!(
                 error,
