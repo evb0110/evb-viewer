@@ -166,6 +166,7 @@ const projectConfig = withNuxt(
         'nuxt.config.ts',
         'landing/nuxt.config.ts',
         'eslint.shared.mjs',
+        'packages/contracts/browserPageOpsWasm.generated.ts',
         'packages/contracts/scan-cleanup/nativeWire.generated.ts',
     ]},
     {
