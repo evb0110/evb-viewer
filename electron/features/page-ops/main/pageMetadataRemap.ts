@@ -1,11 +1,9 @@
-import {randomUUID} from 'node:crypto';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import {
-    mkdtemp,
-    rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
-import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {
     IPageOpsMetadataSnapshot,
@@ -235,21 +233,21 @@ export async function applyPageMetadataRemap(input: {
     signal: AbortSignal;
     cancelGroup: string;
 }) {
-    if (!input.metadataSnapshot) {
+    const {metadataSnapshot} = input;
+    if (!metadataSnapshot) {
         return;
     }
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Cannot safely remap PDF page metadata because the native page tool is unavailable');
     }
-    const tempDir = await mkdtemp(join(tmpdir(), `page-metadata-${randomUUID()}-`));
-    const mutationsPath = join(tempDir, 'mutations.json');
-    try {
+    await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+        const mutationsPath = join(tempDir, 'mutations.json');
         const workingCopyStat = await stat(input.workingCopyPath, {bigint: true});
         if (!workingCopyStat.isFile() || workingCopyStat.nlink !== 1n) {
             throw new Error('Page metadata remap requires an exclusively owned working-copy inode');
         }
-        const mutations = remapPageMetadata(input.metadataSnapshot, input.delta);
+        const mutations = remapPageMetadata(metadataSnapshot, input.delta);
         if (Object.keys(mutations).length === 0) {
             return;
         }
@@ -289,10 +287,5 @@ export async function applyPageMetadataRemap(input: {
                 cancelGroup: input.cancelGroup,
             });
         }
-    } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        });
-    }
+    });
 }

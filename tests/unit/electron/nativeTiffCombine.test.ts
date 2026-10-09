@@ -29,6 +29,11 @@ const mocks = vi.hoisted(() => {
     };
 });
 
+vi.mock('@electron/utils/appTempDir', async () => {
+    const {tmpdir} = await import('os');
+    return {getAppTempDir: () => tmpdir()};
+});
+
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({resolveNativePdfImageCombinePath: () => mocks.nativePath}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runProcess}));
 vi.mock('@electron/native-tools/runNativeToolCommand', async importOriginal => ({

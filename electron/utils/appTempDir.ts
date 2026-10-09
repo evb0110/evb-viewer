@@ -1,5 +1,5 @@
 import type { App } from 'electron';
-import * as electron from 'electron';
+import {createRequire} from 'node:module';
 import {randomUUID} from 'node:crypto';
 import {
     chmodSync,
@@ -40,6 +40,7 @@ const APP_TEMP_NAMESPACE_OWNER_FILE = '.evb-app-temp-owner.json';
 const APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const APP_TEMP_NAMESPACE_SCAN_LIMIT = 512;
 const SAFE_NAMESPACE_PATTERN = /^[a-z\d][a-z\d-]{0,63}$/u;
+const electronRequire = createRequire(import.meta.url);
 
 let initializedAppTempNamespace: string | null = null;
 let initializedAppTempUserDataPath: string | null = null;
@@ -70,7 +71,7 @@ function getAppTempNamespace() {
         return configuredNamespace;
     }
 
-    const userDataPath = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('userData').trim();
+    const userDataPath = (electronRequire('electron') as {app?: Pick<App, 'getPath'>}).app?.getPath('userData').trim();
     if (userDataPath) {
         return createAppTempNamespace(userDataPath);
     }

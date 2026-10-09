@@ -1,6 +1,11 @@
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    createManagedScratchTempDir,
+    removeManagedScratchTempDir,
+    usingManagedScratchScope,
+} from '@electron/utils/managedScratchTemp';
 import {
     copyFile,
-    mkdtemp,
     readFile,
     rm,
     stat,
@@ -8,7 +13,6 @@ import {
     writeFile,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
 import {
     extname,
     dirname,
@@ -414,8 +418,7 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?:
         if (!pageOpsPath) {
             throw new Error('Native page operations are required to preserve PDF catalog metadata');
         }
-        const mutationsDir = await mkdtemp(join(tmpdir(), 'pdf-catalog-mutations-'));
-        try {
+        await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async mutationsDir => {
             const mutationsPath = join(mutationsDir, 'mutations.json');
             const nativeCatalog: IPdfNativeMutationSet = {
                 pageLabels: {
@@ -461,12 +464,7 @@ async function mergePdfChunks(chunkPaths: string[], outputPath: string, signal?:
                     ...(signal ? {signal} : {}),
                 });
             }
-        } finally {
-            await rm(mutationsDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
-        }
+        });
     }
     await assertNonEmptyPdfOutput(outputPath, 'Assembling PDF inputs');
 }
@@ -779,9 +777,10 @@ export async function tryWritePdfFromInputPathsNative(
         return false;
     }
 
+    const scratchRoot = getAppTempDir();
     let tempDir: string;
     try {
-        tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
+        tempDir = await createManagedScratchTempDir('pdfExport-scope-', scratchRoot);
     } catch (error) {
         if (strict) {
             throw createNativeCapabilityError(
@@ -853,10 +852,7 @@ export async function tryWritePdfFromInputPathsNative(
     } finally {
         if (!retainNativeCleanup) {
             await rm(stagedOutputPath, { force: true }).catch(() => undefined);
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
+            await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         }
     }
 }
@@ -882,51 +878,38 @@ export async function tryCreatePdfFromInputPathsNative(
         return null;
     }
 
-    let tempDir: string;
     try {
-        tempDir = await mkdtemp(join(tmpdir(), 'pdf-native-assembler-'));
-    } catch (error) {
-        if (strict) {
-            throw createNativeCapabilityError(
-                'native-failure',
-                `Native PDF assembler temp directory could not be created: ${getErrorMessage(error)}`,
-                error,
-            );
-        }
-        throw error;
-    }
-    const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-    // This API returns a Uint8Array to its caller. Keep its output budget
-    // finite even when strict mode prevents a JS fallback. Callers that need
-    // large native output must use the file-backed API above.
-    const limits = getResourceLimits(strict ? 'file-backed' : 'memory');
-    let retainNativeCleanup = false;
+        return await usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
+            const outputPath = join(tempDir, `${randomUUID()}.pdf`);
+            // This API returns a Uint8Array to its caller. Keep its output budget
+            // finite even when strict mode prevents a JS fallback. Callers that need
+            // large native output must use the file-backed API above.
+            const limits = getResourceLimits(strict ? 'file-backed' : 'memory');
 
-    try {
-        const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
-            inputPaths,
-            outputPath,
-            tempDir,
-            limits,
-            options,
-        );
-        if (expectedPageCount === null) {
-            if (strict) {
-                throwNativeCapabilityError(
-                    'native-failure',
-                    'Native PDF assembler did not produce an output file',
-                );
+            const expectedPageCount = await writePdfFromInputPathsNativeWithTempDir(
+                inputPaths,
+                outputPath,
+                tempDir,
+                limits,
+                options,
+            );
+            if (expectedPageCount === null) {
+                if (strict) {
+                    throwNativeCapabilityError(
+                        'native-failure',
+                        'Native PDF assembler did not produce an output file',
+                    );
+                }
+                return null;
             }
-            return null;
-        }
-        const outputPageCount = await getPdfPageCount(outputPath, options?.signal ? {signal: options.signal} : {});
-        if (outputPageCount !== expectedPageCount || outputPageCount < 1) {
-            throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
-        }
-        return await readLimitedPdfOutput(outputPath, limits);
+            const outputPageCount = await getPdfPageCount(outputPath, options?.signal ? {signal: options.signal} : {});
+            if (outputPageCount !== expectedPageCount || outputPageCount < 1) {
+                throw new Error(`Combined PDF page-count postcondition failed: expected ${expectedPageCount}, got ${outputPageCount}`);
+            }
+            return readLimitedPdfOutput(outputPath, limits);
+        });
     } catch (error) {
         if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-            retainNativeCleanup = true;
             throw error;
         }
         if (options?.signal?.aborted || isAbortError(error)) {
@@ -947,12 +930,5 @@ export async function tryCreatePdfFromInputPathsNative(
         }
         log.warn(`Native PDF assembler failed, falling back to JS combine: ${getErrorMessage(error)}`);
         return null;
-    } finally {
-        if (!retainNativeCleanup) {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
-        }
     }
 }
