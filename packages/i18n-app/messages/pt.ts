@@ -1159,6 +1159,13 @@ export default {
             'wait': 'Continuar à espera',
             'reload': 'Recarregar janela',
         },
+        'rendererCrashed': {
+            'title': 'A janela deixou de funcionar',
+            'message': 'A janela fechou-se inesperadamente várias vezes seguidas e não voltou a ser carregada.',
+            'detail': 'Recarregue-a para tentar mais uma vez ou feche-a. O trabalho não guardado é mantido para recuperação.',
+            'reload': 'Recarregar janela',
+            'close': 'Fechar janela',
+        },
         'agentMcp': {
             'enableTitle': 'Ativar MCP externo',
             'enableMessage': 'Permitir que o EVB Viewer inicie o seu servidor MCP externo e o adicione às definições do Codex?',
@@ -1800,6 +1807,8 @@ export default {
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
             'sessionRestoreTitle': 'Sessão anterior não restaurada',
             'sessionRestoreDescription': 'Não foi possível reabrir os separadores da última sessão. Os dados de recuperação foram mantidos.',
+            'documentNotReopenedTitle': 'Documento não reaberto',
+            'documentNotReopenedDescription': '{fileName} interrompeu o visualizador durante a abertura, por isso não foi reaberto. Pode abri-lo novamente a partir de Ficheiros Recentes.',
         },
         'settings': {
             'load': 'Não foi possível carregar as definições',

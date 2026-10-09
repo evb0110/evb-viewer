@@ -1158,6 +1158,13 @@ export default {
             'wait': 'Blijf wachten',
             'reload': 'Venster opnieuw laden',
         },
+        'rendererCrashed': {
+            'title': 'Venster werkt niet meer',
+            'message': 'Het venster is meerdere keren achter elkaar onverwacht gesloten en is niet opnieuw geladen.',
+            'detail': 'Laad het opnieuw om het nog één keer te proberen, of sluit het. Niet-opgeslagen werk wordt bewaard voor herstel.',
+            'reload': 'Venster opnieuw laden',
+            'close': 'Venster sluiten',
+        },
         'agentMcp': {
             'enableTitle': 'Externe MCP inschakelen',
             'enableMessage': 'EVB Viewer toestaan om de externe MCP-server te starten en toe te voegen aan de Codex-instellingen?',
@@ -1789,6 +1796,8 @@ export default {
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
             'sessionRestoreTitle': 'Vorige sessie niet hersteld',
             'sessionRestoreDescription': 'De tabbladen van je vorige sessie konden niet opnieuw worden geopend. De herstelgegevens zijn bewaard.',
+            'documentNotReopenedTitle': 'Document niet opnieuw geopend',
+            'documentNotReopenedDescription': '{fileName} liet de viewer stoppen tijdens het openen en is daarom niet opnieuw geopend. Je kunt het opnieuw openen via Recente bestanden.',
         },
         'settings': {
             'load': 'Instellingen konden niet worden geladen',

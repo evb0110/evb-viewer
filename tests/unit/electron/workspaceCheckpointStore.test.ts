@@ -373,6 +373,133 @@ describe('workspace checkpoint store', () => {
         await expect(hasRecoverableWorkspaceCheckpoints(11, window)).resolves.toBe(false);
     });
 
+    it('does not reopen a shown document whose restore ended the renderer, and keeps the rest', async () => {
+        const window = createWebContents(11);
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, window);
+        const shownPath = join(state.userDataPath, 'shown.pdf');
+        const hiddenPath = join(state.userDataPath, 'hidden.pdf');
+        await writeFile(shownPath, '%PDF-1.7 shown');
+        await writeFile(hiddenPath, '%PDF-1.7 hidden');
+        allowOpenPath(shownPath, 11);
+        allowOpenPath(hiddenPath, 11);
+        const sourceTab = (tabId: string, path: string) => ({
+            ...checkpoint.tabs[0]!,
+            tabId: requireTabId(tabId),
+            fileName: path.endsWith('shown.pdf') ? 'shown.pdf' : 'hidden.pdf',
+            sourceRef: requireDocumentRef(path),
+            workingCopyRef: null,
+            isDirty: false,
+        });
+        const twoTabs: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            activeTabId: requireTabId('tab-1'),
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
+                ],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [
+                sourceTab('tab-1', shownPath),
+                sourceTab('tab-2', hiddenPath),
+            ],
+        };
+        const restoredSources = async () => (await claimWorkspaceCheckpoint(11, window))?.tabs
+            .map(tab => [
+                tab.tabId,
+                tab.fileName,
+                tab.sourceRef,
+            ]);
+
+        // A crash in ordinary use, after the restore was acknowledged, closes nothing.
+        await saveWorkspaceCheckpoint(twoTabs, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
+        await claimWorkspaceCheckpoint(11, window);
+        await acknowledgeWorkspaceCheckpoint(11, window);
+        await saveWorkspaceCheckpoint(twoTabs, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        window.emit('render-process-gone', {}, {reason: 'crashed'});
+        reloadRenderer(window);
+        await expect(restoredSources()).resolves.toEqual([
+            [
+                'tab-1',
+                'shown.pdf',
+                shownPath,
+            ],
+            [
+                'tab-2',
+                'hidden.pdf',
+                hiddenPath,
+            ],
+        ]);
+
+        // A restore whose renderer saved again has settled, even when it never
+        // acknowledged (an incomplete restore keeps its evidence): a later
+        // crash closes nothing.
+        await saveWorkspaceCheckpoint(twoTabs, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        window.emit('render-process-gone', {}, {reason: 'crashed'});
+        reloadRenderer(window);
+        await expect(restoredSources()).resolves.toEqual([
+            [
+                'tab-1',
+                'shown.pdf',
+                shownPath,
+            ],
+            [
+                'tab-2',
+                'hidden.pdf',
+                hiddenPath,
+            ],
+        ]);
+
+        // The renderer dies while that restore opens the shown document.
+        window.emit('render-process-gone', {}, {reason: 'oom'});
+        reloadRenderer(window);
+        const restored = await claimWorkspaceCheckpoint(11, window);
+        expect(restored?.notReopened).toEqual([{
+            fileName: 'shown.pdf',
+            sourceRef: shownPath,
+        }]);
+        expect(restored?.tabs.map(tab => [
+            tab.tabId,
+            tab.fileName,
+            tab.sourceRef,
+        ])).toEqual([
+            [
+                'tab-1',
+                null,
+                null,
+            ],
+            [
+                'tab-2',
+                'hidden.pdf',
+                hiddenPath,
+            ],
+        ]);
+    });
+
+    it('reopens a shown tab with unsaved work even when its restore ended the renderer', async () => {
+        const window = createWebContents(11);
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, window);
+        await saveWorkspaceCheckpoint(checkpoint, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
+        await claimWorkspaceCheckpoint(11, window);
+
+        window.emit('render-process-gone', {}, {reason: 'oom'});
+        reloadRenderer(window);
+
+        await expect(claimWorkspaceCheckpoint(11, window)).resolves.toEqual(checkpoint);
+    });
+
     it('keeps a reloaded renderer\'s takeover when its first claim cannot read the journal', async () => {
         const window = createWebContents(11);
         state.owners.set(workingCopyRef, 11);

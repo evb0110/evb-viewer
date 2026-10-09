@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import {
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
-    workspaceCheckpointRecordSchema,
+    workspaceCheckpointSchema,
 } from '@contracts/workspaceCheckpoint';
 import {
     parseDocumentRef,
@@ -132,7 +132,7 @@ const storedCheckpointSchema = v.pipe(v.object({
     ownerWebContentsId: safeIntegerSchema,
     claimedByRecoveryId: v.optional(recoveryOwnerIdSchema),
     claimedByWebContentsId: v.optional(safeIntegerSchema),
-    checkpoint: workspaceCheckpointRecordSchema,
+    checkpoint: workspaceCheckpointSchema,
     lazyWorkingCopies: v.optional(v.array(lazyWorkingCopySchema)),
     workingCopies: v.optional(v.array(workingCopySchema)),
     sourceProvenance: v.optional(v.array(sourceProvenanceSchema)),
@@ -194,6 +194,16 @@ interface IPendingSave {
 }
 const pendingSaves = new Map<string, IPendingSave>();
 const lastSaveStartedAtMs = new Map<string, number>();
+// A claimed restore that has not settled yet, by owner: the documents it
+// opens at once that can stay closed without losing work. A renderer that dies
+// before its restore settles was killed by one of them, so those documents are
+// not reopened again (#1264). A restore settles when its renderer acknowledges
+// it or saves again: the renderer saves only after its restore returns, and an
+// incomplete restore saves without acknowledging.
+const restoresInFlight = new Map<string, {
+    tabIds: Set<string>;
+    sourceRefs: Set<TDocumentRef>;
+}>();
 
 class WorkspaceCheckpointReadError extends Error {
     public readonly code = 'WORKSPACE_CHECKPOINT_READ_FAILED' as const;
@@ -619,6 +629,15 @@ function getWorkspaceRecoveryOwnerId(
     liveRecoveryOwners.set(recoveryId, owner);
     const stopWatching = onSenderLifetimeEnd(owner, (end) => {
         claimedInCurrentLoad.delete(recoveryId);
+        const interruptedRestore = restoresInFlight.get(recoveryId);
+        restoresInFlight.delete(recoveryId);
+        if (end === 'render-process-gone' && interruptedRestore) {
+            // Queued before the recovery reload can claim, and before a
+            // shutdown flush completes.
+            void serialize(() => closeRestoreDocuments(recoveryId, interruptedRestore)).catch((error: unknown) => {
+                log.warn(`Could not close the documents of a restore that ended the renderer: ${getErrorMessage(error)}`);
+            });
+        }
         if (end === 'destroyed') {
             stopWatching();
             liveRecoveryOwners.delete(recoveryId);
@@ -950,6 +969,76 @@ function retainUnresolvedCheckpointTabs(
     } satisfies IWorkspaceCheckpoint;
 }
 
+// A restore opens the documents of shown tabs at once. Those without unsaved
+// changes can stay closed without losing work; a dirty tab reopens from its
+// working copy and is never closed here.
+function getRestoreOpenedDocuments(checkpoint: IWorkspaceCheckpoint) {
+    const shownTabIds = new Set(checkpoint.panes.map(pane => pane.activeTabId));
+    const tabs = checkpoint.tabs.filter(tab => (
+        shownTabIds.has(tab.tabId)
+        && !tab.isDirty
+        && (tab.sourceRef !== null || tab.workingCopyRef !== null)
+    ));
+    return {
+        tabIds: new Set<string>(tabs.map(tab => tab.tabId)),
+        sourceRefs: new Set(tabs.flatMap(tab => (tab.sourceRef === null ? [] : [tab.sourceRef]))),
+    };
+}
+
+// Keeps those tabs as empty ones, so the next claim, by the recovery reload or
+// at the next launch, restores the rest of the workspace without reopening a
+// document that ended the renderer, and names it so the user is told why. The
+// file stays in Recent Files.
+async function closeRestoreDocuments(
+    recoveryId: string,
+    documents: NonNullable<ReturnType<typeof restoresInFlight.get>>,
+) {
+    await flushPendingSaves();
+    const record = await readRecordFile(recoveryId);
+    if (!record) {
+        return;
+    }
+    const notReopened = [...record.checkpoint.notReopened ?? []];
+    let closedTabCount = 0;
+    const tabs = record.checkpoint.tabs.map((tab) => {
+        if (tab.isDirty || !(documents.tabIds.has(tab.tabId)
+            || (tab.sourceRef !== null && documents.sourceRefs.has(tab.sourceRef)))) {
+            return tab;
+        }
+        closedTabCount += 1;
+        if (!notReopened.some(document => document.sourceRef === tab.sourceRef && document.fileName === tab.fileName)) {
+            notReopened.push({
+                fileName: tab.fileName,
+                sourceRef: tab.sourceRef,
+            });
+        }
+        return {
+            tabId: tab.tabId,
+            paneId: tab.paneId,
+            fileName: null,
+            sourceRef: null,
+            workingCopyRef: null,
+            isDirty: false,
+            isDjvu: false,
+            currentPage: null,
+            zoom: null,
+            zoomMode: null,
+        };
+    });
+    if (closedTabCount === 0) {
+        return;
+    }
+    log.warn(`Renderer ended while restoring; ${String(closedTabCount)} document tab(s) will not reopen`);
+    await writeRecord({
+        ...record,
+        checkpoint: {
+            ...record.checkpoint,
+            tabs,
+            notReopened,
+        },
+    });
+}
+
 export async function saveWorkspaceCheckpoint(
     checkpoint: IWorkspaceCheckpoint,
     ownerWebContentsId: number,
@@ -961,6 +1050,7 @@ export async function saveWorkspaceCheckpoint(
     if (discardedOwners.has(ownerRecoveryId)) {
         return;
     }
+    restoresInFlight.delete(ownerRecoveryId);
     for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
@@ -1236,6 +1326,7 @@ export async function claimWorkspaceCheckpoint(
         }
         recoveryClaimGenerationsByOwner.set(newOwnerRecoveryId, generations);
         claimedInCurrentLoad.add(newOwnerRecoveryId);
+        restoresInFlight.set(newOwnerRecoveryId, getRestoreOpenedDocuments(canonicalCheckpoint));
         return checkpointWithAnnotationRecovery;
     });
 }
@@ -1266,6 +1357,7 @@ export function acknowledgeWorkspaceCheckpoint(
         if (!claimedInCurrentLoad.has(ownerRecoveryId)) {
             throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
         }
+        restoresInFlight.delete(ownerRecoveryId);
         const record = await readRecordFile(ownerRecoveryId);
         if (!record) {
             return false;
@@ -1288,6 +1380,7 @@ export function clearWorkspaceCheckpoint() {
             await removeRecordAndArtifacts(record.ownerRecoveryId, record);
         }
         claimedInCurrentLoad.clear();
+        restoresInFlight.clear();
         durableRecords.clear();
     });
 }
@@ -1300,6 +1393,7 @@ export async function discardWorkspaceCheckpoint(
     const token = String(nextDiscardToken);
     nextDiscardToken += 1;
     discardedOwners.set(ownerRecoveryId, token);
+    restoresInFlight.delete(ownerRecoveryId);
     try {
         await serialize(async () => {
             await migrateLegacyJournal();

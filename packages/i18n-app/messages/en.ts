@@ -1158,6 +1158,13 @@ export default {
             'wait': 'Keep Waiting',
             'reload': 'Reload Window',
         },
+        'rendererCrashed': {
+            'title': 'Window stopped working',
+            'message': 'The window closed unexpectedly several times in a row and was not reloaded again.',
+            'detail': 'Reload it to try once more, or close it. Unsaved work is kept for recovery.',
+            'reload': 'Reload Window',
+            'close': 'Close Window',
+        },
         'agentMcp': {
             'enableTitle': 'Enable External MCP',
             'enableMessage': 'Allow EVB Viewer to start its external MCP server and add it to Codex settings?',
@@ -1789,6 +1796,8 @@ export default {
             'loadDescriptionWithMessage': 'Try loading the workspace again. ({message})',
             'sessionRestoreTitle': 'Previous session not restored',
             'sessionRestoreDescription': 'The tabs from your last session could not be reopened. Their recovery data was kept.',
+            'documentNotReopenedTitle': 'Document not reopened',
+            'documentNotReopenedDescription': '{fileName} stopped the viewer while it was opening, so it was not reopened. You can open it again from Recent Files.',
         },
         'settings': {
             'load': 'Failed to load settings',

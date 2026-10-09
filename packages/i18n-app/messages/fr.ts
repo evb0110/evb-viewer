@@ -1159,6 +1159,13 @@ export default {
             'wait': 'Continuer à attendre',
             'reload': 'Recharger la fenêtre',
         },
+        'rendererCrashed': {
+            'title': 'La fenêtre a cessé de fonctionner',
+            'message': 'La fenêtre s’est fermée de façon inattendue plusieurs fois de suite et n’a pas été rechargée.',
+            'detail': 'Rechargez-la pour réessayer une fois, ou fermez-la. Le travail non enregistré est conservé pour la récupération.',
+            'reload': 'Recharger la fenêtre',
+            'close': 'Fermer la fenêtre',
+        },
         'agentMcp': {
             'enableTitle': 'Activer le MCP externe',
             'enableMessage': 'Autoriser EVB Viewer à démarrer son serveur MCP externe et à l’ajouter aux paramètres de Codex ?',
@@ -1800,6 +1807,8 @@ export default {
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',
             'sessionRestoreTitle': 'Session précédente non restaurée',
             'sessionRestoreDescription': 'Les onglets de votre dernière session n’ont pas pu être rouverts. Leurs données de récupération ont été conservées.',
+            'documentNotReopenedTitle': 'Document non rouvert',
+            'documentNotReopenedDescription': '{fileName} a arrêté la visionneuse pendant son ouverture, il n’a donc pas été rouvert. Vous pouvez le rouvrir depuis Fichiers récents.',
         },
         'settings': {
             'load': 'Impossible de charger les paramètres',

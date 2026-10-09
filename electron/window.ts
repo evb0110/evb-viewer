@@ -286,6 +286,56 @@ async function promptUnresponsiveRendererRecovery(
     }
 }
 
+// Once its recovery attempts run out a window has no renderer. Instead of
+// leaving it blank, the user may reload it once more or close it; unsaved work
+// stays in the workspace recovery record either way.
+async function promptCrashedRendererRecovery(
+    window: BrowserWindow,
+    windowId: number,
+    reloadRenderer: () => void,
+) {
+    if (window.isDestroyed()) {
+        return;
+    }
+    if (config.automation.hideWindow || config.automation.noFocus) {
+        logger.warn('Renderer recovery attempts are exhausted; the automation window keeps no renderer', {windowId});
+        return;
+    }
+
+    const BUTTON_CLOSE = 0;
+    const BUTTON_RELOAD = 1;
+
+    // A dialog that cannot be shown closes the window rather than leave it blank.
+    const response = await dialog.showMessageBox(window, {
+        type: 'error',
+        title: te('dialogs.rendererCrashed.title'),
+        message: te('dialogs.rendererCrashed.message'),
+        detail: te('dialogs.rendererCrashed.detail'),
+        buttons: [
+            te('dialogs.rendererCrashed.close'),
+            te('dialogs.rendererCrashed.reload'),
+        ],
+        defaultId: BUTTON_RELOAD,
+        cancelId: BUTTON_CLOSE,
+        noLink: true,
+    }).then(result => result.response, (error: unknown) => {
+        reportWindowFailure(
+            'MAIN_RENDERER_RECOVERY_FAILED',
+            `Failed to prompt after renderer recovery ran out (windowId=${windowId}): ${getErrorMessage(error)}`,
+            error,
+        );
+        return BUTTON_CLOSE;
+    });
+    if (window.isDestroyed()) {
+        return;
+    }
+    if (response === BUTTON_RELOAD) {
+        reloadRenderer();
+    } else {
+        window.destroy();
+    }
+}
+
 function attachRendererDiagnostics(
     window: BrowserWindow,
     options: IRendererDiagnosticsOptions = {},
@@ -410,6 +460,13 @@ function attachRendererDiagnostics(
             'MAIN_RENDERER_PROCESS_GONE',
             message,
         );
+        if (!config.isDev && !recoveryInFlight && isRecoveryUnavailable()) {
+            void promptCrashedRendererRecovery(window, windowId, () => {
+                recentRecoveryAttempts = [];
+                recoverRenderer(`render-process-gone:${details.reason}:reload-after-prompt`);
+            });
+            return;
+        }
         recoverRenderer(`render-process-gone:${details.reason}`);
     });
 
