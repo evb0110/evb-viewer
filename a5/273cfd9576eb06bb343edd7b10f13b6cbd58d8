@@ -1,0 +1,27 @@
+packages/contracts/browserPageOpsWasm.generated.ts
+  ai_agent 1-100
+native/pdf-page-ops/src/wasm_abi.rs
+  s_c2417f17ad02bd::t_d8c99dde30f56c 54-83
+eslint.config.mjs
+  s_c2417f17ad02bd::t_e8280c180b9251 169
+native/pdf-page-ops/src/wasm.rs
+  s_c2417f17ad02bd::t_d8c99dde30f56c 365-369,508-516,520-522,528,533,538-542,544-547,549-556,565,649-654,659-668,682
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_c2417f17ad02bd::t_4bd5453c275f1d 353,389-390,397-411
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a5273cfd9576eb06bb343edd7b10f13b6cbd58d8",
+  "prompts": {},
+  "sessions": {
+    "s_c2417f17ad02bd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-853e-7f60-9ad7-97a3d3545a78",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
