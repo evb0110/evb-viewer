@@ -14,6 +14,7 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
+    copyFileSync,
     mkdirSync,
     readFileSync,
     writeFileSync,
@@ -48,6 +49,7 @@ import {
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
     activatePaneByTab,
+    createNewWorkspaceTab,
     splitActiveTabFromTabMenu,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
@@ -821,6 +823,87 @@ describe('Electron E2E - Recent Files', () => {
     const sessionName = `e2e-recent-files-${Date.now()}`;
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
+
+    it('keeps Start state through document opens and releases it with the tab', async () => {
+        const pickedPath = createFixturePath(`start-picked-${Date.now()}.pdf`);
+        const session = await sessionFixture.restart({extraEnv: {
+            EVB_E2E_OPEN_DIALOG_PATH: pickedPath,
+            EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+        }});
+        const {page} = session;
+        const firstPath = await createMultiPageTextFixturePdf(`start-queue-first-${Date.now()}.pdf`, 1);
+        const secondPath = await createMultiPageTextFixturePdf(`start-queue-second-${Date.now()}.pdf`, 1);
+        writeFileSync(pickedPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+        await waitForStartupOverlayRemoved(session);
+        await openPdfInApp(page, firstPath);
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
+        await page.waitForSelector('.recent-search input', {visible: true});
+        await clickAsUser(page, '.recent-search input');
+        await page.keyboard.type(basename(firstPath));
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        await (await page.$('[data-combine-page] input[type="file"]'))!.uploadFile(firstPath, secondPath);
+        const queueNames = [
+            basename(firstPath),
+            basename(secondPath),
+        ];
+        await expect.poll(() => page.$$eval('[data-combine-row] .combine-file-copy strong', rows => (
+            rows.map(row => row.textContent?.trim())
+        ))).toEqual(queueNames);
+
+        // A refused picker open returns to the same queued files.
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        await page.waitForSelector('.app-toast-failure', {visible: true});
+        expect(await page.$eval('.app-toast-failure', toast => toast.textContent)).toContain(basename(pickedPath));
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        expect(await page.$$eval('[data-combine-row] .combine-file-copy strong', rows => (
+            rows.map(row => row.textContent?.trim())
+        ))).toEqual(queueNames);
+
+        // The next selection succeeds; closing its document restores the queue.
+        copyFileSync(firstPath, pickedPath);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        await waitForPdfLoaded(page);
+        await page.waitForSelector('.workspace-host__start', {hidden: true});
+        await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        expect(await page.$$eval('[data-combine-row] .combine-file-copy strong', rows => (
+            rows.map(row => row.textContent?.trim())
+        ))).toEqual(queueNames);
+
+        // Combine owns clearing completed inputs even while Start is hidden.
+        await clickAsUser(page, 'footer.combine-actions button');
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Discard changes'), null, {description: 'discard the unsaved combined PDF'});
+        await page.waitForSelector('[data-combine-page].is-empty', {visible: true});
+        expect(await page.$$('[data-combine-row]')).toHaveLength(0);
+        await clickAsUser(page, 'nav[aria-label="Start"] button.rail-item');
+        expect(await page.$eval('.recent-search input', input => (input as HTMLInputElement).value)).toBe(basename(firstPath));
+
+        // Disposing this tab releases its queue and search, rather than handing
+        // that state to the new tab.
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        await (await page.$('[data-combine-page] input[type="file"]'))!.uploadFile(firstPath, secondPath);
+        await expect.poll(() => page.$$eval('[data-combine-row]', rows => rows.length)).toBe(2);
+        const disposedTabId = await page.$eval('.tab-list .tab.is-active', tab => tab.getAttribute('data-tab-id'));
+        await createNewWorkspaceTab(session);
+        await clickAsUser(page, `.tab-list .tab[data-tab-id="${disposedTabId}"] .tab-close`);
+        await page.waitForFunction((tabId: string | null) => (
+            !document.querySelector(`.workspace-host[data-workspace-tab-id="${tabId}"]`)
+        ), {}, disposedTabId);
+        expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-search input', input => (
+            (input as HTMLInputElement).value
+        ))).toBe('');
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page].is-empty', {visible: true});
+        expect(await page.$$('[data-combine-row]')).toHaveLength(0);
+        // Restore the fixture's ordinary session environment for later cases.
+        await sessionFixture.restart({extraEnv: {}});
+    });
 
     it.each([
         'pointer',
