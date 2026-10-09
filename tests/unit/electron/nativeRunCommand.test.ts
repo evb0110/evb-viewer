@@ -171,6 +171,98 @@ describe('runNativeCommand', () => {
         ]);
     });
 
+    it.each([
+        [
+            'darwin',
+            '/opt/poppler/bin/pdftoppm',
+        ],
+        [
+            'win32',
+            '/opt/poppler/bin/pdftoppm.exe',
+        ],
+    ] as const)('stops Poppler on %s once its memory passes 4 GiB and leaves other tools alone', async (platformName, popplerPath) => {
+        vi.useFakeTimers();
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        onTestFinished(() => {
+            Object.defineProperty(process, 'platform', platform);
+        });
+        Object.defineProperty(process, 'platform', {
+            value: platformName,
+            configurable: true,
+        });
+        const GiB = 1024 ** 3;
+        const memory = new Map<number, number>();
+        const {popplerMemoryRuntime} = await import('@electron/native-tools/popplerMemoryLimit');
+        vi.spyOn(popplerMemoryRuntime, 'createReader').mockReturnValue({
+            read: async pids => new Map(pids.map(pid => [
+                pid,
+                memory.get(pid) ?? 0,
+            ])),
+            close: vi.fn(),
+        });
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const poppler = new MockNativeProcess(7_001);
+        const otherTool = new MockNativeProcess(7_002);
+        mocks.spawn.mockReturnValueOnce(poppler).mockReturnValueOnce(otherTool);
+        const popplerRejection = runNativeCommand(popplerPath, ['in.pdf']).then(
+            () => null,
+            (error: Error) => error,
+        );
+        const otherResult = runNativeCommand('/opt/tools/evb-pdf-page-ops', ['in.pdf']);
+        memory.set(7_001, 3 * GiB);
+        memory.set(7_002, 6 * GiB);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(mocks.terminateDetachedChildProcess).not.toHaveBeenCalled();
+
+        memory.set(7_001, 5 * GiB);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledExactlyOnceWith(poppler, 1_000);
+        expect((await popplerRejection)?.message).toBe(`${popplerPath} stopped after using more than 4 GiB of memory`);
+
+        otherTool.emit('close', 0, null);
+        await expect(otherResult).resolves.toMatchObject({exitCode: 0});
+    });
+
+    it('keeps watching Poppler after a memory read fails', async () => {
+        vi.useFakeTimers();
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        onTestFinished(() => {
+            Object.defineProperty(process, 'platform', platform);
+        });
+        Object.defineProperty(process, 'platform', {
+            value: 'darwin',
+            configurable: true,
+        });
+        const {popplerMemoryRuntime} = await import('@electron/native-tools/popplerMemoryLimit');
+        const read = vi.fn<(pids: number[]) => Promise<Map<number, number>>>()
+            .mockRejectedValueOnce(new Error('footprint timed out'))
+            .mockImplementation(async pids => new Map(pids.map(pid => [
+                pid,
+                5 * 1024 ** 3,
+            ])));
+        const close = vi.fn();
+        vi.spyOn(popplerMemoryRuntime, 'createReader').mockImplementation(() => ({
+            read,
+            close,
+        }));
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const poppler = new MockNativeProcess(7_003);
+        mocks.spawn.mockReturnValueOnce(poppler);
+        const rejection = runNativeCommand('/opt/poppler/bin/pdftotext', ['in.pdf']).then(
+            () => null,
+            (error: Error) => error,
+        );
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(mocks.terminateDetachedChildProcess).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledOnce();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledExactlyOnceWith(poppler, 1_000);
+        expect((await rejection)?.message).toBe('/opt/poppler/bin/pdftotext stopped after using more than 4 GiB of memory');
+    });
+
     it('routes managed native temp files to per-invocation scratch and removes it after success', async () => {
         vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
         const proc = new MockNativeProcess();
