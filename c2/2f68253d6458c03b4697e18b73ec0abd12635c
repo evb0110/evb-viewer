@@ -1,0 +1,75 @@
+tests/unit/app/modules/document-viewer/page-source-renderer/documentPageSourceSearchHighlights.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 6
+app/modules/document-viewer/page-source-renderer/DocumentPageSourceSearchLayer.vue
+  s_d921b96a54f227::t_87ac0535905fd9 24
+  s_d921b96a54f227::t_fb22720dcf2a70 28
+app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders.ts
+  s_d921b96a54f227::t_986b3286767738 1-2,12
+app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation.ts
+  s_d921b96a54f227::t_fb22720dcf2a70 3,6-9,14,26
+app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication.ts
+  s_d921b96a54f227::t_fb22720dcf2a70 1,9
+app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation.ts
+  s_d921b96a54f227::t_fb22720dcf2a70 2,7
+tests/unit/app/modules/workspace-shell/viewers/scanCleanupWorkspaceReopenHandoff.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 30
+tests/unit/app/modules/document-viewer/page-source-renderer/documentPageSourceLifecycle.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 17
+tests/unit/app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderQueue.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 6
+tests/unit/app/modules/document-viewer/page-source-renderer/documentPageSourceConcurrentLifecycle.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 24
+app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime.ts
+  s_d921b96a54f227::t_60faf8d261aea1 1482-1484
+  s_d921b96a54f227::t_0d872db8f0f4d1 40,1118,1121
+  s_d921b96a54f227::t_accbd6c3b25d28 5-7,10-19,21-23,27-37,43-44,47,55-57,61-63,73
+  s_d921b96a54f227::t_38ef06b2f9f0cc 2,38-39,42,1117,1119-1120
+app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue
+  s_d921b96a54f227::t_60faf8d261aea1 102
+  s_d921b96a54f227::t_fb22720dcf2a70 46,50-51
+tests/unit/app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 13
+app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState.ts
+  s_d921b96a54f227::t_87ac0535905fd9 9
+  s_d921b96a54f227::t_fb22720dcf2a70 14-16,18-23,29
+tests/unit/app/modules/document-viewer/page-source-renderer/documentPageSourcePresentationLifecycle.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 13
+tests/unit/app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 14,18
+app/modules/document-viewer/page-source-renderer/DocumentPageSourcePageVisual.vue
+  s_d921b96a54f227::t_87ac0535905fd9 54
+  s_d921b96a54f227::t_fb22720dcf2a70 56-57
+app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderDemand.ts
+  s_d921b96a54f227::t_fb22720dcf2a70 1
+app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics.ts
+  s_d921b96a54f227::t_fb22720dcf2a70 4-8
+tests/unit/app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 7-8
+app/modules/document-viewer/public.ts
+  s_d921b96a54f227::t_ef0761cc44670f 23,25,84
+  s_d921b96a54f227::t_505eb333899b44 94-95
+app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights.ts
+  s_d921b96a54f227::t_87ac0535905fd9 3
+tests/unit/app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderDemand.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 6
+tests/unit/app/modules/workspace-shell/memory/workspaceSurfaceBudgetController.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 13
+tests/unit/app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation.test.ts
+  s_d921b96a54f227::t_3faedafa41701a 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c22f68253d6458c03b4697e18b73ec0abd12635c",
+  "prompts": {},
+  "sessions": {
+    "s_d921b96a54f227": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e56bf86f-7b10-4499-a9d2-c82b0967b8a4",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
