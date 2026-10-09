@@ -1,0 +1,30 @@
+native/pdf-image-combine/src/tiff_io.rs
+  s_9246268e97c55d::t_7a4192bc59f494 9,19-20,23,28-30,121,123-144,221-244,255,265-266,276,278-279,281-299,305-315,317-327,329-346,348-357,359-443
+  s_9246268e97c55d::t_49d52f0199c848 328
+  s_9246268e97c55d::t_a5e281f2b8b173 833-937
+  s_9246268e97c55d::t_4b2c88578fea00 3,316,358
+native/pdf-image-combine/src/lib.rs
+  s_9246268e97c55d::t_1cc92de6720e63 11,1024-1028,1040-1041
+  s_9246268e97c55d::t_d521209d0bb7c7 721-725
+native/pdf-image-combine/tests/fixtures/bilevel-tiff/README.md
+  s_9246268e97c55d::t_6a5947f1831ab4 1-6
+native/pdf-image-combine/src/ccitt.rs
+  s_9246268e97c55d::t_1cc92de6720e63 1-24,26-142,144-212
+  s_9246268e97c55d::t_7a4192bc59f494 25,143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6819a6bdc208f1e769560db32c5398e2fa4ad9fc",
+  "prompts": {},
+  "sessions": {
+    "s_9246268e97c55d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4114c64a-e9b1-4d4f-9985-ff838cb41126",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
