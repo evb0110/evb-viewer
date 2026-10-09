@@ -1,0 +1,21 @@
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_44a4f89a8c59f7::t_b3aa31f4392346 1-3,547-563,565-588,591-593
+electron/features/djvu/main/pdfExport.ts
+  s_44a4f89a8c59f7::t_b3aa31f4392346 1,809,811-813,816-838,840-847,849-851,853,858,861-891,893-903,905-908,910,912-927,929,932-968,970,973-975,986,995-1001
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b8503605a74e958fb30c27687adf4aac667b2fb2",
+  "prompts": {},
+  "sessions": {
+    "s_44a4f89a8c59f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-78c3-7a92-a92d-fea06f0cbbe2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
