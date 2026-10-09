@@ -134,7 +134,13 @@ it('does not reopen a document whose restore ended the renderer, says so, and ke
         await clickAsUser(session.page, goodTab!);
         await waitForPdfLoaded(session.page, 60_000);
 
-        // A relaunch from the recovery record does not reopen it either.
+        // A relaunch from the recovery record does not reopen it either. The
+        // acknowledged restore removed its record; wait for the workspace's
+        // own next checkpoint before ending the process.
+        await expect.poll(() => {
+            const records = JSON.stringify(readWorkspaceRecoveryRecords(session.name));
+            return records.includes('good.pdf') && !records.includes(SLOW_FILE_NAME);
+        }, {timeout: 60_000}).toBe(true);
         await session.browser.disconnect();
         await stopSingleSession(session.name, {
             preserveWorkspaceCheckpoint: true,
