@@ -257,27 +257,25 @@ async function createSoftScanPdf(path: string) {
     return coverageArea(title.coverage);
 }
 
-interface IPageImage {
-    dpi: number;
-    bilevel: boolean;
-}
-
-/** The widest image on a page: its pixel density and whether it is 1-bit. */
-async function readPageImage(path: string, pageIndex: number): Promise<IPageImage> {
+/**
+ * The widest image on a page sets its pixel density; the page is 1-bit only
+ * when every image on it is, so a layered page with a gray background is not.
+ */
+async function readPageImage(path: string, pageIndex: number) {
     const doc = await PDFDocument.load(readFileSync(path));
     const page = doc.getPage(pageIndex);
     const xObjects = page.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
     let widest = 0;
-    let bilevel = false;
+    let bilevel = true;
     for (const [
         , reference,
     ] of xObjects?.entries() ?? []) {
         const stream = doc.context.lookup(reference);
         if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
         const width = stream.dict.lookupMaybe(PDFName.of('Width'), PDFNumber)?.asNumber() ?? 0;
-        if (width <= widest) continue;
-        widest = width;
-        bilevel = stream.dict.lookupMaybe(PDFName.of('ImageMask'), PDFBool)?.asBoolean() === true
+        if (width <= 0) continue;
+        widest = Math.max(widest, width);
+        bilevel &&= stream.dict.lookupMaybe(PDFName.of('ImageMask'), PDFBool)?.asBoolean() === true
             || stream.dict.lookupMaybe(PDFName.of('BitsPerComponent'), PDFNumber)?.asNumber() === 1;
     }
     expect(widest).toBeGreaterThan(0);
