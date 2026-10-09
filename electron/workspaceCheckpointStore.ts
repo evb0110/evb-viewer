@@ -194,10 +194,12 @@ interface IPendingSave {
 }
 const pendingSaves = new Map<string, IPendingSave>();
 const lastSaveStartedAtMs = new Map<string, number>();
-// A claimed restore its renderer has not acknowledged yet, by owner: the
-// documents it opens at once that can stay closed without losing work. A
-// renderer that dies before it acknowledges was killed by one of them, so
-// those documents are not reopened again (#1264).
+// A claimed restore that has not settled yet, by owner: the documents it
+// opens at once that can stay closed without losing work. A renderer that dies
+// before its restore settles was killed by one of them, so those documents are
+// not reopened again (#1264). A restore settles when its renderer acknowledges
+// it or saves again: the renderer saves only after its restore returns, and an
+// incomplete restore saves without acknowledging.
 const restoresInFlight = new Map<string, {
     tabIds: Set<string>;
     sourceRefs: Set<TDocumentRef>;
@@ -1048,6 +1050,7 @@ export async function saveWorkspaceCheckpoint(
     if (discardedOwners.has(ownerRecoveryId)) {
         return;
     }
+    restoresInFlight.delete(ownerRecoveryId);
     for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');

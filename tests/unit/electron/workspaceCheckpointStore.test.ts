@@ -437,6 +437,26 @@ describe('workspace checkpoint store', () => {
             ],
         ]);
 
+        // A restore whose renderer saved again has settled, even when it never
+        // acknowledged (an incomplete restore keeps its evidence): a later
+        // crash closes nothing.
+        await saveWorkspaceCheckpoint(twoTabs, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        window.emit('render-process-gone', {}, {reason: 'crashed'});
+        reloadRenderer(window);
+        await expect(restoredSources()).resolves.toEqual([
+            [
+                'tab-1',
+                'shown.pdf',
+                shownPath,
+            ],
+            [
+                'tab-2',
+                'hidden.pdf',
+                hiddenPath,
+            ],
+        ]);
+
         // The renderer dies while that restore opens the shown document.
         window.emit('render-process-gone', {}, {reason: 'oom'});
         reloadRenderer(window);
