@@ -62,8 +62,10 @@ import {
     evaluateDjvuPdfConversionPolicy,
     resolveDjvuCompactFidelityPreset,
     resolveDjvuPdfExportStrategy,
+    type IDjvuConversionPageMetrics,
     type IDjvuPdfConversionPolicyDecision,
     type TDjvuPdfExportStrategy,
+    type TDjvuPdfResolvedExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { createLogger } from '@electron/utils/createLogger';
@@ -236,6 +238,66 @@ function createDjvuConversionPolicyError(decision: IDjvuPdfConversionPolicyDecis
     return `Selected DjVu PDF quality is blocked because direct conversion would preserve about ${
         formatEffectivePixels(decision.effectivePixels)
     } effective pixels. Choose ${describeRecommendedSubsample(decision.recommendedSubsample)} or higher.`;
+}
+
+interface IDjvuPdfDispatchOptions {
+    jobId: TJobId;
+    djvuPath: TOpenPath;
+    outputPath: string;
+    tempDir: string;
+    strategy: TDjvuPdfResolvedExportStrategy;
+    subsample: number | undefined;
+    pageCount: number;
+    sourceDpi: number;
+    pageSizes: IDjvuConversionPageMetrics[] | null;
+    // Undefined converts every page. Print passes its selected subset.
+    pages?: number[] | undefined;
+    signal: AbortSignal;
+    onProgress: (percent: number) => void;
+}
+
+// Shared by print and file export. The caller resolves the route's strategy
+// default, owns page metadata and maps progress to its phase.
+function convertDjvuPagesToPdf(options: IDjvuPdfDispatchOptions) {
+    if (options.strategy === 'compact-djvu-aware') {
+        return buildCompactDjvuAwarePdfFromDjvu({
+            jobId: options.jobId,
+            djvuPath: options.djvuPath,
+            outputPath: options.outputPath,
+            tempDir: options.tempDir,
+            pageCount: options.pageCount,
+            sourceDpi: options.sourceDpi,
+            pageSizes: options.pageSizes,
+            qualityPreset: resolveDjvuCompactFidelityPreset(options.subsample),
+            signal: options.signal,
+            ...(options.pages ? { pages: options.pages } : {}),
+            onProgress: options.onProgress,
+        });
+    }
+
+    const subsample = resolveSubsample(options.subsample);
+    const policy = evaluateDjvuPdfConversionPolicy(estimateDjvuPdfConversionSource({
+        pageCount: options.pages?.length ?? options.pageCount,
+        sourceDpi: options.sourceDpi,
+        pageSizes: options.pageSizes,
+    }), subsample);
+    if (!policy.isAllowed) {
+        return {
+            success: false as const,
+            outputPath: options.outputPath,
+            fileSize: 0,
+            error: createDjvuConversionPolicyError(policy),
+            expected: createDjvuExpectedOutcome('validation-rejected'),
+        };
+    }
+
+    return convertDjvuToPdfFile(options.djvuPath, options.outputPath, options.jobId, {
+        ...(subsample > 1 ? { subsample } : {}),
+        ...(options.pages ? { pages: formatDjvuPageSelection(options.pages) } : {}),
+        pageCount: options.pageCount,
+        signal: options.signal,
+        onProgress: (percent: number) => options.onProgress(scaleDjvuConversionProgress(percent)),
+    });
 }
 
 function resolveDjvuPrintPdfExportStrategy(strategy: TDjvuPdfExportStrategy | undefined) {
@@ -838,57 +900,24 @@ async function runDjvuPrintPath(
                 throwIfCanceled(job.signal);
 
                 const convertedPdfPath = finalPdfPath;
-                const strategy = resolveDjvuPrintPdfExportStrategy(options.pdfStrategy);
-                const convertResult = strategy === 'compact-djvu-aware'
-                    ? await buildCompactDjvuAwarePdfFromDjvu({
+                const convertResult = await convertDjvuPagesToPdf({
+                    jobId,
+                    djvuPath,
+                    outputPath: convertedPdfPath,
+                    tempDir,
+                    strategy: resolveDjvuPrintPdfExportStrategy(options.pdfStrategy),
+                    subsample: options.subsample,
+                    pageCount,
+                    sourceDpi,
+                    pageSizes,
+                    pages: selectedPages,
+                    signal: job.signal,
+                    onProgress: percent => sendProgress({
                         jobId,
-                        djvuPath,
-                        outputPath: convertedPdfPath,
-                        tempDir,
-                        pageCount,
-                        sourceDpi,
-                        pageSizes,
-                        qualityPreset: resolveDjvuCompactFidelityPreset(options.subsample),
-                        signal: job.signal,
-                        ...(selectedPages ? { pages: selectedPages } : {}),
-                        onProgress: (percent: number) => {
-                            sendProgress({
-                                jobId,
-                                phase: 'converting' as const,
-                                percent,
-                            });
-                        },
-                    })
-                    : await (async () => {
-                        const subsample = resolveSubsample(options.subsample);
-                        const policy = evaluateDjvuPdfConversionPolicy(estimateDjvuPdfConversionSource({
-                            pageCount: selectedPages?.length ?? pageCount,
-                            sourceDpi,
-                            pageSizes,
-                        }), subsample);
-                        if (!policy.isAllowed) {
-                            return {
-                                success: false as const,
-                                outputPath: convertedPdfPath,
-                                fileSize: 0,
-                                error: createDjvuConversionPolicyError(policy),
-                            };
-                        }
-
-                        return convertDjvuToPdfFile(djvuPath, convertedPdfPath, jobId, {
-                            ...(subsample > 1 ? { subsample } : {}),
-                            ...(selectedPages ? { pages: formatDjvuPageSelection(selectedPages) } : {}),
-                            pageCount,
-                            signal: job.signal,
-                            onProgress: (percent: number) => {
-                                sendProgress({
-                                    jobId,
-                                    phase: 'converting' as const,
-                                    percent: scaleDjvuConversionProgress(percent),
-                                });
-                            },
-                        });
-                    })();
+                        phase: 'converting' as const,
+                        percent,
+                    }),
+                });
 
                 if (!convertResult.success) {
                     if ('cause' in convertResult && getUnprovenNativeTerminationDetail(convertResult.cause) !== undefined) {
@@ -1077,55 +1106,23 @@ async function runDjvuConvertToPdf(
                 const pageSizes = await runDjvuMetadataWithSlot(jobId, job.signal, () => getDjvuConversionPageSizes(jobId, djvuPath, pageCount, job.signal));
                 throwIfCanceled(job.signal);
 
-                const convertResult = strategy === 'compact-djvu-aware'
-                    ? await buildCompactDjvuAwarePdfFromDjvu({
+                const convertResult = await convertDjvuPagesToPdf({
+                    jobId,
+                    djvuPath,
+                    outputPath: tempPdfPath,
+                    tempDir: exportTempDir,
+                    strategy,
+                    subsample: options.subsample,
+                    pageCount,
+                    sourceDpi,
+                    pageSizes,
+                    signal: job.signal,
+                    onProgress: percent => sendProgress({
                         jobId,
-                        djvuPath,
-                        outputPath: tempPdfPath,
-                        tempDir: exportTempDir,
-                        pageCount,
-                        sourceDpi,
-                        pageSizes,
-                        qualityPreset: resolveDjvuCompactFidelityPreset(options.subsample),
-                        signal: job.signal,
-                        onProgress: (percent) => {
-                            sendProgress({
-                                jobId,
-                                phase: 'converting' as const,
-                                percent,
-                            });
-                        },
-                    })
-                    : await (async () => {
-                        const subsample = resolveSubsample(options.subsample);
-                        const policy = evaluateDjvuPdfConversionPolicy(estimateDjvuPdfConversionSource({
-                            pageCount,
-                            sourceDpi,
-                            pageSizes,
-                        }), subsample);
-                        if (!policy.isAllowed) {
-                            return {
-                                success: false as const,
-                                outputPath: tempPdfPath,
-                                fileSize: 0,
-                                error: createDjvuConversionPolicyError(policy),
-                                expected: createDjvuExpectedOutcome('validation-rejected'),
-                            };
-                        }
-
-                        return convertDjvuToPdfFile(djvuPath, tempPdfPath, jobId, {
-                            ...(subsample > 1 ? { subsample } : {}),
-                            pageCount,
-                            signal: job.signal,
-                            onProgress: (percent) => {
-                                sendProgress({
-                                    jobId,
-                                    phase: 'converting' as const,
-                                    percent: scaleDjvuConversionProgress(percent),
-                                });
-                            },
-                        });
-                    })();
+                        phase: 'converting' as const,
+                        percent,
+                    }),
+                });
 
                 if (!convertResult.success) {
                     const conversionFailure = getDjvuFailureReceipt(convertResult);
