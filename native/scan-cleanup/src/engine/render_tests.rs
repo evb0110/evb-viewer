@@ -753,6 +753,45 @@ mod tests {
     }
 
     #[test]
+    fn restored_hairline_survives_the_bleed_filter() {
+        // A hairline restored from its gray valley is as shallow and soft as
+        // bleed, but it joins the two stems of its letter.
+        let mut raw = GrayImage::new(80, 60, 220);
+        let mut binary = BinaryImage::new(80, 60);
+        for left in [10, 50] {
+            for y in 10..50 {
+                for x in left..left + 6 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                }
+            }
+        }
+        let mut restored = BinaryImage::new(80, 60);
+        for x in 16..50 {
+            raw.set(x, 13, 196);
+            raw.set(x, 14, 175);
+            raw.set(x, 15, 196);
+            binary.set(x, 14, true);
+            restored.set(x, 14, true);
+        }
+
+        let kept = filter_soft_shallow_bleed_components(
+            &binary,
+            &raw,
+            None,
+            None,
+            None,
+            300.0,
+            Some(&restored),
+        );
+        let unprotected =
+            filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 300.0, None);
+
+        assert!((16..50).all(|x| kept.get(x, 14)));
+        assert!((18..48).all(|x| !unprotected.get(x, 14)));
+    }
+
+    #[test]
     fn soft_shallow_horizontal_bleed_is_removed_without_losing_crisp_glyphs() {
         let mut raw = GrayImage::new(180, 100, 220);
         let mut binary = BinaryImage::new(180, 100);
@@ -779,7 +818,7 @@ mod tests {
             }
         }
 
-        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0);
+        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0, None);
 
         assert_eq!(
             (12..168)
@@ -836,7 +875,7 @@ mod tests {
             false,
         );
         let filtered =
-            filter_soft_shallow_bleed_components(&rescued, &raw, None, None, None, 360.0);
+            filter_soft_shallow_bleed_components(&rescued, &raw, None, None, None, 360.0, None);
 
         assert!((24..36).all(|x| filtered.get(x, 30)));
         assert_eq!(
@@ -889,6 +928,7 @@ mod tests {
             Some(&text_mask),
             Some(&text_vicinity),
             360.0,
+            None,
         );
 
         assert!((48..372).all(|x| (72..80).all(|y| filtered.get(x, y))));
@@ -1101,7 +1141,7 @@ mod tests {
         };
         let calibration =
             PageCalibration::estimate(&raw, options.dpi, CalibrationConfig::default());
-        let (binary, _, _, _) = binarize_normalized_with_diagnostics(BinarizationInput {
+        let (binary, _, _, _, restored_strokes) = binarize_normalized_with_diagnostics(BinarizationInput {
             normalized: &raw,
             raw_source: &raw,
             routing_diagnostics: resolve_binarization_diagnostics(&raw, &options),
@@ -1128,6 +1168,7 @@ mod tests {
             Some(&text_mask),
             Some(&text_vicinity),
             options.dpi,
+            restored_strokes.as_ref(),
         );
 
         assert!((48..372).all(|x| (72..74).all(|y| binary.get(x, y))));
@@ -1169,6 +1210,7 @@ mod tests {
             Some(&text_mask),
             None,
             360.0,
+            None,
         );
 
         assert!((200..260).all(|x| (54..60).all(|y| !filtered.get(x, y))));
@@ -1224,6 +1266,7 @@ mod tests {
             Some(&text_mask),
             Some(&text_vicinity),
             360.0,
+            None,
         );
 
         assert!((48..372).all(|x| (72..80).all(|y| !filtered.get(x, y))));
@@ -4897,7 +4940,7 @@ mod tests {
         };
         let calibration =
             PageCalibration::estimate(&gray, options.dpi, CalibrationConfig::default());
-        let (stencil, _, _, _) = binarize_normalized_with_diagnostics_excluding(
+        let (stencil, _, _, _, _) = binarize_normalized_with_diagnostics_excluding(
             &gray,
             &gray,
             resolve_binarization_diagnostics(&gray, &options),

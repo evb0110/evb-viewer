@@ -1,6 +1,7 @@
 use crate::{
     background::{normalize_illumination, smooth_for_binarization},
     calibration::{CalibrationConfig, PageCalibration},
+    thin_strokes::restored_thin_strokes,
     BinarizationMode, CleanupOptions, DespeckleLevel,
 };
 use rayon::prelude::*;
@@ -594,7 +595,19 @@ fn finish_thresholded_with_line_budget(
     selected_mode: BinarizationMode,
     spread_fallback: bool,
     output_exclusion: Option<&BinaryImage>,
-) -> (BinaryImage, bool, LineStrokeBudgetInterventions) {
+) -> (
+    BinaryImage,
+    bool,
+    LineStrokeBudgetInterventions,
+    Option<BinaryImage>,
+) {
+    // The global cut drops hairlines narrower than the scan's blur. Restore
+    // them before despeckling, so a glyph's stems and joins stay one
+    // component. The local thresholds keep such hairlines themselves.
+    let restored = (selected_mode == BinarizationMode::Otsu)
+        .then(|| restored_thin_strokes(thresholded, raw_source, calibration));
+    let completed = restored.as_ref().map(|strokes| thresholded.or(strokes));
+    let thresholded = completed.as_ref().unwrap_or(thresholded);
     let mut preview_interventions = inactive_line_stroke_budget_interventions(thresholded);
     let (preview, preview_fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
         thresholded,
@@ -623,7 +636,7 @@ fn finish_thresholded_with_line_budget(
         None => preview,
     };
     if !line_stroke_budget_has_offenders(&preview, options.dpi) {
-        return (preview, preview_fallback, preview_interventions);
+        return (preview, preview_fallback, preview_interventions, restored);
     }
 
     let (source, budget, mut interventions) =
@@ -654,7 +667,7 @@ fn finish_thresholded_with_line_budget(
         Some(mask) => output.subtract(mask),
         None => output,
     };
-    (output, fallback, interventions)
+    (output, fallback, interventions, restored)
 }
 
 fn normalize_offender_component<F>(
@@ -1197,6 +1210,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     BinarizationDiagnostics,
     bool,
     BinarizationStageTimings,
+    Option<BinaryImage>,
 ) {
     let BinarizationInput {
         normalized,
@@ -1235,9 +1249,9 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, _) = if dark_background {
+    let (binary, despeckle_fallback, _, restored_strokes) = if dark_background {
         let interventions = inactive_line_stroke_budget_interventions(&binary);
-        (binary, false, interventions)
+        (binary, false, interventions, None)
     } else {
         finish_thresholded_with_line_budget(
             &binary,
@@ -1254,7 +1268,13 @@ pub(crate) fn binarize_normalized_with_diagnostics(
         )
     };
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
-    (binary, diagnostics, despeckle_fallback, timings)
+    (
+        binary,
+        diagnostics,
+        despeckle_fallback,
+        timings,
+        restored_strokes,
+    )
 }
 
 /// Mixed-mode binarization with picture pixels omitted from threshold
@@ -1274,6 +1294,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     BinarizationDiagnostics,
     bool,
     BinarizationStageTimings,
+    Option<BinaryImage>,
 ) {
     let mut timings = BinarizationStageTimings::default();
     let preparation_started = Instant::now();
@@ -1328,9 +1349,9 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, _) = if dark_background {
+    let (binary, despeckle_fallback, _, restored_strokes) = if dark_background {
         let interventions = inactive_line_stroke_budget_interventions(&binary);
-        (binary, false, interventions)
+        (binary, false, interventions, None)
     } else {
         finish_thresholded_with_line_budget(
             &binary,
@@ -1347,7 +1368,13 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         )
     };
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
-    (binary, diagnostics, despeckle_fallback, timings)
+    (
+        binary,
+        diagnostics,
+        despeckle_fallback,
+        timings,
+        restored_strokes,
+    )
 }
 
 pub(crate) fn picture_protection_radius(dpi: f64) -> usize {
@@ -1394,7 +1421,7 @@ fn binarize_with_mode(
         calibration,
         None,
     );
-    let (output, _, _) = finish_thresholded_with_line_budget(
+    let (output, _, _, _) = finish_thresholded_with_line_budget(
         &binary,
         normalized,
         raw_source,
@@ -4561,19 +4588,20 @@ mod tests {
             swapped.right.diagnostics.left_candidate_route
         );
 
-        let (_, left_diagnostics, _, _) = binarize_normalized_with_diagnostics(BinarizationInput {
-            normalized: &left,
-            raw_source: &left,
-            routing_diagnostics: resolve_binarization_diagnostics(&left, &options),
-            global_threshold_source: None,
-            options: &options,
-            calibration,
-            picture_mask: None,
-            text_vicinity: None,
-            spread_plan: Some(&plans.left),
-            detect_dark_background: true,
-        });
-        let (_, right_diagnostics, _, _) =
+        let (_, left_diagnostics, _, _, _) =
+            binarize_normalized_with_diagnostics(BinarizationInput {
+                normalized: &left,
+                raw_source: &left,
+                routing_diagnostics: resolve_binarization_diagnostics(&left, &options),
+                global_threshold_source: None,
+                options: &options,
+                calibration,
+                picture_mask: None,
+                text_vicinity: None,
+                spread_plan: Some(&plans.left),
+                detect_dark_background: true,
+            });
+        let (_, right_diagnostics, _, _, _) =
             binarize_normalized_with_diagnostics(BinarizationInput {
                 normalized: &right,
                 raw_source: &right,
@@ -4959,7 +4987,7 @@ mod tests {
                 calibration,
             );
             assert!(!damaged.get(38, 40));
-            let (routed, diagnostics, _, _) =
+            let (routed, diagnostics, _, _, _) =
                 binarize_normalized_with_diagnostics(BinarizationInput {
                     normalized: &normalized,
                     raw_source: &raw,
@@ -6070,7 +6098,7 @@ mod tests {
                 };
                 let calibration =
                     PageCalibration::estimate(working, dpi, CalibrationConfig::default());
-                let (_, diagnostics, _, _) =
+                let (_, diagnostics, _, _, _) =
                     binarize_normalized_with_diagnostics(BinarizationInput {
                         normalized: working,
                         raw_source: working,
@@ -6450,7 +6478,7 @@ mod tests {
         let (_, expected_offenders) = LineStrokeBudget::from_binary(&expected, options.dpi)
             .expect("niqqud fixture must have eligible lines");
         assert!(expected_offenders.is_empty());
-        let (actual, _, actual_interventions) = finish_thresholded_with_line_budget(
+        let (actual, _, actual_interventions, _) = finish_thresholded_with_line_budget(
             &thresholded,
             &normalized,
             &raw,
