@@ -436,16 +436,16 @@ interface IOpenPdfState {
     openTrigger: Required<IElectronRunOpenPdfTrigger> | null;
 }
 
-function normalizeDocumentPath(path: string) {
-    return path.replace(/\\/gu, '/').toLowerCase();
-}
-
-function resolveRealPath(path: string) {
+// Compares paths as the file system does: through symlinks, and ignoring case
+// only on macOS and Windows, whose default file systems ignore it; Linux does not.
+function toComparablePath(path: string) {
+    let resolved = path;
     try {
-        return realpathSync(path);
+        resolved = realpathSync(path);
     } catch {
-        return path;
+        // A path that does not resolve is compared as given.
     }
+    return process.platform === 'linux' ? resolved : resolved.replace(/\\/gu, '/').toLowerCase();
 }
 
 // Reads the open from the app's automation API and the painted page canvases,
@@ -518,10 +518,7 @@ function describeOpenPdfState(state: IOpenPdfState) {
 async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     const { page } = context.sessionState;
     const pdfPath = parseRequiredStringArg(args, 0, 'PDF path required');
-    const requestedPaths = new Set([
-        pdfPath,
-        resolveRealPath(pdfPath),
-    ].map(normalizeDocumentPath));
+    const requestedPath = toComparablePath(pdfPath);
     await installPageEvaluationShims(page);
 
     const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
@@ -597,7 +594,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     // still be an earlier tab that shows the same file.
     const isRequestedDocument = (state: IOpenPdfState) => state.openTrigger?.status === 'resolved'
         && state.activeDocument?.originalPath != null
-        && requestedPaths.has(normalizeDocumentPath(state.activeDocument.originalPath));
+        && toComparablePath(state.activeDocument.originalPath) === requestedPath;
     const startedAt = Date.now();
     let state = await readOpenPdfState(page, triggerToken);
     while (!(
