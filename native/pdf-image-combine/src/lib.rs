@@ -383,7 +383,7 @@ where
 
 fn write_counted_page<W: Write>(
     pdf: &mut PdfWriter<W>,
-    page: PreparedPage,
+    mut page: PreparedPage,
     page_count: &mut usize,
     symbol_chunk: &mut Option<Vec<PreparedPage>>,
     options: &PdfBuildOptions,
@@ -392,6 +392,12 @@ fn write_counted_page<W: Write>(
     let Some(symbol_chunk) = symbol_chunk.as_mut() else {
         return write_prepared_page(pdf, page);
     };
+    // A page without a symbol-encodable mask gains nothing from the chunk, so
+    // it is written as soon as the pages queued before it are.
+    if page.generated_bilevel_stream_mut().is_none() {
+        write_symbol_chunk(pdf, symbol_chunk)?;
+        return write_prepared_page(pdf, page);
+    }
     symbol_chunk.push(page);
     if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
         write_symbol_chunk(pdf, symbol_chunk)?;
@@ -1750,22 +1756,67 @@ mod tests {
                 .write_image::<colortype::Gray16>(1, 1, &[1])
                 .unwrap();
         }
-        let mut output = Vec::new();
-        let error = write_pdf(
-            &mut output,
-            [image_page("frames.tiff", &tiff, None, FramePolicy::All)],
-            &PdfBuildOptions::default(),
+        for enable_shared_symbol_encoding in [false, true] {
+            let mut output = Vec::new();
+            let error = write_pdf(
+                &mut output,
+                [image_page("frames.tiff", &tiff, None, FramePolicy::All)],
+                &PdfBuildOptions {
+                    enable_shared_symbol_encoding,
+                    ..PdfBuildOptions::default()
+                },
+                |_| {},
+            )
+            .expect_err("the 16-bit second frame is rejected");
+
+            assert!(
+                error.to_string().contains("Only 8-bit TIFF samples"),
+                "{error}"
+            );
+            assert!(
+                contains_bytes(&output, b"<< /Type /Page /Parent"),
+                "the first frame's page must be written before the second frame is decoded \
+                 (shared symbols: {enable_shared_symbol_encoding})"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_symbol_mode_keeps_page_order_around_pages_without_symbols() {
+        let first = include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-000-body-509.pbm");
+        let last = include_bytes!("../../jbig2-codec/tests/fixtures/scan-page-007-notes.pbm");
+        let tiff = two_page_tiff();
+        let pdf = write_pdf(
+            Vec::new(),
+            [
+                image_page("first.pbm", first, None, FramePolicy::All),
+                image_page("frames.tiff", &tiff, None, FramePolicy::All),
+                image_page("last.pbm", last, None, FramePolicy::All),
+            ],
+            &PdfBuildOptions {
+                max_tiff_frames: 10,
+                enable_shared_symbol_encoding: true,
+                ..PdfBuildOptions::default()
+            },
             |_| {},
         )
-        .expect_err("the 16-bit second frame is rejected");
+        .unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+        let positions = [
+            "/Width 509 /Height 512",
+            "/Width 1 /Height 1",
+            "/Width 2 /Height 1",
+            "/Width 512 /Height 512",
+        ]
+        .map(|image| {
+            text.find(image)
+                .unwrap_or_else(|| panic!("missing {image}"))
+        });
 
+        assert!(text.contains("/Count 4"));
         assert!(
-            error.to_string().contains("Only 8-bit TIFF samples"),
-            "{error}"
-        );
-        assert!(
-            contains_bytes(&output, b"<< /Type /Page /Parent"),
-            "the first frame's page must be written before the second frame is decoded"
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            "pages must keep input order: {positions:?}"
         );
     }
 
