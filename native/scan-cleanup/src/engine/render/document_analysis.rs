@@ -1525,6 +1525,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
             let recommendation = recommend_output_mode_with_tone(
                 PreparedModeEvidence {
                     analysis: rotated,
+                    flattened: layout_normalized,
                     analysis_rgb,
                     picture_mask,
                     picture_tone_evidence,
@@ -1561,6 +1562,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
                     recommend_output_mode_with_tone(
                         PreparedModeEvidence {
                             analysis: rotated,
+                            flattened: layout_normalized,
                             analysis_rgb,
                             picture_mask,
                             picture_tone_evidence,
