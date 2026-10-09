@@ -40,8 +40,6 @@ export {
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
-    normalizePdfNativeNoteChanges,
-    normalizePdfNativeNoteTextUpdates,
 } from '@contracts/nativePdfMutations';
 
 function addExpectedNativeIdentityCandidate(

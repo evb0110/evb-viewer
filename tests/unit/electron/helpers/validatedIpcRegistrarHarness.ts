@@ -230,24 +230,6 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         {preset: 'balancedScanned'},
     ],
-    'file:savePdfNoteTextUpdates': [
-        '/tmp/fixture.pdf',
-        [{
-            objectNumber: 1,
-            generationNumber: 0,
-            text: 'note',
-        }],
-        'D:20240101000000Z',
-    ],
-    'file:savePdfNoteChanges': [
-        '/tmp/fixture.pdf',
-        {updates: [{
-            objectNumber: 1,
-            generationNumber: 0,
-            text: 'note',
-        }]},
-        'D:20240101000000Z',
-    ],
     'file:applyPdfNativeMutationsToWorkingCopy': [
         '/tmp/fixture.pdf',
         {updates: [{

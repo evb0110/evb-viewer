@@ -162,8 +162,6 @@ export {
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
-    normalizePdfNativeNoteChanges,
-    normalizePdfNativeNoteTextUpdates,
     shapePointCount,
     splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@pdf-core/nativePdfMutationPolicy';
