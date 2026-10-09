@@ -8,6 +8,7 @@
 //! that fan-out; the written PDF is byte-identical at every setting.
 
 mod binary;
+mod ccitt;
 mod flate;
 mod image;
 mod jpeg;
@@ -717,10 +718,11 @@ fn visit_automatic_pages(
     mut on_page: impl FnMut(ImagePage) -> Result<()>,
 ) -> Result<usize> {
     if source.is_pbm() {
-        on_page(bilevel_image_page(read_mask_bitmap(
-            source,
-            options.max_bilevel_pixels,
-        )?)?)?;
+        on_page(bilevel_image_page(
+            read_mask_bitmap(source, options.max_bilevel_pixels)?,
+            DEFAULT_DPI,
+            DEFAULT_DPI,
+        )?)?;
         return Ok(1);
     }
 
@@ -1019,7 +1021,11 @@ fn next_page_count_with_limit(current: usize, max_pages: usize) -> Result<usize>
     Ok(next)
 }
 
-fn bilevel_image_page(mut image: crate::netpbm::PbmP4Image) -> Result<ImagePage> {
+fn bilevel_image_page(
+    mut image: crate::netpbm::PbmP4Image,
+    dpi_x: u32,
+    dpi_y: u32,
+) -> Result<ImagePage> {
     if image.width % 8 != 0 {
         let used_bits = image.width % 8;
         let padding_mask = (1u8 << (8 - used_bits)) - 1;
@@ -1031,8 +1037,8 @@ fn bilevel_image_page(mut image: crate::netpbm::PbmP4Image) -> Result<ImagePage>
     Ok(ImagePage {
         width: image.width,
         height: image.height,
-        dpi_x: DEFAULT_DPI,
-        dpi_y: DEFAULT_DPI,
+        dpi_x,
+        dpi_y,
         color_space: "DeviceGray",
         icc_profile: None,
         payload: ImagePayload::Bilevel(BilevelStream::encode(&image)?),

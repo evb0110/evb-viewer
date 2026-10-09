@@ -1,12 +1,12 @@
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write},
+    io::{BufRead, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 
 use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
 use tiff::{
-    decoder::{ifd::Value as TiffIfdValue, Decoder, DecodingResult},
+    decoder::{ifd::Value as TiffIfdValue, ChunkType, Decoder, DecodingResult},
     encoder::{
         colortype::{self, ColorType},
         Compression, DeflateLevel, Predictor, Rational, TiffEncoder,
@@ -16,12 +16,17 @@ use tiff::{
 };
 
 use crate::{
+    bilevel_image_page,
+    ccitt::{decode_g3_rows, decode_g4_rows, decode_modified_huffman_rows},
     flate::deflate_up_filtered_slices,
     image::assert_pixel_limit,
-    netpbm::{is_rgb_data_grayscale, read_netpbm_file},
+    netpbm::{is_rgb_data_grayscale, read_netpbm_file, PbmP4Image},
     pdf::{ImagePage, ImagePayload},
     Result, CM_PER_INCH, DEFAULT_DPI,
 };
+
+/// T4Options, which says whether Group 3 rows may be two-dimensional.
+const T4_OPTIONS_TAG: u16 = 292;
 
 pub(crate) fn read_tiff_pdf_pages_from_bytes(
     bytes: &[u8],
@@ -113,19 +118,30 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
         let (width, height) = decoder.dimensions()?;
         assert_pixel_limit(width, height, max_pixels)?;
         let orientation = read_tiff_orientation(&mut decoder);
-        let dpi = read_tiff_dpi(&mut decoder)
-            .or(default_dpi)
-            .unwrap_or(DEFAULT_DPI);
+        let resolution = read_tiff_dpi_axes(&mut decoder);
         let color_type = decoder.colortype()?;
-        let decoded = decoder.read_image()?;
-        on_page(build_tiff_pdf_page(
-            width,
-            height,
-            dpi,
-            color_type,
-            orientation,
-            decoded,
-        )?)?;
+        let page = if color_type == TiffColorType::Gray(1) {
+            let default_dpi = default_dpi.unwrap_or(DEFAULT_DPI);
+            let (dpi_x, dpi_y) = resolution.unwrap_or((default_dpi, default_dpi));
+            let image = orient_tiff_bilevel(
+                read_tiff_bilevel_frame(&mut decoder, width, height)?,
+                orientation,
+            )?;
+            let (dpi_x, dpi_y) = if swaps_tiff_axes(orientation) {
+                (dpi_y, dpi_x)
+            } else {
+                (dpi_x, dpi_y)
+            };
+            bilevel_image_page(image, dpi_x, dpi_y)?
+        } else {
+            let dpi = resolution
+                .map(|(dpi_x, dpi_y)| dpi_x.max(dpi_y))
+                .or(default_dpi)
+                .unwrap_or(DEFAULT_DPI);
+            let decoded = decoder.read_image()?;
+            build_tiff_pdf_page(width, height, dpi, color_type, orientation, decoded)?
+        };
+        on_page(page)?;
         page_count += 1;
 
         if !decoder.more_images() {
@@ -202,6 +218,30 @@ fn read_tiff_orientation<R: Read + Seek>(decoder: &mut Decoder<R>) -> u16 {
         .unwrap_or(1)
 }
 
+fn swaps_tiff_axes(orientation: u16) -> bool {
+    matches!(orientation, 5..=8)
+}
+
+/// The source pixel shown at `(x, y)` of a frame displayed with `orientation`.
+fn tiff_orientation_source(
+    orientation: u16,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> (usize, usize) {
+    match orientation {
+        2 => (width - 1 - x, y),
+        3 => (width - 1 - x, height - 1 - y),
+        4 => (x, height - 1 - y),
+        5 => (y, x),
+        6 => (y, height - 1 - x),
+        7 => (width - 1 - y, height - 1 - x),
+        8 => (width - 1 - y, x),
+        _ => (x, y),
+    }
+}
+
 fn orient_tiff_pixels(
     pixels: Vec<u8>,
     width: u32,
@@ -212,7 +252,7 @@ fn orient_tiff_pixels(
     if orientation == 1 {
         return Ok((width, height, pixels));
     }
-    let swaps_axes = matches!(orientation, 5..=8);
+    let swaps_axes = swaps_tiff_axes(orientation);
     let oriented_width = if swaps_axes { height } else { width };
     let oriented_height = if swaps_axes { width } else { height };
     let output_len = (oriented_width as usize)
@@ -222,16 +262,8 @@ fn orient_tiff_pixels(
     let mut oriented = vec![0; output_len];
     for y in 0..oriented_height as usize {
         for x in 0..oriented_width as usize {
-            let (source_x, source_y) = match orientation {
-                2 => (width as usize - 1 - x, y),
-                3 => (width as usize - 1 - x, height as usize - 1 - y),
-                4 => (x, height as usize - 1 - y),
-                5 => (y, x),
-                6 => (y, height as usize - 1 - x),
-                7 => (width as usize - 1 - y, height as usize - 1 - x),
-                8 => (width as usize - 1 - y, x),
-                _ => (x, y),
-            };
+            let (source_x, source_y) =
+                tiff_orientation_source(orientation, x, y, width as usize, height as usize);
             let source_offset = (source_y * width as usize + source_x) * channels;
             let target_offset = (y * oriented_width as usize + x) * channels;
             oriented[target_offset..target_offset + channels]
@@ -241,32 +273,175 @@ fn orient_tiff_pixels(
     Ok((oriented_width, oriented_height, oriented))
 }
 
+/// The larger axis, for pages that carry one resolution for both.
 fn read_tiff_dpi<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<u32> {
-    let x_resolution = decoder
-        .find_tag(Tag::XResolution)
-        .ok()
-        .flatten()
-        .and_then(tiff_resolution_value_to_f64);
-    let y_resolution = decoder
-        .find_tag(Tag::YResolution)
-        .ok()
-        .flatten()
-        .and_then(tiff_resolution_value_to_f64);
-    let resolution = x_resolution.unwrap_or(0.0).max(y_resolution.unwrap_or(0.0));
-    if resolution <= 0.0 {
-        return None;
-    }
+    read_tiff_dpi_axes(decoder).map(|(dpi_x, dpi_y)| dpi_x.max(dpi_y))
+}
 
-    match decoder
+/// Horizontal and vertical DPI; an axis without a positive resolution takes
+/// the other axis's value.
+fn read_tiff_dpi_axes<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<(u32, u32)> {
+    let mut resolution = |tag| {
+        decoder
+            .find_tag(tag)
+            .ok()
+            .flatten()
+            .and_then(tiff_resolution_value_to_f64)
+            .filter(|resolution| *resolution > 0.0)
+    };
+    let (x_resolution, y_resolution) =
+        match (resolution(Tag::XResolution), resolution(Tag::YResolution)) {
+            (Some(x), Some(y)) => (x, y),
+            (Some(both), None) | (None, Some(both)) => (both, both),
+            (None, None) => return None,
+        };
+
+    let scale = match decoder
         .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
         .ok()
         .flatten()
         .unwrap_or(2)
     {
-        2 => Some(resolution.round() as u32),
-        3 => Some((resolution * CM_PER_INCH).round() as u32),
-        _ => None,
+        2 => 1.0,
+        3 => CM_PER_INCH,
+        _ => return None,
+    };
+    Some((
+        (x_resolution * scale).round() as u32,
+        (y_resolution * scale).round() as u32,
+    ))
+}
+
+/// Reads a 1-bit frame as PBM rows, in which a set bit is a black pixel.
+fn read_tiff_bilevel_frame<R: BufRead + Seek>(
+    decoder: &mut Decoder<R>,
+    width: u32,
+    height: u32,
+) -> Result<PbmP4Image> {
+    let row_stride = (width as usize).div_ceil(8);
+    let bitmap_len = row_stride
+        .checked_mul(height as usize)
+        .ok_or("TIFF frame is too large")?;
+    let compression = decoder
+        .find_tag_unsigned::<u16>(Tag::Compression)?
+        .unwrap_or(1);
+    let bitmap = if matches!(compression, 2..=4) {
+        // A CCITT-coded bit is set where the code says black. With
+        // BlackIsZero a set sample is white, so those frames are inverted.
+        let mut bitmap = read_tiff_ccitt_rows(decoder, width, height, compression, row_stride)?;
+        if decoder.find_tag_unsigned::<u16>(Tag::PhotometricInterpretation)? == Some(1) {
+            bitmap.iter_mut().for_each(|byte| *byte = !*byte);
+        }
+        bitmap
+    } else {
+        // The decoder hands 1-bit samples over as BlackIsZero for either
+        // interpretation, so a clear bit is a black pixel.
+        let DecodingResult::U8(mut samples) = decoder.read_image()? else {
+            return Err("Decoded 1-bit TIFF samples are not bytes".into());
+        };
+        samples.iter_mut().for_each(|byte| *byte = !*byte);
+        samples
+    };
+    if bitmap.len() != bitmap_len {
+        return Err("Decoded 1-bit TIFF payload length does not match image dimensions".into());
     }
+    Ok(PbmP4Image {
+        width,
+        height,
+        row_stride,
+        bitmap,
+    })
+}
+
+/// Decodes the strips of a CCITT Modified Huffman, Group 3 (T4Options bit 0:
+/// two-dimensional) or Group 4 frame. FillOrder 2 strips store each byte's
+/// bits reversed.
+fn read_tiff_ccitt_rows<R: BufRead + Seek>(
+    decoder: &mut Decoder<R>,
+    width: u32,
+    height: u32,
+    compression: u16,
+    row_stride: usize,
+) -> Result<Vec<u8>> {
+    if decoder.get_chunk_type() != ChunkType::Strip {
+        return Err("Tiled CCITT TIFF frames are not supported".into());
+    }
+    let offsets = decoder.get_tag_u64_vec(Tag::StripOffsets)?;
+    let byte_counts = decoder.get_tag_u64_vec(Tag::StripByteCounts)?;
+    let rows_per_strip = decoder
+        .find_tag_unsigned::<u32>(Tag::RowsPerStrip)?
+        .unwrap_or(u32::MAX)
+        .clamp(1, height.max(1)) as usize;
+    let reversed_bits = decoder.find_tag_unsigned::<u16>(Tag::FillOrder)? == Some(2);
+    let two_dimensional = decoder
+        .find_tag_unsigned::<u32>(Tag::Unknown(T4_OPTIONS_TAG))?
+        .unwrap_or(0)
+        & 1
+        != 0;
+    let strips = (height as usize).div_ceil(rows_per_strip);
+    if offsets.len() < strips || byte_counts.len() < strips {
+        return Err("CCITT TIFF frame is missing strip offsets".into());
+    }
+
+    let mut bitmap = vec![0u8; row_stride * height as usize];
+    for (strip, rows) in bitmap.chunks_mut(rows_per_strip * row_stride).enumerate() {
+        let reader = decoder.inner();
+        reader.seek(SeekFrom::Start(offsets[strip]))?;
+        let bytes = reader
+            .by_ref()
+            .take(byte_counts[strip])
+            .bytes()
+            .map(|byte| {
+                byte.map(|byte| {
+                    if reversed_bits {
+                        byte.reverse_bits()
+                    } else {
+                        byte
+                    }
+                })
+            });
+        match compression {
+            2 => decode_modified_huffman_rows(bytes, width, row_stride, rows)?,
+            3 => decode_g3_rows(bytes, width, two_dimensional, row_stride, rows)?,
+            _ => decode_g4_rows(bytes, width, row_stride, rows)?,
+        }
+    }
+    Ok(bitmap)
+}
+
+fn orient_tiff_bilevel(image: PbmP4Image, orientation: u16) -> Result<PbmP4Image> {
+    if orientation == 1 {
+        return Ok(image);
+    }
+    let (width, height) = (image.width as usize, image.height as usize);
+    let (oriented_width, oriented_height) = if swaps_tiff_axes(orientation) {
+        (image.height, image.width)
+    } else {
+        (image.width, image.height)
+    };
+    let row_stride = (oriented_width as usize).div_ceil(8);
+    let mut bitmap = vec![
+        0u8;
+        row_stride
+            .checked_mul(oriented_height as usize)
+            .ok_or("TIFF orientation output is too large")?
+    ];
+    for y in 0..oriented_height as usize {
+        for x in 0..oriented_width as usize {
+            let (source_x, source_y) = tiff_orientation_source(orientation, x, y, width, height);
+            if image.bitmap[source_y * image.row_stride + source_x / 8] & (0x80 >> (source_x % 8))
+                != 0
+            {
+                bitmap[y * row_stride + x / 8] |= 0x80 >> (x % 8);
+            }
+        }
+    }
+    Ok(PbmP4Image {
+        width: oriented_width,
+        height: oriented_height,
+        row_stride,
+        bitmap,
+    })
 }
 
 fn tiff_resolution_value_to_f64(value: TiffIfdValue) -> Option<f64> {
@@ -654,6 +829,112 @@ mod tests {
         let _ = fs::remove_file(gray_rgb_path);
         let _ = fs::remove_file(gray_path);
         let _ = fs::remove_file(output_path);
+    }
+
+    const BILEVEL_FIXTURES: &str =
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bilevel-tiff");
+
+    #[test]
+    fn bilevel_tiff_frames_keep_their_pixels_polarity_and_orientation() {
+        // Each fixture was written by libtiff or ImageMagick and decodes there
+        // to the listed patterns; see the fixtures' README.
+        for (fixture, expected) in [
+            ("g4.tif", &["expected-1.pbm"][..]),
+            ("g4-fillorder2.tif", &["expected-1.pbm"]),
+            ("g4-minisblack.tif", &["expected-1.pbm"]),
+            ("g3-1d.tif", &["expected-1.pbm"]),
+            ("g3-2d.tif", &["expected-1.pbm"]),
+            ("g3-2d-fax-dpi.tif", &["expected-1.pbm"]),
+            ("modified-huffman.tif", &["expected-1.pbm"]),
+            ("packbits.tif", &["expected-1.pbm"]),
+            ("none-minisblack.tif", &["expected-1.pbm"]),
+            ("g4-2frames.tif", &["expected-1.pbm", "expected-2.pbm"]),
+            ("g4-orient6.tif", &["expected-1-orient6.pbm"]),
+        ] {
+            let bytes = fs::read(format!("{BILEVEL_FIXTURES}/{fixture}")).unwrap();
+            let mut decoder = Decoder::new(Cursor::new(bytes)).unwrap();
+            for (frame, expected) in expected.iter().enumerate() {
+                if frame > 0 {
+                    decoder.next_image().unwrap();
+                }
+                assert_eq!(decoder.colortype().unwrap(), TiffColorType::Gray(1));
+                let (width, height) = decoder.dimensions().unwrap();
+                let orientation = read_tiff_orientation(&mut decoder);
+                let image = orient_tiff_bilevel(
+                    read_tiff_bilevel_frame(&mut decoder, width, height).unwrap(),
+                    orientation,
+                )
+                .unwrap();
+                let expected = crate::netpbm::parse_pbm_p4(
+                    &fs::read(format!("{BILEVEL_FIXTURES}/{expected}")).unwrap(),
+                    1_000_000,
+                )
+                .unwrap();
+                assert_eq!(
+                    (image.width, image.height),
+                    (expected.width, expected.height),
+                    "{fixture} frame {frame}"
+                );
+                for y in 0..image.height as usize {
+                    for x in 0..image.width as usize {
+                        let black = |pbm: &PbmP4Image| {
+                            pbm.bitmap[y * pbm.row_stride + x / 8] & (0x80 >> (x % 8)) != 0
+                        };
+                        assert_eq!(
+                            black(&image),
+                            black(&expected),
+                            "{fixture} frame {frame} pixel ({x}, {y})"
+                        );
+                    }
+                }
+            }
+            assert!(!decoder.more_images(), "{fixture} has extra frames");
+        }
+    }
+
+    #[test]
+    fn bilevel_tiff_frames_become_bilevel_pdf_pages_at_their_resolution() {
+        let frames = fs::read(format!("{BILEVEL_FIXTURES}/g4-2frames.tif")).unwrap();
+        let fax = fs::read(format!("{BILEVEL_FIXTURES}/g3-2d-fax-dpi.tif")).unwrap();
+        let pdf = crate::write_pdf(
+            Vec::new(),
+            [&frames, &fax].map(|data| crate::PageSpec::Image {
+                page_size: None,
+                placement: None,
+                rotation_degrees: 0,
+                image: crate::ImageSpec {
+                    source: crate::InputSource::Bytes {
+                        file_name: "scan.tif",
+                        data,
+                    },
+                    compression: crate::ImageCompression::Auto,
+                    processing: crate::ImageProcessing::None,
+                    size_guardrail: None,
+                },
+                frames: crate::FramePolicy::All,
+            }),
+            &crate::PdfBuildOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/Count 3"));
+        assert_eq!(text.matches("/BitsPerComponent 1").count(), 3);
+        // 61x40 pixels at 300 dpi, then at 204 x 98 dpi.
+        assert_eq!(text.matches("/MediaBox [0 0 14.6400 9.6000]").count(), 2);
+        assert!(text.contains("/MediaBox [0 0 21.5294 29.3878]"));
+    }
+
+    #[test]
+    fn corrupt_ccitt_strips_are_rejected() {
+        let mut bytes = fs::read(format!("{BILEVEL_FIXTURES}/g3-2d.tif")).unwrap();
+        let mut decoder = Decoder::new(Cursor::new(bytes.clone())).unwrap();
+        let offset = decoder.get_tag_u64_vec(Tag::StripOffsets).unwrap()[0] as usize;
+        let count = decoder.get_tag_u64_vec(Tag::StripByteCounts).unwrap()[0] as usize;
+        bytes[offset..offset + count].fill(0xff);
+
+        assert!(visit_tiff_pdf_pages_from_bytes(&bytes, 1_000_000, None, 10, |_| Ok(())).is_err());
     }
 
     #[test]
