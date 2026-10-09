@@ -359,7 +359,6 @@ pub struct SplitResult {
     pub split_seam: Option<SplitSeamPolyline>,
     pub diagnostics: SplitDiagnostics,
     pub reconciliation: ReconciliationMetadata,
-    pub(crate) reusable_binary: Option<BinaryImage>,
 }
 
 impl SplitResult {
@@ -663,7 +662,7 @@ fn detect_split_impl(
     };
 
     if aspect_ratio >= 1.0 {
-        if let Some(mut result) = spread_decision(
+        if let Some(result) = spread_decision(
             gray,
             &analysis,
             whitespace,
@@ -671,17 +670,10 @@ fn detect_split_impl(
             document_prior,
             &mut diagnostics,
         ) {
-            if analysis.deskew_angle_degrees == 0.0 {
-                result.reusable_binary = Some(analysis.binary);
-            }
             return result;
         }
     }
-    if let Some(mut result) = offcut_decision(gray, &analysis, offcut_whitespace, &mut diagnostics)
-    {
-        if analysis.deskew_angle_degrees == 0.0 {
-            result.reusable_binary = Some(analysis.binary);
-        }
+    if let Some(result) = offcut_decision(gray, &analysis, offcut_whitespace, &mut diagnostics) {
         return result;
     }
 
@@ -689,11 +681,7 @@ fn detect_split_impl(
     let confidence = single_confidence(&diagnostics);
     diagnostics.alternative_product = diagnostics.evidence_product;
     diagnostics.evidence_product = confidence;
-    let mut result = single(gray.width(), gray.height(), confidence, diagnostics);
-    if analysis.deskew_angle_degrees == 0.0 {
-        result.reusable_binary = Some(analysis.binary);
-    }
-    result
+    single(gray.width(), gray.height(), confidence, diagnostics)
 }
 
 fn prepare_analysis(
@@ -3150,7 +3138,6 @@ fn single(
         split_seam: None,
         diagnostics,
         reconciliation,
-        reusable_binary: None,
     }
 }
 
@@ -3177,7 +3164,6 @@ fn split_at(
         split_seam: None,
         diagnostics,
         reconciliation,
-        reusable_binary: None,
     }
 }
 

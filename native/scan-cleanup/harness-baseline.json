@@ -330,8 +330,7 @@
       "pepperDensity": 0,
       "blankRegionFloods": 0,
       "routeCounts": {
-        "otsu": 42,
-        "wolf": 9
+        "otsu": 51
       },
       "brokenStrokeExplosionIds": [],
       "blankRegionFloodIds": []

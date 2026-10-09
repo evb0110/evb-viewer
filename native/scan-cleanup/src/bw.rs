@@ -18,7 +18,7 @@ use scan_primitives::{
     BinaryImage, ComponentMap, GrayImage,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::VecDeque, sync::OnceLock, time::Instant};
+use std::{borrow::Cow, collections::VecDeque, sync::OnceLock, time::Instant};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct BinarizationStageTimings {
@@ -39,6 +39,15 @@ const TILE_PAPER_DELTA: u8 = 48;
 const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
+/// Local ink shallower than this is paper texture, whatever the page's depth.
+const LOCAL_MIDPOINT_MIN_DEPTH: i16 = 24;
+/// Where the local cut sits between paper (0) and ink core (1). The printed
+/// edge of a stroke wider than the scanner's blur is at one half; a hairline
+/// narrower than the blur peaks only near that depth, so an exact half cut
+/// breaks serifs and joins on soft scans. Cutting slightly toward paper keeps
+/// them, while a wide stroke grows by about an eighth of the blur's width per
+/// edge, inside the stroke-neutral tolerance.
+const LOCAL_CUT_DEPTH_FRACTION: f32 = 0.45;
 const FALLBACK_X_HEIGHT_AT_300_DPI_PX: f64 = 17.0;
 const OCR_DARK_BACKGROUND_MIN_BORDER_COVERAGE: f64 = 0.85;
 const OCR_DARK_BACKGROUND_BORDER_OFFSET: u8 = 48;
@@ -46,13 +55,6 @@ const OCR_DARK_BACKGROUND_MIN_HIGHLIGHT_DELTA: u8 = 96;
 const OCR_DARK_BACKGROUND_THRESHOLD_FRACTION: f64 = 0.55;
 const OCR_DARK_BACKGROUND_MIN_COMPONENT_AREA: usize = 24;
 const OCR_DARK_BACKGROUND_MIN_HIGHLIGHT_SAMPLES: usize = 4;
-// Canonical book calibration leaves the nearest corroborated true-Wolf fixture
-// at 9.868637% coverage and the next dark book leaf after the two observed
-// Otsu victims at 11.055276%. Inside this gap the border statistic alone cannot
-// distinguish a scanner rail from otherwise flat-lit text, so preserve Otsu
-// only when the rest of the clean-uniform evidence independently agrees.
-const FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND: (f64, f64) = (0.099, 0.110_25);
-
 // A rule is preserved only when the source itself contains a long, thin run
 // of dark pixels. The geometry is intentionally shared with the render-side
 // fallback, while the raw plane remains the authority for every candidate.
@@ -595,18 +597,12 @@ fn finish_thresholded_with_line_budget(
     selected_mode: BinarizationMode,
     spread_fallback: bool,
     output_exclusion: Option<&BinaryImage>,
-) -> (
-    BinaryImage,
-    bool,
-    LineStrokeBudgetInterventions,
-    Option<BinaryImage>,
-) {
-    // The global cut drops hairlines narrower than the scan's blur. Restore
-    // them before despeckling, so a glyph's stems and joins stay one
-    // component. The local thresholds keep such hairlines themselves.
-    let restored = (selected_mode == BinarizationMode::Otsu)
-        .then(|| restored_thin_strokes(thresholded, raw_source, calibration));
-    let completed = restored.as_ref().map(|strokes| thresholded.or(strokes));
+) -> (BinaryImage, bool, LineStrokeBudgetInterventions) {
+    // The midpoint cut still drops the faintest hairlines. Restore them
+    // before despeckling, so a glyph's stems and joins stay one component.
+    // The local thresholds keep such hairlines themselves.
+    let completed = (selected_mode == BinarizationMode::Otsu)
+        .then(|| thresholded.or(&restored_thin_strokes(thresholded, raw_source, calibration)));
     let thresholded = completed.as_ref().unwrap_or(thresholded);
     let mut preview_interventions = inactive_line_stroke_budget_interventions(thresholded);
     let (preview, preview_fallback) = postprocess_binary_with_diagnostics_and_raw_budgeted(
@@ -636,7 +632,7 @@ fn finish_thresholded_with_line_budget(
         None => preview,
     };
     if !line_stroke_budget_has_offenders(&preview, options.dpi) {
-        return (preview, preview_fallback, preview_interventions, restored);
+        return (preview, preview_fallback, preview_interventions);
     }
 
     let (source, budget, mut interventions) =
@@ -667,7 +663,7 @@ fn finish_thresholded_with_line_budget(
         Some(mask) => output.subtract(mask),
         None => output,
     };
-    (output, fallback, interventions, restored)
+    (output, fallback, interventions)
 }
 
 fn normalize_offender_component<F>(
@@ -1210,7 +1206,6 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     BinarizationDiagnostics,
     bool,
     BinarizationStageTimings,
-    Option<BinaryImage>,
 ) {
     let BinarizationInput {
         normalized,
@@ -1249,9 +1244,9 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, _, restored_strokes) = if dark_background {
+    let (binary, despeckle_fallback, _) = if dark_background {
         let interventions = inactive_line_stroke_budget_interventions(&binary);
-        (binary, false, interventions, None)
+        (binary, false, interventions)
     } else {
         finish_thresholded_with_line_budget(
             &binary,
@@ -1268,13 +1263,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
         )
     };
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
-    (
-        binary,
-        diagnostics,
-        despeckle_fallback,
-        timings,
-        restored_strokes,
-    )
+    (binary, diagnostics, despeckle_fallback, timings)
 }
 
 /// Mixed-mode binarization with picture pixels omitted from threshold
@@ -1294,7 +1283,6 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     BinarizationDiagnostics,
     bool,
     BinarizationStageTimings,
-    Option<BinaryImage>,
 ) {
     let mut timings = BinarizationStageTimings::default();
     let preparation_started = Instant::now();
@@ -1349,9 +1337,9 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, _, restored_strokes) = if dark_background {
+    let (binary, despeckle_fallback, _) = if dark_background {
         let interventions = inactive_line_stroke_budget_interventions(&binary);
-        (binary, false, interventions, None)
+        (binary, false, interventions)
     } else {
         finish_thresholded_with_line_budget(
             &binary,
@@ -1368,13 +1356,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
         )
     };
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
-    (
-        binary,
-        diagnostics,
-        despeckle_fallback,
-        timings,
-        restored_strokes,
-    )
+    (binary, diagnostics, despeckle_fallback, timings)
 }
 
 pub(crate) fn picture_protection_radius(dpi: f64) -> usize {
@@ -1421,7 +1403,7 @@ fn binarize_with_mode(
         calibration,
         None,
     );
-    let (output, _, _, _) = finish_thresholded_with_line_budget(
+    let (output, _, _) = finish_thresholded_with_line_budget(
         &binary,
         normalized,
         raw_source,
@@ -1460,8 +1442,10 @@ fn threshold_with_mode(
             } else {
                 spread_plan.map_or(decision.threshold, |plan| plan.threshold_anchor)
             };
-            let bias = if decision.uniform_empty { 0 } else { bias };
-            threshold_global_biased(source, threshold, bias)
+            if decision.uniform_empty {
+                return threshold_global_biased(source, threshold, 0);
+            }
+            threshold_local_midpoint(source, None, options.dpi, radius, decision, threshold, bias)
         }
         BinarizationMode::Sauvola => threshold_local_for_route(
             threshold_input,
@@ -1518,8 +1502,18 @@ fn threshold_with_mode_excluding(
             } else {
                 spread_plan.map_or(decision.threshold, |plan| plan.threshold_anchor)
             };
-            let bias = if decision.uniform_empty { 0 } else { bias };
-            threshold_global_biased(source, threshold, bias).subtract(picture_mask)
+            if decision.uniform_empty {
+                return threshold_global_biased(source, threshold, 0).subtract(picture_mask);
+            }
+            threshold_local_midpoint(
+                source,
+                Some(picture_mask),
+                options.dpi,
+                radius,
+                decision,
+                threshold,
+                bias,
+            )
         }
         BinarizationMode::Sauvola => threshold_local_for_route_excluding(
             threshold_input,
@@ -1558,6 +1552,10 @@ fn threshold_with_mode_excluding(
 struct GlobalThresholdDecision {
     threshold: u8,
     uniform_empty: bool,
+    /// The page's dominant paper and ink-core levels. Equal when the page
+    /// has no measurable ink.
+    paper: u8,
+    ink_core: u8,
 }
 
 fn paper_ink_midpoint_threshold(
@@ -1578,6 +1576,8 @@ fn paper_ink_midpoint_threshold(
         return GlobalThresholdDecision {
             threshold: 127,
             uniform_empty: true,
+            paper: 127,
+            ink_core: 127,
         };
     }
     let darkest = histogram.iter().position(|&count| count > 0).unwrap_or(0) as u8;
@@ -1600,6 +1600,8 @@ fn paper_ink_midpoint_threshold(
         return GlobalThresholdDecision {
             threshold: darkest,
             uniform_empty: true,
+            paper: darkest,
+            ink_core: darkest,
         };
     }
     let otsu = exclusion.map_or_else(
@@ -1611,6 +1613,8 @@ fn paper_ink_midpoint_threshold(
         return GlobalThresholdDecision {
             threshold: otsu,
             uniform_empty: false,
+            paper: otsu,
+            ink_core: otsu,
         };
     }
     let percentile = |rank: usize| {
@@ -1639,6 +1643,64 @@ fn paper_ink_midpoint_threshold(
     GlobalThresholdDecision {
         threshold,
         uniform_empty: false,
+        paper,
+        ink_core,
+    }
+}
+
+/// Cuts each stroke between the paper and the ink core around it.
+///
+/// A scanned stroke's printed edge lies at the half-maximum between its paper
+/// and its ink, so a cut there keeps the printed weight. The page-wide cut
+/// is that midpoint only where the ink is as dark as the page's ink and the
+/// paper as light as its paper: elsewhere a faint passage thins and a shaded
+/// gutter fills. Here both levels are measured within `radius` of each pixel,
+/// and the cut sits at `LOCAL_CUT_DEPTH_FRACTION` of their distance. Where the
+/// nearby ink is less than half as deep as the page's ink there is no stroke
+/// to measure, and the page-wide cut applies, as it did before.
+fn threshold_local_midpoint(
+    source: &GrayImage,
+    exclusion: Option<&BinaryImage>,
+    dpi: f64,
+    radius: usize,
+    page: GlobalThresholdDecision,
+    page_threshold: u8,
+    bias: i16,
+) -> BinaryImage {
+    let page_depth = i16::from(page.paper) - i16::from(page.ink_core);
+    let minimum_depth = (page_depth / 2).max(LOCAL_MIDPOINT_MIN_DEPTH);
+    let smoothed = smooth_for_binarization(source, dpi);
+    // Excluded pixels take the value that cannot win the local extreme.
+    let neutral = |value: u8| match exclusion {
+        None => Cow::Borrowed(&smoothed),
+        Some(mask) => {
+            let mut image = smoothed.clone();
+            for y in 0..image.height() {
+                for x in 0..image.width() {
+                    if mask.get(x, y) {
+                        image.set(x, y, value);
+                    }
+                }
+            }
+            Cow::Owned(image)
+        }
+    };
+    let paper = erode_gray(&neutral(0), radius, radius);
+    let ink = dilate_gray(&neutral(255), radius, radius);
+    let output = BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
+        let local_paper = i16::from(paper.get(x, y));
+        let local_ink = i16::from(ink.get(x, y));
+        let threshold = if local_paper - local_ink >= minimum_depth {
+            local_paper
+                - (f32::from(local_paper - local_ink) * LOCAL_CUT_DEPTH_FRACTION).round() as i16
+        } else {
+            i16::from(page_threshold)
+        };
+        i16::from(source.get(x, y)) < (threshold + bias).clamp(0, 255)
+    });
+    match exclusion {
+        Some(mask) => output.subtract(mask),
+        None => output,
     }
 }
 
@@ -1804,7 +1866,8 @@ fn postprocess_binary_with_raw_budgeted(
     .0
 }
 
-pub(crate) fn postprocess_binary_with_diagnostics_and_raw(
+#[cfg(test)]
+fn postprocess_binary_with_diagnostics_and_raw(
     binary: &BinaryImage,
     normalized: Option<&GrayImage>,
     raw: Option<&GrayImage>,
@@ -1874,17 +1937,7 @@ pub(crate) fn resolve_binarization_diagnostics(
     options: &CleanupOptions,
 ) -> BinarizationDiagnostics {
     let mut diagnostics = measure_binarization_diagnostics(image, options);
-    diagnostics.route = match options.binarization {
-        BinarizationMode::Auto => choose_mode(
-            diagnostics.robust_contrast,
-            diagnostics.illumination_deviation,
-            diagnostics.edge_density,
-            diagnostics.estimated_stroke_width_px,
-            diagnostics.dark_border_coverage,
-            diagnostics.otsu_adaptive_agreement,
-        ),
-        explicit => explicit,
-    };
+    diagnostics.route = resolve_route_for_diagnostics(&diagnostics, options);
     diagnostics
 }
 
@@ -2315,57 +2368,12 @@ fn midpoint_u8(left: u8, right: u8) -> u8 {
 }
 
 fn resolve_route_for_diagnostics(
-    diagnostics: &BinarizationDiagnostics,
+    _diagnostics: &BinarizationDiagnostics,
     options: &CleanupOptions,
 ) -> BinarizationMode {
     match options.binarization {
-        BinarizationMode::Auto => choose_mode(
-            diagnostics.robust_contrast,
-            diagnostics.illumination_deviation,
-            diagnostics.edge_density,
-            diagnostics.estimated_stroke_width_px,
-            diagnostics.dark_border_coverage,
-            diagnostics.otsu_adaptive_agreement,
-        ),
+        BinarizationMode::Auto => BinarizationMode::Otsu,
         explicit => explicit,
-    }
-}
-
-fn choose_mode(
-    robust_contrast: f64,
-    illumination_deviation: f64,
-    edge_density: f64,
-    estimated_stroke_width_px: f64,
-    dark_border_coverage: f64,
-    otsu_adaptive_agreement: f64,
-) -> BinarizationMode {
-    // On a flat-lit sheet Wolf has no illumination to correct and its local
-    // contrast normalization erases faint strokes outright, so the agreement
-    // guard must not be the deciding vote there: the disagreement it measures
-    // on such pages IS Wolf dropping faint text, and routing by it sends the
-    // page into the very mode that damages it. Flat pages accept a lower
-    // agreement before giving up on the global threshold.
-    let agreement_floor = if illumination_deviation <= 2.0 {
-        0.95
-    } else {
-        0.975
-    };
-    let flat_lit_text = illumination_deviation <= 8.0
-        && otsu_adaptive_agreement >= agreement_floor
-        && (robust_contrast >= 64.0 || edge_density <= 0.18);
-    let near_boundary_otsu = dark_border_coverage >= FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND.0
-        && dark_border_coverage <= FLAT_LIT_OTSU_DARK_BORDER_COVERAGE_BAND.1;
-    if flat_lit_text && (dark_border_coverage <= 0.08 || near_boundary_otsu) {
-        return BinarizationMode::Otsu;
-    }
-    let uneven_text = illumination_deviation > 12.0
-        && edge_density <= 0.24
-        && estimated_stroke_width_px <= 8.0
-        && otsu_adaptive_agreement >= 0.84;
-    if uneven_text {
-        BinarizationMode::Sauvola
-    } else {
-        BinarizationMode::Wolf
     }
 }
 
@@ -4588,20 +4596,19 @@ mod tests {
             swapped.right.diagnostics.left_candidate_route
         );
 
-        let (_, left_diagnostics, _, _, _) =
-            binarize_normalized_with_diagnostics(BinarizationInput {
-                normalized: &left,
-                raw_source: &left,
-                routing_diagnostics: resolve_binarization_diagnostics(&left, &options),
-                global_threshold_source: None,
-                options: &options,
-                calibration,
-                picture_mask: None,
-                text_vicinity: None,
-                spread_plan: Some(&plans.left),
-                detect_dark_background: true,
-            });
-        let (_, right_diagnostics, _, _, _) =
+        let (_, left_diagnostics, _, _) = binarize_normalized_with_diagnostics(BinarizationInput {
+            normalized: &left,
+            raw_source: &left,
+            routing_diagnostics: resolve_binarization_diagnostics(&left, &options),
+            global_threshold_source: None,
+            options: &options,
+            calibration,
+            picture_mask: None,
+            text_vicinity: None,
+            spread_plan: Some(&plans.left),
+            detect_dark_background: true,
+        });
+        let (_, right_diagnostics, _, _) =
             binarize_normalized_with_diagnostics(BinarizationInput {
                 normalized: &right,
                 raw_source: &right,
@@ -4624,170 +4631,6 @@ mod tests {
             right_diagnostics.spread_plan.unwrap().threshold_radius,
             plans.right.threshold_radius
         );
-    }
-
-    #[test]
-    fn shared_spread_plan_prefers_otsu_when_the_joint_reading_disagrees() {
-        let options = CleanupOptions {
-            dpi: 300.0,
-            binarization: BinarizationMode::Auto,
-            normalize_illumination: false,
-            despeckle: false,
-            ..CleanupOptions::default()
-        };
-        let mut leaf = GrayImage::new(256, 256, 242);
-        for y in 32..224 {
-            for x in 24..232 {
-                if (x / 12 + y / 18) % 5 == 0 {
-                    leaf.set(x, y, 54);
-                }
-            }
-        }
-        // The joint reading is taken on a differently prepared raster; a dark
-        // scanner border on it is enough to push the spread-level route off
-        // Otsu while both leaves remain flat-lit text.
-        let mut joint = GrayImage::new(512, 256, 242);
-        for y in 0..256 {
-            for x in 0..256 {
-                joint.set(x, y, leaf.get(x, y));
-                joint.set(x + 256, y, leaf.get(x, y));
-            }
-        }
-        for y in 0..256 {
-            for x in 0..512 {
-                if !(40..472).contains(&x) || !(24..232).contains(&y) {
-                    joint.set(x, y, 12);
-                }
-            }
-        }
-        let leaf_route = resolve_route_for_diagnostics(
-            &measure_binarization_diagnostics(&leaf, &options),
-            &options,
-        );
-        let joint_route = resolve_route_for_diagnostics(
-            &measure_binarization_diagnostics(&joint, &options),
-            &options,
-        );
-        assert_eq!(
-            leaf_route,
-            BinarizationMode::Otsu,
-            "fixture leaf must route Otsu"
-        );
-        assert_ne!(
-            joint_route,
-            BinarizationMode::Otsu,
-            "fixture joint must disagree"
-        );
-
-        let calibration =
-            PageCalibration::estimate(&joint, options.dpi, CalibrationConfig::default());
-        let plans = resolve_spread_binarization_plans(
-            &joint,
-            &leaf,
-            &leaf,
-            &leaf,
-            &leaf,
-            None,
-            None,
-            options.dpi,
-            &options,
-            calibration,
-            Some(2.5),
-            Some(18.0),
-        );
-
-        assert_eq!(
-            plans.left.diagnostics.decision,
-            SpreadBinarizationPlanDecision::SharedJoint
-        );
-        assert_eq!(plans.left.route, BinarizationMode::Otsu);
-        assert_eq!(plans.right.route, BinarizationMode::Otsu);
-        assert_eq!(plans.left.diagnostics.route, BinarizationMode::Otsu);
-        assert_eq!(plans.left.diagnostics.joint_candidate_route, joint_route);
-    }
-
-    #[test]
-    fn shared_spread_plan_prefers_otsu_when_the_leaves_disagree_with_it() {
-        let options = CleanupOptions {
-            dpi: 300.0,
-            binarization: BinarizationMode::Auto,
-            normalize_illumination: false,
-            despeckle: false,
-            ..CleanupOptions::default()
-        };
-        // The mirror image of the register failure: photo-plate leaves carry a
-        // dark border that pushes their own reading off Otsu, while the
-        // normalized joint still reads as flat-lit text. The global
-        // thresholder must win this disagreement too.
-        let mut leaf = GrayImage::new(256, 256, 242);
-        for y in 32..224 {
-            for x in 24..232 {
-                if (x / 12 + y / 18) % 5 == 0 {
-                    leaf.set(x, y, 54);
-                }
-            }
-        }
-        for y in 0..256 {
-            for x in 0..256 {
-                if !(20..236).contains(&x) || !(12..244).contains(&y) {
-                    leaf.set(x, y, 12);
-                }
-            }
-        }
-        let mut joint = GrayImage::new(512, 256, 242);
-        for y in 32..224 {
-            for x in 24..232 {
-                if (x / 12 + y / 18) % 5 == 0 {
-                    let value = 54;
-                    joint.set(x + 16, y, value);
-                    joint.set(x + 272, y, value);
-                }
-            }
-        }
-        let leaf_route = resolve_route_for_diagnostics(
-            &measure_binarization_diagnostics(&leaf, &options),
-            &options,
-        );
-        let joint_route = resolve_route_for_diagnostics(
-            &measure_binarization_diagnostics(&joint, &options),
-            &options,
-        );
-        assert_ne!(
-            leaf_route,
-            BinarizationMode::Otsu,
-            "fixture leaves must route off Otsu"
-        );
-        assert_eq!(
-            joint_route,
-            BinarizationMode::Otsu,
-            "fixture joint must read Otsu"
-        );
-
-        let calibration =
-            PageCalibration::estimate(&joint, options.dpi, CalibrationConfig::default());
-        let plans = resolve_spread_binarization_plans(
-            &joint,
-            &leaf,
-            &leaf,
-            &leaf,
-            &leaf,
-            None,
-            None,
-            options.dpi,
-            &options,
-            calibration,
-            Some(2.5),
-            Some(18.0),
-        );
-
-        assert_eq!(
-            plans.left.diagnostics.decision,
-            SpreadBinarizationPlanDecision::SharedJoint
-        );
-        assert_eq!(plans.left.route, BinarizationMode::Otsu);
-        assert_eq!(plans.right.route, BinarizationMode::Otsu);
-        assert_eq!(plans.left.diagnostics.joint_candidate_route, joint_route);
-        assert_eq!(plans.left.diagnostics.left_candidate_route, leaf_route);
     }
 
     #[test]
@@ -4987,7 +4830,7 @@ mod tests {
                 calibration,
             );
             assert!(!damaged.get(38, 40));
-            let (routed, diagnostics, _, _, _) =
+            let (routed, diagnostics, _, _) =
                 binarize_normalized_with_diagnostics(BinarizationInput {
                     normalized: &normalized,
                     raw_source: &raw,
@@ -5781,36 +5624,6 @@ mod tests {
     }
 
     #[test]
-    fn router_uses_page_features_instead_of_a_single_contrast_statistic() {
-        assert_eq!(
-            choose_mode(100.0, 4.0, 0.12, 3.0, 0.01, 0.98),
-            BinarizationMode::Otsu
-        );
-        assert_eq!(
-            choose_mode(18.0, 2.0, 0.10, 2.0, 0.0, 0.99),
-            BinarizationMode::Otsu,
-            "sparse clean pages have low percentile contrast but strong agreement"
-        );
-        assert_eq!(
-            choose_mode(100.0, 18.0, 0.12, 3.0, 0.01, 0.90),
-            BinarizationMode::Sauvola
-        );
-        assert_eq!(
-            choose_mode(100.0, 4.0, 0.12, 3.0, 0.12, 0.98),
-            BinarizationMode::Wolf
-        );
-        assert_eq!(
-            choose_mode(100.0, 18.0, 0.30, 12.0, 0.01, 0.90),
-            BinarizationMode::Wolf
-        );
-        assert_eq!(
-            choose_mode(67.0, 0.5, 0.17, 15.0, 0.064, 0.976),
-            BinarizationMode::Otsu,
-            "dense text on uniform tinted paper must not be thickened by a local route"
-        );
-    }
-
-    #[test]
     fn uniform_paper_threshold_is_anchored_at_the_paper_ink_midpoint() {
         for (paper, ink) in [(221u8, 42u8), (218, 46), (192, 28), (112, 8)] {
             let mut image = GrayImage::new(240, 180, paper);
@@ -5925,216 +5738,6 @@ mod tests {
         assert_eq!(
             canonical_diagnostics.dark_border_coverage,
             full_resolution_diagnostics.dark_border_coverage
-        );
-    }
-
-    #[test]
-    fn wide_strokes_reject_sauvola_at_bounded_and_large_scale() {
-        let mut bounded = GrayImage::new(256, 192, 220);
-        for y in 0..bounded.height() {
-            let paper = 160 + (y * 64 / bounded.height()) as u8;
-            for x in 0..bounded.width() {
-                bounded.set(x, y, paper);
-            }
-            for x in (16..bounded.width().saturating_sub(16)).step_by(28) {
-                for stroke_x in x..(x + 12).min(bounded.width()) {
-                    bounded.set(stroke_x, y, 42);
-                }
-            }
-        }
-        let mut large = GrayImage::new(1_024, 768, 255);
-        for y in 0..large.height() {
-            for x in 0..large.width() {
-                large.set(x, y, bounded.get(x / 4, y / 4));
-            }
-        }
-        let options = CleanupOptions::default();
-
-        for source in [&bounded, &large] {
-            let diagnostics = resolve_binarization_diagnostics(source, &options);
-            assert!(
-                diagnostics.illumination_deviation > 12.0,
-                "fixture must reach the uneven-light routing arm: {diagnostics:?}"
-            );
-            assert!(
-                diagnostics.estimated_stroke_width_px > 8.0,
-                "fixture must exercise the Sauvola stroke-width rejection: {diagnostics:?}"
-            );
-            assert_eq!(diagnostics.route, BinarizationMode::Wolf, "{diagnostics:?}");
-        }
-    }
-
-    #[test]
-    fn uneven_illumination_reaches_sauvola_through_the_full_bw_route() {
-        // This is deliberately larger than the bounded 256-pixel routing
-        // sample. With the old full-input rescaling, the sampled 3-pixel
-        // strokes become >8 pixels and this exact end-to-end route falls back
-        // to Wolf; in sample units it remains a Sauvola candidate.
-        let mut source = GrayImage::new(2_048, 1_536, 220);
-        for y in 0..source.height() {
-            let paper = 160 + (y * 64 / source.height()) as u8;
-            for x in 0..source.width() {
-                source.set(x, y, paper);
-            }
-            for x in (96..source.width().saturating_sub(96)).step_by(96) {
-                for stroke_x in x..x + 24 {
-                    for stroke_y in y.saturating_sub(2)..=(y + 2).min(source.height() - 1) {
-                        source.set(stroke_x, stroke_y, 42);
-                    }
-                }
-            }
-        }
-        let options = CleanupOptions {
-            dpi: 150.0,
-            normalize_illumination: false,
-            despeckle: false,
-            ..CleanupOptions::default()
-        };
-
-        let result = clean_black_and_white(&source, &options);
-        let diagnostics = resolve_binarization_diagnostics(
-            &smooth_for_binarization(&result.normalized, options.dpi),
-            &options,
-        );
-
-        assert!(
-            diagnostics.illumination_deviation > 12.0,
-            "fixture must exercise the uneven-illumination arm: {diagnostics:?}"
-        );
-        assert_eq!(result.mode, BinarizationMode::Sauvola, "{diagnostics:?}");
-        assert_eq!(diagnostics.route, BinarizationMode::Sauvola);
-        assert!(
-            result.binary.count_black() > 0,
-            "Sauvola fixture lost all ink"
-        );
-    }
-
-    #[test]
-    fn zero_stroke_width_remains_a_valid_sauvola_route_at_any_scale() {
-        for (width, height) in [(320, 240), (1_280, 960)] {
-            let mut source = GrayImage::new(width, height, 0);
-            for y in 0..height {
-                // The broad dark field produces only >32-pixel Otsu runs
-                // (the estimator's intentional degenerate 0.0 result), while
-                // the clean bright band keeps Otsu and local agreement high.
-                let paper = if y < height * 3 / 4 { 40 } else { 220 };
-                for x in 0..width {
-                    source.set(x, y, paper);
-                }
-            }
-            let options = CleanupOptions {
-                dpi: 150.0,
-                normalize_illumination: false,
-                despeckle: false,
-                ..CleanupOptions::default()
-            };
-            let diagnostics = resolve_binarization_diagnostics(
-                &smooth_for_binarization(&source, options.dpi),
-                &options,
-            );
-
-            assert_eq!(
-                diagnostics.estimated_stroke_width_px, 0.0,
-                "large dark runs must produce the degenerate zero estimate: {diagnostics:?}"
-            );
-            assert!(
-                diagnostics.illumination_deviation > 12.0,
-                "fixture must exercise the uneven-illumination arm: {diagnostics:?}"
-            );
-            assert_eq!(
-                diagnostics.route,
-                BinarizationMode::Sauvola,
-                "{diagnostics:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn canonical_cell_edge_routes_are_carried_across_working_dpi() {
-        let clean_working = GrayImage::new(96, 96, 244);
-        let mut dirty_working = clean_working.clone();
-        for y in 0..dirty_working.height() {
-            for x in 0..dirty_working.width() {
-                if x < 18 || x + 18 >= dirty_working.width() || (x + y) % 3 == 0 {
-                    dirty_working.set(x, y, 24);
-                }
-            }
-        }
-        let mut route_by_dpi = Vec::new();
-        for (dpi, working) in [(299.0, &clean_working), (300.0, &dirty_working)] {
-            let options = CleanupOptions {
-                dpi,
-                normalize_illumination: false,
-                despeckle: false,
-                ..CleanupOptions::default()
-            };
-            route_by_dpi.push(resolve_binarization_diagnostics(working, &options).route);
-        }
-        assert_ne!(
-            route_by_dpi[0], route_by_dpi[1],
-            "the mutation control must disagree when routing bypasses canonical evidence"
-        );
-
-        for cells in 380..=383 {
-            let coverage = cells as f64 / 4_752.0;
-            let expected = choose_mode(128.0, 0.704, 0.384, 2.0, coverage, 0.985);
-            let canonical = BinarizationDiagnostics {
-                route: expected,
-                robust_contrast: 128.0,
-                illumination_deviation: 0.704,
-                edge_density: 0.384,
-                estimated_stroke_width_px: 2.0,
-                dark_border_coverage: coverage,
-                otsu_adaptive_agreement: 0.985,
-                spread_plan: None,
-            };
-            let mut rendered_routes = Vec::new();
-            for (dpi, working) in [(299.0, &clean_working), (300.0, &dirty_working)] {
-                let options = CleanupOptions {
-                    dpi,
-                    normalize_illumination: false,
-                    despeckle: false,
-                    ..CleanupOptions::default()
-                };
-                let calibration =
-                    PageCalibration::estimate(working, dpi, CalibrationConfig::default());
-                let (_, diagnostics, _, _, _) =
-                    binarize_normalized_with_diagnostics(BinarizationInput {
-                        normalized: working,
-                        raw_source: working,
-                        routing_diagnostics: canonical,
-                        global_threshold_source: None,
-                        options: &options,
-                        calibration,
-                        picture_mask: None,
-                        text_vicinity: None,
-                        spread_plan: None,
-                        detect_dark_background: true,
-                    });
-                rendered_routes.push(diagnostics.route);
-            }
-            assert_eq!(rendered_routes, [expected, expected], "cells={cells}");
-        }
-    }
-
-    #[test]
-    fn router_limits_flat_lit_otsu_override_to_the_calibrated_border_band() {
-        for coverage in [0.099_455_611_390_284_76, 0.110_240_963_855_421_69] {
-            assert_eq!(
-                choose_mode(127.0, 1.0, 0.48, 19.0, coverage, 0.98),
-                BinarizationMode::Otsu,
-                "flat-lit canonical victim at {coverage:.6} must retain Otsu"
-            );
-        }
-        assert_eq!(
-            choose_mode(39.0, 0.0, 0.077, 4.69, 0.098_686_371_100_164_2, 0.9833),
-            BinarizationMode::Wolf,
-            "the nearest tracked true-Wolf fixture must remain below the band"
-        );
-        assert_eq!(
-            choose_mode(131.0, 1.05, 0.468, 12.7, 0.110_552_763_819_095_48, 0.982),
-            BinarizationMode::Wolf,
-            "the next dark book leaf must remain above the band"
         );
     }
 
@@ -6478,7 +6081,7 @@ mod tests {
         let (_, expected_offenders) = LineStrokeBudget::from_binary(&expected, options.dpi)
             .expect("niqqud fixture must have eligible lines");
         assert!(expected_offenders.is_empty());
-        let (actual, _, actual_interventions, _) = finish_thresholded_with_line_budget(
+        let (actual, _, actual_interventions) = finish_thresholded_with_line_budget(
             &thresholded,
             &normalized,
             &raw,

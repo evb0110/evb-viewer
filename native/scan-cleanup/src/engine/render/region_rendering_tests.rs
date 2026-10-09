@@ -654,9 +654,6 @@ fn bilevel_stage_emits_a_standard_binary_raster() {
         unowned_fold_edge_blank_leaf: false,
         effectively_blank: false,
         pale_tonal_structure: false,
-        crop_enabled: false,
-        deskew_accepted: false,
-        effective_dewarp: false,
         create_mixed_layers: false,
         timings: &mut PageStageTimings::default(),
     });
@@ -714,9 +711,6 @@ fn bilevel_stage_keeps_owned_pixels_through_fold_filtering() {
         unowned_fold_edge_blank_leaf: false,
         effectively_blank: false,
         pale_tonal_structure: false,
-        crop_enabled: false,
-        deskew_accepted: false,
-        effective_dewarp: false,
         create_mixed_layers: false,
         timings: &mut PageStageTimings::default(),
     });

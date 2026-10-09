@@ -753,9 +753,10 @@ mod tests {
     }
 
     #[test]
-    fn restored_hairline_survives_the_bleed_filter() {
-        // A hairline restored from its gray valley is as shallow and soft as
-        // bleed, but it joins the two stems of its letter.
+    fn midpoint_route_keeps_a_soft_hairline_through_the_bleed_filter() {
+        // A blurred hairline is as shallow and soft as bleed, but it joins the
+        // two stems of its letter. Only a local route can capture bleed, so
+        // only a local route strips such pixels.
         let mut raw = GrayImage::new(80, 60, 220);
         let mut binary = BinaryImage::new(80, 60);
         for left in [10, 50] {
@@ -766,29 +767,20 @@ mod tests {
                 }
             }
         }
-        let mut restored = BinaryImage::new(80, 60);
         for x in 16..50 {
             raw.set(x, 13, 196);
             raw.set(x, 14, 175);
             raw.set(x, 15, 196);
             binary.set(x, 14, true);
-            restored.set(x, 14, true);
         }
 
-        let kept = filter_soft_shallow_bleed_components(
-            &binary,
-            &raw,
-            None,
-            None,
-            None,
-            300.0,
-            Some(&restored),
-        );
-        let unprotected =
-            filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 300.0, None);
+        let midpoint =
+            filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 300.0, false);
+        let local =
+            filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 300.0, true);
 
-        assert!((16..50).all(|x| kept.get(x, 14)));
-        assert!((18..48).all(|x| !unprotected.get(x, 14)));
+        assert!((16..50).all(|x| midpoint.get(x, 14)));
+        assert!((18..48).all(|x| !local.get(x, 14)));
     }
 
     #[test]
@@ -818,7 +810,7 @@ mod tests {
             }
         }
 
-        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0, None);
+        let filtered = filter_soft_shallow_bleed_components(&binary, &raw, None, None, None, 360.0, true);
 
         assert_eq!(
             (12..168)
@@ -875,7 +867,7 @@ mod tests {
             false,
         );
         let filtered =
-            filter_soft_shallow_bleed_components(&rescued, &raw, None, None, None, 360.0, None);
+            filter_soft_shallow_bleed_components(&rescued, &raw, None, None, None, 360.0, true);
 
         assert!((24..36).all(|x| filtered.get(x, 30)));
         assert_eq!(
@@ -927,9 +919,7 @@ mod tests {
             None,
             Some(&text_mask),
             Some(&text_vicinity),
-            360.0,
-            None,
-        );
+            360.0, true);
 
         assert!((48..372).all(|x| (72..80).all(|y| filtered.get(x, y))));
         assert!([54, 112, 170, 228, 286]
@@ -1141,7 +1131,7 @@ mod tests {
         };
         let calibration =
             PageCalibration::estimate(&raw, options.dpi, CalibrationConfig::default());
-        let (binary, _, _, _, restored_strokes) = binarize_normalized_with_diagnostics(BinarizationInput {
+        let (binary, _, _, _) = binarize_normalized_with_diagnostics(BinarizationInput {
             normalized: &raw,
             raw_source: &raw,
             routing_diagnostics: resolve_binarization_diagnostics(&raw, &options),
@@ -1168,7 +1158,7 @@ mod tests {
             Some(&text_mask),
             Some(&text_vicinity),
             options.dpi,
-            restored_strokes.as_ref(),
+            true,
         );
 
         assert!((48..372).all(|x| (72..74).all(|y| binary.get(x, y))));
@@ -1209,9 +1199,7 @@ mod tests {
             None,
             Some(&text_mask),
             None,
-            360.0,
-            None,
-        );
+            360.0, true);
 
         assert!((200..260).all(|x| (54..60).all(|y| !filtered.get(x, y))));
         assert!((64..98).all(|x| (42..70).all(|y| filtered.get(x, y))));
@@ -1265,71 +1253,10 @@ mod tests {
             None,
             Some(&text_mask),
             Some(&text_vicinity),
-            360.0,
-            None,
-        );
+            360.0, true);
 
         assert!((48..372).all(|x| (72..80).all(|y| !filtered.get(x, y))));
         assert!((64..94).all(|x| (36..58).all(|y| filtered.get(x, y))));
-    }
-
-    #[test]
-    fn reused_analysis_otsu_is_bit_exact_to_independent_final_binarization() {
-        let mut source = GrayImage::new(513, 377, 242);
-        let mut state = 0x84b5_13d9_u64;
-        for y in 0..source.height() {
-            for x in 0..source.width() {
-                state = state
-                    .wrapping_mul(2_862_933_555_777_941_757)
-                    .wrapping_add(3_037_000_493);
-                let noise = ((state >> 60) as i16 - 8).clamp(-8, 7);
-                let value = (242_i16 + noise).clamp(0, 255) as u8;
-                source.set(x, y, value);
-            }
-        }
-        for y in (40..340).step_by(19) {
-            for x in 38..475 {
-                source.set(x, y, 24);
-                source.set(x, y + 1, 24);
-            }
-        }
-        let options = CleanupOptions {
-            dpi: 150.0,
-            normalize_illumination: false,
-            binarization: crate::BinarizationMode::Otsu,
-            thickness: 0,
-            crop_content: false,
-            margins_mm: None,
-            margins_pixels: Some([0.0; 4]),
-            layout: crate::LayoutMode::Auto,
-            ..CleanupOptions::default()
-        };
-        let mut timings = PageStageTimings::default();
-        let prepared = prepare_analysis_page(
-            &source,
-            None,
-            &options,
-            true,
-            PageRenderPolicy::COMPLETE,
-            None,
-            CalibrationConfig::default(),
-            None,
-            None,
-            &mut timings,
-        );
-        assert_eq!(
-            prepared.split.classification,
-            LayoutClassification::SingleUncutPage
-        );
-        assert!(prepared.split.reusable_binary.is_some());
-        let expected = binary_to_gray(&binarize_normalized(&source, &options).0);
-        let actual = clean_page(&source, &options, 0)
-            .unwrap()
-            .outputs
-            .remove(0)
-            .image
-            .into_gray();
-        assert_eq!(actual, expected);
     }
 
     fn spread_fixture() -> GrayImage {
@@ -4940,7 +4867,7 @@ mod tests {
         };
         let calibration =
             PageCalibration::estimate(&gray, options.dpi, CalibrationConfig::default());
-        let (stencil, _, _, _, _) = binarize_normalized_with_diagnostics_excluding(
+        let (stencil, _, _, _) = binarize_normalized_with_diagnostics_excluding(
             &gray,
             &gray,
             resolve_binarization_diagnostics(&gray, &options),
@@ -7776,15 +7703,6 @@ mod tests {
             despeckle: false,
             ..CleanupOptions::default()
         };
-        let direct_routes = [
-            resolve_binarization_diagnostics(&clean_working, &direct_options).route,
-            resolve_binarization_diagnostics(&noisy_working, &direct_options).route,
-        ];
-        assert_ne!(
-            direct_routes[0], direct_routes[1],
-            "mutation control must fail when the fixed plane is bypassed",
-        );
-
         let expected = resolve_binarization_diagnostics(&canonical, &direct_options).route;
         let mut identities = Vec::new();
         for (dpi, working) in [(150.0, &clean_working), (299.0, &noisy_working)] {

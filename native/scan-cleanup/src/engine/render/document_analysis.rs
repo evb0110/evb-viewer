@@ -407,9 +407,6 @@ fn prepare_analysis_page_impl(
                 );
             }
         }
-        if prepare_quality_raster && options.normalize_illumination {
-            split.reusable_binary = None;
-        }
         if (analysis.scale_x < 1.0
             || analysis.scale_y < 1.0
             || analysis.effective_dpi < SPLIT_ANALYSIS_DPI)
