@@ -1,11 +1,17 @@
 # PDF password-open retry
 
+- Status: implemented for issue #178. The renderer retry loop is
+  `openPdfAfterPasswordPrompt()` in
+  `app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt.ts`.
+  It was added in commit `9dbd4cfc8`, which keeps the prompt open while a
+  wrong password is checked.
+
 Issue #198 chooses the document-open call graph as the password retry seam.
-Issue #178 will add the renderer retry loop. Its planned flow calls
-`openDocumentDirect` with the source path and, after the user supplies one, a
-password. The Electron main process owns each attempt: it creates an unowned
-working copy, proves the password with the native PDF writer, and registers the
-working copy only after decryption succeeds.
+The renderer retry loop calls `openDocumentDirect` with the source path and the
+password the user supplies. The Electron main process
+owns each attempt: it creates an unowned working copy, proves the password with
+the native PDF writer, and registers the working copy only after decryption
+succeeds.
 
 `TOpenFileResult` in `packages/contracts/electronApiDocuments.ts` carries the
 result across the preload IPC codec. A successful attempt returns `kind: 'pdf'`.
@@ -25,8 +31,8 @@ the encrypted source untouched. The open attempt's cleanup path removes any
 unclaimed working copy on cancellation, navigation, renderer destruction, or a
 failure before publication.
 
-The working-copy creation IPC remains a separate snapshot call graph. Issue
-#178 should call the document-open method for password-protected opens and
-handle the two failure kinds in its renderer retry flow. It should not encode
-password failures as rejected working-copy IPC calls or treat an arbitrary
-working-copy string as an open result.
+The working-copy creation IPC remains a separate snapshot call graph. Password-protected
+opens call the document-open method, and the renderer retry flow handles the two
+failure kinds. Keep that boundary: password failures must not be encoded as
+rejected working-copy IPC calls, and an arbitrary working-copy string must not be
+treated as an open result.
