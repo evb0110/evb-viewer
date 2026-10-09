@@ -26,7 +26,7 @@ import {
     type TSearchResultOffset,
 } from '@contracts/search';
 import {
-    assembleSearchablePageText,
+    assembleSearchablePageTextItems,
     buildPdfSearchExcerpt,
     iteratePdfSearchMatches,
     PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
@@ -302,7 +302,7 @@ function buildBrowserDjvuSearchPage(
             throw new Error(`DjVu page text zones exceed the ${DJVU_SEARCH_MAX_PAGE_TEXT_CHARS}-character search limit`);
         }
     }
-    const assembled = assembleSearchablePageText(zones.map(zone => ({
+    const assembled = assembleSearchablePageTextItems(zones.map(zone => ({
         text: zone.text,
         separatorAfter: 'space',
         origin: zone,

@@ -34,91 +34,167 @@ export function normalizeSearchablePageText(text: string) {
     return collapseRepeatedPdfSearchPageText(joinSearchLineHyphenation(text));
 }
 
-export function assembleSearchablePageText(
-    items: readonly ISearchablePageTextItem[],
-): IAssembledSearchablePageText {
+/**
+ * Joins the items into page text and finds the span each item owns in it,
+ * from per-item boundaries rather than per-character maps. Both assembly
+ * variants share it, so they apply one set of joining, hyphenation and
+ * repeated-text rules.
+ */
+function assembleSearchablePageSpans(items: readonly ISearchablePageTextItem[]) {
     const parts: string[] = [];
-    const owners: number[] = [];
-    const rawSourceStarts: number[] = [];
-    const rawSourceEnds: number[] = [];
-    let sourceCursor = 0;
-
-    const append = (value: string, owner: number, generated = false) => {
+    // Item i starts at rawBoundaries[i] of the raw text; the last entry is its length.
+    const rawBoundaries = new Int32Array(items.length + 1);
+    const leadingSpaces = new Uint8Array(items.length);
+    let rawLength = 0;
+    let last = '';
+    const append = (value: string) => {
         parts.push(value);
-        for (let index = 0; index < value.length; index += 1) {
-            owners.push(owner);
-            rawSourceStarts.push(sourceCursor + (generated ? 0 : index));
-            rawSourceEnds.push(sourceCursor + (generated ? 0 : index + 1));
-        }
+        rawLength += value.length;
+        last = value.at(-1) ?? '';
     };
 
     items.forEach((item, itemIndex) => {
-        const previous = parts.at(-1)?.at(-1) ?? '';
+        rawBoundaries[itemIndex] = rawLength;
         const first = item.text.at(0) ?? '';
-        if (previous && first && !/\s/u.test(previous) && !/\s/u.test(first)) {
-            append(' ', itemIndex, true);
+        if (last && first && !/\s/u.test(last) && !/\s/u.test(first)) {
+            append(' ');
+            leadingSpaces[itemIndex] = 1;
         }
-        append(item.text, itemIndex);
-        sourceCursor += item.text.length;
+        append(item.text);
         const separator = item.separatorAfter ?? 'none';
-        const last = parts.at(-1)?.at(-1) ?? '';
         if (separator === 'line' && last !== '\n') {
-            append('\n', itemIndex, true);
+            append('\n');
         } else if (separator === 'space' && last && !/\s/u.test(last)) {
-            append(' ', itemIndex, true);
+            append(' ');
         }
     });
+    rawBoundaries[items.length] = rawLength;
 
     const rawText = parts.join('');
     const joinedText = joinSearchLineHyphenation(rawText);
-    const retainedOwners: number[] = [];
-    const retainedSourceStarts: number[] = [];
-    const retainedSourceEnds: number[] = [];
-    // One push per character: spreading a page-long slice into push() passes
-    // every element as an argument and overflows the stack on long pages.
-    const retain = (start: number, end: number) => {
-        for (let offset = start; offset < end; offset += 1) {
-            retainedOwners.push(owners[offset]!);
-            retainedSourceStarts.push(rawSourceStarts[offset]!);
-            retainedSourceEnds.push(rawSourceEnds[offset]!);
-        }
-    };
-    let normalizedOffset = 0;
+    // [start, end) pairs of the raw text that hyphenation joining removes.
+    const removed: number[] = [];
     for (const match of rawText.matchAll(SEARCH_LINE_HYPHENATION)) {
-        retain(normalizedOffset, match.index);
-        normalizedOffset = match.index + match[0].length;
+        removed.push(match.index, match.index + match[0].length);
     }
-    retain(normalizedOffset, rawText.length);
+    // Item i owns [boundaries[i], boundaries[i + 1]) of the joined text.
+    const boundaries = new Int32Array(items.length + 1);
+    let span = 0;
+    let removedBefore = 0;
+    for (let index = 0; index <= items.length; index += 1) {
+        const rawOffset = rawBoundaries[index]!;
+        while (span < removed.length && removed[span + 1]! <= rawOffset) {
+            removedBefore += removed[span + 1]! - removed[span]!;
+            span += 2;
+        }
+        const removedPartly = span < removed.length && removed[span]! < rawOffset ? rawOffset - removed[span]! : 0;
+        boundaries[index] = rawOffset - removedBefore - removedPartly;
+    }
+    const ownerAt = (offset: number) => {
+        let low = 0;
+        let high = items.length - 1;
+        while (low < high) {
+            const middle = (low + high + 1) >> 1;
+            if (boundaries[middle]! <= offset) {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        return low;
+    };
 
     // A text layer drawn again in place repeats its first item's origin; an
     // identical line further down the page does not, and stays searchable.
-    const firstOrigin = items[retainedOwners[0] ?? -1]?.origin;
+    const firstOrigin = joinedText.length > 0 ? items[ownerAt(0)]?.origin : undefined;
     const text = collapseRepeatedPdfSearchPageText(joinedText, (copyStart) => {
-        const copyOrigin = items[retainedOwners[copyStart]!]?.origin;
+        const copyOrigin = items[ownerAt(copyStart)]?.origin;
         return !firstOrigin || !copyOrigin || (copyOrigin.x === firstOrigin.x && copyOrigin.y === firstOrigin.y);
     });
-    const sourceOffsets = retainedSourceStarts.slice(0, text.length).map((startOffset, index) => ({
-        startOffset,
-        endOffset: retainedSourceEnds[index] ?? startOffset,
-    }));
-    const itemStarts = new Int32Array(items.length).fill(-1);
-    const itemEnds = new Int32Array(items.length).fill(-1);
-    for (let offset = 0; offset < text.length; offset += 1) {
-        const owner = retainedOwners[offset]!;
-        if (itemStarts[owner] === -1) {
-            itemStarts[owner] = offset;
-        }
-        itemEnds[owner] = offset + 1;
-    }
-    const itemOffsets = items.map((_item, itemIndex) => ({
-        itemIndex,
-        startOffset: Math.max(0, itemStarts[itemIndex]!),
-        endOffset: Math.max(0, itemEnds[itemIndex]!),
-    }));
+    const itemOffsets = items.map((_item, itemIndex) => {
+        const startOffset = boundaries[itemIndex]!;
+        const endOffset = Math.min(boundaries[itemIndex + 1]!, text.length);
+        return startOffset < endOffset
+            ? {
+                itemIndex,
+                startOffset,
+                endOffset,
+            }
+            : {
+                itemIndex,
+                startOffset: 0,
+                endOffset: 0,
+            };
+    });
 
     return {
         text,
         itemOffsets,
+        leadingSpaces,
+        rawBoundaries,
+        removed,
+    };
+}
+
+/**
+ * The page text and each item's span in it, for callers that never map a
+ * character back to its item text: no per-character map is built.
+ */
+export function assembleSearchablePageTextItems(
+    items: readonly ISearchablePageTextItem[],
+): Pick<IAssembledSearchablePageText, 'text' | 'itemOffsets'> {
+    const {
+        text,
+        itemOffsets,
+    } = assembleSearchablePageSpans(items);
+    return {
+        text,
+        itemOffsets,
+    };
+}
+
+/** The page text with each character's range in the concatenated item texts. */
+export function assembleSearchablePageText(
+    items: readonly ISearchablePageTextItem[],
+): IAssembledSearchablePageText {
+    const assembled = assembleSearchablePageSpans(items);
+    const {
+        leadingSpaces,
+        rawBoundaries,
+        removed,
+        text,
+    } = assembled;
+    const sourceOffsets: IPdfSearchUtf16Range[] = [];
+    let span = 0;
+    let sourceCursor = 0;
+    for (let itemIndex = 0; itemIndex < items.length && sourceOffsets.length < text.length; itemIndex += 1) {
+        const textStart = rawBoundaries[itemIndex]! + leadingSpaces[itemIndex]!;
+        const textLength = items[itemIndex]!.text.length;
+        for (
+            let rawOffset = rawBoundaries[itemIndex]!;
+            rawOffset < rawBoundaries[itemIndex + 1]! && sourceOffsets.length < text.length;
+            rawOffset += 1
+        ) {
+            while (span < removed.length && removed[span + 1]! <= rawOffset) {
+                span += 2;
+            }
+            if (span < removed.length && removed[span]! <= rawOffset) {
+                continue;
+            }
+            // A generated separator maps to the empty range where it was inserted.
+            const textOffset = Math.min(Math.max(rawOffset - textStart, 0), textLength);
+            const isItemText = rawOffset >= textStart && rawOffset < textStart + textLength;
+            sourceOffsets.push({
+                startOffset: sourceCursor + textOffset,
+                endOffset: sourceCursor + textOffset + (isItemText ? 1 : 0),
+            });
+        }
+        sourceCursor += textLength;
+    }
+
+    return {
+        text,
+        itemOffsets: assembled.itemOffsets,
         sourceOffsets,
     };
 }
@@ -163,7 +239,7 @@ export function collapseRepeatedPdfSearchPageText(
 }
 
 export function buildOcrTextLayerIndexText(words: readonly IOcrWord[]) {
-    return assembleSearchablePageText(words.map((word, index) => ({
+    return assembleSearchablePageTextItems(words.map((word, index) => ({
         text: buildOcrTextLayerItemText(word),
         separatorAfter: isLastOcrWordInLine(words, index) ? 'line' : 'none',
         origin: word,

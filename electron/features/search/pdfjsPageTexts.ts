@@ -18,7 +18,7 @@ import type {
     PDFDocumentLoadingTask,
 } from 'pdfjs-dist/types/src/display/api';
 import { abortErrorFromSignal } from '@electron/utils/abort';
-import { assembleSearchablePageText } from '@pdf-core/pdfSearchCore';
+import { assembleSearchablePageTextItems } from '@pdf-core/pdfSearchCore';
 import type { IPageText } from '@electron/features/search/pageText';
 
 (globalThis as typeof globalThis & {pdfjsWorker?: unknown}).pdfjsWorker = pdfjsWorker;
@@ -238,7 +238,7 @@ export async function extractPdfjsPageTexts(
                 }
                 onPage({
                     pageNumber,
-                    text: assembleSearchablePageText(mergePositionedPdfjsGlyphItems(items)).text,
+                    text: assembleSearchablePageTextItems(mergePositionedPdfjsGlyphItems(items)).text,
                 });
             } finally {
                 page.cleanup();
