@@ -488,7 +488,13 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                     });
                     if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
                         context.preserveRecoveryState = true;
-                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
+                        // Unsaved work that the quit keeps for recovery by design is not a
+                        // failure. Only a failed or timed-out flush is.
+                        if (shutdownSaveFlushRequiresRetryableQuit(result)) {
+                            logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
+                        } else {
+                            logger.info('Renderer shutdown save flush kept unsaved work for recovery');
+                        }
                     }
                     if (shutdownSaveFlushRequiresRetryableQuit(result)) {
                         context.retryablePreservationFailure = true;
