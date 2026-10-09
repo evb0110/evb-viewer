@@ -9,6 +9,7 @@ import {
     runObjectStoreTransaction,
     withObjectStoreReadResult,
 } from '@app/platform/browser/browserDocumentIdb';
+import { withLeaseOwnerLock } from '@app/platform/browser/browserDocumentLeaseStore';
 import * as v from 'valibot';
 
 const recoveryOwnerIdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
@@ -251,7 +252,10 @@ export async function claimBrowserWorkspaceRecoveryOwner(
     }
     const sourceId = getRecoveryRecordId(sourceOwnerId);
     const targetId = getRecoveryRecordId(targetOwnerId);
-    const outcome = await runObjectStoreTransaction<TBrowserWorkspaceRecoveryClaimResult>(
+    // A frozen or throttled owner keeps its lease lock, so holding that lock
+    // through the transaction proves the owner is gone. Only a browser without
+    // a lock manager falls back to the age of the owner's last heartbeat.
+    const outcome = await withLeaseOwnerLock(sourceOwnerId, ownerLock => runObjectStoreTransaction<TBrowserWorkspaceRecoveryClaimResult>(
         WORKSPACE_RECOVERY_STORE,
         'readwrite',
         (store, setResult) => {
@@ -270,8 +274,10 @@ export async function claimBrowserWorkspaceRecoveryOwner(
                         expectedLeaseRevision !== undefined
                         && source.leaseRevision !== expectedLeaseRevision
                     )
+                    || ownerLock === 'held'
                     || (
-                        now - source.updatedAt < RECOVERY_OWNER_LEASE_TIMEOUT_MS
+                        ownerLock === 'unsupported'
+                        && now - source.updatedAt < RECOVERY_OWNER_LEASE_TIMEOUT_MS
                     )
                 ) {
                     setResult({
@@ -307,7 +313,7 @@ export async function claimBrowserWorkspaceRecoveryOwner(
                 });
             };
         },
-    );
+    ));
     if (!outcome) throw new Error('IndexedDB browser recovery owner claim did not commit.');
     return outcome;
 }
