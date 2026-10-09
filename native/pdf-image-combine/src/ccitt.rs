@@ -1,9 +1,9 @@
-//! CCITT Group 3 (T.4, one- and two-dimensional) and Group 4 (T.6) row
-//! decoding for 1-bit TIFF strips.
+//! CCITT Modified Huffman, Group 3 (T.4, one- and two-dimensional) and
+//! Group 4 (T.6) row decoding for 1-bit TIFF strips.
 //!
-//! The `tiff` decoder handles neither Group 3 nor the bit order of
-//! FillOrder 2 strips, so 1-bit CCITT frames are decoded here from their raw
-//! strip bytes. Rows come out as packed bitmaps in which a set bit marks a
+//! The `tiff` decoder handles neither Modified Huffman, Group 3 nor the bit
+//! order of FillOrder 2 strips, so 1-bit CCITT frames are decoded here from
+//! their raw strip bytes. Rows come out as packed bitmaps in which a set bit marks a
 //! pixel coded black.
 
 use std::io;
@@ -75,6 +75,26 @@ pub(crate) fn decode_g3_rows(
         }
         fill_black_runs(row, &current, width);
         std::mem::swap(&mut reference, &mut current);
+    }
+    Ok(())
+}
+
+/// Decodes Modified Huffman rows (TIFF Compression 2): one-dimensional Group
+/// 3 rows without EOL codes, each starting on a byte boundary.
+pub(crate) fn decode_modified_huffman_rows(
+    bytes: impl Iterator<Item = io::Result<u8>>,
+    width: u32,
+    row_stride: usize,
+    bitmap: &mut [u8],
+) -> Result<()> {
+    let mut reader = ByteReader::new(padded(bytes))?;
+    let mut changes = Vec::new();
+    for row in bitmap.chunks_exact_mut(row_stride) {
+        changes.clear();
+        decode_one_dimensional_row(&mut reader, width, &mut changes)?;
+        fill_black_runs(row, &changes, width);
+        let to_byte_boundary = reader.bits_to_byte_boundary();
+        reader.consume(to_byte_boundary)?;
     }
     Ok(())
 }

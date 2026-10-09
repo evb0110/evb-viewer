@@ -17,7 +17,7 @@ use tiff::{
 
 use crate::{
     bilevel_image_page,
-    ccitt::{decode_g3_rows, decode_g4_rows},
+    ccitt::{decode_g3_rows, decode_g4_rows, decode_modified_huffman_rows},
     flate::deflate_up_filtered_slices,
     image::assert_pixel_limit,
     netpbm::{is_rgb_data_grayscale, read_netpbm_file, PbmP4Image},
@@ -325,7 +325,7 @@ fn read_tiff_bilevel_frame<R: BufRead + Seek>(
     let compression = decoder
         .find_tag_unsigned::<u16>(Tag::Compression)?
         .unwrap_or(1);
-    let bitmap = if matches!(compression, 3 | 4) {
+    let bitmap = if matches!(compression, 2..=4) {
         // A CCITT-coded bit is set where the code says black. With
         // BlackIsZero a set sample is white, so those frames are inverted.
         let mut bitmap = read_tiff_ccitt_rows(decoder, width, height, compression, row_stride)?;
@@ -353,8 +353,9 @@ fn read_tiff_bilevel_frame<R: BufRead + Seek>(
     })
 }
 
-/// Decodes the strips of a CCITT Group 3 (T4Options bit 0: two-dimensional)
-/// or Group 4 frame. FillOrder 2 strips store each byte's bits reversed.
+/// Decodes the strips of a CCITT Modified Huffman, Group 3 (T4Options bit 0:
+/// two-dimensional) or Group 4 frame. FillOrder 2 strips store each byte's
+/// bits reversed.
 fn read_tiff_ccitt_rows<R: BufRead + Seek>(
     decoder: &mut Decoder<R>,
     width: u32,
@@ -399,10 +400,10 @@ fn read_tiff_ccitt_rows<R: BufRead + Seek>(
                     }
                 })
             });
-        if compression == 4 {
-            decode_g4_rows(bytes, width, row_stride, rows)?;
-        } else {
-            decode_g3_rows(bytes, width, two_dimensional, row_stride, rows)?;
+        match compression {
+            2 => decode_modified_huffman_rows(bytes, width, row_stride, rows)?,
+            3 => decode_g3_rows(bytes, width, two_dimensional, row_stride, rows)?,
+            _ => decode_g4_rows(bytes, width, row_stride, rows)?,
         }
     }
     Ok(bitmap)
@@ -844,6 +845,7 @@ mod tests {
             ("g3-1d.tif", &["expected-1.pbm"]),
             ("g3-2d.tif", &["expected-1.pbm"]),
             ("g3-2d-fax-dpi.tif", &["expected-1.pbm"]),
+            ("modified-huffman.tif", &["expected-1.pbm"]),
             ("packbits.tif", &["expected-1.pbm"]),
             ("none-minisblack.tif", &["expected-1.pbm"]),
             ("g4-2frames.tif", &["expected-1.pbm", "expected-2.pbm"]),
