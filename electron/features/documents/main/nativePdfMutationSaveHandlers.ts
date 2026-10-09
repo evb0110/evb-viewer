@@ -1,3 +1,6 @@
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     mkdtemp,
     readFile,
@@ -399,51 +402,55 @@ async function runNativeWorkingCopyCommand(
         // Keep this staging path recognizable as a PDF even though it is also a
         // sibling temporary file used for atomic promotion.
         const tempPath = `${makeSiblingTempPath(normalizedWorkingPath)}.pdf`;
-        const tempDir = await mkdtemp(join(tmpdir(), 'pdf-working-copy-mutation-'));
-        const payloadFilePath = join(tempDir, options.payloadFileName);
         let staged = false;
         try {
-            const prepared = await prepareNativeNoteMutation({
-                binaryPath,
-                command: options,
-                context,
-                modifiedAt,
-                mutationOperation,
-                payloadFilePath,
-                phaseTimings,
-                sourcePath: normalizedWorkingPath,
-                tempPath,
-            });
-            const {
-                validation,
-                identityBindings,
-            } = prepared;
+            return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+                const payloadFilePath = join(tempDir, options.payloadFileName);
+                const prepared = await prepareNativeNoteMutation({
+                    binaryPath,
+                    command: options,
+                    context,
+                    modifiedAt,
+                    mutationOperation,
+                    payloadFilePath,
+                    phaseTimings,
+                    sourcePath: normalizedWorkingPath,
+                    tempPath,
+                });
+                const {
+                    validation,
+                    identityBindings,
+                } = prepared;
 
-            const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
-                qpdfCheck: false,
-                tailCheck: true,
-                semanticCheck: true,
-                semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
-                fsynced: true,
-            }, {cleanupOnRelease: true});
-            staged = true;
-            const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
-            const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
-            logTimings('Native working-copy mutation phase timings', {
-                command: options.command,
-                endedAtEpochMs: Date.now(),
-                startedAtEpochMs: operationStartedAtEpochMs,
-                totalMs,
-                phases: phaseTimings,
+                const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: true,
+                    semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
+                    fsynced: true,
+                }, {cleanupOnRelease: true});
+                staged = true;
+                const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
+                const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
+                logTimings('Native working-copy mutation phase timings', {
+                    command: options.command,
+                    endedAtEpochMs: Date.now(),
+                    startedAtEpochMs: operationStartedAtEpochMs,
+                    totalMs,
+                    phases: phaseTimings,
+                });
+                return {
+                    applied: true,
+                    validation,
+                    nativeMutationPostconditionsVerified: true,
+                    stagedOutput,
+                    ...(identityBindings === undefined ? {} : {identityBindings}),
+                };
             });
-            return {
-                applied: true,
-                validation,
-                nativeMutationPostconditionsVerified: true,
-                stagedOutput,
-                ...(identityBindings === undefined ? {} : {identityBindings}),
-            };
         } catch (error) {
+            if (!staged && getUnprovenNativeTerminationDetail(error) === undefined) {
+                await cleanupTempPath(tempPath);
+            }
             log.warn('Native working-copy mutation failed', {
                 command: options.command,
                 endedAtEpochMs: Date.now(),
@@ -453,12 +460,6 @@ async function runNativeWorkingCopyCommand(
                 error: getErrorMessage(error),
             });
             return createNotAppliedResult(error);
-        } finally {
-            if (!staged) await cleanupTempPath(tempPath);
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
         }
     }, {
         kind: `native-pdf-mutation-working-copy:${options.command}`,
