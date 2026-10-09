@@ -1069,7 +1069,6 @@ pub struct SpreadBinarizationPlanDiagnostics {
 #[serde(rename_all = "camelCase")]
 pub enum SpreadBinarizationPlanDecision {
     SharedJoint,
-    PerLeafRouteMismatch,
     PerLeafAnchorDrift,
     PerLeafRadiusDrift,
     PerLeafFaintInkDrift,
@@ -1984,18 +1983,9 @@ fn measure_binarization_diagnostics(
 }
 
 /// Resolves a symmetric spread candidate first, then keeps each leaf's own
-/// route/threshold scale whenever the evidence is materially different. On a
-/// shared plan the joint measurement (taken on the illumination-normalized
-/// spread) and the leaf measurements (taken on the raw canonical crops) can
-/// disagree about the route, and neither reading is authoritative: the joint
-/// override sent low-contrast register pages from Otsu into Wolf, while the
-/// leaf vote sent photo-plate pages the other way. Both failures embolden
-/// individual words, because the local thresholders re-normalize contrast per
-/// window. A disagreement therefore means the routing evidence is marginal,
-/// and the shared plan resolves it toward the global thresholder: Otsu wins
-/// whenever either reading proposes it, and only a disagreement between two
-/// local routes keeps the leaf reading. The joint route always survives as a
-/// reported candidate.
+/// threshold anchor and scale whenever the evidence is materially different.
+/// Both leaves take the same route: Auto's midpoint route or the explicit
+/// choice. The joint and leaf routes are still reported as candidates.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_spread_binarization_plans(
     routing_joint: &GrayImage,
@@ -2047,7 +2037,6 @@ pub(crate) fn resolve_spread_binarization_plans(
         threshold_radius_for_x_height_at_dpi(left_x_height, canonical_dpi, calibration);
     let right_reference_radius =
         threshold_radius_for_x_height_at_dpi(right_x_height, canonical_dpi, calibration);
-    let route_mismatch = left_route != right_route;
     let anchor_drift = relative_difference(f64::from(left_anchor), f64::from(right_anchor)) > 0.20;
     let radius_drift =
         relative_difference(left_reference_radius as f64, right_reference_radius as f64) > 0.20;
@@ -2055,9 +2044,7 @@ pub(crate) fn resolve_spread_binarization_plans(
         faint_ink_fraction(&left_input),
         faint_ink_fraction(&right_input),
     ) > 0.20;
-    let decision = if route_mismatch {
-        SpreadBinarizationPlanDecision::PerLeafRouteMismatch
-    } else if anchor_drift {
+    let decision = if anchor_drift {
         SpreadBinarizationPlanDecision::PerLeafAnchorDrift
     } else if radius_drift {
         SpreadBinarizationPlanDecision::PerLeafRadiusDrift

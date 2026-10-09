@@ -149,7 +149,6 @@ export const SCAN_CLEANUP_PICTURE_ZONE_LAYERS = [
 ] as const;
 export const SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS = [
     'sharedJoint',
-    'perLeafRouteMismatch',
     'perLeafAnchorDrift',
     'perLeafRadiusDrift',
     'perLeafFaintInkDrift',

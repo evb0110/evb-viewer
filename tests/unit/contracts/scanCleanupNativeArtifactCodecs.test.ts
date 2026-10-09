@@ -916,7 +916,7 @@ describe('scan-cleanup native artifact codecs', () => {
                     jointCandidateRoute: 'otsu',
                     leftCandidateRoute: 'wolf',
                     rightCandidateRoute: 'otsu',
-                    decision: 'perLeafRouteMismatch',
+                    decision: 'perLeafAnchorDrift',
                 },
             },
         };
