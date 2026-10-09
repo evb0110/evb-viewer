@@ -174,12 +174,21 @@ async function waitForProcessExit(pid: number, timeoutMs: number) {
     return !isProcessAlive(pid);
 }
 
-async function closeBrowserGracefully(browser: TConnectedBrowser | null) {
-    if (!browser) {
+async function quitAppGracefully(page: Page | null) {
+    if (!page) {
         return;
     }
+    // Browser.close reaches Electron as a person's Quit, which asks each window
+    // with unsaved work for a close decision that this hidden session never
+    // answers. The automation hook requests the coordinated quit instead.
     await Promise.race([
-        browser.close().catch(() => {}),
+        page.evaluate(() => {
+            const quit = (window as {__quitForAutomation?: () => Promise<void>}).__quitForAutomation;
+            if (typeof quit !== 'function') {
+                throw new Error('Packaged smoke session does not expose quit automation');
+            }
+            return quit();
+        }).catch(() => {}),
         delay(SHUTDOWN_TIMEOUT_MS),
     ]);
 }
@@ -252,6 +261,7 @@ async function run() {
     child.stderr?.on('data', (chunk: Buffer) => collectDeprecations(chunk.toString('utf8')));
 
     let browser: TConnectedBrowser | null = null;
+    let page: Page | null = null;
     let primaryError: Error | null = null;
     const cleanupErrors: Error[] = [];
     const recordCleanupError = (error: unknown): void => {
@@ -270,7 +280,7 @@ async function run() {
         });
         // CDP answers before the main process has created its BrowserWindow, so a
         // single pages() snapshot taken right after connect can be empty.
-        const page = await waitForPackagedRendererPage(
+        page = await waitForPackagedRendererPage(
             browser,
             STARTUP_TIMEOUT_MS,
             'Packaged Electron',
@@ -387,7 +397,7 @@ async function run() {
             recordCleanupError(captureError);
         }
     } finally {
-        await closeBrowserGracefully(browser);
+        await quitAppGracefully(page);
         if (typeof child.pid === 'number') {
             if (!await waitForProcessExit(child.pid, 5_000)) {
                 await killProcessTree(child.pid, 3_000);
