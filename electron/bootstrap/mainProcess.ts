@@ -726,6 +726,13 @@ app.on('browser-window-created', (_event, window) => {
 });
 void app.whenReady().then(() => {
     powerMonitor.on('shutdown', requestSystemShutdown);
+    if (process.platform === 'linux' || process.platform === 'darwin') {
+        // Electron installs its signal handlers during startup; replace them after
+        // ready. A signal cannot answer close decisions, so flush and retain unsaved
+        // work through the coordinated quit instead of Electron's interactive Quit.
+        process.on('SIGTERM', () => shutdownCoordinator.requestGracefulQuit());
+        process.on('SIGHUP', () => shutdownCoordinator.requestGracefulQuit());
+    }
 });
 if (pendingSafeModeRelaunchArgs) {
     const args = pendingSafeModeRelaunchArgs;

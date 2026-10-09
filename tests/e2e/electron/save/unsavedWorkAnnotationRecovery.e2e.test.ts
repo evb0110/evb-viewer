@@ -32,6 +32,8 @@ import {
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
@@ -49,6 +51,86 @@ describe('checkpointed annotation recovery', () => {
         });
         outputDirectory = null;
     });
+
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
+        'SIGTERM',
+        'SIGHUP',
+    ] as const)('recovers unsaved text after %s without a close decision', async (signal) => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-sigterm-recovery-'));
+        const sourcePath = join(outputDirectory, 'sigterm-source.pdf');
+        copyFileSync(FIXTURE_PATH, sourcePath);
+        const sourceBytes = readFileSync(sourcePath);
+        const sessionName = `e2e-sigterm-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const marker = `SIGTERM unsaved text ${Date.now()}`;
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+
+        // A person's Quit still asks, and Cancel leaves the unsaved annotation.
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
+        await session.page.waitForSelector('[role="dialog"]', {visible: true});
+        const decisionText = await session.page.$eval('[role="dialog"]', dialog => dialog.textContent ?? '');
+        expect(decisionText).toContain('Save changes');
+        expect(decisionText).toContain('Discard changes');
+        expect(decisionText).toContain('Cancel');
+        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+            .find(button => button.textContent?.trim() === 'Cancel'), null, {description: 'Cancel Quit'});
+        await session.page.waitForSelector('[role="dialog"]', {hidden: true});
+
+        const signaled = session;
+        const electronPid = getSessionInfo(signaled.name)?.electronPid;
+        if (typeof electronPid !== 'number') throw new Error('The Electron main pid was missing');
+        const closed = new Promise<'closed'>(resolve => signaled.page.once('close', () => resolve('closed')));
+        const closeDecision = signaled.page.waitForSelector('[role="dialog"]', {
+            visible: true,
+            timeout: 8_000,
+        }).then(() => 'prompt' as const, () => 'no-prompt' as const);
+        const startedAt = Date.now();
+        process.kill(electronPid, signal);
+        const outcome = await Promise.race([
+            closed,
+            closeDecision,
+        ]);
+        if (outcome === 'prompt') {
+            console.log(`${signal} close decision:`, await signaled.page.$eval('[role="dialog"]', dialog => dialog.textContent));
+            console.log(await signaled.captureFailureArtifacts('sigterm-close-decision'));
+        }
+        expect.soft(outcome).not.toBe('prompt');
+        await expect.poll(() => isProcessAlive(electronPid), {timeout: 8_000}).toBe(false)
+            .catch(error => expect.soft(error).toBeUndefined());
+        const stillAlive = isProcessAlive(electronPid);
+        console.log(`${signal} main pid=${electronPid}, alive=${stillAlive}, elapsedMs=${Date.now() - startedAt}`);
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+        expect(hasWorkspaceCrashCheckpoint(signaled.name)).toBe(true);
+        await signaled.browser.disconnect();
+        // On the red revision, model the service manager's delayed hard kill.
+        await stopSingleSession(signaled.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: stillAlive,
+        });
+        expect(isProcessAlive(electronPid)).toBe(false);
+        session = null;
+        session = await startElectronE2ESession(sessionName, {clean: false});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await session.page.waitForFunction((text: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]'),
+        ).some(entity => entity.textContent?.trim() === text), {timeout: 30_000}, marker);
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+        console.log(await session.captureFailureArtifacts('sigterm-recovered'));
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
+            .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+    }, 180_000);
 
     it('restores committed FreeText through restart and Save As', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-annotation-recovery-'));
