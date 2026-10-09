@@ -230,84 +230,82 @@ async function computeEstimateSizes(
         }
     };
 
-    await usingManagedScratchScope('djvu-export-', getAppTempDir(), async tempDir => {
-        try {
-            signal.addEventListener('abort', cancelActiveEstimateJobs, { once: true });
-            for (const preset of presets) {
-                throwIfAborted(signal);
-                const imagePath = join(tempDir, `sample-s${preset.subsample}.ppm`);
-                const effectiveDpi = Math.round(sourceDpi / preset.subsample);
-                const estimateJobId = `${estimateJobIdPrefix}-${preset.subsample}`;
-                const renderPlan = resolveEstimateRenderPlan(
-                    samplePageSize.width,
-                    samplePageSize.height,
-                    preset.subsample,
-                );
+    signal.addEventListener('abort', cancelActiveEstimateJobs, { once: true });
+    try {
+        for (const preset of presets) {
+            throwIfAborted(signal);
+            const effectiveDpi = Math.round(sourceDpi / preset.subsample);
+            const estimateJobId = `${estimateJobIdPrefix}-${preset.subsample}`;
+            const renderPlan = resolveEstimateRenderPlan(
+                samplePageSize.width,
+                samplePageSize.height,
+                preset.subsample,
+            );
+            const estimate = {
+                subsample: preset.subsample,
+                label: preset.label,
+                description: preset.description,
+                resultingDpi: effectiveDpi,
+            };
 
-                try {
-                    activeEstimateJobIds.add(estimateJobId);
-                    const result = await convertDjvuPageToImage(
-                        djvuPath,
-                        imagePath,
-                        samplePage,
-                        estimateJobId,
-                        {
-                            format: 'ppm',
-                            signal,
-                            targetHeightPx: renderPlan.targetHeightPx,
-                            targetWidthPx: renderPlan.targetWidthPx,
-                        },
-                    );
-                    activeEstimateJobIds.delete(estimateJobId);
-                    if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) {
-                        throw result.cause;
+            try {
+                // One scope per preset: an unproven termination keeps only this preset's scratch
+                // for the stale sweep, and the error still reaches the catch below to record it.
+                const estimatedBytes = await usingManagedScratchScope('djvu-export-', getAppTempDir(), async tempDir => {
+                    const imagePath = join(tempDir, `sample-s${preset.subsample}.ppm`);
+                    try {
+                        activeEstimateJobIds.add(estimateJobId);
+                        const result = await convertDjvuPageToImage(
+                            djvuPath,
+                            imagePath,
+                            samplePage,
+                            estimateJobId,
+                            {
+                                format: 'ppm',
+                                signal,
+                                targetHeightPx: renderPlan.targetHeightPx,
+                                targetWidthPx: renderPlan.targetWidthPx,
+                            },
+                        );
+                        if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) {
+                            throw result.cause;
+                        }
+                        throwIfAborted(signal);
+                        if (!result.success) {
+                            return 0;
+                        }
+                        return Math.round(
+                            (await estimatePdfSizeBytes(imagePath, effectiveDpi, signal))
+                            * pageCount
+                            * renderPlan.pixelExpansion,
+                        );
+                    } finally {
+                        activeEstimateJobIds.delete(estimateJobId);
                     }
-                    throwIfAborted(signal);
-
-                    if (result.success) {
-                        estimates.push({
-                            subsample: preset.subsample,
-                            label: preset.label,
-                            description: preset.description,
-                            resultingDpi: effectiveDpi,
-                            estimatedBytes: Math.round(
-                                (await estimatePdfSizeBytes(imagePath, effectiveDpi, signal))
-                                * pageCount
-                                * renderPlan.pixelExpansion,
-                            ),
-                        });
-                    } else {
-                        estimates.push({
-                            subsample: preset.subsample,
-                            label: preset.label,
-                            description: preset.description,
-                            resultingDpi: effectiveDpi,
-                            estimatedBytes: 0,
-                        });
-                    }
-                } catch (error) {
-                    activeEstimateJobIds.delete(estimateJobId);
-                    if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-                        throw error;
-                    }
-                    if (signal.aborted) {
-                        throw abortErrorFromSignal(signal);
-                    }
-                    logger.debug(`Failed to estimate DjVu size (subsample=${preset.subsample}) for ${djvuPath}: ${String(error)}`);
-                    estimates.push({
-                        subsample: preset.subsample,
-                        label: preset.label,
-                        description: preset.description,
-                        resultingDpi: effectiveDpi,
-                        estimatedBytes: 0,
-                    });
+                });
+                estimates.push({
+                    ...estimate,
+                    estimatedBytes,
+                });
+            } catch (error) {
+                // A cancel stays an abort even when the termination it caused is unproven.
+                if (signal.aborted) {
+                    throw abortErrorFromSignal(signal);
                 }
+                if (getUnprovenNativeTerminationDetail(error) === undefined) {
+                    logger.debug(`Failed to estimate DjVu size (subsample=${preset.subsample}) for ${djvuPath}: ${String(error)}`);
+                }
+                // Unavailable, as a failed preset always was; the other presets keep their estimates.
+                estimates.push({
+                    ...estimate,
+                    estimatedBytes: 0,
+                });
             }
-        } finally {
-            signal.removeEventListener('abort', cancelActiveEstimateJobs);
-            cancelActiveEstimateJobs();
         }
-    });
+    } finally {
+        signal.removeEventListener('abort', cancelActiveEstimateJobs);
+        cancelActiveEstimateJobs();
+    }
 
     const cacheTimestamp = Date.now();
     estimateCache.set(createEstimateCacheKey(djvuPath, pageCount), {
