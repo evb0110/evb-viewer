@@ -419,6 +419,52 @@ describe('browserWindowTabsCapability', () => {
         await expect(claim).resolves.toBe(closed.checkpoint);
     });
 
+    it('does not adopt a record another window has just claimed and not yet checkpointed', async () => {
+        vi.setSystemTime(100_000);
+        const locks = new FakeLockManager();
+        const orphan = {
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            leaseRevision: 7,
+            updatedAt: 0,
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([orphan]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        // After a crash the first restored window claims the orphan and is
+        // still restoring it, so it has saved no lease yet.
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=111', locks);
+        const firstWindow = await import('@app/platform/browserWindowTabs');
+        const firstClaim = firstWindow.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(firstClaim).resolves.toBe(orphan.checkpoint);
+
+        // The second window hears no answer to its discovery in time and
+        // finds the record under the first window's owner, freshly written.
+        MockBroadcastChannel.reset();
+        vi.resetModules();
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=222', locks);
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ...orphan,
+            ownerId: 'window:111',
+            generation: 8,
+            leaseRevision: 8,
+            updatedAt: Date.now(),
+        }]);
+        const secondWindow = await import('@app/platform/browserWindowTabs');
+        const secondClaim = secondWindow.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+
+        await expect(secondClaim).resolves.toBeNull();
+    });
+
     it('gives up an owner whose lease lock another window holds, with its wait for that lock', async () => {
         const ownerLockName = 'evb-viewer:browser-lease-owner:window:321';
         const locks = new FakeLockManager();

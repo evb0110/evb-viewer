@@ -684,7 +684,7 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
             const retainedWindowId = currentWindowId;
             knownWindows.delete(currentWindowId);
             currentWindowId = createWindowId();
-            holdLeaseOwnerLock(recoveryOwnerId(currentWindowId));
+            void holdLeaseOwnerLock(recoveryOwnerId(currentWindowId));
             const state = getBrowserWindowTabsState();
             if (state) state.windowId = currentWindowId;
             rememberNamedWindowId(currentWindowId);
@@ -964,14 +964,34 @@ async function waitForTransferDecision(transferId: string, nonce: string) {
     }
     throw new Error('Durable transfer decision remained unavailable.');
 }
+// Waits until this window holds its recovery owner's lease lock. A window
+// that has loaded or claimed a record holds no lease until its first dirty
+// checkpoint, and without the lock a window starting meanwhile would take the
+// record for an orphan. A duplicated window that gives its id up while it
+// waits withdraws the wait and waits for its new id's lock instead.
+async function holdRecoveryOwnerLock() {
+    for (;;) {
+        const ownerId = getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) {
+            return null;
+        }
+        try {
+            await holdLeaseOwnerLock(ownerId);
+            return ownerId;
+        } catch (error) {
+            if (ownerId === getBrowserWindowRecoveryOwnerId()) {
+                throw error;
+            }
+        }
+    }
+}
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     async saveWorkspaceCheckpoint() {},
     async acknowledgeWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {
-        let ownerId = getBrowserWindowRecoveryOwnerId();
-        if (!ownerId) {
+        if (!await holdRecoveryOwnerLock()) {
             return null;
         }
         const canDiscoverLivePeers = Boolean(ensureChannel());
@@ -986,7 +1006,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             pruneStaleTargetWindows(discoveryStartedAt);
         }
 
-        ownerId = getBrowserWindowRecoveryOwnerId();
+        const ownerId = getBrowserWindowRecoveryOwnerId();
         if (!ownerId) {
             return null;
         }

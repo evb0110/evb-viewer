@@ -58,11 +58,15 @@ let ownerLock: {
 // browser gives us; a quiet heartbeat is not one, since a throttled or frozen
 // tab looks identical to a dead one. A context holds the lock of the one owner
 // id it speaks for until it takes another id, and then releases it or withdraws
-// its request, so a lock always belongs to the context that owns its id.
+// its request, so a lock always belongs to the context that owns its id. The
+// result settles once the lock is granted, or fails if the id is given up first.
 export function holdLeaseOwnerLock(ownerId: string) {
     const locks = resolveLockManager();
-    if (!locks || ownerLock?.ownerId === ownerId) {
-        return;
+    if (!locks) {
+        return Promise.resolve();
+    }
+    if (ownerLock?.ownerId === ownerId) {
+        return ownerLock.granted;
     }
     ownerLock?.release.abort();
     const release = new AbortController();
@@ -90,6 +94,7 @@ export function holdLeaseOwnerLock(ownerId: string) {
     // A request withdrawn before its grant rejects; a save waiting for it fails.
     lock.granted.catch(() => undefined);
     ownerLock = lock;
+    return lock.granted;
 }
 
 // Whether this context holds the owner's lock, or null where the browser has no
@@ -107,13 +112,15 @@ export async function saveBrowserDocumentLiveLease(
     // Take the liveness lock before publishing, so no sweep can observe a lease
     // whose owner has not yet become observable. A context without an owner id
     // takes this one; it never speaks for an id it does not own.
-    if (!ownerLock) {
-        holdLeaseOwnerLock(ownerId);
-    }
     if (ownerLock && ownerLock.ownerId !== ownerId) {
         throw new Error(`This browser context does not own lease owner ${ownerId}.`);
     }
-    await ownerLock?.granted;
+    await holdLeaseOwnerLock(ownerId);
+    // A context that holds the owner's lock replaces any lease its id has when
+    // it creates one: no other live context can have written it, so it is its
+    // own or a previous page's, as after a reload. Without a lock manager only
+    // a dead lease is replaced.
+    const replacesLease = expectedGeneration === 0 && ownerLock !== null;
     const result = await runObjectStoreTransaction<IBrowserDocumentLiveLease | null>(
         BROWSER_LIVE_LEASES_STORE,
         'readwrite',
@@ -121,8 +128,8 @@ export async function saveBrowserDocumentLiveLease(
             const request = store.get(leaseId(ownerId));
             request.onsuccess = () => {
                 const current = decodeLease(request.result);
-                const expected = current?.status === 'dead' && expectedGeneration === 0
-                    ? current.generation
+                const expected = replacesLease || (current?.status === 'dead' && expectedGeneration === 0)
+                    ? current?.generation ?? 0
                     : expectedGeneration;
                 if ((current?.generation ?? 0) !== expected) {
                     setResult(null);
