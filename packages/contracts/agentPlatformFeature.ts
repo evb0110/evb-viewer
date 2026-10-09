@@ -1,3 +1,4 @@
+import { isRecord } from '@contracts/runtimeGuards';
 import type {
     IAgentCommandResponse,
     IAgentWorkspaceSnapshotResponse,
@@ -62,10 +63,10 @@ const optionalAssistantRequestArgs = v.pipe(
 );
 const assistantLoginArgs = v.message(v.strictTuple([AGENT_ASSISTANT_LOGIN_REQUEST_SCHEMA]), 'invalid assistant login request');
 const assistantMessageArgs = v.strictTuple([AGENT_ASSISTANT_SEND_MESSAGE_REQUEST_SCHEMA]);
-// Response envelopes reach the bridge unparsed so a malformed one can still reject its pending request by id.
+// Response envelopes reach the bridge as plain objects so a malformed one can still reject its pending request by id.
 // The bridge parses each with the shared response schema, and the static type stays on the renderer-facing args.
-const workspaceSnapshotResponseArgs = v.strictTuple([v.custom<IAgentWorkspaceSnapshotResponse>(() => true)]);
-const commandResponseArgs = v.strictTuple([v.custom<IAgentCommandResponse>(() => true)]);
+const workspaceSnapshotResponseArgs = v.strictTuple([v.custom<IAgentWorkspaceSnapshotResponse>(isRecord)]);
+const commandResponseArgs = v.strictTuple([v.custom<IAgentCommandResponse>(isRecord)]);
 const rendererAckResult = AGENT_RENDERER_ACK_SCHEMA;
 
 export const AGENT_PLATFORM_FEATURE = definePlatformFeature({

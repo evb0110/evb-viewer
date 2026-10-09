@@ -19,7 +19,7 @@ import type {
     IAgentAssistantChatScope,
     IAgentAssistantEvent,
 } from '@contracts/agent';
-import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
+import type * as CodexAssistantModule from '@electron/features/agent/assistantService';
 import {
     FakeClaudeAssistantSession,
     runDualProviderCompletionDriver,
@@ -511,7 +511,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     afterEach(async () => {
-        const {shutdownAgentAssistant}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {shutdownAgentAssistant}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         await shutdownAgentAssistant();
         vi.useRealTimers();
         vi.unstubAllEnvs();
@@ -546,7 +546,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('does not discover Codex or start MCP when disabled state is requested', async () => {
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const state = await getAgentAssistantState();
 
@@ -560,7 +560,7 @@ describe('agent assistant opt-in gating', () => {
     it('reports fresh installed Codex authentication without starting its runtime', async () => {
         configureEnabledAssistantRuntime();
         mocks.runCodexCli.mockResolvedValue({ok: true});
-        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const state = await getAgentAssistantState({provider: 'codex'});
 
@@ -579,7 +579,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('rejects assistant chat actions while disabled', async () => {
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const result = await sendAgentAssistantMessage({text: 'Summarize this document'});
 
@@ -604,7 +604,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await sendAgentAssistantMessage({
             text: 'Check auth',
@@ -629,7 +629,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await sendAgentAssistantMessage({
             text: 'Check auth',
@@ -655,7 +655,7 @@ describe('agent assistant opt-in gating', () => {
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const firstState = sendAgentAssistantMessage({
             text: 'Start runtime',
@@ -687,7 +687,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const statePromise = sendAgentAssistantMessage({
             text: 'Cancel startup',
@@ -710,7 +710,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const sendPromise = sendAgentAssistantMessage({
             text: 'Do not send this after opt-out',
@@ -732,7 +732,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         let postThreadSettingsReads = 0;
         mocks.loadSettings.mockImplementation(async () => {
             if (process.requestMethods.includes('thread/start')) {
@@ -765,7 +765,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const sendPromise = sendAgentAssistantMessage({
             text: 'Do not restore this after reset',
@@ -790,7 +790,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const sendPromise = sendAgentAssistantMessage({
             text: 'Do not send this after reset',
@@ -822,7 +822,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             interruptAgentAssistant,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const sendPromise = sendAgentAssistantMessage({
             text: 'Do not send this after stop',
@@ -849,7 +849,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         mocks.turnStartResponseHook = () => {
             void resetAgentAssistantChat({scope: documentScope});
@@ -878,7 +878,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const failed = await sendAgentAssistantMessage({
             text: 'Malformed turn response',
@@ -911,7 +911,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(sendAgentAssistantMessage({
             text: 'turn A',
@@ -985,7 +985,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const sendPromise = sendAgentAssistantMessage({
             provider: 'claude',
@@ -1012,7 +1012,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const mcpStartGate = createInitializeGate();
         const mcpStart = await mocks.startEmbeddedMcpServer();
@@ -1079,7 +1079,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             interruptAgentAssistant,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const sendPromise = sendAgentAssistantMessage({
             provider: 'claude',
@@ -1114,7 +1114,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('completes through each selected backend with provider-specific drivers', async () => {
-        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const driver = await runDualProviderCompletionDriver({
             startCodex: () => enableAssistantRuntime(),
             installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
@@ -1138,7 +1138,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         await runDualProviderCompletionDriver({
             startCodex: () => enableAssistantRuntime(),
             installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
@@ -1176,7 +1176,7 @@ describe('agent assistant opt-in gating', () => {
             sessions.push(session);
             return session;
         });
-        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {sendAgentAssistantMessage}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         mocks.claudeRuntimeLoadGate?.resolve();
 
         const first = await sendAgentAssistantMessage({
@@ -1260,7 +1260,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             interruptAgentAssistant,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         mocks.claudeRuntimeLoadGate?.resolve();
 
         const send = sendAgentAssistantMessage({
@@ -1293,7 +1293,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         mocks.claudeRuntimeLoadGate?.resolve();
 
         const first = await sendAgentAssistantMessage({
@@ -1325,7 +1325,7 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('recovers Claude provider context from durable state after a process restart', async () => {
-        const firstModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const firstModule: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const driver = await runDualProviderCompletionDriver({
             startCodex: () => enableAssistantRuntime(),
             installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
@@ -1336,7 +1336,7 @@ describe('agent assistant opt-in gating', () => {
         await firstModule.preserveAssistantStateForShutdown();
 
         vi.resetModules();
-        const restartedModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const restartedModule: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const result = await restartedModule.sendAgentAssistantMessage({
             provider: 'claude',
             text: 'Continue after process restart',
@@ -1354,7 +1354,7 @@ describe('agent assistant opt-in gating', () => {
     it('does not turn an idle Claude stream exit into a duplicate failed chat turn', async () => {
         const {
             getAgentAssistantState, sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const driver = await runDualProviderCompletionDriver({
             startCodex: () => enableAssistantRuntime(),
             installClaudeSession: constructor => mocks.claudeSessionConstructor.mockImplementation(constructor),
@@ -1381,7 +1381,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         await sendAgentAssistantMessage({
             text: 'Start runtime',
             scope: createDocumentScope('rapid-reenable-start.pdf'),
@@ -1416,7 +1416,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             installAgentAssistantCodex,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         await sendAgentAssistantMessage({
             text: 'Start runtime',
             scope: createDocumentScope('install-start.pdf'),
@@ -1453,7 +1453,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         await sendAgentAssistantMessage({
             text: 'Start runtime',
             scope: createDocumentScope('shutdown-start.pdf'),
@@ -1482,7 +1482,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             startAgentAssistantLogin,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const login = startAgentAssistantLogin({mode: 'chatgpt'});
         await waitForCodexRequest(process, 'account/login/start');
@@ -1500,7 +1500,7 @@ describe('agent assistant opt-in gating', () => {
     it('shares one pending provider login start across concurrent callers', async () => {
         const process = enableAssistantRuntime();
         mocks.loginStartGate = createInitializeGate();
-        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const first = startAgentAssistantLogin({mode: 'chatgpt'});
         await waitForCodexRequest(process, 'account/login/start');
@@ -1529,7 +1529,7 @@ describe('agent assistant opt-in gating', () => {
     it('cancels a provider flow when opening its browser fails and allows a retry', async () => {
         const process = enableAssistantRuntime();
         mocks.openExternal.mockRejectedValueOnce(new Error('browser unavailable'));
-        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {startAgentAssistantLogin}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({
             ok: false,
@@ -1551,7 +1551,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             startAgentAssistantLogin,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const login = startAgentAssistantLogin({mode: 'chatgpt'});
         await waitForCodexRequest(process, 'account/login/start');
@@ -1572,7 +1572,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             cancelAgentAssistantLogin,
             startAgentAssistantLogin,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(startAgentAssistantLogin({mode: 'chatgpt'})).resolves.toMatchObject({ok: true});
         const canceled = await cancelAgentAssistantLogin();
@@ -1591,7 +1591,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const send = sendAgentAssistantMessage({
             text: 'Do not acknowledge this turn after opt-out',
@@ -1613,7 +1613,7 @@ describe('agent assistant opt-in gating', () => {
         const documentB = createDocumentScope('a.pdf', 'document-session:session-b', '/tmp/shared.pdf');
         enableAssistantRuntime();
 
-        const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
@@ -1649,7 +1649,7 @@ describe('agent assistant opt-in gating', () => {
         const process = enableAssistantRuntime();
         mocks.turnStartGate = createInitializeGate();
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const firstSend = sendAgentAssistantMessage({
             text: 'Hold this turn',
@@ -1678,7 +1678,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(sendAgentAssistantMessage({
             text: 'hold-active',
@@ -1728,7 +1728,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(sendAgentAssistantMessage({
             text: 'hold-active',
@@ -1771,7 +1771,7 @@ describe('agent assistant opt-in gating', () => {
         const documentScope = createDocumentScope('early-delta.pdf');
         enableAssistantRuntime();
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const result = await sendAgentAssistantMessage({
             text: 'early-delta',
@@ -1787,7 +1787,7 @@ describe('agent assistant opt-in gating', () => {
         const documentScope = createDocumentScope('providerless-completion.pdf');
         enableAssistantRuntime();
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const result = await sendAgentAssistantMessage({
             text: 'completed-before-turn-response',
@@ -1812,7 +1812,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             interruptAgentAssistant,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(sendAgentAssistantMessage({
             text: 'hold-active',
@@ -1848,7 +1848,7 @@ describe('agent assistant opt-in gating', () => {
             getAgentAssistantState,
             resetAgentAssistantChat,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(sendAgentAssistantMessage({
             text: 'First completed turn',
@@ -1882,7 +1882,7 @@ describe('agent assistant opt-in gating', () => {
         const {
             getAgentAssistantState,
             sendAgentAssistantMessage,
-        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const resultPromise = sendAgentAssistantMessage({
             text: 'please timeout',
@@ -1923,7 +1923,7 @@ describe('agent assistant opt-in gating', () => {
             return process;
         });
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         await expect(sendAgentAssistantMessage({
             text: 'Question for A',
@@ -1956,7 +1956,7 @@ describe('agent assistant opt-in gating', () => {
         enableAssistantRuntime();
 
         try {
-            const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+            const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
             const {
                 getAgentAssistantState,
                 interruptAgentAssistant,
@@ -1997,7 +1997,7 @@ describe('agent assistant opt-in gating', () => {
     it('sanitizes assistant login URLs before opening them externally', async () => {
         enableAssistantRuntime();
 
-        const { startAgentAssistantLogin }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { startAgentAssistantLogin }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
 
         const result = await startAgentAssistantLogin({mode: 'chatgpt'});
 
@@ -2012,7 +2012,7 @@ describe('agent assistant opt-in gating', () => {
         vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('stream.pdf');
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const sending = sendAgentAssistantMessage({
             text: 'please stream',
             scope: documentScope,
@@ -2043,7 +2043,7 @@ describe('agent assistant opt-in gating', () => {
         vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('progress.pdf');
 
-        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         await expect(sendAgentAssistantMessage({
             text: 'hold-active',
             scope: documentScope,
@@ -2094,7 +2094,7 @@ describe('agent assistant opt-in gating', () => {
             id: 'recovered-claude',
             label: 'Recovered Claude',
         }]);
-        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const models = (state: Awaited<ReturnType<typeof getAgentAssistantState>>) =>
             state.status.providers.find(provider => provider.id === 'claude')?.models.map(model => model.id);
 
@@ -2131,7 +2131,7 @@ describe('agent assistant opt-in gating', () => {
             id: 'other-claude',
             label: 'Other Claude',
         }]);
-        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/assistantService');
         const requests = Promise.all([
             getAgentAssistantState({
                 provider: 'claude',
