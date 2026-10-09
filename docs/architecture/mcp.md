@@ -59,9 +59,6 @@ flowchart LR
 - `electron/features/agent/lazyAgentAssistant.ts`
   Loads `assistantService.ts` on first use and forwards the assistant IPC calls to it, so the runtime is not imported at startup.
 
-- `electron/features/agent/codexAssistant.ts`
-  Re-export of `assistantService.ts` kept for existing imports. It contains no runtime logic; edit the owner file instead.
-
 - `electron/features/agent/createCodexAssistantAdapter.ts`
   Codex-specific install, ChatGPT login and cancel flow for the embedded assistant, using the managed Codex install.
 
@@ -432,7 +429,7 @@ Platform API:
 - Desktop preload implements the agent capability through IPC.
 - Browser runtime provides no-op agent methods and an unavailable MCP status so web builds remain type-compatible.
 - Embedded assistant status includes a `turn` object with `phase` values (`idle`, `starting`, `running`, `interrupting`, `error`) so the UI can distinguish ready, still-working, and stopping states.
-- `resetAssistantChat()` in `assistantService.ts` resets the selected provider's chat. For either provider it interrupts the active turn if needed, clears local messages and the transcript, and drops the provider thread id. Codex then archives the previous thread best-effort, and the next message starts a new thread. Claude closes its SDK session and drops the resume id, so the next message starts a new session without resuming the old one.
+- `resetAssistantChat()` in `assistantService.ts` resets the selected provider's chat. For either provider it attempts to interrupt the active turn if needed, clears local messages and the transcript, and drops the provider thread id. Codex then archives the previous thread best-effort, and the next message starts a new thread. Claude attempts to close its SDK session (a failed interrupt or close is logged, not raised) and drops the resume id, so the next message starts a new session without resuming the old one.
 
 ## Security And Safety Boundaries
 
@@ -442,7 +439,7 @@ Platform API:
 - Trusted IPC validation in `electron/platform-ipc/registerIpcHandlers.ts` rejects untrusted renderer URLs and non-main-frame senders.
 - Renderer bridge responses are accepted only from the window that received the request.
 - MCP tools are scoped to current EVB Viewer windows and open tabs.
-- The embedded assistant MCP server uses a random loopback port and bearer token known only to the assistant provider process or SDK session that EVB Viewer starts: the sandboxed Codex app-server, or the Claude Agent SDK session.
+- The embedded assistant MCP server uses a random loopback port and bearer token held by the Electron main process and supplied only to the assistant provider process or SDK session that EVB Viewer starts: the sandboxed Codex app-server, or the Claude Agent SDK session.
 - The external fixed-port MCP server requires a bearer token stored by the app and passed to its stdio client configuration.
 
 ## Stdio Proxy
