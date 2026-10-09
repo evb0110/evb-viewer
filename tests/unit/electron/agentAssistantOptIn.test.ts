@@ -403,10 +403,18 @@ vi.mock('@electron/features/agent/claudeProviderMetadata', async (importOriginal
     };
 });
 
-vi.mock('@electron/features/agent/claudeAgentSdkAssistant', async () => {
+vi.mock('@electron/features/agent/claudeAgentSdkAssistant', async (importOriginal) => {
     await mocks.claudeRuntimeLoadGate?.promise;
+    // Keep the provider-owned retirement behavior while faking its SDK wire.
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const {ClaudeAgentAssistantSession} = await importOriginal<typeof import('@electron/features/agent/claudeAgentSdkAssistant')>();
     return {
-        ClaudeAgentAssistantSession: mocks.claudeSessionConstructor,
+        ClaudeAgentAssistantSession: function createSession(options: ConstructorParameters<typeof ClaudeAgentAssistantSession>[0]) {
+            return Object.assign(new mocks.claudeSessionConstructor(options), {
+                prepareForSettings: ClaudeAgentAssistantSession.prototype.prepareForSettings,
+                retire: ClaudeAgentAssistantSession.prototype.retire,
+            });
+        },
         discoverClaudeAssistantModels: mocks.discoverClaudeModels,
     };
 });

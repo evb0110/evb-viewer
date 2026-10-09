@@ -32,6 +32,7 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import { createClaudeContextUnavailableError } from '@electron/features/agent/assistantResultHelpers';
+import { waitForBoundedAssistantInterrupt } from '@electron/features/agent/assistantTurnLiveness';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_TOOLS,
@@ -483,6 +484,28 @@ export class ClaudeAgentAssistantSession {
 
     get isRetiring() {
         return this.retirementPromise !== null;
+    }
+
+    async prepareForSettings(model: string, effort: TAgentAssistantEffort, speedMode: TAgentAssistantSpeedMode) {
+        if (this.isRetiring) {
+            throw new Error('Claude is still retiring the previous turn. Try sending again after cancellation finishes.');
+        }
+        // setModel can change a live query's model, but effort and Fast are
+        // fixed at query creation. Reuse only a compatible SDK query.
+        if (this.isUsable && this.effort === effort && this.fastMode === shouldUseClaudeAssistantFastMode(model, speedMode)) {
+            return true;
+        }
+        if (!(await this.retire('for settings change'))) {
+            throw new Error('Claude is still retiring the previous session. Try again after cleanup finishes.');
+        }
+        return false;
+    }
+
+    async retire(reason: string) {
+        await waitForBoundedAssistantInterrupt(this.close()).catch((error: unknown) => {
+            logger.warn(`Failed to close Claude assistant session ${reason}: ${getErrorMessage(error)}`);
+        });
+        return !this.isRetiring;
     }
 
     async sendMessage(
