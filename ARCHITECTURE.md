@@ -106,11 +106,12 @@ the recognized text: search, text export and the assistant read it from the
 PDF, and the search index is a cache rebuilt whenever the document revision
 changes.
 
-English and Russian are bundled. The other 29 languages and `ita_old` download
-from a pinned upstream revision and are verified by SHA-256 before use. Latin
-recognizes with `script/Latin` for æ and œ, retaining `lat` as its early-print
-dictionary. A page of early print is also read with `ita_old`, for the long s
-and graves, and with `fra`, for æ and œ.
+English and Russian are bundled. The other 29 languages download from a pinned
+upstream revision, as do the early-print models `ita_old`, `fra` and
+`lat_dictionary` when a page first needs them; every download is verified by
+SHA-256 before use. Latin recognizes with `script/Latin` for æ and œ, retaining
+`lat` as its early-print dictionary. A page of early print is also read with
+`ita_old`, for the long s and graves, and with `fra`, for æ and œ.
 
 ## The assistant and MCP
 
