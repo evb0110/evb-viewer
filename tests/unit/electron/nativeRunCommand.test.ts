@@ -11,6 +11,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import { join } from 'node:path';
@@ -101,6 +102,73 @@ describe('runNativeCommand', () => {
 
         await expect(rejection).resolves.toMatchObject({message: '/bin/tool timed out after 900000ms'});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+    });
+
+    it('starts Poppler on Linux under a data-size limit and other tools and platforms unchanged', async () => {
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        onTestFinished(() => {
+            Object.defineProperty(process, 'platform', platform);
+        });
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const spawnedAs = async (platformName: NodeJS.Platform, command: string) => {
+            Object.defineProperty(process, 'platform', {
+                value: platformName,
+                configurable: true,
+            });
+            const proc = new MockNativeProcess();
+            mocks.spawn.mockReturnValueOnce(proc);
+            const result = runNativeCommand(command, [
+                '-f',
+                '1',
+                'in.pdf',
+                '-',
+            ]);
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+            const [
+                file,
+                args,
+            ] = mocks.spawn.mock.calls[0]!;
+            proc.emit('close', 0, null);
+            await result;
+            mocks.spawn.mockClear();
+            return [
+                file,
+                args,
+            ];
+        };
+
+        // The shell sets a 4 GiB soft data limit, then execs Poppler in place.
+        expect(await spawnedAs('linux', '/opt/poppler/bin/pdftotext')).toEqual([
+            '/bin/sh',
+            [
+                '-c',
+                'ulimit -S -d "$0" 2>/dev/null; exec "$@"',
+                '4194304',
+                '/opt/poppler/bin/pdftotext',
+                '-f',
+                '1',
+                'in.pdf',
+                '-',
+            ],
+        ]);
+        expect(await spawnedAs('linux', '/opt/tools/evb-pdf-page-ops')).toEqual([
+            '/opt/tools/evb-pdf-page-ops',
+            [
+                '-f',
+                '1',
+                'in.pdf',
+                '-',
+            ],
+        ]);
+        expect(await spawnedAs('darwin', '/opt/poppler/bin/pdftotext')).toEqual([
+            '/opt/poppler/bin/pdftotext',
+            [
+                '-f',
+                '1',
+                'in.pdf',
+                '-',
+            ],
+        ]);
     });
 
     it('routes managed native temp files to per-invocation scratch and removes it after success', async () => {
