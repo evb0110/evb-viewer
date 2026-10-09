@@ -335,8 +335,8 @@ fn font_objects_match(
                 return false;
             }
             let bytes_match = match (
-                actual.decompressed_content_with_limit(1024 * 1024),
-                expected.decompressed_content_with_limit(1024 * 1024),
+                crate::decompressed_stream_with_limit(actual, 1024 * 1024),
+                crate::decompressed_stream_with_limit(expected, 1024 * 1024),
             ) {
                 (Ok(actual), Ok(expected)) => actual == expected,
                 _ => false,

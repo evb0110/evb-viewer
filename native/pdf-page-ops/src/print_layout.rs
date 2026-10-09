@@ -367,7 +367,7 @@ fn append_decoded_page_content(
     for item in &streams {
         let stream = document.dereference(item)?.1.as_stream()?;
         let remaining = MAX_DECOMPRESSED_PDF_STREAM_BYTES.saturating_sub(content.len() - start);
-        match stream.decompressed_content_with_limit(remaining) {
+        match crate::decompressed_stream_with_limit(stream, remaining) {
             Ok(decoded) => content.extend_from_slice(&decoded),
             Err(LopdfError::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
                 return Err(domain_error(
