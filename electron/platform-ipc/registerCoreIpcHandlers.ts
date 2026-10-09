@@ -52,6 +52,7 @@ export interface ICoreIpcHandlerOptions {
     claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
     acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
+    requestGracefulQuit?: () => void;
 }
 
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
@@ -87,15 +88,24 @@ function assertAutomationCheckpointReset() {
     }
 }
 
-function registerAutomationHandlers(ipcMain: Electron.IpcMain) {
+function registerAutomationHandlers(ipcMain: Electron.IpcMain, requestGracefulQuit: (() => void) | undefined) {
     const channel = CORE_IPC_CHANNELS.activateMenuItemForAutomation;
+    const quitChannel = CORE_IPC_CHANNELS.quitForAutomation;
+    const registrar = createValidatedIpcMainRegistrar(ipcMain, {
+        allowedChannels: new Set([
+            channel,
+            quitChannel,
+        ]),
+        argumentValidation: {noArgumentChannels: new Set([quitChannel])},
+        codecs: {[channel]: {decodeArgs: args => [decodeApplicationMenuItemQuery(args[0])]}},
+    });
     // Electron sends the reply once this handler's promise settles, which is
     // before an immediate runs. The item runs after it, so one that closes the
     // window or quits cannot take the renderer away before the caller hears it ran.
-    createValidatedIpcMainRegistrar(ipcMain, {
-        allowedChannels: new Set([channel]),
-        codecs: {[channel]: {decodeArgs: args => [decodeApplicationMenuItemQuery(args[0])]}},
-    }).handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query, run => setImmediate(run)));
+    registrar.handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query, run => setImmediate(run)));
+    // A session owner's stop skips the close decision a person's Quit asks
+    // for; the shutdown save flush keeps unsaved documents for recovery.
+    registrar.handle(quitChannel, () => requestGracefulQuit?.());
 }
 
 export function registerCoreIpcHandlers(
@@ -121,7 +131,7 @@ export function registerCoreIpcHandlers(
         },
     });
     if (runtimeConfig.automationRendererHooksEnabled) {
-        registerAutomationHandlers(ipcMain);
+        registerAutomationHandlers(ipcMain, options.requestGracefulQuit);
     }
     eventRegistrar.on(CORE_IPC_CHANNELS.rendererReady, (event) => {
         options.onRendererReady?.(event);

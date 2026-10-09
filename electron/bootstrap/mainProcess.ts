@@ -821,6 +821,7 @@ void runInitSequence({
         featureRegistrationRuntime = registerIpcHandlers({
             ...options,
             rawIpcRegistrationAudit,
+            requestGracefulQuit: () => shutdownCoordinator.requestGracefulQuit(),
         });
     },
     setupAppProtocolHandler,

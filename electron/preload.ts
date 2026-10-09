@@ -99,6 +99,9 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
     // key events never reach the native menu on macOS.
     contextBridge.exposeInMainWorld('__activateMenuItemForAutomation', (query: unknown) =>
         ipcRenderer.invoke(CORE_IPC_CHANNELS.activateMenuItemForAutomation, query));
+    // Quits as a session owner's stop does, without a window's close decision.
+    contextBridge.exposeInMainWorld('__quitForAutomation', () =>
+        ipcRenderer.invoke(CORE_IPC_CHANNELS.quitForAutomation));
     tracePreload('automation file-open capability helper exposed');
 }
 

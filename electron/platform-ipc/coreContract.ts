@@ -18,6 +18,7 @@ export const CORE_IPC_CHANNELS = {
     rendererReady: 'app:rendererReady',
     // Registered and exposed only in isolated automation sessions.
     activateMenuItemForAutomation: 'automation:activateMenuItem',
+    quitForAutomation: 'automation:quit',
 } as const;
 
 export const CORE_IPC_EVENT_CHANNELS = {
