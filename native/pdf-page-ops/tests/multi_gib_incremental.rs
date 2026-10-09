@@ -1028,7 +1028,12 @@ fn scanned_file_sidecars_match_the_eager_reader() {
     const IMAGE_BYTES: u64 = 20 * 1024 * 1024;
     let with_note = temp_path("scanned-sidecars-note", "pdf");
     let with_text_box = temp_path("scanned-sidecars-text-box", "pdf");
-    let _cleanup = TempFiles(vec![with_note.clone(), with_text_box.clone()]);
+    let with_flate_empty_marker = temp_path("scanned-sidecars-flate-empty-marker", "pdf");
+    let _cleanup = TempFiles(vec![
+        with_note.clone(),
+        with_text_box.clone(),
+        with_flate_empty_marker.clone(),
+    ]);
     // A note's recovery data serializes its objects, so the parse reloads
     // eagerly; a text box parses from the structural view.
     write_scanned_annotation_pdf(
@@ -1050,7 +1055,21 @@ fn scanned_file_sidecars_match_the_eager_reader() {
         &[5],
     );
 
-    for pdf in [&with_note, &with_text_box] {
+    // A marker-sized FreeText with a popup whose appearance is a Flate stream
+    // that decodes to nothing. The legacy-marker test compares the stream's
+    // encoded bytes, so neither load calls it a marker.
+    write_scanned_annotation_pdf(
+        &with_flate_empty_marker,
+        IMAGE_BYTES,
+        &[
+            b"<</Type/Annot/Subtype/FreeText/Rect[50 50 52 51]/Contents(legacy note)/NM(marker)/P 3 0 R/Popup 6 0 R/AP<</N 7 0 R>>>>",
+            b"<</Type/Annot/Subtype/Popup/Rect[60 60 160 90]/Parent 5 0 R/P 3 0 R>>",
+            b"<</Type/XObject/Subtype/Form/BBox[0 0 2 1]/Filter/FlateDecode/Length 8>>\nstream\n\x78\x9c\x03\x00\x00\x00\x00\x01\nendstream",
+        ],
+        &[5, 6],
+    );
+
+    for pdf in [&with_note, &with_text_box, &with_flate_empty_marker] {
         for command in [
             &["page-sizes", "--metadata-only"][..],
             &["parse-annotations", "--modified-at", "D:20261009120000Z"][..],
