@@ -992,7 +992,7 @@ export class AssistantChatPersistence {
         }
         await this.snapshotStorage.writeBoundedSnapshot(
             filePath,
-            createPersistedSnapshotRecord(key, recovered.session),
+            createPersistedSnapshotRecord(key, clonePersistedSession(recovered.session)),
             key,
         );
     }
@@ -1032,7 +1032,7 @@ export class AssistantChatPersistence {
                 ) {
                     this.snapshotStorage.writeBoundedSnapshotSync(
                         filePath,
-                        createPersistedSnapshotRecord(key, lastSession),
+                        createPersistedSnapshotRecord(key, clonePersistedSession(lastSession)),
                         key,
                     );
                     break;
