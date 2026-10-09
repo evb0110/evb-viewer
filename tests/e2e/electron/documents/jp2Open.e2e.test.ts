@@ -130,3 +130,51 @@ it('opens JP2 scans and combines them with PNG while preserving their compressed
         try { return readFileSync(savedPath).includes(jp2); } catch { return false; }
     }, {timeout: 20_000}).toBe(true);
 }, 120_000);
+
+function pbmDarkFraction(pbm: Buffer) {
+    const header = /^P4\s+(\d+)\s+(\d+)\s/u.exec(pbm.toString('latin1'));
+    if (!header) throw new Error('Expected a binary PBM');
+    const width = Number(header[1]);
+    const height = Number(header[2]);
+    const stride = Math.ceil(width / 8);
+    const rows = pbm.subarray(header[0].length);
+    let dark = 0;
+    for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+            if ((rows[y * stride + (x >> 3)]! & (0x80 >> (x & 7))) !== 0) dark += 1;
+        }
+    }
+    return dark / (width * height);
+}
+
+it('opens a 1-bit CCITT Group 4 TIFF as a page with the source polarity', async () => {
+    // libtiff `tiffcp -c g4` of the 61x40 pattern in expected-1.pbm, at 300 dpi.
+    const fixtures = join(process.cwd(), 'native/pdf-image-combine/tests/fixtures/bilevel-tiff');
+    const tiffPath = join(fixtures, 'g4.tif');
+    const sourceDarkFraction = pbmDarkFraction(readFileSync(join(fixtures, 'expected-1.pbm')));
+    session = await startElectronE2ESession(`e2e-g4-tiff-open-${Date.now()}`, {
+        clean: true,
+        extraEnv: {
+            EVB_E2E_OPEN_DIALOG_PATH: tiffPath,
+            EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
+            EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+        },
+    });
+    const {page} = session;
+    await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null);
+    await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+    await waitForPdfLoaded(page);
+    await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText).toBe('1');
+    // An inverted page would be about 0.79 dark instead of 0.21.
+    await expect.poll(async () => page.evaluate(() => {
+        const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container--rendered canvas');
+        const context = canvas?.getContext('2d');
+        if (!canvas || !context || canvas.width === 0) return null;
+        const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        let dark = 0;
+        for (let index = 0; index < data.length; index += 4) {
+            if (data[index]! * 77 + data[index + 1]! * 150 + data[index + 2]! * 29 < 128 * 256) dark += 1;
+        }
+        return dark / (data.length / 4);
+    }), {timeout: 20_000}).toBeCloseTo(sourceDarkFraction, 1);
+}, 120_000);
