@@ -345,6 +345,83 @@ fn write_free_text_marker_pdf(path: &Path, padding: Option<u64>) {
     file.sync_all().unwrap();
 }
 
+/// A scanned-style page: object 4 is a sparse image of `image_bytes` and the
+/// page lists `annotations` (object numbers among `objects`, numbered from 5).
+fn write_scanned_annotation_pdf(
+    path: &Path,
+    image_bytes: u64,
+    objects: &[&[u8]],
+    annotations: &[u32],
+) {
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.7\n%\x80\x81\x82\x83\n").unwrap();
+    let mut offsets = Vec::new();
+    let annots = annotations
+        .iter()
+        .map(|number| format!("{number} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    for object in [
+        b"1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\n".to_vec(),
+        b"2 0 obj\n<</Type/Pages/Kids[3 0 R]/Count 1>>\nendobj\n".to_vec(),
+        format!("3 0 obj\n<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<</XObject<</Im0 4 0 R>>>>/Annots[{annots}]>>\nendobj\n").into_bytes(),
+    ] {
+        write_object(&mut file, &mut offsets, &object);
+    }
+    offsets.push(file.stream_position().unwrap());
+    file.write_all(
+        format!("4 0 obj\n<</Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceGray/BitsPerComponent 8/Length {image_bytes}>>\nstream\n").as_bytes(),
+    )
+    .unwrap();
+    file.seek(SeekFrom::Current(i64::try_from(image_bytes).unwrap()))
+        .unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+    for (index, body) in objects.iter().enumerate() {
+        let mut object = format!("{} 0 obj\n", index + 5).into_bytes();
+        object.extend_from_slice(body);
+        object.extend_from_slice(b"\nendobj\n");
+        write_object(&mut file, &mut offsets, &object);
+    }
+    let xref_offset = file.stream_position().unwrap();
+    let size = offsets.len() + 1;
+    file.write_all(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes())
+        .unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size {size}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n")
+            .as_bytes(),
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+}
+
+fn page_ops_sidecar(pdf: &Path, command: &[&str], with_qpdf: bool) -> Vec<u8> {
+    let sidecar = temp_path("page-ops-sidecar", "jsonl");
+    let _cleanup = TempFiles(vec![sidecar.clone()]);
+    let mut process = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+    process
+        .arg(command[0])
+        .arg("--input")
+        .arg(pdf)
+        .arg("--output")
+        .arg(&sidecar)
+        .args(&command[1..]);
+    if with_qpdf {
+        process.arg("--qpdf").arg(qpdf_path());
+    }
+    let output = process.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{} failed: {}",
+        command[0],
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::read(&sidecar).unwrap()
+}
+
 fn parsed_annotation_kinds(pdf: &Path) -> Vec<(u64, String)> {
     let sidecar = temp_path("annotation-parse", "ndjson");
     let _cleanup = TempFiles(vec![sidecar.clone()]);
@@ -943,6 +1020,49 @@ fn legacy_note_marker_recognition_matches_eager_and_structural_loads() {
             pdf.display()
         );
         assert_qpdf_check(pdf);
+    }
+}
+
+#[test]
+fn scanned_file_sidecars_match_the_eager_reader() {
+    const IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+    let with_note = temp_path("scanned-sidecars-note", "pdf");
+    let with_text_box = temp_path("scanned-sidecars-text-box", "pdf");
+    let _cleanup = TempFiles(vec![with_note.clone(), with_text_box.clone()]);
+    // A note's recovery data serializes its objects, so the parse reloads
+    // eagerly; a text box parses from the structural view.
+    write_scanned_annotation_pdf(
+        &with_note,
+        IMAGE_BYTES,
+        &[
+            b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-1)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/Popup 6 0 R>>",
+            b"<</Type/Annot/Subtype/Popup/Rect[40 40 140 80]/Parent 5 0 R/P 3 0 R/Open false>>",
+        ],
+        &[5, 6],
+    );
+    write_scanned_annotation_pdf(
+        &with_text_box,
+        IMAGE_BYTES,
+        &[
+            b"<</Type/Annot/Subtype/FreeText/Rect[20 20 120 40]/Contents(Margin text)/DA(/Helv 12 Tf 0 g)/NM(text-box-1)/P 3 0 R/AP<</N 6 0 R>>>>",
+            b"<</Type/XObject/Subtype/Form/BBox[0 0 100 20]/Length 11>>\nstream\n0 0 1 rg f\nendstream",
+        ],
+        &[5],
+    );
+
+    for pdf in [&with_note, &with_text_box] {
+        for command in [
+            &["page-sizes", "--metadata-only"][..],
+            &["parse-annotations", "--modified-at", "D:20261009120000Z"][..],
+        ] {
+            assert_eq!(
+                page_ops_sidecar(pdf, command, true),
+                page_ops_sidecar(pdf, command, false),
+                "{} {}",
+                command[0],
+                pdf.display()
+            );
+        }
     }
 }
 
