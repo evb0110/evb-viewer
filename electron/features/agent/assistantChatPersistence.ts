@@ -69,13 +69,21 @@ export interface IPersistedAssistantChatSession {
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
     providerThreadId: string | null;
-    lastSenderWindowId: number | null;
     turnOwner: TAssistantTurnOwnerState;
-    scopeBinding: IAssistantSessionScopeBinding | null;
     messages: IAgentAssistantChatMessage[];
     lastAccessedAtMs: number;
     lastError?: string;
 }
+
+/**
+ * A recovered session never carries an action grant: the sender window and
+ * scope binding are live-only state, so they are not part of the persisted
+ * session and recovery sets them to null.
+ */
+export type TRecoveredAssistantChatSessionData = IPersistedAssistantChatSession & {
+    lastSenderWindowId: null;
+    scopeBinding: null;
+};
 
 interface IAssistantChatSessionEntry {
     filePath: string;
@@ -143,7 +151,7 @@ export class AssistantChatPersistenceError extends Error {
 
 export interface IRecoveredAssistantChatSession {
     key: string;
-    session: IPersistedAssistantChatSession;
+    session: TRecoveredAssistantChatSessionData;
     filePath: string;
     sizeBytes: number;
 }
@@ -227,9 +235,7 @@ function clonePersistedSession(session: IPersistedAssistantChatSession): IPersis
         effort: session.effort,
         speedMode: session.speedMode,
         providerThreadId: session.providerThreadId,
-        lastSenderWindowId: session.lastSenderWindowId,
         turnOwner: {...session.turnOwner},
-        scopeBinding: session.scopeBinding ? {...session.scopeBinding} : null,
         messages: session.messages.map((message: IAgentAssistantChatMessage): IAgentAssistantChatMessage => {
             const attachments = message.attachments;
             return {
@@ -415,9 +421,7 @@ function isPersistedSession(value: unknown): value is IPersistedAssistantChatSes
         && typeof value.effort === 'string'
         && (value.speedMode === 'fast' || value.speedMode === 'standard')
         && (typeof value.providerThreadId === 'string' || value.providerThreadId === null)
-        && (isNonNegativeInteger(value.lastSenderWindowId) || value.lastSenderWindowId === null)
         && isAssistantTurnOwner(value.turnOwner)
-        && (value.scopeBinding === null || isAssistantSessionScopeBinding(value.scopeBinding))
         && Array.isArray(value.messages)
         && value.messages.every(isAssistantChatMessage)
         && typeof value.lastAccessedAtMs === 'number'
@@ -472,13 +476,16 @@ function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | nul
     return null;
 }
 
-function interruptRecoveredSession(session: IPersistedAssistantChatSession): IPersistedAssistantChatSession {
-    // A transcript and provider resume ID survive a cache miss. Saved action
-    // grants never authorize a new window, tab or document revision.
-    session.lastSenderWindowId = null;
-    session.scopeBinding = null;
-    if (!isAssistantTurnActive(session.turnOwner)) {
-        return session;
+function interruptRecoveredSession(session: IPersistedAssistantChatSession): TRecoveredAssistantChatSessionData {
+    // A transcript and provider resume ID survive a cache miss. Version-1
+    // snapshots may still carry grant fields that this build never writes, so
+    // recovery overwrites them and no action grant survives a restart.
+    const recovered = Object.assign(session, {
+        lastSenderWindowId: null,
+        scopeBinding: null,
+    });
+    if (!isAssistantTurnActive(recovered.turnOwner)) {
+        return recovered;
     }
 
     session.turnOwner = {
@@ -495,7 +502,7 @@ function interruptRecoveredSession(session: IPersistedAssistantChatSession): IPe
             message.error = message.error ?? ASSISTANT_CHAT_INTERRUPTED_ERROR;
         }
     }
-    return session;
+    return recovered;
 }
 
 function createSnapshotRecord(

@@ -27,14 +27,17 @@ import {
     ASSISTANT_MAX_IMAGE_BYTES,
 } from '@contracts/agent';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireIsoTimestamp} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
 import {
     AssistantChatPersistence,
     AssistantChatPersistenceError,
+    type IPersistedAssistantChatSession,
 } from '@electron/features/agent/assistantChatPersistence';
 import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
+import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
 import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
 
@@ -1174,5 +1177,120 @@ describe('assistant chat session store persistence', () => {
         await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection).map(message => message.text))
             .toEqual(['flush the newest pending state']);
+    });
+});
+
+describe('assistant chat persistence grant fields', () => {
+    const grantFields = {
+        lastSenderWindowId: 7,
+        scopeBinding: {
+            sessionKey: 'document:/tmp/a.pdf',
+            scopeKey: scope.key,
+            provider: 'codex',
+            turnGeneration: 1,
+            windowId: 7,
+            tabId: requireTabId('tab-a'),
+            documentRef: requireDocumentRef('/tmp/a.pdf'),
+            documentIdentity: null,
+        } satisfies IAssistantSessionScopeBinding,
+    };
+    const persistedSession = (overrides: Partial<IPersistedAssistantChatSession> = {}): IPersistedAssistantChatSession => ({
+        provider: 'codex',
+        scope,
+        model: selection.model,
+        effort: selection.effort,
+        speedMode: selection.speedMode,
+        providerThreadId: 'resume-original',
+        turnOwner: {
+            phase: 'idle',
+            generation: 1,
+            turnId: null,
+            localTurnId: null,
+        },
+        messages: [{
+            id: 'message-1',
+            role: 'user',
+            text: 'question',
+            createdAt: requireIsoTimestamp('2026-10-10T00:00:00.000Z'),
+        }],
+        lastAccessedAtMs: 1_800_000_000_000,
+        ...overrides,
+    });
+    const writeSnapshot = (persistence: AssistantChatPersistence, session: unknown) => {
+        writeFileSync(persistence.sessionPath(scopeKey), `${JSON.stringify({
+            schemaVersion: 1,
+            type: 'session-snapshot',
+            key: scopeKey,
+            writtenAt: '2026-10-10T00:00:00.000Z',
+            session,
+        })}\n`);
+    };
+    const scopeKey = 'document:/tmp/a.pdf';
+
+    it('loads a version-1 snapshot that carries grant fields without a scope binding', async () => {
+        const persistence = createPersistence();
+        writeSnapshot(persistence, {
+            ...persistedSession(),
+            ...grantFields,
+        });
+
+        const [recovered] = await persistence.recoverSessions();
+
+        expect(recovered?.key).toBe(scopeKey);
+        expect(recovered?.session.lastSenderWindowId).toBeNull();
+        expect(recovered?.session.scopeBinding).toBeNull();
+        expect(recovered?.session.providerThreadId).toBe('resume-original');
+        expect(recovered?.session.messages.map(message => message.text)).toEqual(['question']);
+    });
+
+    it('interrupts an in-flight turn from a version-1 snapshot and clears its grant', async () => {
+        const persistence = createPersistence();
+        writeSnapshot(persistence, {
+            ...persistedSession({
+                turnOwner: {
+                    phase: 'running',
+                    generation: 1,
+                    localTurnId: 'local-1',
+                    providerTurnId: 'provider-1',
+                    scope: {
+                        ...grantFields.scopeBinding,
+                        turnGeneration: 1,
+                    },
+                },
+                messages: [{
+                    id: 'message-1',
+                    role: 'assistant',
+                    text: '',
+                    createdAt: requireIsoTimestamp('2026-10-10T00:00:00.000Z'),
+                    pending: true,
+                }],
+            }),
+            ...grantFields,
+        });
+
+        const [recovered] = await persistence.recoverSessions();
+
+        expect(recovered?.session.turnOwner.phase).toBe('error');
+        expect(recovered?.session.lastError).toMatch(/interrupted/u);
+        expect(recovered?.session.messages[0]?.pending).toBe(false);
+        expect(recovered?.session.scopeBinding).toBeNull();
+        expect(recovered?.session.lastSenderWindowId).toBeNull();
+    });
+
+    it('does not write grant fields into new snapshots', async () => {
+        const persistence = createPersistence();
+        persistence.recordSessionSnapshot(scopeKey, {
+            ...persistedSession(),
+            ...grantFields,
+        });
+        await persistence.flush();
+
+        const [record] = readFileSync(persistence.sessionPath(scopeKey), 'utf8')
+            .split(/\r?\n/u)
+            .filter(Boolean)
+            .map(line => JSON.parse(line) as {session: Record<string, unknown>});
+        expect(record?.session).not.toHaveProperty('lastSenderWindowId');
+        expect(record?.session).not.toHaveProperty('scopeBinding');
+        expect(record?.session.providerThreadId).toBe('resume-original');
     });
 });
