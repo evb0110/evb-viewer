@@ -9,6 +9,7 @@ import {
     mkdtemp,
     readdir,
     readFile,
+    realpath,
     rm,
     utimes,
     writeFile,
@@ -275,12 +276,42 @@ describe('sessionManager automation launch args', () => {
         expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
     });
 
-    it('keeps the Nitro worker socket inside the macOS socket path limit', () => {
+    it('leaves Nuxt a task temp directory whose Nitro socket path fits', () => {
         const deepTaskTemp = '/Users/someone/.t3/worktrees/evb-viewer/t3code-808143f1/.devkit/task/tmp';
-        expect(buildNuxtDevServerEnv({ TMPDIR: deepTaskTemp }, 3126, 'default', 'darwin')).not.toHaveProperty('TMPDIR');
         expect(buildNuxtDevServerEnv({ TMPDIR: '/tmp/task' }, 3126, 'default', 'darwin')).toHaveProperty('TMPDIR', '/tmp/task');
         // Linux Nitro uses an abstract socket, so a long task TMPDIR is harmless there.
         expect(buildNuxtDevServerEnv({ TMPDIR: deepTaskTemp }, 3126, 'default', 'linux')).toHaveProperty('TMPDIR', deepTaskTemp);
+    });
+
+    it.skipIf(process.platform === 'win32')('gives Nuxt a short path to a deep task temp directory on macOS', async () => {
+        const socketName = 'nitro-worker-9999999-999-999-99999.sock';
+        const taskRoot = await mkdtemp(join(tmpdir(), 'nitro-socket-'));
+        const deepTaskTemp = join(taskRoot, 'worktrees', 'evb-viewer', 't3code-808143f1', '.devkit', 'tmp', 'a'.repeat(48));
+        const aliases = new Set<string>();
+        try {
+            expect(Buffer.byteLength(join(deepTaskTemp, socketName))).toBeGreaterThanOrEqual(104);
+            // An agent shell sets TMP and TEMP too; os.tmpdir() falls back to them.
+            for (const env of [
+                {TMPDIR: deepTaskTemp},
+                {
+                    TMP: deepTaskTemp,
+                    TEMP: deepTaskTemp,
+                },
+            ]) {
+                const nuxtEnv: NodeJS.ProcessEnv = buildNuxtDevServerEnv(env, 3126, 'default', 'darwin');
+                const nuxtTemp = nuxtEnv.TMPDIR;
+                expect(nuxtTemp).toBeDefined();
+                aliases.add(nuxtTemp!);
+                expect(Buffer.byteLength(join(nuxtTemp!, socketName))).toBeLessThan(104);
+                expect(await realpath(nuxtTemp!)).toBe(await realpath(deepTaskTemp));
+            }
+        } finally {
+            await Promise.all([...aliases].map(alias => rm(alias, {force: true})));
+            await rm(taskRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('isolates non-default Nuxt build, output, and Vite directories from release artifacts', () => {
