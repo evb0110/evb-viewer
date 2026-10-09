@@ -173,6 +173,107 @@
     }
 
     #[test]
+    fn read_catalog_resolves_named_destinations_through_the_name_tree() {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_ids = (0..3)
+            .map(|_| document.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id}))
+            .collect::<Vec<_>>();
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => 3,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            },
+        );
+        let fit = |page_id: ObjectId| {
+            Object::Array(vec![Object::Reference(page_id), Object::Name(b"Fit".to_vec())])
+        };
+        let root_id = document.new_object_id();
+        let first_leaf_id = document.add_object(dictionary! {
+            "Limits" => vec![Object::string_literal("dup"), Object::string_literal("shared")],
+            "Names" => vec![
+                Object::string_literal("dup"), fit(page_ids[0]),
+                Object::string_literal("legacy"), fit(page_ids[0]),
+                Object::string_literal("shared"), fit(page_ids[1]),
+            ],
+        });
+        let second_leaf_id = document.add_object(dictionary! {
+            "Limits" => vec![Object::string_literal("dup"), Object::string_literal("wrapped")],
+            "Names" => vec![
+                Object::string_literal("dup"), fit(page_ids[2]),
+                Object::string_literal("wrapped"),
+                Object::Dictionary(dictionary! {"D" => fit(page_ids[2])}),
+            ],
+        });
+        // The root lists itself as a kid; the walk must stop rather than loop.
+        document.set_object(
+            root_id,
+            dictionary! {
+                "Kids" => vec![
+                    Object::Reference(first_leaf_id),
+                    Object::Reference(second_leaf_id),
+                    Object::Reference(root_id),
+                ],
+            },
+        );
+        let outline_titles = ["dup", "legacy", "shared", "wrapped", "missing", "shared"];
+        let outlines_id = document.new_object_id();
+        let item_ids = outline_titles
+            .iter()
+            .map(|_| document.new_object_id())
+            .collect::<Vec<_>>();
+        for (index, (item_id, name)) in item_ids.iter().zip(outline_titles).enumerate() {
+            let mut item = dictionary! {
+                "Title" => Object::string_literal(name),
+                "Parent" => outlines_id,
+                "Dest" => Object::string_literal(name),
+            };
+            if let Some(next_id) = item_ids.get(index + 1) {
+                item.set("Next", Object::Reference(*next_id));
+            }
+            document.set_object(*item_id, item);
+        }
+        document.set_object(
+            outlines_id,
+            dictionary! {
+                "Type" => "Outlines",
+                "First" => Object::Reference(item_ids[0]),
+                "Last" => Object::Reference(*item_ids.last().unwrap()),
+                "Count" => i64::try_from(item_ids.len()).unwrap(),
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Outlines" => outlines_id,
+            "Dests" => dictionary! {"legacy" => fit(page_ids[1])},
+            "Names" => dictionary! {"Dests" => root_id},
+        });
+        document.trailer.set("Root", catalog_id);
+
+        let catalog = read_pdf_combine_catalog(&document).unwrap();
+        let resolved = catalog
+            .bookmarks
+            .iter()
+            .map(|bookmark| (bookmark.title.as_str(), bookmark.page_index))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            resolved,
+            [
+                ("dup", Some(0)),
+                ("legacy", Some(1)),
+                ("shared", Some(1)),
+                ("wrapped", Some(2)),
+                ("missing", None),
+                ("shared", Some(1)),
+            ]
+        );
+    }
+
+    #[test]
     fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         let (mut document, _page_id) = create_test_document();
         let input_path = temp_pdf_path("append-bookmark-subtree-input");

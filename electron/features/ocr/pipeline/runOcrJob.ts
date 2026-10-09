@@ -64,8 +64,9 @@ import {
 import {selectOcrPagesForSupersession} from '@electron/features/ocr/pipeline/selectOcrPagesForSupersession';
 import {sha256OcrFile} from '@electron/features/ocr/pipeline/sha256OcrFile';
 import {
-    readOcrPdfPageSizesInches,
+    createOcrPageSizeSource,
     type IOcrPageSizeInches,
+    type IOcrPageSizeSource,
     type TOcrPageSizeProbeResult,
 } from '@electron/features/ocr/pipeline/pdfPageSizeProbe';
 import {
@@ -601,6 +602,7 @@ async function buildOcrPageProcessingPlan(
     renderDpi: number | undefined,
     baseContext: TOcrPlanContext,
     sendStage: (phase: TOcrProgressPhase) => void,
+    pageSizeSource: IOcrPageSizeSource,
 ): Promise<{
     concurrency: number;
     pageSizeProbe: TOcrPageSizeProbeResult;
@@ -632,20 +634,12 @@ async function buildOcrPageProcessingPlan(
     const extractionDpi = clampDpi(detectedDpi ?? 300);
     const concurrency = getOcrConcurrency(pages.length);
     sendStage('page-size-probing');
-    const pageSizeProbe = await readOcrPdfPageSizesInches({
-        pdfPath: popplerSourcePdfPath,
-        ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
-        qpdfBinary: paths.qpdfBinary,
-        tempDir: paths.tempDir,
-        pageNumbers: pages.map(page => page.pageNumber),
-        signal: baseContext.signal,
-        log,
-    });
+    const pageSizeProbe = await pageSizeSource.read(popplerSourcePdfPath, pages.map(page => page.pageNumber));
 
     if (pageSizeProbe.status === 'degraded' && pageSizeProbe.reason === 'native-tool-failed') {
         const prepared = await baseContext.preparePopplerFallback();
         if (prepared.pdfPath !== popplerSourcePdfPath) {
-            return buildOcrPageProcessingPlan(pages, prepared.pdfPath, renderDpi, baseContext, sendStage);
+            return buildOcrPageProcessingPlan(pages, prepared.pdfPath, renderDpi, baseContext, sendStage, pageSizeSource);
         }
     }
 
@@ -712,6 +706,13 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         signal,
         budgetAbort.signal,
     ]);
+    const pageSizeSource = createOcrPageSizeSource({
+        ...(paths.pdfPageOpsBinary ? {pdfPageOpsBinary: paths.pdfPageOpsBinary} : {}),
+        qpdfBinary: paths.qpdfBinary,
+        tempDir: paths.tempDir,
+        signal: jobSignal,
+        log,
+    });
 
     const trackTempFile = (filePath: string) => {
         if (tempFiles.size < MAX_TRACKED_TEMP_FILES) {
@@ -881,6 +882,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 options.renderDpi,
                 planContext,
                 phase => publish(batchFirstPage, processedPageCount, {phase}),
+                pageSizeSource,
             );
             if (pageSizeProbe.status === 'degraded' && !pageSizeWarningReported) {
                 appendMessages(jobWarnings, [pageSizeProbe.message]);
@@ -1022,6 +1024,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         };
     } finally {
         await storageBudget?.stop();
+        await pageSizeSource.close();
         if (ownedCheckpointFingerprint) {
             activeCheckpointFingerprints.delete(ownedCheckpointFingerprint);
         }

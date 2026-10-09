@@ -67,7 +67,7 @@ pub(crate) fn write_page_geometry(
     qpdf_path: Option<&Path>,
     output: &mut impl Write,
 ) -> Result<()> {
-    let incremental = load_incremental_pdf_path(input_path, qpdf_path)
+    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
@@ -86,7 +86,7 @@ pub(crate) fn write_crop_pages_path(
     margins: CropMargins,
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+    let mut incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
@@ -109,7 +109,7 @@ pub(crate) fn write_remove_crop_pages_path(
     pages: &[u32],
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
+    let mut incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),

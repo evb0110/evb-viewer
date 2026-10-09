@@ -664,6 +664,13 @@ export async function setWorkingCopyOriginalPath(
     if (!applyOriginalFileExpectation(entry, workingPath, expectation)) {
         return;
     }
+    // A copy that still reads its original is hashed in full by the
+    // materialization that copies it, which publishes that fingerprint with
+    // the bytes it copied. Scanning here would read the same source twice.
+    if (entry.backingState === 'lazy-original' || entry.backingState === 'materializing') {
+        delete entry.originalFileExpectationAbortController;
+        return;
+    }
     captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
 }
 

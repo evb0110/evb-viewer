@@ -15,10 +15,10 @@ use evb_native_support::{
 };
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi,
-    encode_netpbm_path_as_tiff_with_dpi, probe_netpbm_path, write_pdf, FramePolicy,
-    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
-    PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
-    DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, PDF_COMBINE_MAX_OUTPUT_BYTES,
+    probe_netpbm_path, write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec,
+    InputSource, JpegSizeGuardrail, PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement,
+    PdfPageSize, Result, DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS,
+    PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
 
@@ -101,10 +101,11 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
         {
-            encode_netpbm_path_as_tiff_with_dpi(
-                &config.input_paths[0],
+            combine_tiff_paths(
+                &config.input_paths,
                 &config.output_path,
                 max_pixels,
+                1,
                 config.dpi,
             )?;
             return Ok(());
@@ -298,17 +299,12 @@ fn write_pdf_file(
         }
     }
 
-    let validated = ValidatedInputFiles::open(&paths, output_path)?;
-    let mut input_index = 0usize;
+    // Each admitted descriptor moves into the spec that reads it and closes
+    // once that page is prepared.
+    let mut files = ValidatedInputFiles::open(&paths, output_path)?.into_files();
     let page_specs = page_specs
         .into_iter()
-        .map(|spec| {
-            spec.map_sources(&mut |label| {
-                let file = validated.clone_file(input_index)?;
-                input_index += 1;
-                Ok::<_, std::io::Error>(InputSource::File { label, file })
-            })
-        })
+        .map(|spec| spec.map_sources(&mut |label| admitted_source(label, &mut files)))
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     let mut output = AtomicOutput::create(output_path)?;
@@ -495,19 +491,26 @@ fn map_page_spec_to_files(
             foreground_mask, ..
         } => paths.push(foreground_mask.clone()),
     }
-    let validated = ValidatedInputFiles::open(&paths, output_path).inspect_err(|error| {
-        *error_slot.borrow_mut() = Some(error.to_string());
-    })?;
-    let mut input_index = 0usize;
-    spec.map_sources(&mut |label| {
-        let file = validated.clone_file(input_index)?;
-        input_index += 1;
-        Ok::<_, std::io::Error>(InputSource::File { label, file })
-    })
-    .map_err(|error| {
-        *error_slot.borrow_mut() = Some(error.to_string());
-        error.into()
-    })
+    let mut files = ValidatedInputFiles::open(&paths, output_path)
+        .inspect_err(|error| {
+            *error_slot.borrow_mut() = Some(error.to_string());
+        })?
+        .into_files();
+    spec.map_sources(&mut |label| admitted_source(label, &mut files))
+        .map_err(|error| {
+            *error_slot.borrow_mut() = Some(error.to_string());
+            error.into()
+        })
+}
+
+fn admitted_source(
+    label: PathBuf,
+    files: &mut impl Iterator<Item = File>,
+) -> std::io::Result<InputSource<'static>> {
+    let file = files
+        .next()
+        .ok_or_else(|| std::io::Error::other("Missing validated input descriptor"))?;
+    Ok(InputSource::File { label, file })
 }
 
 fn write_pdf_file_streaming(

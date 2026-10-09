@@ -7,7 +7,10 @@ use std::{
 use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
 use tiff::{
     decoder::{ifd::Value as TiffIfdValue, Decoder, DecodingResult},
-    encoder::{colortype, Rational, TiffEncoder},
+    encoder::{
+        colortype::{self, ColorType},
+        Compression, DeflateLevel, Predictor, Rational, TiffEncoder,
+    },
     tags::{ResolutionUnit, Tag},
     ColorType as TiffColorType,
 };
@@ -15,7 +18,7 @@ use tiff::{
 use crate::{
     flate::deflate_up_filtered_slices,
     image::assert_pixel_limit,
-    netpbm::read_netpbm_file,
+    netpbm::{is_rgb_data_grayscale, read_netpbm_file},
     pdf::{ImagePage, ImagePayload},
     Result, CM_PER_INCH, DEFAULT_DPI,
 };
@@ -284,11 +287,33 @@ fn tiff_resolution_value_to_f64(value: TiffIfdValue) -> Option<f64> {
     }
 }
 
-struct RgbaTiffPage {
+struct TiffExportPage {
     width: u32,
     height: u32,
     dpi: u32,
-    rgba: Vec<u8>,
+    samples: TiffExportSamples,
+}
+
+/// Exported pages keep the narrowest representation that holds every source
+/// sample: RGB pages whose channels are all equal are written as gray, and
+/// four channels are written only for sources that carry alpha.
+enum TiffExportSamples {
+    Gray(Vec<u8>),
+    Rgb(Vec<u8>),
+    Rgba(Vec<u8>),
+}
+
+impl TiffExportSamples {
+    fn from_rgb(mut rgb: Vec<u8>, pixel_count: usize) -> Self {
+        if !is_rgb_data_grayscale(&rgb, pixel_count) {
+            return Self::Rgb(rgb);
+        }
+        for index in 0..pixel_count {
+            rgb[index] = rgb[index * 3];
+        }
+        rgb.truncate(pixel_count);
+        Self::Gray(rgb)
+    }
 }
 
 pub(crate) fn combine_tiff_pages(
@@ -306,33 +331,39 @@ pub(crate) fn combine_tiff_pages(
     }
 
     let validated_inputs = ValidatedInputFiles::open(input_paths, output_path)?;
-    combine_validated_tiff_pages(input_paths, output_path, max_pixels, dpi, &validated_inputs)
+    combine_validated_tiff_pages(output_path, max_pixels, dpi, validated_inputs)
 }
 
 fn combine_validated_tiff_pages(
-    input_paths: &[PathBuf],
     output_path: &Path,
     max_pixels: u64,
     dpi: Option<u32>,
-    validated_inputs: &ValidatedInputFiles,
+    validated_inputs: ValidatedInputFiles,
 ) -> Result<()> {
     let mut output = AtomicOutput::create(output_path)?;
     {
         let mut writer = BufWriter::new(output.file_mut()?);
         {
-            let mut encoder = TiffEncoder::new(&mut writer)?;
-            for (index, _input_path) in input_paths.iter().enumerate() {
-                let page =
-                    read_first_tiff_rgba_page(validated_inputs.clone_file(index)?, max_pixels)?;
-                let mut image = encoder.new_image::<colortype::RGBA8>(page.width, page.height)?;
-                image.resolution(
-                    ResolutionUnit::Inch,
-                    Rational {
-                        n: dpi.unwrap_or(page.dpi),
-                        d: 1,
-                    },
-                );
-                image.write_data(&page.rgba)?;
+            // Adobe Deflate with horizontal differencing is lossless. The
+            // fastest level keeps encoding cheap next to the page render that
+            // produced each input.
+            let mut encoder = TiffEncoder::new(&mut writer)?
+                .with_compression(Compression::Deflate(DeflateLevel::Fast))
+                .with_predictor(Predictor::Horizontal);
+            for file in validated_inputs.into_files() {
+                let page = read_first_tiff_export_page(file, max_pixels)?;
+                let dpi = dpi.unwrap_or(page.dpi);
+                match &page.samples {
+                    TiffExportSamples::Gray(samples) => {
+                        write_export_image::<_, colortype::Gray8>(&mut encoder, &page, dpi, samples)
+                    }
+                    TiffExportSamples::Rgb(samples) => {
+                        write_export_image::<_, colortype::RGB8>(&mut encoder, &page, dpi, samples)
+                    }
+                    TiffExportSamples::Rgba(samples) => {
+                        write_export_image::<_, colortype::RGBA8>(&mut encoder, &page, dpi, samples)
+                    }
+                }?;
             }
         }
         writer.flush()?;
@@ -341,12 +372,24 @@ fn combine_validated_tiff_pages(
     Ok(())
 }
 
-fn read_first_tiff_rgba_page(mut file: File, max_pixels: u64) -> Result<RgbaTiffPage> {
+fn write_export_image<W: Write + Seek, C: ColorType<Inner = u8>>(
+    encoder: &mut TiffEncoder<W>,
+    page: &TiffExportPage,
+    dpi: u32,
+    samples: &[u8],
+) -> Result<()> {
+    let mut image = encoder.new_image::<C>(page.width, page.height)?;
+    image.resolution(ResolutionUnit::Inch, Rational { n: dpi, d: 1 });
+    image.write_data(samples)?;
+    Ok(())
+}
+
+fn read_first_tiff_export_page(mut file: File, max_pixels: u64) -> Result<TiffExportPage> {
     let mut magic = [0u8; 2];
     let bytes_read = file.read(&mut magic)?;
     file.seek(SeekFrom::Start(0))?;
     if bytes_read == magic.len() && (magic == *b"P5" || magic == *b"P6") {
-        return read_first_netpbm_rgba_page(file, max_pixels);
+        return read_first_netpbm_export_page(file, max_pixels);
     }
 
     let mut decoder = Decoder::new(BufReader::new(file))?;
@@ -355,64 +398,50 @@ fn read_first_tiff_rgba_page(mut file: File, max_pixels: u64) -> Result<RgbaTiff
     let dpi = read_tiff_dpi(&mut decoder).unwrap_or(DEFAULT_DPI);
     let color_type = decoder.colortype()?;
     let decoded = decoder.read_image()?;
-    let rgba = build_tiff_rgba_payload(width, height, color_type, decoded)?;
+    let samples = build_tiff_export_samples(width, height, color_type, decoded)?;
 
-    Ok(RgbaTiffPage {
+    Ok(TiffExportPage {
         width,
         height,
         dpi,
-        rgba,
+        samples,
     })
 }
 
-fn read_first_netpbm_rgba_page(file: File, max_pixels: u64) -> Result<RgbaTiffPage> {
+fn read_first_netpbm_export_page(file: File, max_pixels: u64) -> Result<TiffExportPage> {
     let netpbm = read_netpbm_file(file, max_pixels)?;
-    let width = netpbm.width;
-    let height = netpbm.height;
-    let pixel_count = usize::try_from(u64::from(width) * u64::from(height))
+    let pixel_count = usize::try_from(u64::from(netpbm.width) * u64::from(netpbm.height))
         .map_err(|_| "Netpbm dimensions exceed the native address space")?;
-    let rgba_len = pixel_count
-        .checked_mul(4)
-        .ok_or("Netpbm RGBA payload is too large")?;
-    let mut rgba = Vec::with_capacity(rgba_len);
 
-    match netpbm.channels {
+    let samples = match netpbm.channels {
         1 => {
             if netpbm.pixels.len() != pixel_count {
                 return Err("Decoded grayscale Netpbm payload does not match dimensions".into());
             }
-            for gray in netpbm.pixels {
-                rgba.extend_from_slice(&[gray, gray, gray, 255]);
-            }
+            TiffExportSamples::Gray(netpbm.pixels)
         }
         3 => {
             if netpbm.pixels.len() != pixel_count * 3 {
                 return Err("Decoded RGB Netpbm payload does not match dimensions".into());
             }
-            for pixel in netpbm.pixels.chunks_exact(3) {
-                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-            }
+            TiffExportSamples::from_rgb(netpbm.pixels, pixel_count)
         }
         _ => return Err("Unsupported Netpbm color type for native TIFF fast path".into()),
-    }
-
-    if rgba.len() != rgba_len {
-        return Err("Decoded Netpbm RGBA payload does not match dimensions".into());
-    }
-    Ok(RgbaTiffPage {
-        width,
-        height,
+    };
+    Ok(TiffExportPage {
+        width: netpbm.width,
+        height: netpbm.height,
         dpi: DEFAULT_DPI,
-        rgba,
+        samples,
     })
 }
 
-fn build_tiff_rgba_payload(
+fn build_tiff_export_samples(
     width: u32,
     height: u32,
     color_type: TiffColorType,
     decoded: DecodingResult,
-) -> Result<Vec<u8>> {
+) -> Result<TiffExportSamples> {
     let pixels = match decoded {
         DecodingResult::U8(pixels) => pixels,
         _ => {
@@ -428,11 +457,7 @@ fn build_tiff_rgba_payload(
                     "Decoded grayscale TIFF payload length does not match dimensions".into(),
                 );
             }
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
-            for gray in pixels {
-                rgba.extend_from_slice(&[gray, gray, gray, 255]);
-            }
-            Ok(rgba)
+            Ok(TiffExportSamples::Gray(pixels))
         }
         TiffColorType::GrayA(8) => {
             if pixels.len() != pixel_count * 2 {
@@ -444,23 +469,19 @@ fn build_tiff_rgba_payload(
             for chunk in pixels.chunks_exact(2) {
                 rgba.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
             }
-            Ok(rgba)
+            Ok(TiffExportSamples::Rgba(rgba))
         }
         TiffColorType::RGB(8) => {
             if pixels.len() != pixel_count * 3 {
                 return Err("Decoded RGB TIFF payload length does not match dimensions".into());
             }
-            let mut rgba = Vec::with_capacity(pixel_count * 4);
-            for chunk in pixels.chunks_exact(3) {
-                rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
-            }
-            Ok(rgba)
+            Ok(TiffExportSamples::from_rgb(pixels, pixel_count))
         }
         TiffColorType::RGBA(8) => {
             if pixels.len() != pixel_count * 4 {
                 return Err("Decoded RGBA TIFF payload length does not match dimensions".into());
             }
-            Ok(pixels)
+            Ok(TiffExportSamples::Rgba(pixels))
         }
         _ => Err(
             format!("Unsupported TIFF color type for native TIFF fast path: {color_type:?}").into(),
@@ -503,7 +524,7 @@ mod tests {
     #[test]
     fn reads_tiff_pages_for_pdf_with_resolution() {
         let input_path = temp_tiff_path("pdf-input");
-        write_rgb_tiff(&input_path, 2, 1, &[255, 0, 0, 0, 255, 0], 300);
+        write_tiff::<colortype::RGB8>(&input_path, 2, 1, &[255, 0, 0, 0, 255, 0], 300);
 
         let mut pages = Vec::new();
         visit_tiff_pdf_pages(&input_path, 1_000_000, None, 10, |page| {
@@ -552,16 +573,18 @@ mod tests {
     }
 
     #[test]
-    fn combines_single_page_tiffs_as_rgba_output() {
-        let first_path = temp_tiff_path("combine-first");
-        let second_path = temp_tiff_path("combine-second");
+    fn combines_tiff_pages_with_their_own_samples_and_resolution() {
+        let color_path = temp_tiff_path("combine-color");
+        let gray_path = temp_tiff_path("combine-gray-rgb");
+        let alpha_path = temp_tiff_path("combine-alpha");
         let output_path = temp_tiff_path("combine-output");
-        write_rgb_tiff(&first_path, 1, 1, &[255, 0, 0], 72);
-        write_rgb_tiff(&second_path, 1, 1, &[0, 255, 0], 144);
+        write_tiff::<colortype::RGB8>(&color_path, 2, 1, &[255, 0, 0, 0, 255, 0], 72);
+        write_tiff::<colortype::RGB8>(&gray_path, 2, 1, &[16, 16, 16, 240, 240, 240], 144);
+        write_tiff::<colortype::RGBA8>(&alpha_path, 1, 1, &[10, 20, 30, 40], 300);
         fs::write(&output_path, b"old-output").unwrap();
 
         combine_tiff_pages(
-            &[first_path.clone(), second_path.clone()],
+            &[color_path.clone(), gray_path.clone(), alpha_path.clone()],
             &output_path,
             1_000_000,
             10,
@@ -571,50 +594,41 @@ mod tests {
 
         let file = File::open(&output_path).unwrap();
         let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
-        assert_eq!(decoder.colortype().unwrap(), TiffColorType::RGBA(8));
-        let first = decoder.read_image().unwrap();
-        assert_eq!(decode_u8(first), vec![255, 0, 0, 255]);
-        assert_eq!(
-            decoder
-                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
-                .unwrap(),
-            Some(2)
+        assert_next_page(
+            &mut decoder,
+            TiffColorType::RGB(8),
+            &[255, 0, 0, 0, 255, 0],
+            72.0,
         );
-        assert_eq!(
-            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
-            Some(72.0)
-        );
-        assert!(decoder.more_images());
         decoder.next_image().unwrap();
-        let second = decoder.read_image().unwrap();
-        assert_eq!(decode_u8(second), vec![0, 255, 0, 255]);
-        assert_eq!(
-            decoder
-                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
-                .unwrap(),
-            Some(2)
-        );
-        assert_eq!(
-            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
-            Some(144.0)
+        assert_next_page(&mut decoder, TiffColorType::Gray(8), &[16, 240], 144.0);
+        decoder.next_image().unwrap();
+        assert_next_page(
+            &mut decoder,
+            TiffColorType::RGBA(8),
+            &[10, 20, 30, 40],
+            300.0,
         );
         assert!(!decoder.more_images());
 
-        let _ = fs::remove_file(first_path);
-        let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(color_path);
+        let _ = fs::remove_file(gray_path);
+        let _ = fs::remove_file(alpha_path);
         let _ = fs::remove_file(output_path);
     }
 
     #[test]
-    fn combines_netpbm_pages_as_rgba_output() {
-        let first_path = temp_tiff_path("combine-ppm-first");
-        let second_path = temp_tiff_path("combine-pgm-second");
+    fn combines_netpbm_pages_with_their_own_samples() {
+        let color_path = temp_tiff_path("combine-ppm-color");
+        let gray_rgb_path = temp_tiff_path("combine-ppm-gray");
+        let gray_path = temp_tiff_path("combine-pgm-gray");
         let output_path = temp_tiff_path("combine-netpbm-output");
-        fs::write(&first_path, b"P6\n1 1\n255\n\xff\x00\x00").unwrap();
-        fs::write(&second_path, b"P5\n1 1\n255\n\x80").unwrap();
+        fs::write(&color_path, b"P6\n2 1\n255\n\xff\x00\x00\x00\xff\x00").unwrap();
+        fs::write(&gray_rgb_path, b"P6\n2 1\n255\n\x10\x10\x10\xf0\xf0\xf0").unwrap();
+        fs::write(&gray_path, b"P5\n1 1\n255\n\x80").unwrap();
 
         combine_tiff_pages(
-            &[first_path.clone(), second_path.clone()],
+            &[color_path.clone(), gray_rgb_path.clone(), gray_path.clone()],
             &output_path,
             1_000_000,
             10,
@@ -624,39 +638,21 @@ mod tests {
 
         let file = File::open(&output_path).unwrap();
         let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
-        assert_eq!(decoder.colortype().unwrap(), TiffColorType::RGBA(8));
-        assert_eq!(
-            decode_u8(decoder.read_image().unwrap()),
-            vec![255, 0, 0, 255]
-        );
-        assert_eq!(
-            decoder
-                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
-                .unwrap(),
-            Some(2)
-        );
-        assert_eq!(
-            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
-            Some(300.0)
+        assert_next_page(
+            &mut decoder,
+            TiffColorType::RGB(8),
+            &[255, 0, 0, 0, 255, 0],
+            300.0,
         );
         decoder.next_image().unwrap();
-        assert_eq!(
-            decode_u8(decoder.read_image().unwrap()),
-            vec![128, 128, 128, 255]
-        );
-        assert_eq!(
-            decoder
-                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
-                .unwrap(),
-            Some(2)
-        );
-        assert_eq!(
-            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
-            Some(300.0)
-        );
+        assert_next_page(&mut decoder, TiffColorType::Gray(8), &[16, 240], 300.0);
+        decoder.next_image().unwrap();
+        assert_next_page(&mut decoder, TiffColorType::Gray(8), &[128], 300.0);
+        assert!(!decoder.more_images());
 
-        let _ = fs::remove_file(first_path);
-        let _ = fs::remove_file(second_path);
+        let _ = fs::remove_file(color_path);
+        let _ = fs::remove_file(gray_rgb_path);
+        let _ = fs::remove_file(gray_path);
         let _ = fs::remove_file(output_path);
     }
 
@@ -665,7 +661,7 @@ mod tests {
         let valid_path = temp_tiff_path("atomic-valid");
         let invalid_path = temp_tiff_path("atomic-invalid");
         let output_path = temp_tiff_path("atomic-output");
-        write_rgb_tiff(&valid_path, 1, 1, &[255, 0, 0], 72);
+        write_tiff::<colortype::RGB8>(&valid_path, 1, 1, &[255, 0, 0], 72);
         fs::write(&invalid_path, b"invalid tiff").unwrap();
         fs::write(&output_path, b"existing-tiff-output").unwrap();
 
@@ -696,12 +692,43 @@ mod tests {
         ))
     }
 
-    fn write_rgb_tiff(path: &Path, width: u32, height: u32, pixels: &[u8], dpi: u32) {
+    fn write_tiff<C: ColorType<Inner = u8>>(
+        path: &Path,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+        dpi: u32,
+    ) {
         let file = File::create(path).unwrap();
         let mut encoder = TiffEncoder::new(BufWriter::new(file)).unwrap();
-        let mut image = encoder.new_image::<colortype::RGB8>(width, height).unwrap();
+        let mut image = encoder.new_image::<C>(width, height).unwrap();
         image.resolution(ResolutionUnit::Inch, Rational { n: dpi, d: 1 });
         image.write_data(pixels).unwrap();
+    }
+
+    fn assert_next_page<R: Read + Seek>(
+        decoder: &mut Decoder<R>,
+        color_type: TiffColorType,
+        pixels: &[u8],
+        dpi: f64,
+    ) {
+        assert_eq!(decoder.colortype().unwrap(), color_type);
+        assert_eq!(
+            decoder.find_tag_unsigned::<u16>(Tag::Compression).unwrap(),
+            Some(8),
+            "exported pages are Adobe Deflate compressed"
+        );
+        assert_eq!(decode_u8(decoder.read_image().unwrap()), pixels);
+        assert_eq!(
+            decoder
+                .find_tag_unsigned::<u16>(Tag::ResolutionUnit)
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            tiff_resolution_value_to_f64(decoder.find_tag(Tag::XResolution).unwrap().unwrap()),
+            Some(dpi)
+        );
     }
 
     fn decode_u8(decoded: DecodingResult) -> Vec<u8> {

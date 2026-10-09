@@ -283,6 +283,109 @@ fn write_sparse_near_ten_gib_classic_pdf(path: &Path) -> u64 {
     len
 }
 
+/// One page with a real tiny FreeText annotation (a popup and a non-empty
+/// appearance) and a genuine legacy EVB note marker (a popup and an empty
+/// appearance), both inside the 0.02 marker rectangle. A sparse stream
+/// optionally pads the file past the eager-load ceiling.
+fn write_free_text_marker_pdf(path: &Path, padding: Option<u64>) {
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.7\n%\x80\x81\x82\x83\n").unwrap();
+    let mut offsets = Vec::new();
+    let real_appearance = b"0 0 1 rg 0 0 3 1.5 re f";
+    let objects: [&[u8]; 9] = [
+        b"<</Type/Catalog/Pages 2 0 R>>",
+        b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
+        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<<>>/Annots[4 0 R 5 0 R 7 0 R 8 0 R]>>",
+        b"<</Type/Annot/Subtype/FreeText/Rect[10 10 13 11.5]/Contents(real free text)/DA(/Helv 1 Tf 0 g)/NM(real-freetext)/P 3 0 R/Popup 5 0 R/AP<</N 6 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[20 20 120 60]/Parent 4 0 R/P 3 0 R>>",
+        &[],
+        b"<</Type/Annot/Subtype/FreeText/Rect[50 50 52 51]/Contents(legacy note)/NM(legacy-marker)/P 3 0 R/Popup 8 0 R/AP<</N 9 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[60 60 160 90]/Parent 7 0 R/P 3 0 R>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 2 1]/Length 0>>\nstream\n\nendstream",
+    ];
+    for (index, body) in objects.iter().enumerate() {
+        let mut object = format!("{} 0 obj\n", index + 1).into_bytes();
+        if body.is_empty() {
+            object.extend_from_slice(
+                format!(
+                    "<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length {}>>\nstream\n",
+                    real_appearance.len()
+                )
+                .as_bytes(),
+            );
+            object.extend_from_slice(real_appearance);
+            object.extend_from_slice(b"\nendstream");
+        } else {
+            object.extend_from_slice(body);
+        }
+        object.extend_from_slice(b"\nendobj\n");
+        write_object(&mut file, &mut offsets, &object);
+    }
+    if let Some(padding) = padding {
+        offsets.push(file.stream_position().unwrap());
+        file.write_all(format!("10 0 obj\n<</Length {padding}>>\nstream\n").as_bytes())
+            .unwrap();
+        file.seek(SeekFrom::Current(i64::try_from(padding).unwrap()))
+            .unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+    }
+    let xref_offset = file.stream_position().unwrap();
+    let size = offsets.len() + 1;
+    file.write_all(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes())
+        .unwrap();
+    for offset in offsets {
+        file.write_all(format!("{offset:010} 00000 n \n").as_bytes())
+            .unwrap();
+    }
+    file.write_all(
+        format!("trailer\n<</Size {size}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n")
+            .as_bytes(),
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+}
+
+fn parsed_annotation_kinds(pdf: &Path) -> Vec<(u64, String)> {
+    let sidecar = temp_path("annotation-parse", "ndjson");
+    let _cleanup = TempFiles(vec![sidecar.clone()]);
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["parse-annotations", "--input"])
+        .arg(pdf)
+        .arg("--output")
+        .arg(&sidecar)
+        .arg("--qpdf")
+        .arg(qpdf_path())
+        .args(["--modified-at", "D:20261009120000Z"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "annotation parse failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fs::read_to_string(&sidecar)
+        .unwrap()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter_map(|chunk| chunk["entries"].as_array().cloned())
+        .flatten()
+        .map(|entry| {
+            (
+                entry["objectNumber"].as_u64().unwrap(),
+                entry["kind"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+fn qpdf_annotation_subtype(pdf: &Path, object_number: u32) -> String {
+    let objects: Value = serde_json::from_str(&qpdf_objects_json(pdf)).unwrap();
+    objects["objects"][format!("{object_number} 0 R")]["/Subtype"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 fn qpdf_path() -> PathBuf {
     external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
 }
@@ -761,6 +864,86 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
         .any(|(_, contents)| contents == "second text"));
     assert!(!qpdf_contains_pdf_text(&pdf, "first text"));
     assert_qpdf_check(&pdf);
+}
+
+#[test]
+fn text_box_saves_through_the_structural_loader_share_one_embedded_font() {
+    let pdf = temp_path("structural-text-box-font", "pdf");
+    let mutations = temp_path("structural-text-box-font-mutations", "json");
+    let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
+    write_sparse_structural_loader_pdf(&pdf);
+
+    for index in 0..2 {
+        fs::write(
+            &mutations,
+            format!(
+                r#"{{"textBoxes":[{{"pageIndex":0,"stableKey":"structural-font-{index}","text":"text box {index}","rect":[10,10,180,90],"rotation":0,"fontSize":12,"color":[17,24,39]}}]}}"#
+            ),
+        )
+        .unwrap();
+        let output = append_mutations(&pdf, &mutations);
+        assert!(
+            output.status.success(),
+            "text box append {index} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // The second save must read the first save's font streams to reuse them.
+    assert_eq!(
+        qpdf_objects_json(&pdf)
+            .matches("\"/EVBTextFontVersion\"")
+            .count(),
+        1
+    );
+    assert!(qpdf_contains_pdf_text(&pdf, "text box 1"));
+    assert_qpdf_check(&pdf);
+}
+
+#[test]
+fn legacy_note_marker_recognition_matches_eager_and_structural_loads() {
+    let mutations = temp_path("marker-recognition-mutations", "json");
+    let small = temp_path("marker-recognition-small", "pdf");
+    let large = temp_path("marker-recognition-large", "pdf");
+    let _cleanup = TempFiles(vec![mutations.clone(), small.clone(), large.clone()]);
+    fs::write(
+        &mutations,
+        br#"{"updates":[{"objectNumber":4,"generationNumber":0,"text":"edited real"},{"objectNumber":7,"generationNumber":0,"text":"edited legacy"}]}"#,
+    )
+    .unwrap();
+    write_free_text_marker_pdf(&small, None);
+    write_free_text_marker_pdf(&large, Some(STRUCTURAL_LOADER_STREAM_BYTES));
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    // ADR 0003: only the empty-appearance marker is a note, whichever
+    // reader loaded the file, and only it becomes /Text on its first edit.
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(4, "text-box".to_string()), (7, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+        let output = append_mutations(pdf, &mutations);
+        assert!(
+            output.status.success(),
+            "note text update failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            qpdf_annotation_subtype(pdf, 4),
+            "/FreeText",
+            "{}",
+            pdf.display()
+        );
+        assert_eq!(
+            qpdf_annotation_subtype(pdf, 7),
+            "/Text",
+            "{}",
+            pdf.display()
+        );
+        assert_qpdf_check(pdf);
+    }
 }
 
 #[test]

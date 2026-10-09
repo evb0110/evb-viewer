@@ -11,7 +11,6 @@ pub(crate) struct NoteTarget {
     pub(crate) annotation_subtype: String,
     pub(crate) popup_ref: Option<ObjectId>,
     pub(crate) target_is_popup: bool,
-    pub(crate) page_id: Option<ObjectId>,
 }
 
 pub(crate) fn resolve_note_target(
@@ -24,15 +23,11 @@ pub(crate) fn resolve_note_target(
         let parent_id = annotation_related_ref(target_dict, b"Parent")
             .ok_or("Popup note target is missing its Parent reference")?;
         let parent_dict = document.dictionary(parent_id)?;
-        let page_id = find_annotation_page_from_annots(document, target_id)
-            .or_else(|_| find_annotation_page_from_annots(document, parent_id))
-            .ok();
         return Ok(NoteTarget {
             annotation_id: parent_id,
             annotation_subtype: annotation_subtype(parent_dict),
             popup_ref: Some(target_id),
             target_is_popup: true,
-            page_id,
         });
     }
 
@@ -41,8 +36,21 @@ pub(crate) fn resolve_note_target(
         annotation_subtype: target_subtype,
         popup_ref: annotation_related_ref(target_dict, b"Popup"),
         target_is_popup: false,
-        page_id: find_annotation_page_from_annots(document, target_id).ok(),
     })
+}
+
+/// Scans every page for the one whose `/Annots` lists the note, trying a
+/// targeted popup before its parent. Only a geometry move and a text update of
+/// a legacy FreeText marker candidate need the page; other text updates do not.
+pub(crate) fn find_note_target_page(
+    document: &impl PdfObjectSource,
+    target: &NoteTarget,
+) -> Option<ObjectId> {
+    target
+        .popup_ref
+        .filter(|_| target.target_is_popup)
+        .and_then(|popup_id| find_annotation_page_from_annots(document, popup_id).ok())
+        .or_else(|| find_annotation_page_from_annots(document, target.annotation_id).ok())
 }
 
 pub(crate) fn text_note_pdf_rect(
@@ -208,8 +216,7 @@ pub(crate) fn update_note_geometry(
             )
             .into());
         }
-        let source_page_id = target
-            .page_id
+        let source_page_id = find_note_target_page(document, &target)
             .ok_or("Note geometry target is not referenced from page Annots")?;
         let page_number = update
             .page_index
@@ -347,8 +354,7 @@ pub(crate) fn update_note_geometry_incremental(
             )
             .into());
         }
-        let source_page_id = target
-            .page_id
+        let source_page_id = find_note_target_page(incremental.get_prev_documents(), &target)
             .ok_or("Note geometry target is not referenced from page Annots")?;
         let page_number = update
             .page_index
@@ -2045,8 +2051,13 @@ pub(crate) fn update_annotation_text_by_ref(
         Ok(target) => target,
         Err(_) => return Ok(false),
     };
-    if target.annotation_subtype == "freetext" {
-        if let Some(page_id) = target.page_id {
+    if target.annotation_subtype == "freetext"
+        && is_free_text_note_marker_candidate(
+            document,
+            document.get_dictionary(target.annotation_id)?,
+        )
+    {
+        if let Some(page_id) = find_note_target_page(document, &target) {
             let page_view = resolve_page_view(document, page_id)?;
             let page_rotation = resolve_page_rotation(document, page_id)?;
             let marker_form = is_free_text_note_marker(
@@ -2100,8 +2111,15 @@ pub(crate) fn update_annotation_text_incremental_by_ref(
         Ok(target) => target,
         Err(_) => return Ok(false),
     };
-    if target.annotation_subtype == "freetext" {
-        if let Some(page_id) = target.page_id {
+    if target.annotation_subtype == "freetext"
+        && is_free_text_note_marker_candidate(
+            incremental.get_prev_documents(),
+            incremental
+                .get_prev_documents()
+                .get_dictionary(target.annotation_id)?,
+        )
+    {
+        if let Some(page_id) = find_note_target_page(incremental.get_prev_documents(), &target) {
             let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
             let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
             let marker_form = is_free_text_note_marker(

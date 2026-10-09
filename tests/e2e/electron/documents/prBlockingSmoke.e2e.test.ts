@@ -77,6 +77,7 @@ import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/fin
 import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
+import { createNewWorkspaceTab } from '@tests/e2e/electron/helpers/workspaceTabs';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
 const UPDATE_OFFER_UI_TIMEOUT_MS = 15_000;
@@ -1188,6 +1189,49 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             geometry.closeRect?.right ?? Number.POSITIVE_INFINITY,
             JSON.stringify(geometry),
         ).toBeLessThanOrEqual(geometry.tabRect?.right ?? Number.NEGATIVE_INFINITY);
+    });
+
+    it('selects a narrow inactive tab clicked in its middle and closes one by its hovered X', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: 'e2e-pr-blocking-narrow-tab-click',
+        });
+        const readTabs = () => evaluateInPage(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'),
+        ).map(tab => ({
+            id: tab.dataset.tabId ?? '',
+            active: tab.classList.contains('is-active'),
+        })));
+        const stripOverflows = () => evaluateInPage(session.page, () => {
+            const list = document.querySelector<HTMLElement>('.tab-list');
+            return Boolean(list && list.scrollWidth > list.clientWidth);
+        });
+        // Once the strip scrolls, every tab is at its minimum width.
+        for (let created = 0; created < 40 && !await stripOverflows(); created += 1) {
+            await createNewWorkspaceTab(session);
+        }
+        expect(await stripOverflows()).toBe(true);
+        const tabs = await readTabs();
+        const target = tabs[1]!;
+        expect(target.active).toBe(false);
+
+        await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${target.id}"]`);
+        await waitForFunctionInPage(session.page, (tabId: string) => {
+            const tab = document.querySelector(`.tab-list .tab[data-tab-id="${tabId}"]`);
+            return tab === null || tab.classList.contains('is-active');
+        }, {timeout: 10_000}, target.id);
+        const afterClick = await readTabs();
+        expect(afterClick).toHaveLength(tabs.length);
+        expect(afterClick.find(tab => tab.id === target.id)?.active).toBe(true);
+
+        const closeTarget = afterClick.find(tab => !tab.active)!;
+        await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${closeTarget.id}"] .tab-close`);
+        await waitForFunctionInPage(session.page, (tabId: string) => (
+            document.querySelector(`.tab-list .tab[data-tab-id="${tabId}"]`) === null
+        ), {timeout: 10_000}, closeTarget.id);
+        const afterClose = await readTabs();
+        expect(afterClose).toHaveLength(tabs.length - 1);
+        expect(afterClose.find(tab => tab.id === target.id)?.active).toBe(true);
     });
 
     it('opens a PDF, persists a real IPC rotation, and navigates the viewer', async () => {

@@ -8,6 +8,7 @@ use std::{
     collections::VecDeque,
     path::Path,
     process::{Command, Stdio},
+    rc::Rc,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -125,7 +126,6 @@ pub(crate) fn page_resources(document: &Document, page_id: ObjectId) -> Result<D
     Ok(Dictionary::new())
 }
 
-#[derive(Clone)]
 enum FontMetrics {
     Simple {
         first_char: u8,
@@ -185,7 +185,6 @@ impl FontMetrics {
     }
 }
 
-#[derive(Clone)]
 struct UnicodeMap {
     code_to_char: HashMap<u16, char>,
     char_to_code: HashMap<char, u16>,
@@ -196,8 +195,13 @@ impl UnicodeMap {
         let dictionary = resolved_dictionary(document, font)?;
         let to_unicode = dictionary.get(b"ToUnicode").ok()?;
         let (_, to_unicode) = document.dereference(to_unicode).ok()?;
-        let stream = to_unicode.as_stream().ok()?;
-        let code_to_char = parse_unicode_cmap(&stream.decompressed_content().ok()?)?;
+        // A CMap past the per-stream ceiling is dropped like any unreadable map.
+        let cmap = to_unicode
+            .as_stream()
+            .ok()?
+            .decompressed_content_with_limit(MAX_DECOMPRESSED_PDF_STREAM_BYTES)
+            .ok()?;
+        let code_to_char = parse_unicode_cmap(&cmap)?;
         let mut char_to_code = HashMap::with_capacity(code_to_char.len());
         for (&code, &character) in &code_to_char {
             if char_to_code.insert(character, code).is_some() {
@@ -351,10 +355,31 @@ fn contains_rtl(text: &str) -> bool {
     })
 }
 
-#[derive(Clone)]
 struct TextFont {
     metrics: FontMetrics,
     unicode: Option<UnicodeMap>,
+}
+
+/// Parses a source page font once per resource name for the page's text walk
+/// and its LTR marking pass, which share `parsed`. A parsed font is immutable
+/// and shared: Tesseract's ToUnicode CMap covers all 65,536 codes, so copying
+/// or reparsing it per show string or per `Tf` dominated the walk. A font that
+/// fails to parse is not kept, so every use reports the same error.
+fn parsed_font(
+    parsed: &mut HashMap<Vec<u8>, Rc<TextFont>>,
+    document: &Document,
+    name: &[u8],
+    font: &Object,
+) -> Result<Rc<TextFont>> {
+    if let Some(font) = parsed.get(name) {
+        return Ok(Rc::clone(font));
+    }
+    let font = Rc::new(TextFont {
+        metrics: parse_font_metrics(document, font)?,
+        unicode: UnicodeMap::from_font(document, font),
+    });
+    parsed.insert(name.to_vec(), Rc::clone(&font));
+    Ok(font)
 }
 
 fn dictionary_number(document: &Document, dictionary: &Dictionary, key: &[u8]) -> Option<f64> {
@@ -580,7 +605,7 @@ struct TextFilterState {
     line_matrix: Option<TextMatrix>,
     text_matrix: Option<TextMatrix>,
     leading: Option<f64>,
-    font: Option<TextFont>,
+    font: Option<Rc<TextFont>>,
     font_name: Option<Vec<u8>>,
     font_size: f64,
     char_spacing: f64,
@@ -673,11 +698,11 @@ impl TextFilterState {
     }
 
     fn measure_glyphs(&mut self, bytes: &[u8]) -> Result<Vec<TextGlyph>> {
-        let font = self
-            .font
-            .as_ref()
-            .ok_or("overlay-text show operator has no selected font")?
-            .clone();
+        let font = Rc::clone(
+            self.font
+                .as_ref()
+                .ok_or("overlay-text show operator has no selected font")?,
+        );
         let mut glyphs = Vec::new();
         for (code, glyph) in font.metrics.glyphs(bytes)? {
             let start = self
@@ -973,6 +998,7 @@ fn same_text_line(left: TextMatrix, right: TextMatrix) -> bool {
 fn marked_ltr_text_object(
     source: &Document,
     source_fonts: &Option<BTreeMap<Vec<u8>, Object>>,
+    parsed_fonts: &mut HashMap<Vec<u8>, Rc<TextFont>>,
     block: &[ContentOperation],
 ) -> Result<Option<Vec<ContentOperation>>> {
     let mut text = TextFilterState::new();
@@ -988,13 +1014,10 @@ fn marked_ltr_text_object(
                 else {
                     return Ok(None);
                 };
-                let Ok(metrics) = parse_font_metrics(source, source_font) else {
+                let Ok(font) = parsed_font(parsed_fonts, source, name, source_font) else {
                     return Ok(None);
                 };
-                text.font = Some(TextFont {
-                    metrics,
-                    unicode: UnicodeMap::from_font(source, source_font),
-                });
+                text.font = Some(font);
                 text.font_name = Some(name.to_vec());
             }
             text.font_size = object_to_f64(&operation.operands[1])?;
@@ -1100,6 +1123,7 @@ fn marked_ltr_text_object(
 fn mark_ltr_text_objects(
     source: &Document,
     source_fonts: &Option<BTreeMap<Vec<u8>, Object>>,
+    parsed_fonts: &mut HashMap<Vec<u8>, Rc<TextFont>>,
     operations: Vec<ContentOperation>,
 ) -> Result<Vec<ContentOperation>> {
     let mut rewritten = Vec::with_capacity(operations.len());
@@ -1111,9 +1135,12 @@ fn mark_ltr_text_objects(
                 .position(|operation| operation.operator == "ET")
             {
                 let end = index + relative_end + 1;
-                if let Some(block) =
-                    marked_ltr_text_object(source, source_fonts, &operations[index..=end])?
-                {
+                if let Some(block) = marked_ltr_text_object(
+                    source,
+                    source_fonts,
+                    parsed_fonts,
+                    &operations[index..=end],
+                )? {
                     rewritten.extend(block);
                     index = end + 1;
                     continue;
@@ -1298,6 +1325,7 @@ fn text_operations(
     } else {
         page_fonts(source, page_id).ok()
     };
+    let mut parsed_fonts = HashMap::new();
     let mut operations = Vec::new();
     let mut fonts = HashSet::new();
     let mut in_text = false;
@@ -1395,18 +1423,12 @@ fn text_operations(
                                 String::from_utf8_lossy(name)
                             )
                         })?;
-                        text.font = Some(TextFont {
-                            metrics: parse_font_metrics(source, font)?,
-                            unicode: UnicodeMap::from_font(source, font),
-                        });
+                        text.font = Some(parsed_font(&mut parsed_fonts, source, name, font)?);
                         text.font_size = size;
                     } else if let Some(source_fonts) = &source_fonts {
                         if let Some(font) = source_fonts.get(name) {
-                            if let Ok(metrics) = parse_font_metrics(source, font) {
-                                text.font = Some(TextFont {
-                                    metrics,
-                                    unicode: UnicodeMap::from_font(source, font),
-                                });
+                            if let Ok(font) = parsed_font(&mut parsed_fonts, source, name, font) {
+                                text.font = Some(font);
                             }
                         }
                     }
@@ -1690,7 +1712,7 @@ fn text_operations(
         return Err("overlay-text source has an unmatched q operator".into());
     }
     Ok((
-        mark_ltr_text_objects(source, &source_fonts, operations)?,
+        mark_ltr_text_objects(source, &source_fonts, &mut parsed_fonts, operations)?,
         fonts,
     ))
 }

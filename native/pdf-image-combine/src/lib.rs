@@ -35,10 +35,6 @@ use evb_native_support::{
     NativeError, NativeErrorCode,
 };
 use evb_raster_io::{decode_png_gray, write_png, write_png_with_dpi, DecodeLimits, PixelBuffer};
-use tiff::{
-    encoder::{colortype, Rational, TiffEncoder},
-    tags::ResolutionUnit,
-};
 
 use crate::{
     image::{
@@ -229,6 +225,12 @@ impl<S> PageSpec<S> {
     }
 }
 impl<S> ImageSpec<S> {
+    /// Automatic, unprocessed images are read through the frame visitor, so a
+    /// multi-page TIFF yields one PDF page per frame.
+    fn visits_every_frame(&self) -> bool {
+        self.compression == ImageCompression::Auto && self.processing == ImageProcessing::None
+    }
+
     fn map_source<T, E>(
         self,
         mapper: &mut impl FnMut(S) -> std::result::Result<T, E>,
@@ -248,6 +250,21 @@ pub enum InputSource<'a> {
 }
 
 pub type PdfPageSpec<'a> = PageSpec<InputSource<'a>>;
+
+impl PdfPageSpec<'_> {
+    /// Whether the spec may yield several pages: an automatic image read from
+    /// a TIFF, whose frames each become a page.
+    fn streams_frames(&self) -> bool {
+        matches!(
+            self,
+            PageSpec::Image {
+                image,
+                frames: FramePolicy::All,
+                ..
+            } if image.visits_every_frame() && image.source.is_tiff()
+        )
+    }
+}
 
 pub struct PdfBuildOptions {
     pub default_dpi: Option<u32>,
@@ -325,8 +342,18 @@ where
             .enable_shared_symbol_encoding
             .then(|| Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES));
         loop {
-            let batch = page_specs
-                .by_ref()
+            // A source that may hold several frames hands each frame to the
+            // writer as soon as it is prepared, so the page and output limits
+            // apply frame by frame and no more than one frame is held.
+            if let Some(spec) = page_specs.next_if(PageSpec::streams_frames) {
+                prepare_page_spec(spec, options, |page| {
+                    write_counted_page(pdf, page, &mut page_count, &mut symbol_chunk, options)
+                })?;
+                processed += 1;
+                on_processed(processed);
+                continue;
+            }
+            let batch = std::iter::from_fn(|| page_specs.next_if(|spec| !spec.streams_frames()))
                 .take(batch_size)
                 .collect::<Vec<PdfPageSpec<'a>>>();
             if batch.is_empty() {
@@ -337,15 +364,7 @@ where
             }
             for prepared in encoders.prepare(batch, options) {
                 for page in prepared? {
-                    page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                    if let Some(symbol_chunk) = symbol_chunk.as_mut() {
-                        symbol_chunk.push(page);
-                        if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
-                            write_symbol_chunk(pdf, symbol_chunk)?;
-                        }
-                    } else {
-                        write_prepared_page(pdf, page)?;
-                    }
+                    write_counted_page(pdf, page, &mut page_count, &mut symbol_chunk, options)?;
                 }
                 processed += 1;
                 on_processed(processed);
@@ -360,6 +379,24 @@ where
         }
     })?;
     Ok(output.into_inner())
+}
+
+fn write_counted_page<W: Write>(
+    pdf: &mut PdfWriter<W>,
+    page: PreparedPage,
+    page_count: &mut usize,
+    symbol_chunk: &mut Option<Vec<PreparedPage>>,
+    options: &PdfBuildOptions,
+) -> Result<()> {
+    *page_count = next_page_count_with_limit(*page_count, options.max_pages)?;
+    let Some(symbol_chunk) = symbol_chunk.as_mut() else {
+        return write_prepared_page(pdf, page);
+    };
+    symbol_chunk.push(page);
+    if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
+        write_symbol_chunk(pdf, symbol_chunk)?;
+    }
+    Ok(())
 }
 
 fn write_symbol_chunk<W: Write>(
@@ -445,10 +482,20 @@ fn write_prepared_page<W: Write>(pdf: &mut PdfWriter<W>, page: PreparedPage) -> 
     }
 }
 
+fn prepare_pages(spec: PdfPageSpec<'_>, options: &PdfBuildOptions) -> Result<Vec<PreparedPage>> {
+    let mut pages = Vec::new();
+    prepare_page_spec(spec, options, |page| {
+        pages.push(page);
+        Ok(())
+    })?;
+    Ok(pages)
+}
+
 fn prepare_page_spec(
     spec: PdfPageSpec<'_>,
     options: &PdfBuildOptions,
-) -> Result<Vec<PreparedPage>> {
+    mut on_page: impl FnMut(PreparedPage) -> Result<()>,
+) -> Result<()> {
     match spec {
         PageSpec::Image {
             page_size,
@@ -463,6 +510,7 @@ fn prepare_page_spec(
             image,
             frames,
             options,
+            on_page,
         ),
         PageSpec::Layered {
             page_size,
@@ -472,12 +520,12 @@ fn prepare_page_spec(
         } => {
             let background = read_exact_image(background, options, Some(page_size))?;
             let foreground_mask = read_mask(foreground_mask, options.max_bilevel_pixels)?;
-            Ok(vec![PreparedPage::Layered(Box::new(LayeredPdfPage {
+            on_page(PreparedPage::Layered(Box::new(LayeredPdfPage {
                 page_size,
                 background: image_page_to_layered_image(background)?,
                 foreground_mask,
                 foreground_color,
-            }))])
+            })))
         }
         PageSpec::SoftLayered {
             page_size,
@@ -487,14 +535,12 @@ fn prepare_page_spec(
         } => {
             let background = read_exact_image(background, options, Some(page_size))?;
             let foreground_alpha = read_soft_mask(foreground_alpha, options.max_pixels)?;
-            Ok(vec![PreparedPage::SoftLayered(Box::new(
-                SoftLayeredPdfPage {
-                    page_size,
-                    background: image_page_to_layered_image(background)?,
-                    foreground_alpha,
-                    foreground_color,
-                },
-            ))])
+            on_page(PreparedPage::SoftLayered(Box::new(SoftLayeredPdfPage {
+                page_size,
+                background: image_page_to_layered_image(background)?,
+                foreground_alpha,
+                foreground_color,
+            })))
         }
         PageSpec::AffineMaskedLayered {
             page_size,
@@ -513,7 +559,7 @@ fn prepare_page_spec(
                 options.max_bilevel_pixels,
                 foreground_mask_decode,
             )?;
-            Ok(vec![PreparedPage::AffineMaskedLayered(Box::new(
+            on_page(PreparedPage::AffineMaskedLayered(Box::new(
                 AffineMaskedLayeredPdfPage {
                     page_size,
                     background: image_page_to_layered_image(background)?,
@@ -521,15 +567,15 @@ fn prepare_page_spec(
                     foreground_mask,
                     foreground_matrix,
                 },
-            ))])
+            )))
         }
         PageSpec::Mask {
             page_size,
             foreground_mask,
-        } => Ok(vec![PreparedPage::Mask(MaskPdfPage {
+        } => on_page(PreparedPage::Mask(MaskPdfPage {
             page_size,
             foreground_mask: read_mask(foreground_mask, options.max_bilevel_pixels)?,
-        })]),
+        })),
     }
 }
 
@@ -540,37 +586,29 @@ fn prepare_image_spec(
     image: ImageSpec<InputSource<'_>>,
     frames: FramePolicy,
     options: &PdfBuildOptions,
-) -> Result<Vec<PreparedPage>> {
-    let mut prepared = Vec::new();
-    match frames {
-        FramePolicy::All
-            if image.compression == ImageCompression::Auto
-                && image.processing == ImageProcessing::None =>
-        {
+    mut on_page: impl FnMut(PreparedPage) -> Result<()>,
+) -> Result<()> {
+    let page = match frames {
+        FramePolicy::All if image.visits_every_frame() => {
             visit_automatic_pages(image.source, options, |page| {
-                prepared.push(PreparedPage::Image {
+                on_page(PreparedPage::Image {
                     page,
                     page_size,
                     placement,
                     rotation_degrees,
-                });
-                Ok(())
+                })
             })?;
+            return Ok(());
         }
-        FramePolicy::All => prepared.push(PreparedPage::Image {
-            page: read_processed_image(image, options, page_size)?,
-            page_size,
-            placement,
-            rotation_degrees,
-        }),
-        FramePolicy::ExactlyOne => prepared.push(PreparedPage::Image {
-            page: read_exact_image(image, options, page_size)?,
-            page_size,
-            placement,
-            rotation_degrees,
-        }),
-    }
-    Ok(prepared)
+        FramePolicy::All => read_processed_image(image, options, page_size)?,
+        FramePolicy::ExactlyOne => read_exact_image(image, options, page_size)?,
+    };
+    on_page(PreparedPage::Image {
+        page,
+        page_size,
+        placement,
+        rotation_degrees,
+    })
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -630,7 +668,7 @@ impl PageEncoders {
         pool.install(|| {
             batch
                 .into_par_iter()
-                .map(|spec| prepare_page_spec(spec, options).map_err(PreparedPageError::capture))
+                .map(|spec| prepare_pages(spec, options).map_err(PreparedPageError::capture))
                 .collect::<Vec<_>>()
         })
         .into_iter()
@@ -663,7 +701,7 @@ fn prepare_batch_in_order(
 ) -> Vec<Result<Vec<PreparedPage>>> {
     batch
         .into_iter()
-        .map(|spec| prepare_page_spec(spec, options))
+        .map(|spec| prepare_pages(spec, options))
         .collect()
 }
 
@@ -866,13 +904,23 @@ impl<'a> InputSource<'a> {
     }
 
     fn is_pbm(&self) -> bool {
+        self.has_extension(&["pbm"])
+    }
+
+    fn is_tiff(&self) -> bool {
+        self.has_extension(&["tif", "tiff"])
+    }
+
+    fn has_extension(&self, extensions: &[&str]) -> bool {
         let label = match self {
             Self::File { label, .. } => label.to_string_lossy(),
             Self::Bytes { file_name, .. } => Cow::Borrowed(*file_name),
         };
-        label
-            .rsplit_once('.')
-            .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("pbm"))
+        label.rsplit_once('.').is_some_and(|(_, extension)| {
+            extensions
+                .iter()
+                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        })
     }
 
     fn read_all(self) -> Result<Cow<'a, [u8]>> {
@@ -1008,6 +1056,15 @@ fn image_page_to_layered_image(page: ImagePage) -> Result<LayeredPdfImage> {
     })
 }
 
+fn open_validated_input(input_path: &Path, output_path: &Path) -> Result<File> {
+    Ok(
+        ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?
+            .into_files()
+            .next()
+            .ok_or("Missing validated input")?,
+    )
+}
+
 pub fn encode_netpbm_path_as_png(
     input_path: &Path,
     output_path: &Path,
@@ -1022,8 +1079,7 @@ pub fn encode_netpbm_path_as_png_with_dpi(
     max_pixels: u64,
     dpi: Option<u32>,
 ) -> Result<()> {
-    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
+    let netpbm = read_netpbm_file(open_validated_input(input_path, output_path)?, max_pixels)?;
     let total_pixels = netpbm.width as usize * netpbm.height as usize;
     let mut channels = netpbm.channels as usize;
     let pixels = if channels == 3 && is_rgb_data_grayscale(&netpbm.pixels, total_pixels) {
@@ -1068,8 +1124,7 @@ pub fn encode_netpbm_path_as_jpeg(
     max_pixels: u64,
     dpi: Option<u32>,
 ) -> Result<()> {
-    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
+    let netpbm = read_netpbm_file(open_validated_input(input_path, output_path)?, max_pixels)?;
     let (pixels, color_type) = match netpbm.channels {
         1 => (Cow::Borrowed(netpbm.pixels.as_slice()), JpegColorType::Luma),
         3 => (Cow::Borrowed(netpbm.pixels.as_slice()), JpegColorType::Rgb),
@@ -1088,41 +1143,6 @@ pub fn encode_netpbm_path_as_jpeg(
     encoder.encode(&pixels, width, height, color_type)?;
     let mut output = AtomicOutput::create(output_path)?;
     output.file_mut()?.write_all(&bytes)?;
-    output.publish()?;
-    Ok(())
-}
-
-pub fn encode_netpbm_path_as_tiff_with_dpi(
-    input_path: &Path,
-    output_path: &Path,
-    max_pixels: u64,
-    dpi: Option<u32>,
-) -> Result<()> {
-    let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
-    let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
-    let mut output = AtomicOutput::create(output_path)?;
-    {
-        let mut encoder = TiffEncoder::new(output.file_mut()?)?;
-        let resolution = Rational {
-            n: dpi.unwrap_or(DEFAULT_DPI),
-            d: 1,
-        };
-        match netpbm.channels {
-            1 => {
-                let mut image =
-                    encoder.new_image::<colortype::Gray8>(netpbm.width, netpbm.height)?;
-                image.resolution(ResolutionUnit::Inch, resolution);
-                image.write_data(&netpbm.pixels)?;
-            }
-            3 => {
-                let mut image =
-                    encoder.new_image::<colortype::RGB8>(netpbm.width, netpbm.height)?;
-                image.resolution(ResolutionUnit::Inch, resolution);
-                image.write_data(&netpbm.pixels)?;
-            }
-            _ => unreachable!("the Netpbm parser only returns gray or RGB pixels"),
-        }
-    }
     output.publish()?;
     Ok(())
 }
@@ -1716,6 +1736,37 @@ mod tests {
             assert!(error.to_string().contains("capped at 1"), "{}", error);
             assert!(progress.is_empty());
         }
+    }
+
+    #[test]
+    fn tiff_frames_reach_the_output_before_the_next_frame_is_read() {
+        let mut tiff = Vec::new();
+        {
+            let mut encoder = TiffEncoder::new(Cursor::new(&mut tiff)).unwrap();
+            encoder
+                .write_image::<colortype::RGB8>(1, 1, &[255, 0, 0])
+                .unwrap();
+            encoder
+                .write_image::<colortype::Gray16>(1, 1, &[1])
+                .unwrap();
+        }
+        let mut output = Vec::new();
+        let error = write_pdf(
+            &mut output,
+            [image_page("frames.tiff", &tiff, None, FramePolicy::All)],
+            &PdfBuildOptions::default(),
+            |_| {},
+        )
+        .expect_err("the 16-bit second frame is rejected");
+
+        assert!(
+            error.to_string().contains("Only 8-bit TIFF samples"),
+            "{error}"
+        );
+        assert!(
+            contains_bytes(&output, b"<< /Type /Page /Parent"),
+            "the first frame's page must be written before the second frame is decoded"
+        );
     }
 
     #[test]
