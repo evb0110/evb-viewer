@@ -410,7 +410,7 @@ pub(crate) fn is_supported_markup_subtype(subtype: &str) -> bool {
 }
 
 pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
-    if markup.overrides.len() > 4_096 || markup.hints.len() > MAX_MARKUP_SUBTYPE_HINTS {
+    if markup.hints.len() > MAX_MARKUP_SUBTYPE_HINTS {
         return Err(domain_error(
             NativeErrorCode::TooLarge,
             "Too many text-markup mutations",
@@ -432,16 +432,8 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
             "Too many text-markup geometry rectangles",
         ));
     }
-    if markup.overrides.is_empty() && markup.hints.is_empty() {
+    if markup.hints.is_empty() {
         return Err("Text-markup mutation must include at least one rewrite".into());
-    }
-    for (annotation_id, subtype) in &markup.overrides {
-        if annotation_id.trim().is_empty() || annotation_id.len() > 2_048 {
-            return Err("Invalid text-markup override annotation id".into());
-        }
-        if !is_supported_markup_subtype(subtype) {
-            return Err("Invalid text-markup override subtype".into());
-        }
     }
     for hint in &markup.hints {
         if !is_supported_markup_subtype(&hint.subtype) {
@@ -705,7 +697,6 @@ fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
         }
     }
     if let Some(markup) = &mutations.markup {
-        add(markup.overrides.len());
         add(markup.hints.len());
         for hint in &markup.hints {
             add(hint.markup_geometry.as_ref().map_or(0, Vec::len));
@@ -919,10 +910,6 @@ fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Resu
         }
     }
     if let Some(markup) = &mutations.markup {
-        for (annotation_id, subtype) in &markup.overrides {
-            consume_text_bytes(&mut total, annotation_id)?;
-            consume_text_bytes(&mut total, subtype)?;
-        }
         for hint in &markup.hints {
             consume_text_bytes(&mut total, &hint.subtype)?;
             for value in [

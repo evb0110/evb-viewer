@@ -1,5 +1,6 @@
  
 import type {
+    IPdfNativeMarkupMutation,
     IPdfNativeMarkupSubtypeHint,
     IPdfNativeMutationSet,
     IPdfNativePlacedImage,
@@ -247,25 +248,14 @@ function splitShapeMutation(
     return chunks;
 }
 
-interface IMarkupMutationChunk {
-    overrides: Array<readonly [string, IPdfNativeMarkupSubtypeHint['subtype']]>;
-    hints: IPdfNativeMarkupSubtypeHint[];
-}
-
 function markupGeometryCount(hint: IPdfNativeMarkupSubtypeHint): number {
     return hint.markupGeometry?.length ?? 0;
 }
 
-function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']>): IMarkupMutationChunk[] {
-    const chunks: IMarkupMutationChunk[] = [];
-    let overrideIndex = 0;
+function splitMarkupMutation(markup: IPdfNativeMarkupMutation): IPdfNativeMarkupMutation[] {
+    const chunks: IPdfNativeMarkupMutation[] = [];
     let hintIndex = 0;
-    while (overrideIndex < markup.overrides.length || hintIndex < markup.hints.length || chunks.length === 0) {
-        const overrides = markup.overrides.slice(
-            overrideIndex,
-            overrideIndex + PDF_NATIVE_MUTATION_LIMITS.markupItems,
-        );
-        overrideIndex += overrides.length;
+    while (hintIndex < markup.hints.length || chunks.length === 0) {
         const hints: IPdfNativeMarkupSubtypeHint[] = [];
         let geometryCount = 0;
         while (hints.length < PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
@@ -284,13 +274,10 @@ function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']
             geometryCount = nextGeometryCount;
             hintIndex += 1;
         }
-        if (overrides.length === 0 && hints.length === 0) {
+        if (hints.length === 0) {
             fail('text-markup mutations could not be split into bounded chunks', {errorKind: 'error'});
         }
-        chunks.push({
-            overrides,
-            hints,
-        });
+        chunks.push({hints});
     }
     return chunks;
 }

@@ -64,7 +64,6 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     shapePoints: 20_000,
     shapeStrokes: 4_096,
     shapeTextLength: 2_048,
-    markupItems: 4_096,
     markupGeometryItems: 512,
     markupTextLength: 2_048,
     placedImages: 16,
@@ -1069,31 +1068,6 @@ function normalizeMarkupOptionalIndex(value: unknown, label: string, options: IP
     return value;
 }
 export {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfIdentityBindings';
-function normalizeMarkupOverride(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions,
-) {
-    if (!Array.isArray(value) || value.length !== 2) {
-        fail(`${label} must be an [annotationId, subtype] tuple`, options);
-    }
-    const tuple: unknown[] = value;
-    const [
-        annotationId,
-        subtype,
-    ] = tuple;
-    if (
-        typeof annotationId !== 'string'
-        || annotationId.trim().length === 0
-        || annotationId.length > PDF_NATIVE_MUTATION_LIMITS.markupTextLength
-    ) {
-        fail(`${label}[0] must be a bounded annotation id`, options);
-    }
-    return [
-        annotationId.trim(),
-        normalizeMarkupSubtype(subtype, `${label}[1]`, options),
-    ] as const;
-}
 
 function normalizeMarkupHint(
     value: unknown,
@@ -1151,14 +1125,9 @@ function normalizeMarkupMutation(
     if (!isRecord(value)) {
         fail(`${label} must be an object`, options);
     }
-    if (!Array.isArray(value.overrides) || value.overrides.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
-        fail(`${label}.overrides must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} items`, options);
-    }
     if (!Array.isArray(value.hints) || value.hints.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label}.hints must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} items`, options);
     }
-    const overrides = Array.from(value.overrides, (override, index) =>
-        normalizeMarkupOverride(override, `${label}.overrides[${index}]`, options));
     let geometryCount = 0;
     const hints = Array.from(value.hints, (hint, index) => {
         const normalized = normalizeMarkupHint(hint, `${label}.hints[${index}]`, options);
@@ -1166,13 +1135,10 @@ function normalizeMarkupMutation(
         validateMarkupGeometryBudget(geometryCount, `${label}.hints`, options);
         return normalized;
     });
-    if (overrides.length + hints.length === 0) {
+    if (hints.length === 0) {
         fail(`${label} must include at least one text-markup rewrite`, options);
     }
-    return {
-        overrides,
-        hints,
-    };
+    return {hints};
 }
 
 function normalizePlacedImageSource(
@@ -1498,7 +1464,6 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
         }
     }
     if (mutations.markup) {
-        add(mutations.markup.overrides.length);
         add(mutations.markup.hints.length);
         for (const hint of mutations.markup.hints) {
             add(hint.markupGeometry?.length ?? 0);

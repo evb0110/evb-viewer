@@ -65,7 +65,8 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
 }
 
 // Subtype hints come only from canonical comment records. Save never receives
-// a live editor snapshot, so the native markup projection has no second source.
+// a live editor snapshot and the native wire has no override channel, so the
+// native markup projection has no second source.
 export function buildNativeMarkupMutationForSave(opts: {
     canonicalComments: IAnnotationCommentSummary[];
     changedComments?: IAnnotationCommentSummary[];
@@ -105,9 +106,5 @@ export function buildNativeMarkupMutationForSave(opts: {
     if (hints.length === 0) {
         return null;
     }
-    return {
-        // The native wire contract still carries this field; nothing fills it.
-        overrides: [],
-        hints,
-    };
+    return {hints};
 }

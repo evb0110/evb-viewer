@@ -30,7 +30,6 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
             bookmarks: None,
             shapes: None,
             markup: Some(MarkupMutation {
-                overrides: Vec::new(),
                 hints: vec![MarkupSubtypeHint {
                     subtype: "Squiggly".to_string(),
                     page_index: 0,
@@ -90,7 +89,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
 
 #[test]
 fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
-    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
     let foreign_reply_id = document.new_object_id();
     let markup = document.get_dictionary_mut(markup_id).unwrap();
     markup.set("RC", Object::string_literal("<p>rich text</p>"));
@@ -101,19 +100,34 @@ fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
         Object::String(vec![1, 2, 3], StringFormat::Hexadecimal),
     );
     let before = markup.clone();
-    let page_view = resolve_page_view(&document, page_id).unwrap();
-    let candidate = create_markup_candidate(&document, page_view, 0, markup_id, 0).unwrap();
 
-    assert!(apply_markup_rewrite_to_object(
+    apply_markup_mutations(
         &mut document,
-        &candidate,
-        "Highlight",
-        Some("#00ff00"),
-        Some("updated contents"),
-        Some("markup-preserve"),
+        &MarkupMutation {
+            hints: vec![MarkupSubtypeHint {
+                subtype: "Highlight".to_string(),
+                page_index: 0,
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.5,
+                    width: 0.4,
+                    height: 0.3,
+                },
+                markup_geometry: None,
+                app_annotation_id: None,
+                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                color: Some("#00ff00".to_string()),
+                author: None,
+                contents: Some("updated contents".to_string()),
+                id: Some("markup-preserve".to_string()),
+                page_markup_index: Some(0),
+                source: Some("editor".to_string()),
+                opacity: None,
+            }],
+        },
         "D:20260831130000Z",
     )
-    .unwrap());
+    .unwrap();
 
     let after = document.get_dictionary(markup_id).unwrap();
     assert_unowned_keys_unchanged(
@@ -163,7 +177,6 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
     assert!(rewrite_page_markup_subtypes(
         &mut document,
         &[candidate],
-        &HashMap::new(),
         &mut states,
         page_view,
         0,
@@ -196,7 +209,6 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
         apply_markup_mutations(
             &mut document,
             &MarkupMutation {
-                overrides: Vec::new(),
                 hints: vec![MarkupSubtypeHint {
                     subtype: subtype.to_string(),
                     page_index: 0,
@@ -252,7 +264,6 @@ fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
     apply_markup_mutations(
         &mut document,
         &MarkupMutation {
-            overrides: Vec::new(),
             hints: vec![MarkupSubtypeHint {
                 subtype: "Highlight".to_string(),
                 page_index: 0,
@@ -342,7 +353,6 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
     apply_markup_mutations_incremental(
         &mut incremental,
         &MarkupMutation {
-            overrides: Vec::new(),
             hints,
         },
         "D:20260829120500+04'00'",
@@ -388,7 +398,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
 }
 
 #[test]
-fn recreates_markup_after_deleted_pdf_ref_without_null_override_failure() {
+fn recreates_markup_after_deleted_pdf_ref_in_the_same_revision() {
     let (document, page_id, markup_id) = create_test_markup_pdf("Highlight");
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let delete = AnnotationDelete {
@@ -401,7 +411,6 @@ fn recreates_markup_after_deleted_pdf_ref_without_null_override_failure() {
     delete_annotations_incremental(&mut incremental, std::slice::from_ref(&delete)).unwrap();
 
     let mutation = MarkupMutation {
-        overrides: vec![(format_pdfjs_annotation_ref(markup_id), "Highlight".to_string())],
         hints: vec![MarkupSubtypeHint {
             subtype: "Highlight".to_string(),
             page_index: 0,
@@ -438,14 +447,6 @@ fn recreates_markup_after_deleted_pdf_ref_without_null_override_failure() {
     assert_eq!(refs.len(), 1);
     assert_ne!(refs[0], markup_id);
     assert!(matches!(revision.object(markup_id), Ok(Object::Null)));
-
-    incremental
-        .new_document
-        .set_object(markup_id, Object::Integer(7));
-    let malformed_revision = AppendedRevision::new(&incremental);
-    let error = validate_markup_document_postconditions(&malformed_revision, &mutation)
-        .expect_err("a non-null retired object must still fail validation");
-    assert!(error.to_string().contains("Dictionary"), "{error}");
 }
 
 #[test]
@@ -453,7 +454,6 @@ fn emits_exact_identity_binding_for_new_native_markup() {
     let (document, page_id) = create_test_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let mutation = MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![MarkupSubtypeHint {
             subtype: "Highlight".to_string(),
             page_index: 0,
@@ -513,7 +513,6 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
     let (document, _page_id) = create_test_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let mutation = MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![MarkupSubtypeHint {
             subtype: "Highlight".to_string(),
             page_index: 0,
@@ -611,7 +610,6 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
         bookmarks: None,
         shapes: None,
         markup: Some(MarkupMutation {
-            overrides: Vec::new(),
             hints: [
                 ("Highlight", "persisted-highlight", "#ff0000"),
                 ("Underline", "persisted-underline", "#00ff00"),
@@ -725,7 +723,6 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
             bookmarks: None,
             shapes: None,
             markup: Some(MarkupMutation {
-                overrides: Vec::new(),
                 hints: vec![MarkupSubtypeHint {
                     subtype: "Highlight".to_string(),
                     page_index: 0,
@@ -793,7 +790,6 @@ fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
             &pdf_path,
             &NativeMutationsFile {
                 markup: Some(MarkupMutation {
-                    overrides: Vec::new(),
                     hints: vec![MarkupSubtypeHint {
                         subtype: subtype.to_string(),
                         page_index: 0,
@@ -845,7 +841,6 @@ fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
     apply_markup_mutations(
         &mut document,
         &MarkupMutation {
-            overrides: Vec::new(),
             hints: vec![MarkupSubtypeHint {
                 subtype: "Highlight".to_string(),
                 page_index: 0,
@@ -895,7 +890,6 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
 
     let managed_highlight = |app_annotation_id: &str| NativeMutationsFile {
         markup: Some(MarkupMutation {
-            overrides: Vec::new(),
             hints: vec![MarkupSubtypeHint {
                 subtype: "Highlight".to_string(),
                 page_index: 0,
@@ -1006,7 +1000,6 @@ fn attach_markup_popup(
 fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
     NativeMutationsFile {
         markup: Some(MarkupMutation {
-            overrides: Vec::new(),
             hints: vec![MarkupSubtypeHint {
                 subtype: "Highlight".to_string(),
                 page_index: 0,
@@ -1175,7 +1168,6 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
     let (document, last_page_id, markup_id) = create_sparse_high_index_markup();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let mutation = MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![MarkupSubtypeHint {
             subtype: "Underline".to_string(),
             page_index: 999_999,
@@ -1225,47 +1217,10 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
 }
 
 #[test]
-fn rewrites_high_index_markup_from_an_explicit_owner_without_a_page_walk() {
-    let (document, last_page_id, markup_id) = create_sparse_high_index_markup();
-    let mut incremental = IncrementalDocument::from_document(document, 0, None);
-    let mutation = MarkupMutation {
-        overrides: vec![(
-            format_pdfjs_annotation_ref(markup_id),
-            "StrikeOut".to_string(),
-        )],
-        hints: Vec::new(),
-    };
-
-    reset_page_tree_node_read_count();
-    apply_markup_mutations_incremental(
-        &mut incremental,
-        &mutation,
-        "D:20260829120500+04'00'",
-    )
-    .unwrap();
-
-    let revision = AppendedRevision::new(&incremental);
-    assert_eq!(
-        canonical_markup_subtype(revision.dictionary(markup_id).unwrap()).as_deref(),
-        Some("StrikeOut")
-    );
-    assert!(get_page_annots(&revision, last_page_id)
-        .unwrap()
-        .iter()
-        .any(|object| object.as_reference().ok() == Some(markup_id)));
-    assert!(
-        page_tree_node_read_count() < 100,
-        "high-index markup owner lookup walked too many page-tree nodes: {}",
-        page_tree_node_read_count()
-    );
-}
-
-#[test]
 fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
     let (document, last_page_id, markup_id) = create_sparse_high_index_markup();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let mutation = MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![MarkupSubtypeHint {
             subtype: "Squiggly".to_string(),
             page_index: 0,
@@ -1558,7 +1513,6 @@ fn validates_each_distinct_new_markup_identity_after_save() {
     second.app_annotation_id = Some("highlight-app-second".to_string());
     second.id = Some("highlight-second".to_string());
     let mutation = MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![first, second],
     };
 
@@ -1587,7 +1541,6 @@ fn caps_text_markup_hints_before_matching() {
         .collect();
 
     let error = validate_markup_mutation(&MarkupMutation {
-        overrides: Vec::new(),
         hints,
     })
     .expect_err("oversized hint list must fail");
@@ -1626,7 +1579,6 @@ fn rejects_text_markup_geometry_budget_during_validation() {
     second_hint.markup_geometry = Some(vec![marker_rect]);
 
     let error = validate_markup_mutation(&MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![first_hint, second_hint],
     })
     .expect_err("validation must enforce the mutation-wide geometry budget");
@@ -1642,7 +1594,6 @@ fn rejects_text_markup_opacity_outside_unit_range() {
     hint.opacity = Some(1.01);
 
     let error = validate_markup_mutation(&MarkupMutation {
-        overrides: Vec::new(),
         hints: vec![hint],
     })
     .expect_err("text-markup opacity must stay within the PDF unit range");

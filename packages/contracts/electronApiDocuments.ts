@@ -481,10 +481,7 @@ export interface IPdfNativeMarkupSubtypeHint {
     source?: string | null;
 }
 
-export interface IPdfNativeMarkupMutation {
-    overrides: Array<readonly [string, TPdfNativeMarkupSubtype]>;
-    hints: IPdfNativeMarkupSubtypeHint[];
-}
+export interface IPdfNativeMarkupMutation {hints: IPdfNativeMarkupSubtypeHint[];}
 
 export interface IPdfNativePlacedImage extends IPdfBox {
     author?: string | null;

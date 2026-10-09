@@ -276,7 +276,7 @@ fn markup_author_survives_creation_updates_and_omission_in_both_writers() {
             "appAnnotationId": "author-roundtrip", "source": "editor", "author": "Автор Հայ",
             "color": "#ffd400", "opacity": 0.35
         })).unwrap();
-        let mut mutations = NativeMutationsFile { markup: Some(MarkupMutation {overrides: vec![], hints: vec![hint]}), ..Default::default() };
+        let mut mutations = NativeMutationsFile { markup: Some(MarkupMutation {hints: vec![hint]}), ..Default::default() };
         let mut document = recovery_save(document, &mutations, append);
         for author in [Some("Автор Հայ"), Some("Updated author"), None] {
             let parsed = collect_parsed_annotations(&document, "").unwrap();

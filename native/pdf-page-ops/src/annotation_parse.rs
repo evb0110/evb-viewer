@@ -2599,7 +2599,6 @@ mod tests {
         apply_markup_mutations(
             &mut document,
             &MarkupMutation {
-                overrides: Vec::new(),
                 hints: vec![MarkupSubtypeHint {
                     subtype: "Highlight".to_string(),
                     page_index: 0,

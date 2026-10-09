@@ -235,39 +235,33 @@ describe('native PDF mutation contracts', () => {
                 deletedAnnotationIds: ['44R'],
                 deletedStableKeys: ['evb-shape:deleted'],
             },
-            markup: {
-                overrides: [[
-                    '44R',
-                    'Squiggly',
-                ]],
-                hints: [{
-                    subtype: 'Squiggly',
-                    pageIndex: 0,
-                    appAnnotationId: '  app-markup-1  ',
-                    markerRect: {
+            markup: {hints: [{
+                subtype: 'Squiggly',
+                pageIndex: 0,
+                appAnnotationId: '  app-markup-1  ',
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.2,
+                },
+                markupGeometry: [
+                    {
                         left: 0.1,
                         top: 0.2,
-                        width: 0.3,
+                        width: 0.1,
                         height: 0.2,
                     },
-                    markupGeometry: [
-                        {
-                            left: 0.1,
-                            top: 0.2,
-                            width: 0.1,
-                            height: 0.2,
-                        },
-                        {
-                            left: 0.3,
-                            top: 0.2,
-                            width: 0.1,
-                            height: 0.2,
-                        },
-                    ],
-                    annotationId: '44R',
-                    opacity: 0.45,
-                }],
-            },
+                    {
+                        left: 0.3,
+                        top: 0.2,
+                        width: 0.1,
+                        height: 0.2,
+                    },
+                ],
+                annotationId: '44R',
+                opacity: 0.45,
+            }]},
             placedImages: [validImage],
         };
 
@@ -321,51 +315,37 @@ describe('native PDF mutation contracts', () => {
             deletedStableKeys: [],
         }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
 
-        expect(() => normalizePdfNativeMutationSet({markup: {
-            overrides: [[
-                'x'.repeat(PDF_NATIVE_MUTATION_LIMITS.markupTextLength + 1),
-                'Highlight',
-            ]],
-            hints: [],
-        }}, 'mutations')).toThrow('bounded annotation id');
+        expect(() => normalizePdfNativeMutationSet({markup: {hints: [{
+            subtype: 'Highlight',
+            pageIndex: 0,
+            appAnnotationId: '   ',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.2,
+            },
+        }]}}, 'mutations')).toThrow('appAnnotationId must be a non-empty string or null');
 
-        expect(() => normalizePdfNativeMutationSet({markup: {
-            overrides: [],
-            hints: [{
-                subtype: 'Highlight',
-                pageIndex: 0,
-                appAnnotationId: '   ',
-                markerRect: {
+        expect(() => normalizePdfNativeMutationSet({markup: {hints: [{
+            subtype: 'Highlight',
+            pageIndex: 0,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.2,
+            },
+            markupGeometry: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
+                () => ({
                     left: 0.1,
                     top: 0.2,
-                    width: 0.3,
+                    width: 0.1,
                     height: 0.2,
-                },
-            }],
-        }}, 'mutations')).toThrow('appAnnotationId must be a non-empty string or null');
-
-        expect(() => normalizePdfNativeMutationSet({markup: {
-            overrides: [],
-            hints: [{
-                subtype: 'Highlight',
-                pageIndex: 0,
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.3,
-                    height: 0.2,
-                },
-                markupGeometry: Array.from(
-                    {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
-                    () => ({
-                        left: 0.1,
-                        top: 0.2,
-                        width: 0.1,
-                        height: 0.2,
-                    }),
-                ),
-            }],
-        }}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles`);
+                }),
+            ),
+        }]}}, 'mutations')).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems} rectangles`);
 
         expect(() => normalizePdfNativeMutationSet({placedImages: [{
             ...validImage,
@@ -476,16 +456,20 @@ describe('native PDF mutation contracts', () => {
                 deletedAnnotationIds: [],
                 deletedStableKeys: [],
             },
-            markup: {
-                overrides: Array.from(
-                    {length: PDF_NATIVE_MUTATION_LIMITS.markupItems + 1},
-                    (_, index) => [
-                        `${index + 1}R`,
-                        'Highlight',
-                    ] as const,
-                ),
-                hints: [],
-            },
+            markup: {hints: Array.from(
+                {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
+                (_, index) => ({
+                    subtype: 'Highlight',
+                    pageIndex: 0,
+                    markerRect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.2,
+                    },
+                    id: `markup-${index}`,
+                }),
+            )},
             placedImages: Array.from(
                 {length: PDF_NATIVE_MUTATION_LIMITS.placedImages + 1},
                 (_, index) => ({
@@ -510,8 +494,8 @@ describe('native PDF mutation contracts', () => {
             .toBe(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems + 1);
         expect(chunks.reduce((total, chunk) => total + (chunk.shapes?.shapes.length ?? 0), 0))
             .toBe(PDF_NATIVE_MUTATION_LIMITS.shapes + 1);
-        expect(chunks.reduce((total, chunk) => total + (chunk.markup?.overrides.length ?? 0), 0))
-            .toBe(PDF_NATIVE_MUTATION_LIMITS.markupItems + 1);
+        expect(chunks.reduce((total, chunk) => total + (chunk.markup?.hints.length ?? 0), 0))
+            .toBe(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1);
         expect(chunks.reduce((total, chunk) => total + (chunk.placedImages?.length ?? 0), 0))
             .toBe(PDF_NATIVE_MUTATION_LIMITS.placedImages + 1);
         for (const chunk of chunks) {
@@ -521,7 +505,7 @@ describe('native PDF mutation contracts', () => {
             expect(chunk.pageLabels?.ranges.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges);
             expect(chunk.bookmarks?.items.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.bookmarkItems);
             expect(chunk.shapes?.shapes.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.shapes);
-            expect(chunk.markup?.overrides.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.markupItems);
+            expect(chunk.markup?.hints.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems);
             expect(chunk.placedImages?.length ?? 0).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.placedImages);
         }
     });
