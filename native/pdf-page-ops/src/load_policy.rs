@@ -358,15 +358,18 @@ fn load_incremental_pdf_path_with_policy(
                             && encoded_len / size >= DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT
                     })
             }));
-    let incremental = if !structural {
+    let load_eagerly = || -> Result<IncrementalDocument> {
         let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
             .map_err(|error| Box::new(error) as Box<dyn Error>)?;
         let document = load_pdf_bytes_with_policy(&bytes, policy)?;
-        IncrementalDocument::from_document(
+        Ok(IncrementalDocument::from_document(
             document,
             u64::try_from(bytes.len())?,
             bytes.last().copied(),
-        )
+        ))
+    };
+    let incremental = if !structural {
+        load_eagerly()?
     } else {
         let qpdf_path = qpdf_path.ok_or_else(|| {
             domain_error(
@@ -374,7 +377,15 @@ fn load_incremental_pdf_path_with_policy(
                 "Large incremental PDF input requires the bundled qpdf structural reader",
             )
         })?;
-        load_qpdf_structural_incremental_pdf(path, qpdf_path)?
+        let (incremental, qpdf_warned) = load_qpdf_structural_incremental_pdf(path, qpdf_path)?;
+        // qpdf reads a damaged object as null and only warns. Below the
+        // ceiling the eager load reports such a file as it always has.
+        if qpdf_warned && encoded_len <= policy.max_encoded_bytes as u64 {
+            drop(incremental);
+            load_eagerly()?
+        } else {
+            incremental
+        }
     };
     validate_loaded_document(incremental.get_prev_documents(), policy)?;
     Ok(incremental)

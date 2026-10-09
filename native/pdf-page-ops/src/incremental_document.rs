@@ -266,7 +266,7 @@ fn read_qpdf_structure(
     path: &Path,
     qpdf_path: &Path,
     arguments: &[&str],
-) -> Result<(fs::Metadata, Document, HashSet<ObjectId>)> {
+) -> Result<(fs::Metadata, Document, HashSet<ObjectId>, bool)> {
     let initial_metadata = fs::metadata(path).map_err(io_domain_error)?;
     if initial_metadata.len() == 0 {
         return Err(domain_error(
@@ -346,14 +346,15 @@ fn read_qpdf_structure(
     }
 
     let (document, unavailable_base_streams) = parse_qpdf_structure(&temp.structure, Some(path))?;
-    Ok((initial_metadata, document, unavailable_base_streams))
+    let warned = status.code() == Some(3);
+    Ok((initial_metadata, document, unavailable_base_streams, warned))
 }
 
 /// qpdf's structural view of a PDF for a caller that only reads it. Unlike
 /// the incremental loader it accepts a reconstructed cross-reference table and
 /// never asks whether the file could take an appended revision.
 pub(crate) fn load_qpdf_structural_document(path: &Path, qpdf_path: &Path) -> Result<Document> {
-    let (initial_metadata, document, _) =
+    let (initial_metadata, document, _, _) =
         read_qpdf_structure(path, qpdf_path, QPDF_RECOVERED_STRUCTURE_ARGS)?;
     ensure_input_unchanged(path, &initial_metadata)?;
     Ok(document)
@@ -369,11 +370,13 @@ fn ensure_input_unchanged(path: &Path, initial_metadata: &fs::Metadata) -> Resul
     Ok(())
 }
 
+/// qpdf's structural view as the base of an incremental append, and whether
+/// qpdf read it only with warnings: it then reads a damaged object as null.
 pub(crate) fn load_qpdf_structural_incremental_pdf(
     path: &Path,
     qpdf_path: &Path,
-) -> Result<IncrementalDocument> {
-    let (initial_metadata, mut document, unavailable_base_streams) =
+) -> Result<(IncrementalDocument, bool)> {
+    let (initial_metadata, mut document, unavailable_base_streams, warned) =
         read_qpdf_structure(path, qpdf_path, QPDF_STRUCTURE_ARGS)?;
     let previous_len = initial_metadata.len();
     let (previous_xref_start, xref_type) = read_terminal_xref(path, previous_len)?;
@@ -382,15 +385,10 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     document.reference_table = lopdf::xref::Xref::new(document.max_id.saturating_add(1), xref_type);
     ensure_input_unchanged(path, &initial_metadata)?;
     let previous_last_byte = read_last_byte(path, previous_len)?;
-    let new_document = Document::new_from_prev(&document);
-    Ok(IncrementalDocument {
-        previous_len,
-        previous_last_byte,
-        previous_document: document,
-        unavailable_base_streams,
-        page_ids_by_number: None,
-        new_document,
-    })
+    let mut incremental =
+        IncrementalDocument::from_document(document, previous_len, previous_last_byte);
+    incremental.unavailable_base_streams = unavailable_base_streams;
+    Ok((incremental, warned))
 }
 
 /// Load only the dictionaries needed by a rotation-only incremental append.
@@ -1682,7 +1680,8 @@ mod tests {
         let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
         let _fake_executable = crate::write_fake_executable(&qpdf_path, &script);
 
-        let result = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path);
+        let result = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path)
+            .map(|(incremental, _)| incremental);
         let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&qpdf_path);
         result
@@ -1791,7 +1790,7 @@ esac
 
         let loaded = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path);
         let calls_after_load = fs::read_to_string(&calls_path).unwrap_or_default();
-        let mut incremental = loaded.expect("structural load should succeed");
+        let (mut incremental, _) = loaded.expect("structural load should succeed");
         incremental.materialize_text_box_font_streams(&input_path, &qpdf_path);
         let calls = fs::read_to_string(&calls_path).unwrap_or_default();
         drop(fake_executable);
