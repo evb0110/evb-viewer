@@ -421,6 +421,38 @@ describe('electron run openPdf command', () => {
         expect(result.state.workingCopyPath).toBe('/tmp/working-copies/report-2.pdf');
     });
 
+    it('does not take a document whose path differs only in case on Linux', async () => {
+        const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+        Object.defineProperty(process, 'platform', {value: 'linux'});
+        try {
+            const renderer = createRendererView();
+            const openedDocument = (originalPath: string): IOpenedDocumentModel => ({
+                originalPath,
+                workingCopyPath: `/tmp/working-copies${originalPath}`,
+                totalPages: 4,
+                hasOpenError: false,
+                paintedPages: 1,
+            });
+            const handleCommand = createHandlerForPage({
+                ...renderer.globals,
+                __allowRendererFileOpenForAutomation: () => Promise.resolve(true),
+                __openFileDirect: () => {
+                    renderer.view.active = openedDocument('/documents/Report.pdf');
+                    setTimeout(() => {
+                        renderer.view.active = openedDocument('/documents/report.pdf');
+                    }, 300);
+                    return Promise.resolve(true);
+                },
+            });
+
+            const result = await handleCommand('openPdf', ['/documents/report.pdf']) as {state: {originalPath: string;};};
+
+            expect(result.state.originalPath).toBe('/documents/report.pdf');
+        } finally {
+            Object.defineProperty(process, 'platform', platform!);
+        }
+    });
+
     it('fails at once when the document opens into an error state', async () => {
         const renderer = createRendererView();
         const handleCommand = createHandlerForPage({
