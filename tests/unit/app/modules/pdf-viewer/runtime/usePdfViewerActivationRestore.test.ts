@@ -37,6 +37,10 @@ function createHarness(options: {
         start: number;
         end: number;
     };
+    measuredRange?: {
+        start: number;
+        end: number;
+    } | null;
 } = {}) {
     const currentPage = options.currentPage ?? 6;
     const documentA = cast<IPdfDocument>({fingerprint: 'a'});
@@ -79,8 +83,7 @@ function createHarness(options: {
         currentPage: ref(currentPage),
         visibleRange,
         viewMode: computed(() => 'facing'),
-        getVisiblePageRange: () => visibleRange.value,
-        updateVisibleRange: vi.fn(),
+        getVisiblePageRange: () => options.measuredRange === undefined ? visibleRange.value : options.measuredRange,
         scrollToPage,
         renderVisiblePages,
         applySearchHighlights,
@@ -92,6 +95,7 @@ function createHarness(options: {
         renderVisiblePages,
         restore,
         scrollToPage,
+        visibleRange,
     };
 }
 
@@ -112,10 +116,11 @@ describe('usePdfViewerActivationRestore', () => {
         expect(harness.applySearchHighlights).toHaveBeenCalledOnce();
     });
 
-    it('reanchors a restored deep page when cached visibility says it is visible but its canvas is physically offscreen', async () => {
+    it('retains deep-page demand while activation has no measured visibility', async () => {
         const harness = createHarness({
             currentPage: 500,
             currentPagePhysicallyVisible: false,
+            measuredRange: null,
             numPages: 1_200,
             visibleRange: {
                 start: 482,
@@ -126,6 +131,10 @@ describe('usePdfViewerActivationRestore', () => {
 
         await harness.restore.renderActiveDocumentAfterActivation(runId);
 
+        expect(harness.visibleRange.value).toEqual({
+            start: 482,
+            end: 518,
+        });
         expect(harness.scrollToPage).toHaveBeenCalledExactlyOnceWith(500);
         expect(harness.renderVisiblePages).toHaveBeenCalledExactlyOnceWith({
             start: 499,

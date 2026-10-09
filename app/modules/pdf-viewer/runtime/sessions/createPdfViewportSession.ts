@@ -189,7 +189,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         get: () => clampPageRange(measuredVisibleRange.value, Math.max(1, numPages.value)),
         set: range => (measuredVisibleRange.value = range),
     });
-    const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
     const pageLayoutScaleResolver = shallowRef<((pageNumber: TPageNumber) => number) | null>(null);
     function seedPreparedOpeningFitScale() {
         // The host frame only seeds the shell. Once document metrics exist,
@@ -263,8 +262,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             : getViewportVisibilityFromLayout(
                 container,
                 totalPages,
-                viewportLayoutMetrics.value,
-                viewportLayoutMetrics.value ? getActivePhysicalScrollOrigin() : 0,
+                scroll.getPageLayoutMetrics(),
+                scroll.getPageLayoutMetrics() ? getActivePhysicalScrollOrigin() : 0,
             ) ?? domVisibility;
         visibleRange.value = visibility.range ?? visibleRange.value;
         return visibleRange.value;
@@ -284,7 +283,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             if (
                 sequence !== physicalScrollTransitionSequence
                 || !documentSession.isCurrent(documentFence)
-                || viewportLayoutMetrics.value !== layout
+                || scroll.getPageLayoutMetrics() !== layout
                 || getActivePhysicalScrollOrigin() !== transition.origin
             ) {
                 return;
@@ -340,9 +339,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         isLoading,
         pdfDocument,
         getMostVisiblePage: scroll.getMostVisiblePage,
-        scrollToPageInternal: (container, pageNumber, totalPages, margin, scrollOptions) => (
-            scroll.scrollToPage(container, clampPageNumber(pageNumber, totalPages), totalPages, margin, scrollOptions)
-        ),
         updateVisibleRange: projectViewportVisibleRange,
         updateCurrentPage: scroll.updateCurrentPage,
         commitVisibleRange: (range, commitOptions) => commitVisibleRange(range, commitOptions?.transactionId ?? null),
@@ -354,7 +350,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         emitCurrentPage: options.emitCurrentPage,
         emitNavigationFeedbackPage: options.emitNavigationFeedbackPage,
         viewportWritePort,
-        getPageLayoutMetrics: () => viewportLayoutMetrics.value,
+        getPageLayoutMetrics: scroll.getPageLayoutMetrics,
         getPhysicalScrollOrigin: () => getActivePhysicalScrollOrigin(),
         bindCurrentPageProjection: scroll.bindCurrentPageProjection,
         getDocumentRevision: () => documentSession.captureFence().loadToken,
@@ -376,7 +372,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ...openSurfaceViewportCallbacks,
     });
     getActivePhysicalScrollOrigin = () => {
-        const layout = viewportLayoutMetrics.value;
+        const layout = scroll.getPageLayoutMetrics();
         if (!layout) {
             return 0;
         }
@@ -817,7 +813,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         // retained navigation row at the scroll boundary so virtualization
         // follows the live offset instead of remaining pinned to an already
         // settled destination.
-        const layout = viewportLayoutMetrics.value;
+        const layout = scroll.getPageLayoutMetrics();
         const physicalScrollOrigin = getActivePhysicalScrollOrigin();
         const transition = layout
             ? getLayoutPhysicalScrollSegmentTransition(
@@ -880,7 +876,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     watchEffect(() => {
         const layout = viewModel.pageLayout.value;
-        viewportLayoutMetrics.value = layout;
         scroll.setPageLayoutMetrics(layout);
         if (layout && options.continuousScroll.value) {
             projectViewportVisibleRange(options.viewerContainer.value, numPages.value);
@@ -961,7 +956,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     watch([
         () => chassisAuthority?.openSurface.snapshot.value.committedRender,
         () => chassisAuthority?.openSurface.snapshot.value.committedViewport,
-        viewportLayoutMetrics,
+        scroll.getPageLayoutMetrics,
     ], reconcileIdleOpenSurfaceViewport, {flush: 'post'});
     function fitToViewport() {
         scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});

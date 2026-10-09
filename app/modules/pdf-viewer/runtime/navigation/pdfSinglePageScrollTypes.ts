@@ -5,7 +5,6 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type {
@@ -28,13 +27,6 @@ export interface IUsePdfSinglePageScrollOptions {
         container: HTMLElement | null,
         numPages: number,
     ) => number;
-    scrollToPageInternal: (
-        container: HTMLElement,
-        page: number,
-        total: number,
-        margin: number,
-        options?: IScrollToPageOptions,
-    ) => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     updateCurrentPage: (
         container: HTMLElement | null,

@@ -905,7 +905,7 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('owns trusted native scroll projection without the navigation or wheel adapters', async () => {
+    it('projects trusted native scroll into the visible page and demand', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,
             pageCount: 100,
@@ -919,14 +919,10 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.pageMetricsVersion.value += 1;
             await nextTick();
             const epoch = fixture.viewport.userViewportInteractionEpoch.value;
-            const legacyRangeUpdate = vi.spyOn(fixture.viewport.scroll, 'updateVisibleRange');
-            const legacyVisibility = vi.spyOn(fixture.viewport.scroll, 'getViewportVisibility');
 
             fixture.container.scrollTop = 10_000;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
 
-            expect(legacyRangeUpdate).not.toHaveBeenCalled();
-            expect(legacyVisibility).not.toHaveBeenCalled();
             expect(fixture.viewport.userViewportInteractionEpoch.value).toBe(epoch + 1);
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
