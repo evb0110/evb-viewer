@@ -1,4 +1,5 @@
 import {stat} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import { dirname } from 'path';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -7,7 +8,7 @@ import { normalizeSearchablePageText } from '@pdf-core/pdfSearchCore';
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import {
-    createPdfPageTextVisibilitySession,
+    inspectPdfPageTextVisibility,
     type TOcrPdfTextVisibilityAnalysis,
 } from '@electron/pdf/inspectPdfPageTextVisibility';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
@@ -226,46 +227,47 @@ async function* streamPdfPageTextRanges(
             throw new Error('PDF source changed during text extraction');
         }
     };
-    const visibility = createPdfPageTextVisibilitySession({
-        pdfPath,
-        pdfPageOpsBinary: resolvePageOpsBinary(),
-        qpdfBinary: getPdfNativeToolPaths().qpdf,
-        signal,
-    });
-    try {
-        for (const range of ranges) {
-            const lastPage = range.lastPage ?? await readPdfPageCount(pdfPath, signal);
-            for (
-                let firstPage = range.firstPage ?? 1;
-                firstPage <= lastPage;
-                firstPage += POPPLER_TEXT_PAGE_WINDOW_SIZE
-            ) {
+    for (const range of ranges) {
+        const lastPage = range.lastPage ?? await readPdfPageCount(pdfPath, signal);
+        for (
+            let firstPage = range.firstPage ?? 1;
+            firstPage <= lastPage;
+            firstPage += POPPLER_TEXT_PAGE_WINDOW_SIZE
+        ) {
+            signal?.throwIfAborted();
+            await assertSource();
+            const batchRange = {
+                firstPage,
+                lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
+            };
+            const pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
+            if (pages === null) {
+                await assertSource();
+                yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
+                continue;
+            }
+            // Finish each visibility command before another extraction command
+            // needs admission. Persistent readers can occupy all eight slots
+            // while waiting for the next pdftotext window to acquire one.
+            const inspection = await inspectPdfPageTextVisibility({
+                pdfPath,
+                pageNumbers: pages.filter(page => page.text.length > 0).map(page => page.pageNumber),
+                pdfPageOpsBinary: resolvePageOpsBinary(),
+                qpdfBinary: getPdfNativeToolPaths().qpdf,
+                tempDir: tmpdir(),
+                ...(signal === undefined ? {} : {signal}),
+                withEvbOcrText: true,
+            });
+            const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, signal);
+            await assertSource();
+            for (const page of orderedPages) {
                 signal?.throwIfAborted();
-                await assertSource();
-                const batchRange = {
-                    firstPage,
-                    lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
-                };
-                const pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
-                if (pages === null) {
-                    await assertSource();
-                    yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
-                    continue;
-                }
-                const inspection = await visibility.inspect(pages.filter(page => page.text.length > 0).map(page => page.pageNumber));
-                const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, signal);
-                await assertSource();
-                for (const page of orderedPages) {
-                    signal?.throwIfAborted();
-                    yield page;
-                }
-                if (pages.length < batchRange.lastPage - firstPage + 1) {
-                    return;
-                }
+                yield page;
+            }
+            if (pages.length < batchRange.lastPage - firstPage + 1) {
+                return;
             }
         }
-    } finally {
-        await visibility.close();
     }
 }
 

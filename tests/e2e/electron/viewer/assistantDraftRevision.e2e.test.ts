@@ -9,7 +9,10 @@ import {
     afterAll, describe, expect, it,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    activateMenuItemAsUser,
+    clickAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     openDocumentSidebarTab,
     openPdfInApp,
@@ -58,7 +61,8 @@ describe('Electron E2E - assistant draft revision', () => {
         await page.waitForSelector('.agent-assistant-input:not(:disabled)', {visible: true});
         await clickAsUser(page, '.agent-assistant-input');
         await page.keyboard.type('Keep this composed prompt and image after Save.');
-        // Seed the OS clipboard, then paste through trusted keyboard input.
+        // Seed the OS clipboard, then use the installed menu's Paste action.
+        // CDP keyboard events do not reach the macOS application menu.
         await page.evaluate(async () => {
             const canvas = document.createElement('canvas');
             canvas.width = 48;
@@ -71,10 +75,7 @@ describe('Electron E2E - assistant draft revision', () => {
             const png = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), 'image/png'));
             await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
         });
-        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-        await page.keyboard.down(modifier);
-        await page.keyboard.press('V');
-        await page.keyboard.up(modifier);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
         await page.waitForFunction(() => (document.querySelector('.agent-assistant-composer-attachment-image') as HTMLImageElement | null)?.naturalWidth === 48);
         const imageBefore = await page.$eval('.agent-assistant-composer-attachment-image', image => (image as HTMLImageElement).src);
         await session.command('screenshot', ['as03-composed']);

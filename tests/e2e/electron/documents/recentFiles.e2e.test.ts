@@ -501,6 +501,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             .getEntriesByName('evb:shell-interactive', 'mark')
             .at(-1)?.startTime ?? null;
         let emptyTabCreatedAtMs: number | null = null;
+        let actionableAtMs: number | null = null;
         let clickAtMs: number | null = null;
         let framesAfterClick = 0;
         let preSurfaceFrames = 0;
@@ -585,8 +586,8 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             )?.dataset.tabId ?? null;
             resolve({
                 activeTabChanged: Boolean(activeTabId && activeTabId !== previousActiveTabId),
-                actionableElapsedMs: emptyTabCreatedAtMs !== null && clickAtMs !== null
-                    ? Math.round(clickAtMs - emptyTabCreatedAtMs)
+                actionableElapsedMs: emptyTabCreatedAtMs !== null && actionableAtMs !== null
+                    ? Math.round(actionableAtMs - emptyTabCreatedAtMs)
                     : null,
                 clickAtMs,
                 emptyTabCreatedAtMs,
@@ -616,8 +617,11 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                     x: number;
                     y: number
                 } | null};
-                if (recentRow && openButton && pressWindow.__recentPressPoint === undefined) {
-                    // The row is pressed with the mouse; its click is the open.
+                if (recentRow && openButton && isVisible(openButton) && !openButton.disabled
+                    && pressWindow.__recentPressPoint === undefined) {
+                    // Readiness ends at the painted actionable button. Sending
+                    // its pointer or keyboard activation adds driver latency.
+                    actionableAtMs = performance.now();
                     openButton.addEventListener('click', () => {
                         targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
                         targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
