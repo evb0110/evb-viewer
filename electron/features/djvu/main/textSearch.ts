@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IPdfSearchResult } from '@contracts/search';
-import { assembleSearchablePageText } from '@pdf-core';
+import { assembleSearchablePageTextItems } from '@pdf-core';
 import type { IOcrWord } from '@contracts/shared';
 import {
     abortErrorFromSignal,
@@ -209,7 +209,7 @@ function buildParsedPage(page: IDjvuPageBuildState): IDjvuParsedTextPage {
             text: page.frame.text,
         });
     }
-    const assembled = assembleSearchablePageText(searchableItems);
+    const assembled = assembleSearchablePageTextItems(searchableItems);
     if (assembled.text.length > DJVU_TEXT_MAX_PAGE_CHARS) {
         throw new Error(`DjVu page ${page.pageNumber} text exceeds the supported limit`);
     }

@@ -120,7 +120,7 @@ fn apply_ocr_word_edits(
     if edits.is_empty() {
         return Ok(());
     }
-    let bytes = source.get_page_content_with_limit(page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
+    let bytes = crate::page_content_with_limit(source, page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
     let mut content = Content::decode(&bytes)?;
     {
         let mut words: Vec<Option<&mut Vec<u8>>> = content
@@ -374,9 +374,7 @@ fn read_content_stream(
     let Ok(Object::Stream(stream)) = document.get_object(object_id) else {
         return Ok(None);
     };
-    Ok(stream
-        .get_plain_content_with_limit(MAX_OCR_CONTENT_STREAM_BYTES)
-        .ok())
+    Ok(crate::plain_stream_with_limit(stream, MAX_OCR_CONTENT_STREAM_BYTES).ok())
 }
 
 /// Remove previous OCR text from a page whose dictionary is already in the

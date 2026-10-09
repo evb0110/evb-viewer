@@ -274,7 +274,7 @@ pub(crate) fn write_annotation_parse_path(
         ));
     }
 
-    let mut incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
+    let mut incremental = load_annotation_parse_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
@@ -311,6 +311,61 @@ pub(crate) fn write_annotation_parse_path(
     )?;
     output.publish()?;
     Ok(())
+}
+
+/// Parsing reads dictionaries, except that a note's recovery data serializes
+/// the note's objects and a stamp reads its appearance and image streams.
+/// qpdf's structural view keeps neither the original object bytes nor the
+/// stream bytes. So a scanned file that the dictionary load reads
+/// structurally below the eager-load ceiling is loaded eagerly after all when
+/// a page holds a note, a legacy note-marker candidate or a stamp.
+fn load_annotation_parse_pdf_path(
+    input_path: &Path,
+    qpdf_path: Option<&Path>,
+) -> Result<IncrementalDocument> {
+    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)?;
+    if incremental.has_unavailable_base_streams()
+        && incremental.previous_len() <= MAX_ENCODED_PDF_BYTES as u64
+        && needs_eager_parse(&AppendedRevision::new(&incremental))
+    {
+        drop(incremental);
+        return load_annotation_index_pdf_path(input_path, qpdf_path);
+    }
+    Ok(incremental)
+}
+
+/// A page annotation that is a note, a legacy note-marker candidate or a stamp,
+/// or a page tree or /Annots the scan cannot read, which the eager parse
+/// reports as it always has.
+fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
+    let Ok(page_resolver) = PageTreeResolver::new(document) else {
+        return true;
+    };
+    let mut found = false;
+    let scanned = page_resolver.for_each_page_id(document, |page_id| {
+        if found {
+            return Ok(());
+        }
+        for annotation in get_page_annots(document, page_id)? {
+            let Some(dict) = document
+                .resolved(&annotation)
+                .ok()
+                .and_then(|object| object.as_dict().ok())
+            else {
+                continue;
+            };
+            let subtype = annotation_subtype_name(document, dict);
+            if subtype.eq_ignore_ascii_case("Text")
+                || subtype.eq_ignore_ascii_case("Stamp")
+                || is_free_text_note_marker_candidate(document, dict)
+            {
+                found = true;
+                break;
+            }
+        }
+        Ok(())
+    });
+    found || scanned.is_err()
 }
 
 /// The bounded structural reader omits stream bytes from path-backed PDFs
@@ -921,9 +976,9 @@ fn stamp_appearance_cm_matrix(
     let Object::Stream(appearance_stream) = document.object(appearance_id).ok()? else {
         return None;
     };
-    let bytes = appearance_stream
-        .decompressed_content_with_limit(MAX_STAMP_APPEARANCE_STREAM_BYTES)
-        .ok()?;
+    let bytes =
+        decompressed_stream_with_limit(appearance_stream, MAX_STAMP_APPEARANCE_STREAM_BYTES)
+            .ok()?;
     let content = std::str::from_utf8(&bytes).ok()?;
     let mut values: Vec<f64> = Vec::with_capacity(6);
     for token in content.split_whitespace() {

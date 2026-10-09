@@ -290,19 +290,27 @@ const recommendedPresets = computed<IResolvedPreset[]>(() => [
         note: t('djvu.convertDialog.sourceDetailCompactSizeNote'),
     },
 ]);
+// One source-pixel aggregate per info snapshot, shared by every policy decision.
+const conversionSource = computed(() => (info.value
+    ? estimateDjvuPdfConversionSource({
+        pageCount: info.value.pageCount,
+        sourceDpi: info.value.sourceDpi,
+        ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
+    })
+    : null));
 const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
     const estimateBySubsample = new Map(estimates.value.map(estimate => [
         estimate.subsample,
         estimate,
     ] as const));
-    const conversionSource = resolveConversionSource();
-    const recommendedDirectValue = info.value && conversionSource
-        ? resolveRecommendedAdvancedDirectPresetValue(info.value.pageCount, conversionSource)
+    const source = conversionSource.value;
+    const recommendedDirectValue = info.value && source
+        ? resolveRecommendedAdvancedDirectPresetValue(info.value.pageCount, source)
         : null;
 
     return DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.map((subsample) => {
         const estimate = estimateBySubsample.get(subsample);
-        const policy = conversionSource && evaluateDjvuPdfConversionPolicy(conversionSource, subsample);
+        const policy = source && evaluateDjvuPdfConversionPolicy(source, subsample);
         const isBlocked = Boolean(policy && !policy.isAllowed);
         const value = createDirectDjvuConvertDialogPresetValue(subsample);
         const resultingDpi = estimate?.resultingDpi ?? resolveResultingDpi(subsample);
@@ -323,8 +331,8 @@ const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
     });
 });
 const selectedConversionPolicy = computed(() => {
-    const conversionSource = selectedConversion.value.pdfStrategy === 'direct' ? resolveConversionSource() : null;
-    return conversionSource && evaluateDjvuPdfConversionPolicy(conversionSource, selectedConversion.value.subsample);
+    const source = selectedConversion.value.pdfStrategy === 'direct' ? conversionSource.value : null;
+    return source && evaluateDjvuPdfConversionPolicy(source, selectedConversion.value.subsample);
 });
 
 const browserConversionPreflight = computed(() => {
@@ -394,18 +402,6 @@ function resolveResultingDpi(subsample: number) {
     }
 
     return Math.round(info.value.sourceDpi / subsample);
-}
-
-function resolveConversionSource() {
-    if (!info.value) {
-        return null;
-    }
-
-    return estimateDjvuPdfConversionSource({
-        pageCount: info.value.pageCount,
-        sourceDpi: info.value.sourceDpi,
-        ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
-    });
 }
 
 watch(() => selectedConversion.value.pdfStrategy, (pdfStrategy) => {

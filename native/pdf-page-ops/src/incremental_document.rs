@@ -98,6 +98,12 @@ impl IncrementalDocument {
         self.previous_last_byte
     }
 
+    /// Whether the base came from the structural reader, which leaves stream
+    /// bytes unread until a caller materializes them.
+    pub(crate) fn has_unavailable_base_streams(&self) -> bool {
+        !self.unavailable_base_streams.is_empty()
+    }
+
     /// Read-only consumers decode a transient stream instead of retaining it.
     pub(crate) fn read_base_stream_bounded(
         &self,
@@ -117,14 +123,14 @@ impl IncrementalDocument {
                 )?);
                 return Ok(
                     if transient.filters().is_ok_and(|filters| !filters.is_empty()) {
-                        transient.decompressed_content_with_limit(max_bytes).ok()
+                        decompressed_stream_with_limit(&transient, max_bytes).ok()
                     } else {
                         Some(transient.content)
                     },
                 );
             }
         }
-        Ok(stream.get_plain_content_with_limit(max_bytes).ok())
+        Ok(plain_stream_with_limit(stream, max_bytes).ok())
     }
 
     pub(crate) fn materialize_base_stream(

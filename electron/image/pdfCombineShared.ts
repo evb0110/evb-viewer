@@ -1,7 +1,6 @@
 import {
     mkdtemp,
     open,
-    readFile,
     rm,
     stat,
     writeFile,
@@ -13,7 +12,7 @@ import {
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { createRequire } from 'node:module';
-import { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
+import { readTiffFrameDimensions } from '@pdf-core/iterateDecodedTiffFrames';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { tryCreatePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
@@ -473,25 +472,34 @@ async function preflightImageInput(
     throwIfAborted(signal);
 
     if (extension === '.tif' || extension === '.tiff') {
-        const tiffBytes = new Uint8Array(await readFile(sourcePath));
-        let frameCount = 0;
-        for (const {
-            width,
-            height,
-        } of iterateDecodedTiffFrames(tiffBytes, {
+        // Only the page directories are read; the native combiner decodes the pixels once.
+        const file = await open(sourcePath, 'r');
+        let frames;
+        try {
+            frames = await readTiffFrameDimensions(async (offset, length) => {
+                throwIfAborted(signal);
+                const bytes = new Uint8Array(length);
+                const {bytesRead} = await file.read(bytes, 0, length, offset);
+                return bytes.subarray(0, bytesRead);
+            }, {
                 maxFrames: limits.maxTiffFrames,
                 maxPixels: limits.maxImagePixels,
                 sourceLabel: sourcePath,
-            })) {
-            throwIfAborted(signal);
-            assertPageLimit(currentPageCount + frameCount + 1, limits);
-            assertPixelLimit(width, height, sourcePath, limits);
-            frameCount += 1;
+            });
+        } finally {
+            await file.close();
         }
-        if (frameCount === 0) {
+        frames.forEach(({
+            width,
+            height,
+        }, index) => {
+            assertPageLimit(currentPageCount + index + 1, limits);
+            assertPixelLimit(width, height, sourcePath, limits);
+        });
+        if (frames.length === 0) {
             throw new Error(`No decodable TIFF pages found in ${sourcePath}`);
         }
-        return frameCount;
+        return frames.length;
     }
 
     assertKnownBitmapPixelLimit(

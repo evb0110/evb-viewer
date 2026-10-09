@@ -827,7 +827,7 @@ fn validate_placed_image_transform(
             return Err("Placed image appearance geometry differs from the request".into());
         }
     }
-    let bytes = actual.decompressed_content_with_limit(1024 * 1024)?;
+    let bytes = decompressed_stream_with_limit(actual, 1024 * 1024)?;
     if bytes != expected.content {
         return Err("Placed image appearance transform differs from the request".into());
     }

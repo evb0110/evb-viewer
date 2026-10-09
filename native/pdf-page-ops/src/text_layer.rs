@@ -196,11 +196,11 @@ impl UnicodeMap {
         let to_unicode = dictionary.get(b"ToUnicode").ok()?;
         let (_, to_unicode) = document.dereference(to_unicode).ok()?;
         // A CMap past the per-stream ceiling is dropped like any unreadable map.
-        let cmap = to_unicode
-            .as_stream()
-            .ok()?
-            .decompressed_content_with_limit(MAX_DECOMPRESSED_PDF_STREAM_BYTES)
-            .ok()?;
+        let cmap = decompressed_stream_with_limit(
+            to_unicode.as_stream().ok()?,
+            MAX_DECOMPRESSED_PDF_STREAM_BYTES,
+        )
+        .ok()?;
         let code_to_char = parse_unicode_cmap(&cmap)?;
         let mut char_to_code = HashMap::with_capacity(code_to_char.len());
         for (&code, &character) in &code_to_char {
@@ -1305,8 +1305,7 @@ fn text_operations(
     page_id: ObjectId,
     filter: Option<(TextMatrix, PdfRect)>,
 ) -> Result<(Vec<ContentOperation>, HashSet<Vec<u8>>)> {
-    let bytes = source
-        .get_page_content_with_limit(page_id, MAX_TEXT_CONTENT_BYTES)
+    let bytes = crate::page_content_with_limit(source, page_id, MAX_TEXT_CONTENT_BYTES)
         .map_err(|error| match error {
             LopdfError::Decompress(DecompressError::MemoryLimitExceeded { limit }) => {
                 domain_error(
