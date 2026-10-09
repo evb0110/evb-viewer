@@ -140,8 +140,6 @@ function createNativeRouteCapabilities(
         shapes: [createShape()],
         deletedEmbeddedShapeAnnotationIds: [],
         deletedEmbeddedShapeStableKeys: [],
-        markupSubtypeOverrides: undefined,
-        markupSubtypeHints: [],
         nativeTextBoxes: [],
         ...overrides,
     };

@@ -3,7 +3,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {TMarkupSubtype} from '@app/types/annotations';
 import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
@@ -94,27 +93,8 @@ describe('native markup builders', () => {
                 }),
             ],
             annotationWorkDirty: true,
-            markupSubtypeOverrides: new Map<string, TMarkupSubtype>([[
-                ' 44R0 ',
-                'Underline',
-            ]]),
-            markupSubtypeHints: [{
-                subtype: 'Squiggly',
-                pageIndex: requirePageIndex(0),
-                markerRect,
-                annotationId: '45R0',
-                color: null,
-                id: null,
-                pageMarkupIndex: null,
-                source: null,
-                consumed: false,
-            }],
         });
 
-        expect(mutation?.overrides).toEqual([[
-            '44R0',
-            'Underline',
-        ]]);
         expect(mutation?.hints).toEqual([
             expect.objectContaining({
                 subtype: 'Highlight',
@@ -127,24 +107,14 @@ describe('native markup builders', () => {
                 color: '#224466',
                 opacity: 0.4,
             }),
-            expect.objectContaining({
-                subtype: 'Squiggly',
-                annotationId: '45R0',
-            }),
         ]);
     });
 
-    it('gives changed canonical geometry precedence over a stale live hint', () => {
+    it('emits the changed canonical geometry for an edited comment', () => {
         const canonicalRect = {
             left: 0.2,
             top: 0.2,
             width: 0.5,
-            height: 0.1,
-        };
-        const staleLiveRect = {
-            left: 0.21,
-            top: 0.2,
-            width: 0.49,
             height: 0.1,
         };
         const mutation = buildNativeMarkupMutationForSave({
@@ -167,26 +137,12 @@ describe('native markup builders', () => {
                 markupGeometry: [canonicalRect],
             })],
             annotationWorkDirty: true,
-            markupSubtypeOverrides: undefined,
-            markupSubtypeHints: [{
-                subtype: 'Highlight',
-                pageIndex: requirePageIndex(0),
-                markerRect: staleLiveRect,
-                markupGeometry: [staleLiveRect],
-                annotationId: '44R0',
-                color: '#ffee00',
-                id: 'stale-runtime-id',
-                pageMarkupIndex: 0,
-                source: 'editor-live',
-                consumed: false,
-            }],
         });
 
-        expect(mutation?.hints).toHaveLength(2);
-        expect(mutation?.hints[0]).toEqual(expect.objectContaining({
+        expect(mutation?.hints).toEqual([expect.objectContaining({
             annotationId: '44R0',
             markupGeometry: [canonicalRect],
-        }));
+        })]);
     });
 
     it.each([
@@ -219,8 +175,6 @@ describe('native markup builders', () => {
                 canonicalComments: [comment],
                 changedComments: [comment],
                 annotationWorkDirty: true,
-                markupSubtypeOverrides: undefined,
-                markupSubtypeHints: [],
             })).toThrow('Cannot save text-markup annotation with invalid geometry');
         },
     );
@@ -250,120 +204,5 @@ describe('native markup builders', () => {
 
         expect(nativeHint).toEqual(expect.objectContaining({markerRect}));
         expect(nativeHint).not.toHaveProperty('markupGeometry');
-    });
-
-    it('matches a live markup hint by its canonical app annotation identity', () => {
-        const markerRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.4,
-        };
-        const mutation = buildNativeMarkupMutationForSave({
-            canonicalComments: [createComment({
-                appAnnotationId: 'app-markup-1',
-                id: 'current-runtime-id',
-                stableKey: 'ann:0:current-runtime-id',
-                subtype: 'Highlight',
-                source: 'editor',
-                annotationId: null,
-                markerRect,
-            })],
-            annotationWorkDirty: true,
-            markupSubtypeOverrides: undefined,
-            markupSubtypeHints: [{
-                appAnnotationId: 'app-markup-1',
-                subtype: 'Highlight',
-                pageIndex: requirePageIndex(0),
-                markerRect,
-                annotationId: null,
-                color: '#ffee00',
-                id: 'stale-runtime-id',
-                pageMarkupIndex: null,
-                source: 'editor-live',
-                consumed: false,
-            }],
-        });
-
-        expect(mutation?.hints).toContainEqual(expect.objectContaining({
-            appAnnotationId: 'app-markup-1',
-            id: 'stale-runtime-id',
-        }));
-    });
-
-    it('drops a retired PDF override when an undone markup is editor-owned', () => {
-        const markerRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.4,
-        };
-        const mutation = buildNativeMarkupMutationForSave({
-            canonicalComments: [createComment({
-                appAnnotationId: 'app-markup-1',
-                id: '9R',
-                stableKey: 'ann:0:9R',
-                subtype: 'Highlight',
-                source: 'editor',
-                annotationId: null,
-                markerRect,
-            })],
-            annotationWorkDirty: true,
-            markupSubtypeOverrides: new Map<string, TMarkupSubtype>([[
-                '9R0',
-                'Underline',
-            ]]),
-            markupSubtypeHints: [{
-                appAnnotationId: 'app-markup-1',
-                subtype: 'Highlight',
-                pageIndex: requirePageIndex(0),
-                markerRect,
-                annotationId: '9R0',
-                color: '#ffee00',
-                id: 'pdfjs_saved_highlight_undo',
-                pageMarkupIndex: 0,
-                source: 'editor-live',
-                consumed: false,
-            }],
-        });
-
-        expect(mutation?.overrides).toEqual([]);
-        expect(mutation?.hints).toContainEqual(expect.objectContaining({
-            appAnnotationId: 'app-markup-1',
-            id: '9R',
-            annotationId: null,
-            source: 'editor',
-        }));
-    });
-
-    it('drops stale markup hints and overrides that no longer match current markup comments', () => {
-        const markerRect = {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.4,
-        };
-
-        const mutation = buildNativeMarkupMutationForSave({
-            canonicalComments: [createComment()],
-            annotationWorkDirty: true,
-            markupSubtypeOverrides: new Map<string, TMarkupSubtype>([[
-                '44R0',
-                'Underline',
-            ]]),
-            markupSubtypeHints: [{
-                subtype: 'Squiggly',
-                pageIndex: requirePageIndex(0),
-                markerRect,
-                annotationId: '45R0',
-                color: null,
-                id: null,
-                pageMarkupIndex: null,
-                source: null,
-                consumed: false,
-            }],
-        });
-
-        expect(mutation).toBeNull();
     });
 });

@@ -1,7 +1,6 @@
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
-    TMarkupSubtype,
 } from '@app/types/annotations';
 import type {
     AnnotationEntity,
@@ -13,7 +12,6 @@ import {
     projectAnnotationBackendMutations,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     ISerializationPlan,
     TSerializationBackend,
@@ -86,8 +84,6 @@ export interface IPdfSaveRouteCapabilities {
     readonly shapes: IShapeAnnotation[] | null;
     readonly deletedEmbeddedShapeAnnotationIds: string[];
     readonly deletedEmbeddedShapeStableKeys: string[];
-    readonly markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
-    readonly markupSubtypeHints: IMarkupSubtypeHint[];
     /** `undefined` preserves the pre-canonical-text-box compatibility path. */
     readonly nativeTextBoxes?: IPdfNativeTextBoxMutation[] | null;
 }
@@ -737,8 +733,6 @@ function buildClassifiedNativeMutationProjection(
         canonicalComments: canonical.comments,
         changedComments,
         annotationWorkDirty,
-        markupSubtypeOverrides: capabilities.markupSubtypeOverrides,
-        markupSubtypeHints: capabilities.markupSubtypeHints,
     });
     const hasMarkupMutations = Boolean(markup);
     const nativeNoteMutationCount = noteTextUpdates.length

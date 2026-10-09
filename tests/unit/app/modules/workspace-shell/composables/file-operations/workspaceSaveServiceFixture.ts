@@ -10,9 +10,7 @@ import {
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
-    TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
@@ -91,8 +89,6 @@ type TFileOperationsSaveControllerTestDeps =
         getAllShapes?: () => IShapeAnnotation[];
         getDeletedEmbeddedShapeAnnotationIds?: () => string[];
         getDeletedEmbeddedShapeStableKeys?: () => string[];
-        getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
-        getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
         preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
         runWithDocumentOperationLease?: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>;
@@ -411,8 +407,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
                     commit: vi.fn(),
                 })}
                 : {}),
-            getMarkupSubtypeOverrides: () => deps.getMarkupSubtypeOverrides?.(),
-            getMarkupSubtypeHints: () => deps.getMarkupSubtypeHints?.(),
             getAllShapes: () => deps.getAllShapes?.() ?? [],
             getDeletedEmbeddedShapeAnnotationIds: () => deps.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
             getDeletedEmbeddedShapeStableKeys: () => deps.getDeletedEmbeddedShapeStableKeys?.() ?? [],

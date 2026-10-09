@@ -12,7 +12,6 @@ import type {
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
 import type { ICropSelectionResult } from '@app/types/crop';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type {
@@ -237,8 +236,6 @@ export interface IPdfViewerAnnotationCommentExpose {
     deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
-    getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
-    getMarkupSubtypeHints?: () => IMarkupSubtypeHint[];
     updateSelectedTextMarkupAnnotationColor?: (
         color: string,
         selected: ITextMarkupAnnotationProperties,
