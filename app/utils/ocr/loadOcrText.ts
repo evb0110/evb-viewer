@@ -211,7 +211,7 @@ export async function prepareDocumentTextCatalogTextPages(
     documentRevisionToken: string,
     pageCount: number,
     signal?: AbortSignal,
-): Promise<AsyncIterable<string> | null> {
+): Promise<AsyncIterable<Pick<IDocumentTextCatalogPage, 'text' | 'layout'>> | null> {
     throwIfAborted(signal);
     const revision = parseDocumentRevisionToken(documentRevisionToken);
     if (revision === null || !Number.isSafeInteger(pageCount) || pageCount < 1) {
@@ -250,7 +250,10 @@ export async function prepareDocumentTextCatalogTextPages(
                 throwIfAborted(signal);
                 const text = page.text.trim();
                 if (text) {
-                    yield text;
+                    yield {
+                        text,
+                        ...(page.layout === undefined ? {} : {layout: page.layout}),
+                    };
                 }
             }
         };

@@ -948,7 +948,7 @@ export default {
             'preprocessingUnavailable': 'Seite {page}: Scanbereinigung ist nicht verfügbar; das Originalbild wurde verwendet.',
             'preprocessingFailed': 'Seite {page}: Scanbereinigung ist fehlgeschlagen; das Originalbild wurde verwendet.',
             'engineOptionUnsupported': 'Seite {page}: Die OCR-Engine unterstützt den gewählten Erkennungsmodus nicht, daher wurde ohne ihn erkannt.',
-            'longSUnavailable': 'Seite {page} ist mit dem langen s (ſ) gedruckt, aber die Frühdruck-Modelle waren nicht verfügbar, daher kann ſ als f erkannt sein.',
+            'earlyPrintUnavailable': 'Seite {page} sieht nach einem Frühdruck aus, aber die Frühdruck-Modelle waren nicht verfügbar, daher können langes s (ſ), æ und Ligaturen falsch gelesen werden.',
             'preprocessingGeometryChanged': 'Seite {page}: Scanbereinigung hat die Seitengröße geändert; das Originalbild wurde verwendet.',
             'sourceDpiLimited': 'Seite {page}: Die Quellauflösung hat die effektive OCR-DPI begrenzt.',
             'existingTextSkipped': 'Seite {page}: Vorhandener Text wurde beibehalten.',

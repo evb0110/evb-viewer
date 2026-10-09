@@ -42,7 +42,8 @@ async function readTextPages(pdfPath: string, range: {
         if (!page.text.trim()) {
             continue;
         }
-        textLength += page.text.length;
+        textLength += page.text.length
+            + (page.layout?.regions.flatMap(region => region.columns.flat()).reduce((length, paragraph) => length + paragraph.length, 0) ?? 0);
         if (textLength > maxTextLength) {
             throw new RangeError(`Document text exceeds ${maxTextLength} characters; export it in page windows`);
         }
@@ -50,6 +51,7 @@ async function readTextPages(pdfPath: string, range: {
             pageNumber: requirePageNumber(page.pageNumber),
             text: page.text,
             source: 'pdf-native',
+            ...(page.layout === undefined ? {} : {layout: page.layout}),
             contentDigest: digest([
                 String(page.pageNumber),
                 page.text,

@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import type { WebContents } from 'electron';
 import { prepareLanguageModelsForJob } from '@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep';
 import { ensureTessdataModels } from '@electron/features/ocr/languageModels';
-import { LONG_S_MODEL_CODES } from '@contracts/ocrLanguages';
+import { EARLY_PRINT_MODEL_CODES } from '@contracts/ocrLanguages';
 import {
     createOcrQueueFailure,
     type IOcrQueueStartResult,
@@ -323,7 +323,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                     pages,
                     options,
                     paths: await resolveOcrPipelinePaths(),
-                    prepareLongSModels: signal => ensureTessdataModels(LONG_S_MODEL_CODES, {signal}),
+                    prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {signal}),
                     signal: registry.signal,
                     log: pipelineLog,
                     publish: progress => registry.publish({

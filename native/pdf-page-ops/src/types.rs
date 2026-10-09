@@ -841,8 +841,8 @@ pub(crate) struct OcrTextLayerPage {
     pub(crate) word_edits: Vec<OcrWordEdit>,
 }
 
-/// Replaces one word of Tesseract's page with text of the same UTF-16
-/// length, so the glyph count behind its horizontal scaling stays valid.
+/// Replaces one word of Tesseract's page; the writer rescales the word's
+/// horizontal scaling to the new glyph count, so the word keeps its box.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OcrWordEdit {

@@ -948,7 +948,7 @@ export default {
             'preprocessingUnavailable': 'Pagina {page}: la pulizia della scansione non è disponibile; è stata usata l’immagine originale.',
             'preprocessingFailed': 'Pagina {page}: la pulizia della scansione non è riuscita; è stata usata l’immagine originale.',
             'engineOptionUnsupported': 'Pagina {page}: il motore OCR non supporta la modalità di riconoscimento selezionata, quindi è stata riconosciuta senza.',
-            'longSUnavailable': 'La pagina {page} è stampata con la s lunga (ſ), ma i modelli per la stampa antica non erano disponibili, quindi ſ può risultare come f.',
+            'earlyPrintUnavailable': 'La pagina {page} sembra una stampa antica, ma i modelli per la stampa antica non erano disponibili, quindi la s lunga (ſ), la æ e le legature possono essere lette male.',
             'preprocessingGeometryChanged': 'Pagina {page}: la pulizia della scansione ha modificato la geometria della pagina; è stata usata l’immagine originale.',
             'sourceDpiLimited': 'Pagina {page}: la risoluzione di origine ha limitato i DPI OCR effettivi.',
             'existingTextSkipped': 'Pagina {page}: il testo esistente è stato mantenuto.',

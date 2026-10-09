@@ -949,7 +949,7 @@ export default {
             'preprocessingUnavailable': 'Página {page}: a limpeza da digitalização não está disponível; foi utilizada a imagem original.',
             'preprocessingFailed': 'Página {page}: a limpeza da digitalização falhou; foi utilizada a imagem original.',
             'engineOptionUnsupported': 'Página {page}: o motor de OCR não suporta o modo de reconhecimento selecionado, pelo que foi reconhecida sem ele.',
-            'longSUnavailable': 'A página {page} está impressa com o s longo (ſ), mas os modelos de impressos antigos não estavam disponíveis, pelo que ſ pode aparecer como f.',
+            'earlyPrintUnavailable': 'A página {page} parece um impresso antigo, mas os modelos de impressos antigos não estavam disponíveis, por isso o s longo (ſ), o æ e as ligaduras podem ser mal lidos.',
             'preprocessingGeometryChanged': 'Página {page}: a limpeza da digitalização alterou a geometria da página; foi utilizada a imagem original.',
             'sourceDpiLimited': 'Página {page}: a resolução de origem limitou os DPI efetivos do OCR.',
             'existingTextSkipped': 'Página {page}: o texto existente foi preservado.',

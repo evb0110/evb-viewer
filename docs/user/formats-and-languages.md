@@ -78,12 +78,17 @@ demand the first time they are selected:
 - Syriac
 - Latin
 
-Books printed before about 1800 use the long s (ſ), which modern models read as
-f. Choose the language of the text as usual: when a page in a Latin-script
-language reads like long-s print, OCR reads it again with early-print models and
-writes ſ wherever they saw one, keeping every other letter of the first
-reading. Those models download the first time a page needs them. The text keeps
-the long s; search matches it with an ordinary s, so `festum` finds `feſtum`.
+Books printed before about 1800 use the long s (ſ), the æ and œ ligatures and
+a ct ligature, which modern models misread. Choose the language of the text as
+usual: when a page in a Latin-script language reads like early print, OCR reads
+it again with early-print models and the language's dictionary, and writes ſ,
+æ, œ and ct as printed. Those models download the first time a page needs
+them, and such a page takes about four times as long. The text keeps the long
+s; search matches it with an ordinary s, so `festum` finds `feſtum`.
+
+DOCX export keeps the layout of an OCR'd page: a page set in two columns
+exports as two columns side by side, in a borderless table, with the lines of
+each paragraph joined.
 
 ### UI Locales
 

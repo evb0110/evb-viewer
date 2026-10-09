@@ -1465,7 +1465,7 @@ fn visibility(
         "hiddenText": hidden_text,
         "uncertain": uncertain,
         "unsupported": unsupported,
-        "evbOcrText": null,
+        "evbOcrLines": null,
     })
 }
 

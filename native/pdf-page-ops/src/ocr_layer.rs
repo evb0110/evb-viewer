@@ -85,13 +85,8 @@ pub(crate) fn read_ocr_text_layer_file(path: &Path) -> Result<OcrTextLayerFile> 
                 return Err("ocr-text-layer word edits must be in ascending word order".into());
             }
             previous_word = Some(edit.word);
-            if edit.from.is_empty()
-                || edit.from.encode_utf16().count() != edit.to.encode_utf16().count()
-            {
-                return Err(
-                    "ocr-text-layer word edits must replace a word with text of the same length"
-                        .into(),
-                );
+            if edit.from.is_empty() || edit.to.is_empty() {
+                return Err("ocr-text-layer word edits must replace a word with text".into());
             }
         }
     }
@@ -112,6 +107,8 @@ fn word_text(bytes: &[u8]) -> &[u8] {
 /// the word's text-show operator. Tesseract leaves out a word whose baseline
 /// has no length, so when that operator holds other text the edit goes to the
 /// nearest earlier unedited word with its text, and is dropped without one.
+/// Tesseract stretches each word's glyphs over its box with `Tz`, so a word
+/// that gains or loses glyphs keeps its box by scaling that `Tz` inversely.
 fn apply_ocr_word_edits(
     source: &mut Document,
     page_id: ObjectId,
@@ -120,40 +117,63 @@ fn apply_ocr_word_edits(
     if edits.is_empty() {
         return Ok(());
     }
-    let bytes = crate::page_content_with_limit(source, page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
+    let bytes = source.get_page_content_with_limit(page_id, MAX_OCR_CONTENT_STREAM_BYTES)?;
     let mut content = Content::decode(&bytes)?;
-    {
-        let mut words: Vec<Option<&mut Vec<u8>>> = content
-            .operations
-            .iter_mut()
-            .filter(|operation| operation.operator == "TJ")
-            .map(|operation| match operation.operands.as_mut_slice() {
-                [Object::Array(values)] => match values.as_mut_slice() {
-                    [Object::String(text, _)] => Some(text),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .collect();
-        let mut next = 0;
-        for edit in edits {
-            let from = utf16be(&edit.from);
-            let last = edit.word.min(words.len().saturating_sub(1));
-            let found = (next..=last).rev().find(|&index| {
-                words[index]
-                    .as_deref()
-                    .is_some_and(|text| word_text(text) == from.as_slice())
-            });
-            let Some(index) = found else {
-                continue;
-            };
-            if let Some(text) = words[index].as_deref_mut() {
-                let mut replaced = utf16be(&edit.to);
-                replaced.extend_from_slice(&text[from.len()..]);
-                *text = replaced;
-            }
-            next = index + 1;
+    // Each word's text-show operator, with the `Tz` set since the previous word.
+    let mut words: Vec<(usize, Option<usize>)> = Vec::new();
+    let mut scaling = None;
+    for (index, operation) in content.operations.iter().enumerate() {
+        match operation.operator.as_str() {
+            "Tz" => scaling = Some(index),
+            "TJ" => words.push((index, scaling.take())),
+            _ => {}
         }
+    }
+    if words.is_empty() {
+        return Ok(());
+    }
+    let word_text_at = |content: &Content, index: usize| -> Option<Vec<u8>> {
+        match content.operations[index].operands.as_slice() {
+            [Object::Array(values)] => match values.as_slice() {
+                [Object::String(text, _)] => Some(text.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    let mut next = 0;
+    for edit in edits {
+        let from = utf16be(&edit.from);
+        let last = edit.word.min(words.len().saturating_sub(1));
+        let found = (next..=last).rev().find(|&word| {
+            word_text_at(&content, words[word].0)
+                .is_some_and(|text| word_text(&text) == from.as_slice())
+        });
+        let Some(word) = found else {
+            continue;
+        };
+        let (show, scaling) = words[word];
+        let Some(text) = word_text_at(&content, show) else {
+            continue;
+        };
+        let mut replaced = utf16be(&edit.to);
+        replaced.extend_from_slice(&text[from.len()..]);
+        if let Some(scaling) = scaling.filter(|_| replaced.len() != text.len()) {
+            if let Some(value) = content.operations[scaling]
+                .operands
+                .first()
+                .and_then(|operand| operand.as_float().ok())
+            {
+                let scaled = f64::from(value) * text.len() as f64 / replaced.len() as f64;
+                content.operations[scaling].operands = vec![Object::Real(scaled as f32)];
+            }
+        }
+        if let [Object::Array(values)] = content.operations[show].operands.as_mut_slice() {
+            if let [Object::String(stored, _)] = values.as_mut_slice() {
+                *stored = replaced;
+            }
+        }
+        next = word + 1;
     }
     source.change_page_content(page_id, content.encode()?)?;
     Ok(())
@@ -447,7 +467,7 @@ fn strip_previous_ocr_text(
 }
 
 const OCR_TEXT_VISIBILITY_FORMAT: &str = "evb-pdf-ocr-text-visibility";
-const OCR_TEXT_VISIBILITY_SCHEMA_VERSION: u32 = 2;
+const OCR_TEXT_VISIBILITY_SCHEMA_VERSION: u32 = 3;
 /// Form XObjects nest; deeper drawing is unusual and is reported as uncertain.
 const MAX_OCR_VISIBILITY_FORM_DEPTH: usize = 16;
 /// Decoded Form XObject content one page inspection reads before it stops
@@ -455,7 +475,7 @@ const MAX_OCR_VISIBILITY_FORM_DEPTH: usize = 16;
 const MAX_OCR_VISIBILITY_FORM_BYTES: usize = MAX_OCR_CONTENT_STREAM_BYTES;
 
 /// `ocr-text-visibility` stdout; `@contracts/pdfOcrTextVisibility` decodes it.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OcrTextVisibilityReport {
     format: String,
@@ -464,7 +484,7 @@ pub(crate) struct OcrTextVisibilityReport {
 }
 
 /// What OCR may replace on one page, in the writer's own terms.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OcrPageTextVisibility {
     page_number: u32,
@@ -478,9 +498,25 @@ pub(crate) struct OcrPageTextVisibility {
     uncertain: Option<String>,
     /// Why the writer refuses to replace this page's text.
     unsupported: Option<String>,
-    /// The EVB OCR layer's text in the order Tesseract wrote it, one recognized
-    /// line per line, when the caller asked for it and the layer is inline.
-    evb_ocr_text: Option<String>,
+    /// The EVB OCR layer's lines in the order Tesseract wrote them, with where
+    /// each stands, when the caller asked for them and the layer is inline.
+    evb_ocr_lines: Option<Vec<OcrLayerLine>>,
+}
+
+/// One recognized line of an EVB OCR layer, in the layer's text space (y up).
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrLayerLine {
+    /// Tesseract's text block, counted from zero; a block is one region of the page.
+    block: u32,
+    text: String,
+    /// Origin of the first glyph.
+    left: f64,
+    /// Origin of the last glyph.
+    right: f64,
+    baseline: f64,
+    /// Font size, scaled by the text matrix.
+    size: f64,
 }
 
 /// What one page shows beyond the scan of its own content: text in the Form
@@ -587,7 +623,7 @@ fn inspect_page_text_visibility(
     let resources = page_resources(&incremental.previous_document, page_id)?;
     let mut scan = PageTextScan::default();
     let mut evb_ocr_layer = false;
-    let mut evb_ocr_text: Option<String> = None;
+    let mut evb_ocr_lines: Option<Vec<OcrLayerLine>> = None;
     for content_id in incremental.previous_document.get_page_contents(page_id) {
         let Some(bytes) = read_content_stream(
             incremental,
@@ -602,12 +638,8 @@ fn inspect_page_text_visibility(
         if is_evb_ocr_layer_stream(&bytes) {
             evb_ocr_layer = true;
             if with_evb_ocr_text {
-                if let Some(text) = evb_ocr_layer_text(&bytes) {
-                    let page_text = evb_ocr_text.get_or_insert_with(String::new);
-                    if !page_text.is_empty() {
-                        page_text.push('\n');
-                    }
-                    page_text.push_str(&text);
+                if let Some(lines) = evb_ocr_layer_lines(&bytes) {
+                    evb_ocr_lines.get_or_insert_with(Vec::new).extend(lines);
                 }
             }
             continue;
@@ -631,81 +663,120 @@ fn inspect_page_text_visibility(
         hidden_text: scan.hidden,
         uncertain: inspection.uncertain.map(str::to_string),
         unsupported: scan.unsupported.map(str::to_string),
-        evb_ocr_text,
+        evb_ocr_lines,
     })
 }
 
-/// The text of an inline EVB OCR layer in content order. Tesseract writes one
+/// The lines of an inline EVB OCR layer in content order. Tesseract writes one
 /// text object per block and steps `Td` down each line. The writer keeps those
 /// operators and places every glyph with `Tm`; Poppler layout breaks skewed
-/// baselines, so the writer reads recognition order from its own layer.
+/// baselines, so the writer reads recognition order from its own layer, and
+/// where each line stands from its glyphs' `Tm`.
 /// A layer drawn as a Form XObject by earlier versions has no inline text.
-fn evb_ocr_layer_text(bytes: &[u8]) -> Option<String> {
+fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
     let content = Content::decode(bytes).ok()?;
-    let mut lines: Vec<String> = Vec::new();
-    let mut line = String::new();
+    let mut lines: Vec<OcrLayerLine> = Vec::new();
+    let mut line: Option<OcrLayerLine> = None;
+    let mut block = 0u32;
+    let mut blocks_seen = 0u32;
     let mut font_size = 1.0f64;
-    let break_line = |line: &mut String, lines: &mut Vec<String>| {
-        line.truncate(line.trim_end().len());
-        if !line.is_empty() {
-            lines.push(std::mem::take(line));
+    // Origin and scale of the next glyph, from the last `Tm`.
+    let mut origin = (0.0f64, 0.0f64, 1.0f64);
+    let break_line = |line: &mut Option<OcrLayerLine>, lines: &mut Vec<OcrLayerLine>| {
+        if let Some(mut done) = line.take() {
+            done.text.truncate(done.text.trim_end().len());
+            if !done.text.is_empty() {
+                lines.push(done);
+            }
         }
     };
     // Tesseract shows Unicode through Identity-H, so every string is UTF-16BE.
-    let push_utf16 = |bytes: &[u8], line: &mut String| {
-        line.extend(
-            char::decode_utf16(
-                bytes
-                    .chunks_exact(2)
-                    .map(|unit| u16::from_be_bytes([unit[0], unit[1]])),
-            )
-            .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER)),
-        );
+    let decode_utf16 = |bytes: &[u8]| -> String {
+        char::decode_utf16(
+            bytes
+                .chunks_exact(2)
+                .map(|unit| u16::from_be_bytes([unit[0], unit[1]])),
+        )
+        .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
     };
-    let shown = |object: &Object, line: &mut String| {
+    let round = |value: f64| (value * 10.0).round() / 10.0;
+    let show = |object: &Object,
+                line: &mut Option<OcrLayerLine>,
+                block: u32,
+                origin: (f64, f64, f64),
+                font_size: f64| {
+        let mut text = String::new();
         for item in object
             .as_array()
             .map_or(std::slice::from_ref(object), Vec::as_slice)
         {
             if let Object::String(bytes, _) = item {
-                push_utf16(bytes, line);
+                text.push_str(&decode_utf16(bytes));
             }
         }
+        if text.is_empty() {
+            return;
+        }
+        let current = line.get_or_insert_with(|| OcrLayerLine {
+            block,
+            text: String::new(),
+            left: round(origin.0),
+            right: round(origin.0),
+            baseline: round(origin.1),
+            size: round(font_size * origin.2),
+        });
+        current.text.push_str(&text);
+        current.right = round(origin.0);
     };
     for operation in &content.operations {
-        let number = operation
-            .operands
-            .get(1)
-            .and_then(|operand| operand.as_float().ok())
-            .map(f64::from);
+        let number = |index: usize| {
+            operation
+                .operands
+                .get(index)
+                .and_then(|operand| operand.as_float().ok())
+                .map(f64::from)
+        };
         match operation.operator.as_str() {
             // The writer positions every glyph with its own `Tm`, so only
             // Tesseract's text objects and line steps separate lines.
-            "BT" | "T*" => break_line(&mut line, &mut lines),
+            "BT" => {
+                break_line(&mut line, &mut lines);
+                block = blocks_seen;
+                blocks_seen += 1;
+            }
+            "T*" => break_line(&mut line, &mut lines),
             "Tf" => {
-                if let Some(size) = number {
+                if let Some(size) = number(1) {
                     font_size = size.abs().max(f64::EPSILON);
                 }
             }
-            "Td" | "TD" if number.is_some_and(|step| step.abs() > font_size * 0.5) => {
+            "Tm" => {
+                if let (Some(a), Some(b), Some(e), Some(f)) =
+                    (number(0), number(1), number(4), number(5))
+                {
+                    origin = (e, f, a.hypot(b));
+                }
+            }
+            "Td" | "TD" if number(1).is_some_and(|step| step.abs() > font_size * 0.5) => {
                 break_line(&mut line, &mut lines);
             }
             "Tj" | "TJ" => {
                 if let Some(text) = operation.operands.first() {
-                    shown(text, &mut line);
+                    show(text, &mut line, block, origin, font_size);
                 }
             }
             "'" | "\"" => {
                 break_line(&mut line, &mut lines);
                 if let Some(text) = operation.operands.last() {
-                    shown(text, &mut line);
+                    show(text, &mut line, block, origin, font_size);
                 }
             }
             _ => {}
         }
     }
     break_line(&mut line, &mut lines);
-    (!lines.is_empty()).then(|| lines.join("\n"))
+    (!lines.is_empty()).then_some(lines)
 }
 
 /// One admitted document serves all extraction windows, released at request EOF.
@@ -748,7 +819,9 @@ pub(crate) fn inspect_ocr_text_visibility(
                 page_id,
                 with_evb_ocr_text,
             )?;
-            text_bytes += page.evb_ocr_text.as_ref().map_or(0, String::len);
+            text_bytes += page.evb_ocr_lines.as_ref().map_or(0, |lines| {
+                lines.iter().map(|line| line.text.len() + 64).sum()
+            });
             if text_bytes > MAX_AGGREGATE_TEXT_BYTES {
                 return Err(domain_error(
                     NativeErrorCode::TooLarge,
@@ -934,6 +1007,51 @@ mod tests {
     }
 
     #[test]
+    fn word_edits_that_change_a_words_length_keep_it_on_its_box() {
+        // Tesseract stretches each word over its box: `<scale> Tz [<word >] TJ`.
+        let mut document = Document::with_version("1.5");
+        let operations: Vec<ContentOperation> = [("O&.", 120.0), ("Feſti", 90.0)]
+            .iter()
+            .flat_map(|(word, scale)| {
+                [
+                    ContentOperation::new("Tz", vec![Object::Real(*scale)]),
+                    ContentOperation::new(
+                        "TJ",
+                        vec![Object::Array(vec![Object::String(
+                            utf16be(&format!("{word} ")),
+                            StringFormat::Hexadecimal,
+                        )])],
+                    ),
+                ]
+            })
+            .collect();
+        let content = Content { operations }.encode().unwrap();
+        let content_id = document.add_object(Stream::new(dictionary! {}, content));
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Contents" => content_id,
+        });
+        apply_ocr_word_edits(&mut document, page_id, &[edit(0, "O&.", "Oct.")]).unwrap();
+        assert_eq!(page_words(&document, page_id), ["Oct. ", "Feſti "]);
+        let content = Content::decode(&document.get_page_content(page_id)).unwrap();
+        let scales: Vec<f32> = content
+            .operations
+            .iter()
+            .filter(|operation| operation.operator == "Tz")
+            .map(|operation| operation.operands[0].as_float().unwrap())
+            .collect();
+        // Four glyphs and a space now share the width three and a space had.
+        assert_eq!(scales, [96.0, 90.0]);
+    }
+
+    #[test]
+    fn word_edits_on_a_page_without_text_change_nothing() {
+        let (mut document, page_id) = tesseract_page(&[]);
+        apply_ocr_word_edits(&mut document, page_id, &[edit(0, "fefto", "feſto")]).unwrap();
+        assert!(page_words(&document, page_id).is_empty());
+    }
+
+    #[test]
     fn word_edits_without_their_word_change_nothing() {
         let (mut document, page_id) = tesseract_page(&["in", "fefto"]);
         apply_ocr_word_edits(&mut document, page_id, &[edit(1, "ufque", "uſque")]).unwrap();
@@ -1069,7 +1187,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_an_evb_layer_one_recognized_line_per_line() {
+    fn reads_an_evb_layer_one_recognized_line_per_line_with_where_it_stands() {
         // The writer's shape: per-glyph `Tm` on a rotated line, Tesseract's
         // word step with a sub-point baseline shift, a `Td` one line down, and
         // a second block.
@@ -1079,12 +1197,24 @@ mod tests {
 73.061 -0.276 Td\n0.999 0.038 -0.038 0.999 310 2866 Tm\n<0066007500200020> Tj\n\
 -663.739 -34.014 Td\n0.999 0.038 -0.038 0.999 236 2829 Tm\n[<0054002E> -200 <0061>] TJ\nET\n\
 BT\n/F 34 Tf\n1 0 0 1 1000 2863 Tm\n<017F0069> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n";
+        let line = |block, text: &str, left, right, baseline| OcrLayerLine {
+            block,
+            text: text.into(),
+            left,
+            right,
+            baseline,
+            size: 34.0,
+        };
         assert_eq!(
-            evb_ocr_layer_text(layer).as_deref(),
-            Some("cu Ref fu\nT.a\n\u{17f}i")
+            evb_ocr_layer_lines(layer),
+            Some(vec![
+                line(0, "cu Ref fu", 233.0, 310.0, 2863.0),
+                line(0, "T.a", 236.0, 236.0, 2829.0),
+                line(1, "\u{17f}i", 1000.0, 1000.0, 2863.0),
+            ])
         );
         assert_eq!(
-            evb_ocr_layer_text(
+            evb_ocr_layer_lines(
                 b"% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END\n"
             ),
             None
