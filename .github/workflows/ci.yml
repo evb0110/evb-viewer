@@ -152,6 +152,7 @@ jobs:
           git diff --exit-code -- \
             app/assets/css/vendor/pdfjs-viewer-sanitized.css \
             app/platform/generated \
+            packages/contracts/firstUnsupportedAnnotationCharacter.ts \
             public/pdfjs/images \
             scripts/release/generated-release-targets.cjs
           test -z "$(git ls-files --others --exclude-standard -- \
