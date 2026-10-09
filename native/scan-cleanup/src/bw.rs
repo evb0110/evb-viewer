@@ -41,6 +41,12 @@ const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
 /// Local ink shallower than this is paper texture, whatever the page's depth.
 const LOCAL_MIDPOINT_MIN_DEPTH: i16 = 24;
+/// A mark at least this fraction of the page's ink depth below its paper is
+/// print: a light dash or pencil note. Show-through and paper texture stay
+/// far shallower (a tenth of the depth on the owner's 1915 book).
+const LOCAL_MARK_DEPTH_FRACTION: f32 = 0.3;
+/// Smallest window, in pixels, in which a mark's ink core is measured.
+const LOCAL_INK_MIN_RADIUS: usize = 4;
 /// Where the local cut sits between paper (0) and ink core (1). The printed
 /// edge of a stroke wider than the scanner's blur is at one half; a hairline
 /// narrower than the blur peaks only near that depth, so an exact half cut
@@ -1653,10 +1659,11 @@ fn paper_ink_midpoint_threshold(
 /// and its ink, so a cut there keeps the printed weight. The page-wide cut
 /// is that midpoint only where the ink is as dark as the page's ink and the
 /// paper as light as its paper: elsewhere a faint passage thins and a shaded
-/// gutter fills. Here both levels are measured within `radius` of each pixel,
-/// and the cut sits at `LOCAL_CUT_DEPTH_FRACTION` of their distance. Where the
-/// nearby ink is less than half as deep as the page's ink there is no stroke
-/// to measure, and the page-wide cut applies, as it did before.
+/// gutter fills. Here the paper is measured within `radius` of each pixel and
+/// the ink core within a third of it, and the cut sits at
+/// `LOCAL_CUT_DEPTH_FRACTION` of their distance. Where the nearby ink is
+/// shallower than `LOCAL_MARK_DEPTH_FRACTION` of the page's ink there is no
+/// stroke to measure, and the page-wide cut applies, as it did before.
 fn threshold_local_midpoint(
     source: &GrayImage,
     exclusion: Option<&BinaryImage>,
@@ -1667,7 +1674,8 @@ fn threshold_local_midpoint(
     bias: i16,
 ) -> BinaryImage {
     let page_depth = i16::from(page.paper) - i16::from(page.ink_core);
-    let minimum_depth = (page_depth / 2).max(LOCAL_MIDPOINT_MIN_DEPTH);
+    let minimum_depth = ((f32::from(page_depth) * LOCAL_MARK_DEPTH_FRACTION).round() as i16)
+        .max(LOCAL_MIDPOINT_MIN_DEPTH);
     let smoothed = smooth_for_binarization(source, dpi);
     // Excluded pixels take the value that cannot win the local extreme.
     let neutral = |value: u8| match exclusion {
@@ -1685,7 +1693,11 @@ fn threshold_local_midpoint(
         }
     };
     let paper = erode_gray(&neutral(0), radius, radius);
-    let ink = dilate_gray(&neutral(255), radius, radius);
+    // A mark's own core sets its cut: a light dash printed beside dark digits
+    // keeps its stroke instead of falling under theirs. The paper window stays
+    // wide enough to see past a large glyph's interior.
+    let ink_radius = (radius / 3).max(LOCAL_INK_MIN_RADIUS);
+    let ink = dilate_gray(&neutral(255), ink_radius, ink_radius);
     let output = BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
         let local_paper = i16::from(paper.get(x, y));
         let local_ink = i16::from(ink.get(x, y));
@@ -5608,6 +5620,44 @@ mod tests {
             "A3 Wolf BW route 1275x1650: single={single:?} multiscale={multiscale:?} ratio={ratio:.3}x"
         );
         assert!(ratio <= 1.5, "multiscale BW route ratio was {ratio:.3}x");
+    }
+
+    #[test]
+    fn local_midpoint_keeps_a_light_dash_printed_beside_dark_digits() {
+        // A contents line "14 - 28" whose dash printed far lighter than the
+        // digits around it: a third of their depth below the paper.
+        let mut image = GrayImage::new(320, 240, 223);
+        for row in 0..4 {
+            let top = 30 + row * 50;
+            for glyph in 0..6 {
+                // The dash's line leaves a gap between its numbers.
+                if row == 2 && (glyph == 2 || glyph == 3) {
+                    continue;
+                }
+                let left = 20 + glyph * 50;
+                for y in top..top + 24 {
+                    for x in left..left + 4 {
+                        image.set(x, y, 40);
+                        image.set(x + 12, y, 40);
+                    }
+                }
+            }
+        }
+        for y in 140..144 {
+            for x in 130..150 {
+                image.set(x, y, 160);
+            }
+        }
+        let page = paper_ink_midpoint_threshold(&image, None);
+
+        let mask = threshold_local_midpoint(&image, None, 300.0, 36, page, page.threshold, 0);
+
+        let dash = (140..144)
+            .flat_map(|y| (130..150).map(move |x| (x, y)))
+            .filter(|&(x, y)| mask.get(x, y))
+            .count();
+        assert!(dash >= 72, "the dash kept {dash} of 80 pixels");
+        assert!(!mask.get(160, 142), "the paper beside the dash stays white");
     }
 
     #[test]

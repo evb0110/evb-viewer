@@ -16,11 +16,6 @@
 //! A valley's depth is the pixel's depth below paper plus that of its darker
 //! neighbour across the line. A hairline that straddles two pixel rows splits
 //! its darkness between them; the sum measures it the same either way.
-//!
-//! The page's show-through filter later strips shallow, soft pixels. A
-//! restored stroke has passed this stricter test of shape and context, so the
-//! caller exempts it there; stripping part of a line would leave its rest
-//! behind as loose specks.
 
 use crate::{bw::paper_reference, calibration::PageCalibration};
 use scan_primitives::{morphology::erode_gray, BinaryImage, ComponentMap, GrayImage};
