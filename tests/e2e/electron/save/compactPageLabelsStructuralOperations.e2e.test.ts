@@ -40,6 +40,7 @@ import {
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {waitForAnimationFrames} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -405,6 +406,55 @@ describe('Electron E2E, compact page labels through structural operations', () =
         session = null;
         preserveFailureArtifacts = false;
     });
+
+    it.each([
+        'fit-width',
+        'custom',
+    ])('keeps the remapped reading page after deleting an earlier page at %s', async (zoomMode) => {
+        const pdfPath = await createMultiPageTextFixturePdf(`delete-before-reading-${Date.now()}.pdf`, 8);
+        session = await startElectronE2ESession(`e2e-delete-before-reading-${Date.now()}`, {initialOpenPaths: [pdfPath]});
+        const {page} = session;
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        if (zoomMode === 'custom') {
+            await clickAsUser(page, '#editor-global-toolbar-host .zoom-controls-display');
+            await clickAsUser(page, '.zoom-chip-custom-input', {count: 3});
+            await page.keyboard.type('140');
+            await page.keyboard.press('Enter');
+        }
+        await goToPageViaToolbar(page, 5);
+        await waitForViewportQuiet(page);
+        const box = await page.$eval('[data-document-viewer-chassis-viewport]', element => element.getBoundingClientRect().toJSON());
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.wheel({deltaY: 230});
+        await waitForViewportQuiet(page);
+        const zoomBefore = await page.$eval('.zoom-controls-display-value', element => element.textContent);
+
+        await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete the earlier page'});
+        await expect.poll(async () => (await readWorkspaceStateValues(page, ['totalPages'])).totalPages).toBe(7);
+        await waitForViewerInteractive(page);
+        await waitForViewportQuiet(page);
+        const readingPage = await page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+            const box = viewport.getBoundingClientRect();
+            const centre = box.top + viewport.clientTop + viewport.clientHeight / 2;
+            const container = [...viewport.querySelectorAll<HTMLElement>('.page_container')].find(element => {
+                const bounds = element.getBoundingClientRect();
+                return bounds.top <= centre && bounds.bottom > centre;
+            });
+            return {
+                page: Number(container?.dataset.page),
+                painted: container?.classList.contains('page_container--rendered'),
+                text: container?.querySelector('.text-layer')?.textContent,
+            };
+        });
+        expect(readingPage.page).toBe(4);
+        expect(readingPage.painted).toBe(true);
+        expect(readingPage.text).toContain('E2E Multi Page Fixture 5/8');
+        expect(await page.$eval('.zoom-controls-display-value', element => element.textContent)).toBe(zoomBefore);
+    }, 90_000);
 
     it('keeps every compact label through mutations, save, and reopen', async () => {
         const pdfPath = await createCompactPageLabelsFixturePdf(

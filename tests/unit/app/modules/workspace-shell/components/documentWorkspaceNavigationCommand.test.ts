@@ -31,6 +31,7 @@ import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
 import {
     documentViewDetachKey,
+    useDocumentViewContext,
     type TDocumentViewDetach,
 } from '@app/modules/workspace-shell/documentViewContext';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
@@ -53,6 +54,12 @@ vi.mock('@app/utils/platformDocuments', async importOriginal => ({
 const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
     openSurface: null as IDocumentOpenSurfaceSession | null,
+    openSurfaces: new Map<string, IDocumentOpenSurfaceSession>(),
+    presentations: new Map<string, {
+        presentDocument: () => void;
+        clearPresentedDocument: () => void;
+        captureReadingAnchor: () => IPdfSemanticAnchor | null
+    }>(),
     restoreReadingAnchor: null as ((anchor: unknown) => void) | null,
     // The viewer's count of the reader's scrolls and drags.
     interactionEpoch: {value: 0},
@@ -79,17 +86,27 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
         expose,
     }) {
         // The workspace owns its open surface; the viewer is where it is shared.
-        surfaceRenders.openSurface = inject(documentOpenSurfaceSessionKey, null);
-        expose({
-            scrollToPage: vi.fn(),
-            captureReadingAnchor: () => ({
-                page: 3,
-                pageXFraction: 0.42,
-                pageYFraction: 0.61,
+        const tabId = useDocumentViewContext().tabId;
+        const surface = inject(documentOpenSurfaceSessionKey, null)!;
+        surfaceRenders.openSurface = surface;
+        surfaceRenders.openSurfaces.set(tabId, surface);
+        let presented = false;
+        const presentation = {
+            presentDocument: () => { presented = true; },
+            clearPresentedDocument: () => { presented = false; },
+            captureReadingAnchor: () => presented ? {
+                page: tabId === 'tab-1' ? 3 : 5,
+                pageXFraction: tabId === 'tab-1' ? 0.42 : 0.72,
+                pageYFraction: tabId === 'tab-1' ? 0.61 : 0.28,
                 viewportXFraction: 0.5,
                 viewportYFraction: 0.5,
-                affinity: 'center',
-            } satisfies IPdfSemanticAnchor),
+                affinity: 'center' as const,
+            } : null,
+        };
+        surfaceRenders.presentations.set(tabId, presentation);
+        expose({
+            scrollToPage: vi.fn(),
+            ...presentation,
             getViewerContainer: () => null,
             restoreReadingAnchor: (anchor: unknown) => surfaceRenders.restoreReadingAnchor?.(anchor),
             getReaderInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
@@ -176,9 +193,12 @@ afterEach(() => {
     surfaceRenders.sidebars.length = 0;
     surfaceRenders.viewers.length = 0;
     surfaceRenders.openSurface = null;
+    surfaceRenders.openSurfaces.clear();
+    surfaceRenders.presentations.clear();
     surfaceRenders.restoreReadingAnchor = null;
     surfaceRenders.interactionEpoch.value = 0;
     nuxtState.clear();
+    vi.restoreAllMocks();
     recentReadingViews.readingView.mockReset();
 });
 
@@ -200,11 +220,12 @@ async function mountDocumentWorkspace(options: {
     openSurfaceDocument?: TDocumentRef;
     /** Another tab views the document without a mounted workspace, as a hidden tab does. */
     hiddenSecondView?: boolean;
+    linkedSecondView?: boolean;
     detachDocumentView?: TDocumentViewDetach;
 } = {}) {
     const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
     const documentView = documentSession.getView('tab-1')!;
-    if (options.hiddenSecondView) {
+    if (options.hiddenSecondView || options.linkedSecondView) {
         documentSession.addView('tab-2');
     }
     if (options.initialSurfaceMode) {
@@ -237,9 +258,12 @@ async function mountDocumentWorkspace(options: {
         registry = provideDocumentContextRegistry();
         return () => [
             h(DocumentSessionHost, {documentController: documentSession}),
-            h(cast<never>(DocumentWorkspace), {
-                tabId: 'tab-1',
-                isActive: true,
+            ...(options.linkedSecondView ? [
+                'tab-1',
+                'tab-2',
+            ] : ['tab-1']).map(tabId => h(cast<never>(DocumentWorkspace), {
+                tabId,
+                isActive: tabId === 'tab-1',
                 isRenderActive: true,
                 isTabTransitionBusy: false,
                 isFullscreen: false,
@@ -248,7 +272,7 @@ async function mountDocumentWorkspace(options: {
                 splitCacheSession: null,
                 startSection: 'recent',
                 documentSession,
-            }),
+            })),
         ];
     }}));
     if (options.detachDocumentView) {
@@ -287,10 +311,12 @@ async function mountDocumentWorkspace(options: {
     }
     if (options.openSurfaceDocument) {
         await vi.waitFor(() => expect(surfaceRenders.openSurface).not.toBeNull());
-        surfaceRenders.openSurface!.begin({
-            documentId: options.openSurfaceDocument,
-            documentRevision: 'revision:test-navigation',
-        });
+        for (const surface of surfaceRenders.openSurfaces.values()) {
+            surface.begin({
+                documentId: options.openSurfaceDocument,
+                documentRevision: 'revision:test-navigation',
+            });
+        }
         await nextTick();
     }
     return {
@@ -301,8 +327,61 @@ async function mountDocumentWorkspace(options: {
 }
 
 describe('DocumentWorkspace navigation command', () => {
-    it('keeps the current reading point in the navigation stream when Save As reloads the source', async () => {
+    it.each([
+        false,
+        true,
+    ])('keeps each pre-save reading point after the old presentation clears (late revision: %s)', async (lateRevision) => {
         const path = requireDocumentRef('/tmp/shared.pdf');
+        const workspace = await mountDocumentWorkspace({
+            pendingDocumentPath: path,
+            openSurfaceDocument: path,
+            linkedSecondView: true,
+        });
+        const source = {
+            kind: 'path' as const,
+            path,
+            size: 400,
+        };
+        workspace.documentContext.file.pdfSrc.value = source;
+        workspace.documentSession.markPresented();
+        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        await nextTick();
+        const anchors = [...surfaceRenders.presentations.values()].map(view => view.captureReadingAnchor());
+        vi.spyOn(workspace.documentContext.saveService.isAnySaving, 'value', 'get').mockReturnValue(true);
+
+        workspace.documentContext.file.pdfSrc.value = {...source};
+        for (const view of surfaceRenders.presentations.values()) {
+            view.clearPresentedDocument();
+            expect(view.captureReadingAnchor()).toBeNull();
+        }
+        const revision = lateRevision ? 'revision:saved' : 'revision:test-navigation';
+        if (lateRevision) {
+            workspace.documentContext.file.documentRevisionToken.value = cast<never>(revision);
+        }
+        for (const [
+            index,
+            surface,
+        ] of [...surfaceRenders.openSurfaces.values()].entries()) {
+            surface.acquireSource({
+                documentId: path,
+                documentRevision: revision,
+            }, surface.snapshot.value.generation);
+            expect(surface.snapshot.value.identity?.documentRevision).toBe(revision);
+            expect(surface.navigationTicket.value?.request).toMatchObject({
+                source: 'restore',
+                target: {
+                    kind: 'page',
+                    page: anchors[index]!.page,
+                    anchor: anchors[index],
+                },
+            });
+        }
+        await nextTick();
+        expect(readToolbarNavigationTicket()?.request.target).toMatchObject({anchor: anchors[0]});
+    });
+
+    it('leaves page-mutation navigation in charge of a source reload outside saving', async () => {
+        const path = requireDocumentRef('/tmp/mutation.pdf');
         const workspace = await mountDocumentWorkspace({
             pendingDocumentPath: path,
             openSurfaceDocument: path,
@@ -314,32 +393,14 @@ describe('DocumentWorkspace navigation command', () => {
         };
         workspace.documentContext.file.pdfSrc.value = source;
         workspace.documentSession.markPresented();
+        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
         await nextTick();
-
+        workspace.expose.handleGoToPage(4);
         workspace.documentContext.file.pdfSrc.value = {...source};
         await nextTick();
-
-        // Loading the replacement accepts the saved source identity. The
-        // reading point must survive that admission of the saved revision.
-        const surface = surfaceRenders.openSurface!;
-        surface.acquireSource({
-            documentId: path,
-            documentRevision: 'revision:test-navigation',
-        }, surface.snapshot.value.generation);
-        await nextTick();
-        expect(surface.snapshot.value.identity?.provisional).not.toBe(true);
-
-        expect(readToolbarNavigationTicket()?.request).toMatchObject({
-            source: 'restore',
-            target: {
-                kind: 'page',
-                page: 3,
-                anchor: {
-                    page: 3,
-                    pageXFraction: 0.42,
-                    pageYFraction: 0.61,
-                },
-            },
+        expect(readToolbarNavigationTicket()?.request.target).toEqual({
+            kind: 'page',
+            page: 4,
         });
     });
 

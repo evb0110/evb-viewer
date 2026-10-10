@@ -116,17 +116,16 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         totalPages,
         pdfDocument,
     } = view;
-    // A save replaces the shared source without opening another document.
-    // Capture this view before the PDF session clears its old presentation;
-    // its opening restore request is the only owner of the replacement's place.
+    // Saves capture before clearing; page mutations own their page remapping.
     watch(pdfSrc, (source, previous) => {
         const identity = openSurface.snapshot.value.identity;
-        if (!source || !previous || !identity || document.isOpeningDocument.value) {
+        if (!saveService.isAnySaving.value || !source || !previous || !identity || document.isOpeningDocument.value) {
             return;
         }
         beginOpenSurfaceWithPageShape(openSurface, {
             documentId: identity.documentId,
             documentRevision: String(documentRevisionToken.value ?? identity.documentRevision),
+            provisional: true,
         }, documentView.captureReadingAnchor() ?? currentPage.value, null);
     }, {flush: 'sync'});
 

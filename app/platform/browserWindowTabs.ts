@@ -1026,7 +1026,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         async load(ownerId) {
             if (recoveryLiveLease && recoveryLiveLease.ownerId !== ownerId) {
                 await releaseRecoveryLiveLease();
-                // A failed release is reclaimed by the orphan sweep after this owner's lock is relinquished.
+                // A later page load's orphan sweep reclaims the lease once this owner's lock is free.
                 recoveryLiveLease = null;
             }
             return loadBrowserWorkspaceRecovery(ownerId);
