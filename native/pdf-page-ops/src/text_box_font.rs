@@ -710,7 +710,7 @@ pub(crate) fn stored_editor_geometry(
     page_rotation: i64,
 ) -> Result<(PdfRect, i64)> {
     let Ok(metadata) = dictionary.get(b"EVBTextGeometry") else {
-        if rotation != 0 {
+        if rotation != 0 || page_rotation % 180 != 0 {
             return Err("Imported rotated FreeText has no recoverable canonical geometry".into());
         }
         return Ok((visible_rect, rotation));

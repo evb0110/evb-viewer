@@ -2892,3 +2892,48 @@ fn unsupported_imported_text_rotation_stays_foreign_without_blocking_other_annot
     let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
     assert!(matches!(&parsed[0], PdfAnnotationParseEntry::Foreign(value) if value.name == "diagonal-text"));
 }
+
+#[test]
+fn metadata_free_freetext_on_a_swapped_page_stays_foreign() {
+    for page_rotation in [0, 90, 180, 270] {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id,
+            "MediaBox" => rect_object(PdfRect { x1: 0.0, y1: 0.0, x2: 600.0, y2: 800.0 }),
+            "Rotate" => page_rotation,
+        });
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages", "Kids" => vec![Object::Reference(page_id)], "Count" => 1,
+            },
+        );
+        let catalog_id =
+            document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+        document.trailer.set("Root", catalog_id);
+        // An ordinary horizontal 300x40 FreeText written by another viewer.
+        let annotation_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => rect_object(PdfRect { x1: 100.0, y1: 400.0, x2: 400.0, y2: 440.0 }),
+            "Contents" => Object::string_literal("Project 8 foreign annotation"),
+            "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"),
+        });
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annotation_id)]);
+        let entries =
+            crate::annotation_parse::collect_parsed_annotations(&document, "D:20261010000000Z")
+                .unwrap();
+        let [entry] = entries.as_slice() else {
+            panic!("expected one annotation, got {entries:?}");
+        };
+        // Only the swapped pages fail closed; 0 and 180 keep the upright layout.
+        match (page_rotation, entry) {
+            (90 | 270, PdfAnnotationParseEntry::Foreign(_))
+            | (0 | 180, PdfAnnotationParseEntry::TextBox(_)) => {}
+            _ => panic!("page {page_rotation} classified unexpectedly: {entry:?}"),
+        }
+    }
+}
