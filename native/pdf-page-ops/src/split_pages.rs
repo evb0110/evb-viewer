@@ -1301,9 +1301,7 @@ impl PdfMatrix {
         let delta_y = self.f - line.f;
         Some((delta_x * line.d - line.c * delta_y) / determinant)
     }
-}
 
-impl PdfMatrix {
     pub(crate) fn bounds(self, rect: PdfRect) -> PdfRect {
         let points = [
             (rect.x1, rect.y1),
@@ -1379,6 +1377,8 @@ fn transform_appearance(
             // annotation rectangle (for example a rotated form under shear).
             // Clip in the new rectangle, so PDF's appearance-to-Rect fitting
             // does not apply another scale to the transformed source form.
+            // A blank appearance draws nothing; keep its wrapper blank too.
+            let blank = stream.content.is_empty() && !is_unread_base_stream(&source, &stream);
             stream.start_position = None;
             let source_form = target.add_object(stream);
             let content = format!(
@@ -1393,7 +1393,7 @@ fn transform_appearance(
             Ok(Object::Reference(target.add_object(Stream::new(dictionary! {
                 "Type" => "XObject", "Subtype" => "Form", "BBox" => rect_object(matrix.bounds(rect)),
                 "Resources" => dictionary! {"XObject" => dictionary! {"EVBSourceAppearance" => source_form}},
-            }, content.into_bytes()))))
+            }, if blank { Vec::new() } else { content.into_bytes() }))))
         }
         Object::Dictionary(mut dict) => {
             for (key, value) in dict.clone().iter() {

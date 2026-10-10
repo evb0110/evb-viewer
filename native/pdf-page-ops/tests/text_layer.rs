@@ -1789,6 +1789,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
         let output = path("source-region-output", "pdf");
         let inspected = path("source-region-inspected", "pdf");
         let instructions = path("source-region", "json");
+        let parsed = path("source-region-parsed", "jsonl");
         let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
         let page_id = document.get_pages()[&1];
         let seam = document.add_object(dictionary! {
@@ -1815,6 +1816,28 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             .get_dictionary_mut(reply)
             .unwrap()
             .set("Popup", popup);
+        // A legacy point note (ADR 0003): a blank-appearance FreeText whose
+        // 2 pt marker sits on the seam. Its popup follows it to the same half.
+        let legacy_appearance = document.add_object(Stream::new(
+            dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+            Vec::new(),
+        ));
+        let legacy_popup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+            "Rect" => vec![140.into(), 60.into(), 190.into(), 100.into()],
+            "Contents" => Object::string_literal("Legacy popup"),
+        });
+        let legacy_root = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => vec![99.into(), 50.into(), 101.into(), 52.into()],
+            "Contents" => Object::string_literal("Legacy seam note"),
+            "AP" => dictionary! {"N" => legacy_appearance},
+            "Popup" => legacy_popup,
+        });
+        document
+            .get_dictionary_mut(legacy_popup)
+            .unwrap()
+            .set("Parent", legacy_root);
         let markup = document.add_object(dictionary! {
             "Type" => "Annot", "Subtype" => "Highlight", "P" => page_id,
             "Rect" => vec![90.into(), 45.into(), 110.into(), 55.into()],
@@ -1823,7 +1846,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
         });
         document.get_dictionary_mut(page_id).unwrap().set(
             "Annots",
-            vec![seam, root, reply, popup, markup]
+            vec![seam, root, reply, popup, legacy_root, legacy_popup, markup]
                 .into_iter()
                 .map(Object::Reference)
                 .collect::<Vec<_>>(),
@@ -1959,7 +1982,12 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                 .keys()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            vec!["Cross-seam markup", "Seam note"]
+            vec![
+                "Cross-seam markup",
+                "Legacy popup",
+                "Legacy seam note",
+                "Seam note"
+            ]
         );
         let left = &annotations[0];
         let reply = saved.get_dictionary(left["Reply note"]).unwrap();
@@ -1994,8 +2022,35 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                         .is_some_and(|subtype| matches!(subtype, b"Text" | b"Popup"))
                 })
                 .count(),
-            4 + usize::from(!incremental)
+            5 + usize::from(!incremental)
         );
+        // Read the split output back as the viewer does: the seam notes must
+        // be editable notes on their owning half, not foreign entries.
+        run_text_box_command("parse-annotations", &output, &parsed, None);
+        let read_back = fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .filter(|entry| entry["kind"] == "note")
+            .map(|entry| {
+                (
+                    entry["pageIndex"].as_u64().unwrap(),
+                    entry["contents"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (page, contents) in [(0, "Root note"), (1, "Seam note"), (1, "Legacy seam note")] {
+            assert!(
+                read_back.contains(&(page, contents.to_string())),
+                "incremental={incremental} margin={margin} region={source_region}: {contents} is not a note on page {page}: {read_back:?}"
+            );
+        }
         // An ownership cycle has no terminal half. Refuse before publication.
         for owner in [
             root,
@@ -2031,7 +2086,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
         let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
         assert!(!result.status.success());
         assert_eq!(fs::read(&output).unwrap(), b"existing output");
-        for file in [source, input, output, inspected, instructions] {
+        for file in [source, input, output, inspected, instructions, parsed] {
             remove_file(file).unwrap();
         }
     }

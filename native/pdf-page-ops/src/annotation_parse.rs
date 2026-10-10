@@ -1175,7 +1175,7 @@ fn parse_note_entry(
     page_annotations: &[PageAnnotation<'_>],
 ) -> std::result::Result<PdfAnnotationParseNote, String> {
     let rect = read_annotation_rect(document, dict)?;
-    let position = pdf_rect_to_marker_rect(rect, page_view, page_rotation)
+    let position = pdf_rect_to_note_marker_rect(rect, page_view, page_rotation)
         .map_err(|error| error.to_string())?;
     let contents = read_optional_annotation_text(document, dict, b"Contents")?.unwrap_or_default();
     let color = read_annotation_color(document, dict);
@@ -1481,7 +1481,7 @@ pub(crate) fn is_free_text_note_marker(
     let Ok(rect) = read_annotation_rect(document, dict) else {
         return false;
     };
-    let Ok(marker_rect) = pdf_rect_to_marker_rect(rect, page_view, page_rotation) else {
+    let Ok(marker_rect) = pdf_rect_to_note_marker_rect(rect, page_view, page_rotation) else {
         return false;
     };
     let marker_limit = MARKER_RECT_THRESHOLD + MARKER_RECT_EPSILON;
