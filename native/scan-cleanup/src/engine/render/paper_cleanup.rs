@@ -17,7 +17,7 @@ use scan_primitives::{
 
 /// How much darker than the brightest paper nearby a pixel must be to be a
 /// mark. Paper clouds and edge shading change far more slowly than that
-/// within an x-height.
+/// within a stroke width.
 const MARK_CONTRAST: u8 = 24;
 /// The inside of a solid mark wider than that neighbourhood, a heading bar
 /// or a thick rule, has no paper beside it; it is a mark when it is this much
@@ -50,7 +50,7 @@ pub(crate) fn whiten_unmarked_paper(
     if page_paper < MIN_PAPER {
         return;
     }
-    let paper_radius = (x_height.round() as usize).max(4);
+    let paper_radius = (stroke.round() as usize).max(4);
     // The local maximum: erosion shrinks dark structure in this convention.
     let paper = erode_gray(gray, paper_radius, paper_radius);
     let marks = BinaryImage::from_fn_parallel(width, height, |x, y| {
@@ -62,11 +62,11 @@ pub(crate) fn whiten_unmarked_paper(
     let reach = ((2.0 * x_height).round() as usize).max(4);
     let components = ComponentMap::from_binary(&marks);
     let specks = components.retain(|component| component.area <= speck_area);
-    // A speck stays when a larger mark lies within reach of it, or another
-    // speck does: two specks within reach meet once each grows by half of it.
+    // A speck stays near a larger mark or in a group whose combined ink is
+    // larger than a speck. Specks within reach meet after growing by half of it.
     let near_large = dilate(&marks.subtract(&specks), reach, reach);
     let groups = ComponentMap::from_binary(&dilate(&specks, reach.div_ceil(2), reach.div_ceil(2)));
-    let mut specks_per_group = vec![0usize; groups.components().len() + 1];
+    let mut speck_area_per_group = vec![0usize; groups.components().len() + 1];
     let group_of = |component: &Component| {
         (component.top..=component.bottom)
             .flat_map(|y| (component.left..=component.right).map(move |x| (x, y)))
@@ -75,12 +75,12 @@ pub(crate) fn whiten_unmarked_paper(
     };
     for component in components.components() {
         if component.area <= speck_area {
-            specks_per_group[group_of(component)] += 1;
+            speck_area_per_group[group_of(component)] += component.area;
         }
     }
     let kept = components.retain(|component| {
         component.area > speck_area
-            || specks_per_group[group_of(component)] > 1
+            || speck_area_per_group[group_of(component)] > speck_area
             || (component.top..=component.bottom).any(|y| {
                 (component.left..=component.right)
                     .any(|x| components.label_at(x, y) == component.label && near_large.get(x, y))
@@ -121,6 +121,52 @@ mod tests {
         for row in y {
             for column in x.clone() {
                 image.set(column, row, value);
+            }
+        }
+    }
+
+    #[test]
+    fn whitens_binding_shadows_without_losing_faint_strokes() {
+        let mut page = GrayImage::new(120, 220, 255);
+        for top in [20, 80, 140] {
+            for y in top..top + 50 {
+                let depth = (y - top).min(top + 49 - y).min(12);
+                for x in 0..16 {
+                    let shade = (35 * (16 - x) * depth / (16 * 12)) as u8;
+                    page.set(x, y, 255 - shade);
+                }
+            }
+        }
+        fill(&mut page, 60..90, 100..102, 220);
+        fill(&mut page, 80..88, 40..56, 40);
+        fill(&mut page, 5..7, 190..192, 220);
+        fill(&mut page, 11..13, 202..204, 220);
+        for (left, top) in [(40, 200), (46, 205), (52, 210)] {
+            fill(&mut page, left..left + 2, top..top + 2, 220);
+        }
+
+        whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
+
+        for y in 0..220 {
+            for x in 0..16 {
+                assert_eq!(page.get(x, y), 255, "binding shadow stayed at ({x}, {y})");
+            }
+        }
+        for y in 100..102 {
+            for x in 60..90 {
+                assert_eq!(page.get(x, y), 220, "faint stroke lost its tone");
+            }
+        }
+        for y in 40..56 {
+            for x in 80..88 {
+                assert_eq!(page.get(x, y), 40, "glyph lost its tone");
+            }
+        }
+        for (left, top) in [(40, 200), (46, 205), (52, 210)] {
+            for y in top..top + 2 {
+                for x in left..left + 2 {
+                    assert_eq!(page.get(x, y), 220, "substantial speck group lost its tone");
+                }
             }
         }
     }
