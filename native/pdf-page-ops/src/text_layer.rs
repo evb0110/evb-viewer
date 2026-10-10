@@ -1,4 +1,5 @@
 use super::*;
+use crate::split_pages::validate_crop_rect;
 use evb_native_support::output::AtomicOutput;
 use lopdf::{
     content::{Content, Operation as ContentOperation},
@@ -1838,19 +1839,18 @@ fn append_source_annotations(
         return Ok(());
     };
     let annotations = source.dereference(annots)?.1.as_array()?;
-    let filter = instruction
+    let output_view = instruction
         .filter_to_output_page
-        .then(|| match instruction.source_region {
-            Some(region) => crate::split_pages::validate_crop_rect(region.rect)
-                .map(|view| (region.matrix, view)),
-            None => {
-                resolve_page_view(target, target_page_id).map(|view| (instruction.matrix, view))
-            }
-        })
+        .then(|| resolve_page_view(target, target_page_id))
         .transpose()?;
+    let filter = match (instruction.source_region, output_view) {
+        (Some(region), Some(_)) => Some((region.matrix, validate_crop_rect(region.rect)?)),
+        (_, view) => view.map(|view| (instruction.matrix, view)),
+    };
     let rotation = resolve_page_rotation(target, target_page_id)?;
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
         transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
+        clip_text_markup_to_view(annotation, output_view);
         annotation.set("P", target_page_id);
         Ok(())
     };

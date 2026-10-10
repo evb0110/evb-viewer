@@ -18,6 +18,65 @@ pub(crate) struct TextMarkupQuadLineGroup {
     pub(crate) top: f64,
 }
 
+/// Clip a text-markup annotation to the output page it lands on. A quad is read
+/// as its bounding box, so clamping each corner clips that box, and a quad with
+/// no area left on the page is dropped. The Rect is clamped the same way.
+pub(crate) fn clip_text_markup_to_view(annotation: &mut Dictionary, view: Option<PdfRect>) {
+    let (Some(view), Ok(Object::Name(subtype))) = (view, annotation.get(b"Subtype")) else {
+        return;
+    };
+    if !matches!(
+        subtype.as_slice(),
+        b"Highlight" | b"Underline" | b"StrikeOut" | b"Squiggly"
+    ) {
+        return;
+    }
+    let numbers = |object: Option<&Object>| -> Option<Vec<f64>> {
+        let Object::Array(values) = object? else {
+            return None;
+        };
+        values
+            .iter()
+            .map(|value| value.as_float().ok().map(f64::from))
+            .collect()
+    };
+    let Some(quads) = numbers(annotation.get(b"QuadPoints").ok()) else {
+        return;
+    };
+    let mut clipped = Vec::with_capacity(quads.len());
+    for quad in quads.chunks_exact(8) {
+        let xs = [quad[0], quad[2], quad[4], quad[6]].map(|x| x.clamp(view.x1, view.x2));
+        let ys = [quad[1], quad[3], quad[5], quad[7]].map(|y| y.clamp(view.y1, view.y2));
+        let span = |values: [f64; 4]| {
+            let low = values.iter().copied().fold(f64::INFINITY, f64::min);
+            let high = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            (low, high)
+        };
+        let ((left, right), (bottom, top)) = (span(xs), span(ys));
+        if right > left && top > bottom {
+            clipped.extend(xs.iter().zip(ys).flat_map(|(&x, y)| [x, y]));
+        }
+    }
+    if clipped.is_empty() {
+        return;
+    }
+    annotation.set(
+        "QuadPoints",
+        Object::Array(clipped.into_iter().map(number_object).collect()),
+    );
+    if let Some(rect) = numbers(annotation.get(b"Rect").ok()).filter(|rect| rect.len() == 4) {
+        annotation.set(
+            "Rect",
+            rect_object(PdfRect {
+                x1: rect[0].clamp(view.x1, view.x2),
+                y1: rect[1].clamp(view.y1, view.y2),
+                x2: rect[2].clamp(view.x1, view.x2),
+                y2: rect[3].clamp(view.y1, view.y2),
+            }),
+        );
+    }
+}
+
 pub(crate) fn mean(values: impl Iterator<Item = f64>) -> f64 {
     let mut total = 0.0;
     let mut count = 0.0;

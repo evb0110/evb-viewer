@@ -2027,29 +2027,88 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
         // Read the split output back as the viewer does: the seam notes must
         // be editable notes on their owning half, not foreign entries.
         run_text_box_command("parse-annotations", &output, &parsed, None);
-        let read_back = fs::read_to_string(&parsed)
-            .unwrap()
-            .lines()
-            .skip(1)
-            .flat_map(|line| {
-                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
-                    .as_array()
-                    .unwrap()
-                    .clone()
-            })
-            .filter(|entry| entry["kind"] == "note")
-            .map(|entry| {
-                (
-                    entry["pageIndex"].as_u64().unwrap(),
-                    entry["contents"].as_str().unwrap().to_string(),
-                )
-            })
-            .collect::<Vec<_>>();
+        let read_back_of_kind = |kind: &str| {
+            fs::read_to_string(&parsed)
+                .unwrap()
+                .lines()
+                .skip(1)
+                .flat_map(|line| {
+                    serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                        .as_array()
+                        .unwrap()
+                        .clone()
+                })
+                .filter(|entry| entry["kind"] == kind)
+                .map(|entry| {
+                    (
+                        entry["pageIndex"].as_u64().unwrap(),
+                        entry["contents"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let read_back = read_back_of_kind("note");
         for (page, contents) in [(0, "Root note"), (1, "Seam note"), (1, "Legacy seam note")] {
             assert!(
                 read_back.contains(&(page, contents.to_string())),
                 "incremental={incremental} margin={margin} region={source_region}: {contents} is not a note on page {page}: {read_back:?}"
             );
+        }
+        // The cross-seam highlight is clipped to each output page: both halves
+        // read it back as editable markup, and its quads match the highlight drawn
+        // inside that page to within a point.
+        let highlights = read_back_of_kind("highlight");
+        for page in [0, 1] {
+            assert!(
+                highlights.contains(&(page, "Cross-seam markup".to_string())),
+                "incremental={incremental} margin={margin} region={source_region}: highlight is not editable markup on page {page}: {highlights:?}"
+            );
+        }
+        for (page_index, page) in saved.get_pages().values().enumerate() {
+            let media = saved
+                .get_dictionary(*page)
+                .unwrap()
+                .get(b"MediaBox")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| f64::from(value.as_float().unwrap()))
+                .collect::<Vec<_>>();
+            // Source highlight 90..110 by 45..55, moved by the instruction's matrix.
+            let shift_x = margin as f64 - 100.0 * page_index as f64;
+            let shift_y = margin as f64;
+            let expected = [
+                (90.0 + shift_x).max(0.0),
+                (45.0 + shift_y).max(0.0),
+                (110.0 + shift_x).min(media[2]),
+                (55.0 + shift_y).min(media[3]),
+            ];
+            assert!(expected[2] > expected[0] && expected[3] > expected[1]);
+            let quads = saved
+                .get_dictionary(annotations[page_index]["Cross-seam markup"])
+                .unwrap()
+                .get(b"QuadPoints")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| f64::from(value.as_float().unwrap()))
+                .collect::<Vec<_>>();
+            let xs = quads.iter().step_by(2);
+            let ys = quads.iter().skip(1).step_by(2);
+            let actual = [
+                xs.clone().copied().fold(f64::INFINITY, f64::min),
+                ys.clone().copied().fold(f64::INFINITY, f64::min),
+                xs.copied().fold(f64::NEG_INFINITY, f64::max),
+                ys.copied().fold(f64::NEG_INFINITY, f64::max),
+            ];
+            for (actual, expected) in actual.iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() <= 1.0,
+                    "incremental={incremental} margin={margin} region={source_region} page={page_index}: quads {actual:?} != {expected:?}"
+                );
+            }
         }
         // An ownership cycle has no terminal half. Refuse before publication.
         for owner in [
