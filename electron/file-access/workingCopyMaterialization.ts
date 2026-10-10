@@ -247,11 +247,12 @@ async function assertSourceHandleSnapshot(
             {cause: error},
         );
     }
-    if (
-        !sourceStat.isFile()
-        || sourceStat.size !== admissionSnapshot.size
-        || sourceStat.mtimeNs !== admissionSnapshot.mtimeNs
-    ) {
+    if (!sourceStat.isFile() || !workingCopyAdmissionSnapshotsMatch({
+        deviceId: sourceStat.dev,
+        inode: sourceStat.ino,
+        mtimeNs: sourceStat.mtimeNs,
+        size: sourceStat.size,
+    }, admissionSnapshot)) {
         throw new WorkingCopyMaterializationError(
             'SOURCE_BACKING_CHANGED',
             'The original document changed after it was opened',

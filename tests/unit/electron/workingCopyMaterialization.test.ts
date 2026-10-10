@@ -12,6 +12,7 @@ import {
     mkdtempSync,
     readFileSync,
     readdirSync,
+    renameSync,
     rmSync,
     unlinkSync,
     utimesSync,
@@ -27,6 +28,8 @@ import type * as FsPromises from 'node:fs/promises';
 let tempRoot = '';
 let resetModulesAfterTest = false;
 const MULTI_CHUNK_FIXTURE_BYTES = 1024 * 1024 + 17;
+// A whole second, so another file can be given exactly the same time.
+const FIXTURE_TIME = new Date('2026-01-01T00:00:00Z');
 
 vi.mock('electron', () => ({app: {getPath: vi.fn(() => tempRoot)}}));
 
@@ -560,6 +563,23 @@ describe('workingCopyMaterialization', () => {
         })).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
     });
 
+    it('blocks materialization when a same-size file with the same time replaced the original', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024, 53));
+        const replacementPath = `${fixture.originalPath}.replacement`;
+        writeFileSync(replacementPath, Buffer.alloc(1024, 54));
+        utimesSync(replacementPath, FIXTURE_TIME, FIXTURE_TIME);
+        renameSync(replacementPath, fixture.originalPath);
+        const {ensureWorkingCopyMaterialized} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        })).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+        expect(existsSync(fixture.workingPath)).toBe(false);
+    });
+
     it('discards copied bytes when the source changes during streaming', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 43));
         const {
@@ -678,6 +698,7 @@ async function registerLazyWorkingCopy(bytes: Buffer) {
     );
     mkdirSync(dirname(workingPath), {recursive: true});
     writeFileSync(originalPath, bytes);
+    utimesSync(originalPath, FIXTURE_TIME, FIXTURE_TIME);
     const {
         captureWorkingCopyAdmissionSnapshot,
         setWorkingCopyOriginalPath,
