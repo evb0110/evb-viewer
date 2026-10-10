@@ -1386,16 +1386,15 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         })
         .collect::<Vec<_>>();
 
-    // Isolated narrow filled edges are crease fragments, not characters.
-    // Preserve compact marks and narrow glyphs with paper inside their box,
-    // or short text whose neighbouring glyphs share a baseline.
+    // Preserve larger standalone marks and short aligned text. Isolated
+    // sensor noise still lacks their scale or neighbouring baseline.
     if candidates.iter().any(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         height >= minimum_height.saturating_mul(3)
             && component.area >= minimum_area.saturating_mul(2)
-            && (width.min(height).saturating_mul(4) >= width.max(height)
-                || component.area.saturating_mul(2) < width.saturating_mul(height))
+            && width.saturating_mul(8) >= height
+            && height.saturating_mul(8) >= width
     }) {
         return true;
     }

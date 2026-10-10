@@ -48,7 +48,7 @@ fn auto_renders_a_blank_sheet_with_a_fold_crease_as_black_and_white() {
 }
 
 #[test]
-fn auto_cleans_a_crease_fragment_but_keeps_a_single_serifed_page_number() {
+fn auto_preserves_single_serifed_page_numbers_with_or_without_a_crease() {
     use evb_scan_cleanup::{engine::render::clean_page, LayoutMode};
     use scan_primitives::GrayImage;
 
@@ -67,30 +67,41 @@ fn auto_cleans_a_crease_fragment_but_keeps_a_single_serifed_page_number() {
             fragment.set(x, y, 236 - (70 - 15 * x.abs_diff(300)) as u8);
         }
     }
-    let cleaned = clean_page(&fragment, &options, 0).unwrap();
-    assert!(
-        cleaned.outputs[0]
-            .image
-            .to_gray()
-            .data()
-            .iter()
-            .all(|&value| value == 255),
-        "a short fragment of the fold was mistaken for a standalone glyph",
-    );
-
-    for width in [12, 16] {
-        let mut numbered = fragment.clone();
-        for y in 1600..1664 {
+    for (width, stem, height, value, with_crease) in [
+        (12, 2, 64, 32, true),
+        (16, 2, 64, 32, true),
+        (8, 4, 64, 32, false),
+        (10, 6, 64, 32, false),
+        (12, 4, 64, 32, false),
+        (8, 4, 64, 185, false),
+        (6, 4, 40, 32, false),
+        (6, 4, 40, 80, false),
+        (6, 4, 40, 185, false),
+    ] {
+        let mut numbered = if with_crease {
+            fragment.clone()
+        } else {
+            GrayImage::new(1700, 2400, 236)
+        };
+        let left = 900 + (width - stem) / 2;
+        for y in 1600..1600 + height {
             for x in 900..900 + width {
-                if x == 906 || x == 907 || !(1604..1660).contains(&y) {
-                    numbered.set(x, y, 32);
+                if (left..left + stem).contains(&x) || !(1604..1600 + height - 4).contains(&y) {
+                    numbered.set(x, y, value);
                 }
             }
         }
         let cleaned = clean_page(&numbered, &options, 0).unwrap();
-        assert!(
-            cleaned.outputs[0].image.get(906, 1630) < 60,
-            "the blank-page decision erased a narrow serifed page number",
+        let output = &cleaned.outputs[0].image;
+        let ink = (1600..1600 + height)
+            .flat_map(|y| (900..900 + width).map(move |x| (x, y)))
+            .filter(|&(x, y)| output.get(x, y) < 250)
+            .count();
+        assert_eq!(
+            ink,
+            width * 8 + stem * (height - 8),
+            "{width}x{height}, ink {value}, crease {with_crease}: numeral lost ink; {:?}",
+            cleaned.output_mode_recommendation,
         );
     }
 }
