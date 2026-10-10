@@ -1,6 +1,7 @@
 import {
     mkdtemp,
     readdir,
+    readFile,
     readlink,
     rm,
 } from 'node:fs/promises';
@@ -23,6 +24,9 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const fake = vi.hoisted(() => ({
     pageTexts: new Map<number, string>(),
+    evbOcrText: null as string | null,
+    visibilityStarted: null as (() => void) | null,
+    visibilityRelease: null as Promise<void> | null,
     pdftotextRanges: [] as string[],
     missingCjkDataPages: new Set<number>(),
     pdfjsPages: [] as number[],
@@ -62,6 +66,31 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
             exitCode: 0,
         };
     }
+    if (args[0] === 'ocr-text-visibility') {
+        const pageNumbers = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8')).trim().split('\n').map(Number);
+        fake.visibilityStarted?.();
+        await fake.visibilityRelease;
+        return result(JSON.stringify({
+            format: 'evb-pdf-ocr-text-visibility',
+            schemaVersion: 3,
+            pages: pageNumbers.map(pageNumber => ({
+                pageNumber,
+                evbOcrLayer: true,
+                paintedText: false,
+                hiddenText: false,
+                uncertain: null,
+                unsupported: null,
+                evbOcrLines: [{
+                    block: 0,
+                    text: fake.evbOcrText,
+                    left: 0,
+                    right: 100,
+                    baseline: 100,
+                    size: 10,
+                }],
+            })),
+        }));
+    }
     if (args[0] === 'stat') {
         return result(JSON.stringify(fake.indexCoverage));
     }
@@ -100,7 +129,7 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/fake/evb-pdf-search'}));
 vi.mock('@electron/file-access/documentRevisionStore', () => ({assertWorkingCopyRevisionCurrent: async () => undefined}));
 // Without evb-pdf-page-ops, text extraction keeps Poppler's layout reading of every page.
-vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => null}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => fake.evbOcrText === null ? null : '/fake/evb-pdf-page-ops'}));
 vi.mock('@electron/utils/workerTask', async importOriginal => ({
     ...await importOriginal<typeof TWorkerTaskModule>(),
     resolveUnpackedWorkerPath: () => '/fake/pdf-text-worker.js',
@@ -132,6 +161,9 @@ const {readDocumentTextSnapshot} = await import('@electron/features/ocr/main/doc
 
 afterEach(() => {
     fake.pageTexts = new Map();
+    fake.evbOcrText = null;
+    fake.visibilityStarted = null;
+    fake.visibilityRelease = null;
     fake.pdftotextRanges = [];
     fake.missingCjkDataPages = new Set();
     fake.pdfjsPages = [];
@@ -184,6 +216,60 @@ describe('native search error mapping', () => {
 });
 
 describe('search index text budget', () => {
+    it('reports a read page while grouped visibility is pending and keeps progress monotonic', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-progress-'));
+        fake.evbOcrText = 'recognized first page';
+        fake.pageTexts.set(1, 'layout fragments');
+        fake.pageTexts.set(512, 'last page');
+        fake.indexCoverage = {
+            pageCount: 512,
+            pagesScanned: 512,
+            pagesWritten: 2,
+            truncated: false,
+            missingTextPageSample: [],
+        };
+        let release!: () => void;
+        fake.visibilityRelease = new Promise((resolve) => {
+            release = resolve;
+        });
+        const inspecting = new Promise<void>((resolve) => {
+            fake.visibilityStarted = resolve;
+        });
+        const progress: number[] = [];
+        const indexed = buildSearchIndex({
+            indexPath: join(directory, 'index'),
+            documentRevision: 'revision',
+            readPageCount: () => Promise.resolve(512),
+            readPages: (signal, pageCount, onProgress) => streamPdfPageTexts(
+                join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'),
+                {
+                    signal,
+                    ...(pageCount === undefined ? {} : {lastPage: pageCount}),
+                },
+                onProgress,
+            ),
+        }, pageNumber => progress.push(pageNumber));
+        try {
+            await inspecting;
+            expect([...progress]).toEqual([1]);
+            release();
+            await indexed;
+            expect(progress.at(-1)).toBe(512);
+            expect(progress.every((pageNumber, index) => pageNumber >= (progress[index - 1] ?? 0))).toBe(true);
+            expect(JSON.parse(fake.indexLines[0]!)).toEqual({
+                pageNumber: 1,
+                text: 'recognized first page',
+            });
+        } finally {
+            release();
+            await indexed;
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('streams the PDF.js reading of a window Poppler lacks CJK data for', async () => {
         fake.pageTexts.set(1, 'poppler 1');
         fake.pageTexts.set(2, 'poppler 2');

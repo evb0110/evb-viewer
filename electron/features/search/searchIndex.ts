@@ -45,7 +45,8 @@ export interface ISearchIndexedDocument {
     workingCopyPath?: string;
     /** The document's page count, so coverage stays whole when the index ends early. */
     readPageCount?(signal: AbortSignal): Promise<number>;
-    readPages(signal: AbortSignal, pageCount: number | undefined): AsyncIterable<IPageText>;
+    /** Progress may precede the text; streamed page numbers must not go below it. */
+    readPages(signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void): AsyncIterable<IPageText>;
 }
 
 export interface ISearchQueryOptions extends IResolvedSearchMatchOptions {
@@ -123,11 +124,12 @@ export function buildSearchIndex(
             const pageCount = await document.readPageCount?.(signal);
             const inputPath = `${document.indexPath}.${randomUUID()}.input`;
             try {
-                await writeSearchIndexInput(inputPath, document.readPages(signal, pageCount), (pageNumber) => {
+                const reportPage = (pageNumber: number) => {
                     for (const listener of listeners) {
                         listener(pageNumber);
                     }
-                }, signal);
+                };
+                await writeSearchIndexInput(inputPath, document.readPages(signal, pageCount, reportPage), reportPage, signal);
                 return await runNativeToolCommand(resolvePdfSearchBinary(), [
                     'index',
                     '--out',

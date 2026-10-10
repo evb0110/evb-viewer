@@ -207,18 +207,20 @@ async function readOcrLayersInRecognitionOrder(
 export function streamPdfPageTexts(
     pdfPath: string,
     options: TStreamPdfPageTextsOptions = {},
+    onProgress?: (pageNumber: number) => void,
 ): AsyncGenerator<IPageText> {
     const {
         signal,
         ...range
     } = options;
-    return streamPdfPageTextRanges(pdfPath, [range], signal);
+    return streamPdfPageTextRanges(pdfPath, [range], signal, onProgress);
 }
 
 async function* streamPdfPageTextRanges(
     pdfPath: string,
     ranges: Iterable<IPdfPageRange>,
     signal?: AbortSignal,
+    onProgress?: (pageNumber: number) => void,
 ): AsyncGenerator<IPageText> {
     signal?.throwIfAborted();
     const source = await stat(pdfPath, {bigint: true});
@@ -255,6 +257,12 @@ async function* streamPdfPageTextRanges(
             await assertSource();
             yield* streamPdfjsPageTexts(pdfPath, window, signal);
             continue;
+        }
+        // Poppler has read this page even while its reading order is inspected.
+        // Report only the first page so yielding the window never moves progress back.
+        const firstPageNumber = pages[0]?.pageNumber;
+        if (firstPageNumber !== undefined) {
+            onProgress?.(firstPageNumber);
         }
         const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
         if (textPageNumbers.length > 0 && index >= inspectedWindows) {
