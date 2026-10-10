@@ -22,7 +22,6 @@ import {
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
-    type IScanCleanupProvenanceInputs,
     type IScanCleanupWorkerPaths,
     type IPdfPageSize,
     type IDetectedPageRaster,
@@ -93,8 +92,8 @@ import {
  */
 export interface IScanCleanupLosslessRunContext {
     documentCanvas?: IScanCleanupDocumentCanvasPlan | null;
-    provenance?: IScanCleanupProvenanceInputs;
     skipDocumentCanvasMeasurement?: boolean;
+    onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
 }
 
 function resolveLosslessDpiSource(
@@ -363,40 +362,40 @@ export async function runLosslessScanCleanup(
             nativeOptionsBySource.set(batchPageNumbers[index]!, page.options);
         }
         emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
-        try {
-            await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
-                // Native reports page numbers relative to this manifest. Keep
-                // the source mapping local to the bounded batch.
-                if (nativeProgress.totalPages !== pages.length) {
-                    throw new Error(
-                        `evb-scan-cleanup analysis reported ${String(nativeProgress.totalPages)} total pages`
+        await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
+            // Native reports page numbers relative to this manifest. Keep
+            // the source mapping local to the bounded batch.
+            if (nativeProgress.totalPages !== pages.length) {
+                throw new Error(
+                    `evb-scan-cleanup analysis reported ${String(nativeProgress.totalPages)} total pages`
                         + ` for ${String(pages.length)} submitted pages`,
+                );
+            }
+            if (nativeProgress.stage !== 'page-complete') {
+                return;
+            }
+            if (nativeProgress.pageNumber !== undefined) {
+                const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
+                if (sourcePageNumber === undefined) {
+                    throw new Error(
+                        `evb-scan-cleanup analysis reported unknown page index ${String(nativeProgress.pageNumber)}`,
                     );
                 }
-                if (nativeProgress.stage !== 'page-complete') {
-                    return;
+                if (!classifiedPageNumbers.has(sourcePageNumber)) {
+                    classifiedPageNumbers.add(sourcePageNumber);
+                    classifiedCount += 1;
                 }
-                if (nativeProgress.pageNumber !== undefined) {
-                    const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
-                    if (sourcePageNumber === undefined) {
-                        throw new Error(
-                            `evb-scan-cleanup analysis reported unknown page index ${String(nativeProgress.pageNumber)}`,
-                        );
-                    }
-                    if (!classifiedPageNumbers.has(sourcePageNumber)) {
-                        classifiedPageNumbers.add(sourcePageNumber);
-                        classifiedCount += 1;
-                    }
-                }
-                emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
-            }, {allowedPathRoot: scratch});
-            emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
-        } finally {
-            // Metadata is decoded below before this batch is discarded. The
-            // raster inputs can go as soon as the sidecar exits, so a long run
-            // never leaves one input per source page in scratch.
-            await Promise.all(pages.map(page => rm(page.inputPath, {force: true})));
-        }
+            }
+            emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
+        }, {
+            allowedPathRoot: scratch,
+            ...(context.onRecoveryPending === undefined ? {} : {onRecoveryPending: context.onRecoveryPending}),
+        });
+        emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
+        // Release successful batches before rendering the next one. A failed
+        // sidecar may still read these inputs; the job's recovery callback
+        // retains their scratch until termination and recovery are proven.
+        await Promise.all(pages.map(page => rm(page.inputPath, {force: true})));
         try {
             for (const [
                 index,
@@ -578,12 +577,12 @@ export async function runLosslessScanCleanup(
         transportMode: request.transportMode
             ?? paths.transportMode
             ?? 'source-preserved',
-        ...(context.provenance === undefined
+        ...(request.provenance === undefined
             ? {}
-            : {reusableNativeBinarySha256s: context.provenance.nativeBinarySha256s}),
+            : {reusableNativeBinarySha256s: request.provenance.nativeBinarySha256s}),
     });
     const stamp = buildScanCleanupProvenanceStamp({
-        sourceSha256: context.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
+        sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
         effectiveOptions,
         outputMappings,
         pagePlanDigests,

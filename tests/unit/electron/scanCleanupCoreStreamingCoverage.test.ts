@@ -1521,10 +1521,26 @@ describe('scan-cleanup-core conversion coverage', () => {
     });
 
     it.each([
-        1,
-        SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1,
+        {
+            documentPageCount: 1,
+            preserveOriginalQuality: false,
+        },
+        {
+            documentPageCount: 1,
+            preserveOriginalQuality: true,
+        },
+        {
+            documentPageCount: SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1,
+            preserveOriginalQuality: false,
+        },
+        {
+            documentPageCount: SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1,
+            preserveOriginalQuality: true,
+        },
     ])(
-        'retains conversion scratch for a %i-page document until deferred recovery completes', async (documentPageCount) => {
+        'retains conversion inputs and scratch for a $documentPageCount-page document (lossless: $preserveOriginalQuality) until deferred recovery completes', async ({
+            documentPageCount, preserveOriginalQuality,
+        }) => {
             const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-deferred-recovery-test-'));
             roots.push(root);
             const sourcePdfPath = join(root, 'source.pdf');
@@ -1539,14 +1555,14 @@ describe('scan-cleanup-core conversion coverage', () => {
                 resolveRecovery = resolve;
             });
             let cleanupComplete!: Promise<void>;
-            const renderPagePpm = vi.fn(async (
+            const renderPage = vi.fn(async (
                 _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
                 _log: TScanCleanupLog,
                 _pageNumber: number,
                 _source: string,
                 outputPath: string,
             ) => {
-                await writeFile(outputPath, PPM);
+                await writeFile(outputPath, outputPath.endsWith('.ppm') ? PPM : PNG);
             });
             const runSidecar = vi.fn(async (
                 _binaryPath,
@@ -1574,8 +1590,8 @@ describe('scan-cleanup-core conversion coverage', () => {
                         height: 300,
                     }),
                 })),
-                renderPage: vi.fn(),
-                renderPagePpm,
+                renderPage,
+                renderPagePpm: renderPage,
                 runSidecar,
                 runCommand: vi.fn(async () => ({
                     exitCode: 0,
@@ -1591,7 +1607,10 @@ describe('scan-cleanup-core conversion coverage', () => {
                     sourcePdfPath,
                     outputPdfPath,
                     sourcePageNumbers: [documentPageCount],
-                    options,
+                    options: {
+                        ...options,
+                        preserveOriginalQuality,
+                    },
                 },
                 paths(root),
                 new AbortController().signal,
@@ -1601,13 +1620,27 @@ describe('scan-cleanup-core conversion coverage', () => {
                 dependencies,
             )).rejects.toThrow('sidecar termination was not proven');
 
-            expect(runSidecar).toHaveBeenCalledOnce();
-            expect(findScratchFile(root, 'cleanup-manifest-0.json')).not.toBeNull();
+            const manifestName = preserveOriginalQuality
+                ? 'lossless-analysis-manifest-0.json'
+                : 'cleanup-manifest-0.json';
+            const manifestPath = findScratchFile(root, manifestName);
+            expect(manifestPath).not.toBeNull();
+            const manifest = JSON.parse(await readFile(manifestPath!, 'utf8')) as {pages: Array<{
+                inputPath: string;
+                analysisInputPath: string;
+            }>};
+            expect(manifest.pages).toHaveLength(1);
+            for (const page of manifest.pages) {
+                const rasterBytes = page.inputPath.endsWith('.ppm') ? PPM : PNG;
+                await expect(readFile(page.inputPath)).resolves.toEqual(rasterBytes);
+                await expect(readFile(page.analysisInputPath)).resolves.toEqual(rasterBytes);
+            }
             expect(existsSync(outputPdfPath)).toBe(false);
 
             resolveRecovery(true);
             await expect(recovery).resolves.toBe(true);
             await cleanupComplete;
-            expect(findScratchFile(root, 'cleanup-manifest-0.json')).toBeNull();
+            expect(findScratchFile(root, manifestName)).toBeNull();
+            expect(await readdir(root)).toEqual(['source.pdf']);
         });
 });

@@ -2250,7 +2250,7 @@ async function executeScanCleanupBatch({
             dpiDetails, scratch, stagedPdfPath, signal, emitProgress, log, policy,
             dependencies, {
                 documentCanvas,
-                ...(request.provenance === undefined ? {} : {provenance: request.provenance}),
+                onRecoveryPending,
             }, summary,
         );
         if ((await stat(stagedPdfPath)).size <= 0) {
