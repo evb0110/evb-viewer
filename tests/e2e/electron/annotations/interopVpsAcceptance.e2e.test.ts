@@ -487,6 +487,11 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         const reopenPath = copyFreshFixture(fixturePath, 'rotated-text-reopen');
         await openPdfInApp(page, reopenPath);
         await waitForViewerInteractive(page);
+        // Canvas readiness does not await the reopened annotation layer.
+        await page.waitForSelector(selector, {
+            visible: true,
+            timeout: SAVE_TIMEOUT_MS,
+        });
         expect((await readTextLine()).columns).toBeLessThan(1);
         await rotatePage('counterclockwise');
         expect((await readTextLine()).rows).toBeLessThan(1);
