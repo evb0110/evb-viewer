@@ -196,8 +196,8 @@ fn is_valley(
 /// A weak stroke beside a dark stem need not be the profile's minimum:
 /// the stem tilts that profile. Subtract its linear slope by comparing the
 /// center with the mean of symmetric flanks, both adjacent and at the rim.
-/// Curvature at both scales keeps the added line narrow; darker flanks along
-/// the line still identify the paper gap between two serifs.
+/// Curvature at both scales keeps the added line narrow; darker flanks at
+/// twice the profile radius identify the blurred paper saddle between serifs.
 fn is_ridge(raw: &GrayImage, x: usize, y: usize, radius: usize, contrast: ValleyContrast) -> bool {
     let center = i16::from(raw.get(x, y));
     let sample = |(dx, dy): (isize, isize), step: isize| {
@@ -206,22 +206,19 @@ fn is_ridge(raw: &GrayImage, x: usize, y: usize, radius: usize, contrast: Valley
         (sx < raw.width() && sy < raw.height()).then(|| i16::from(raw.get(sx, sy)))
     };
     let darker_along = |direction, sign: isize| {
-        (1..=radius as isize).any(|step| {
+        (1..=2 * radius as isize).any(|step| {
             sample(direction, sign * step).is_some_and(|value| center - value >= contrast.rise)
         })
     };
-    if DIRECTIONS
+    !DIRECTIONS
         .iter()
         .any(|&(_, along)| darker_along(along, 1) && darker_along(along, -1))
-    {
-        return false;
-    }
-    DIRECTIONS.iter().any(|&(across, _)| {
-        let symmetric_rise =
-            |step: isize| Some(sample(across, step)? + sample(across, -step)? - 2 * center);
-        symmetric_rise(1).is_some_and(|rise| rise >= contrast.rise / radius as i16)
-            && symmetric_rise(radius as isize).is_some_and(|rise| rise >= 2 * contrast.rise)
-    })
+        && DIRECTIONS.iter().any(|&(across, _)| {
+            let symmetric_rise =
+                |step: isize| Some(sample(across, step)? + sample(across, -step)? - 2 * center);
+            symmetric_rise(1).is_some_and(|rise| rise >= contrast.rise / radius as i16)
+                && symmetric_rise(radius as isize).is_some_and(|rise| rise >= 2 * contrast.rise)
+        })
 }
 
 /// Keeps the valley components that bridge two kept glyph parts, touch one
@@ -490,11 +487,11 @@ mod tests {
     }
 
     #[test]
-    fn leaves_the_gap_between_touching_serifs_open() {
-        let mut sheet = Sheet::new(60, 40);
-        sheet.fill(10, 20, 25, 21, 1.0);
-        sheet.fill(27, 20, 42, 21, 1.0);
-        let image = sheet.scan(&SOFT);
+    fn leaves_the_blurred_gap_between_offset_serifs_open() {
+        let mut sheet = Sheet::new(80, 60);
+        sheet.fill(10, 20, 32, 23, 1.0);
+        sheet.fill(35, 22, 57, 25, 1.0);
+        let image = sheet.scan(&[1.0, 2.0, 3.0, 4.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
         let cut = threshold(&image);
         assert_eq!(
             component_count(&cut),
