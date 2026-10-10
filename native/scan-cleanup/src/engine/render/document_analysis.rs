@@ -1552,11 +1552,11 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
             text_soft_edge_ratio,
         );
         let [preserved, rejected] = faint_strokes;
+        let auto_bw =
+            options.output_mode == OutputMode::Auto && recommendation.mode == OutputMode::Bw;
         faint_stroke_masks = [
-            preserved.filter(|_| matches!(options.output_mode, OutputMode::Auto | OutputMode::Bw)),
-            rejected.filter(|_| {
-                options.output_mode == OutputMode::Auto && recommendation.mode == OutputMode::Bw
-            }),
+            preserved.filter(|_| auto_bw || options.output_mode == OutputMode::Bw),
+            rejected.filter(|_| auto_bw),
         ]
         .map(|mask| mask.map(Arc::new));
         recommendation
