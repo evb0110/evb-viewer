@@ -2,7 +2,7 @@
 //! tone and halo. The picture owner is never touched.
 
 use super::*;
-use scan_primitives::Component;
+use scan_primitives::{morphology::reconstruct_binary, Component};
 
 /// Ink contrast against nearby paper, excluding slow paper gradients.
 const MARK_CONTRAST: u8 = 24;
@@ -81,10 +81,11 @@ pub(crate) fn whiten_unmarked_paper(
                     .any(|x| components.label_at(x, y) == component.label && near_large.get(x, y))
             })
     });
+    // Follow admitted ink through its core, including filled interiors.
     let cores = BinaryImage::from_fn_parallel(width, height, |x, y| {
         kept.get(x, y) || page_paper.saturating_sub(gray.get(x, y)) >= MARK_CONTRAST
     });
-    let kept = dilate(&kept, paper_radius, paper_radius).and(&cores);
+    let kept = reconstruct_binary(&kept, &cores);
     let halo = ((x_height / 2.0).round() as usize).max(2);
     let keep = dilate(&kept, halo, halo);
     for y in 0..height {

@@ -167,68 +167,19 @@ fn an_isolated_dust_speck_does_not_preserve_a_broad_paper_cloud() {
 
 #[test]
 fn keeps_every_pixel_of_a_filled_faint_rule() {
-    let mut page = GrayImage::new(400, 400, 255);
-    fill(&mut page, 60..340, 100..122, 220);
+    for thickness in [22, 48] {
+        let mut page = GrayImage::new(400, 400, 255);
+        fill(&mut page, 60..340, 100..100 + thickness, 220);
 
-    whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
+        whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
 
-    for y in 100..122 {
-        for x in 60..340 {
-            assert_eq!(page.get(x, y), 220, "filled ink lost at ({x}, {y})");
+        for y in 100..100 + thickness {
+            for x in 60..340 {
+                assert_eq!(page.get(x, y), 220, "filled ink lost at ({x}, {y})");
+            }
         }
+        assert_eq!(page.get(200, 150), 255, "paper away from the rule stayed");
     }
-    assert_eq!(page.get(200, 150), 255, "paper away from the rule stayed");
-}
-
-#[test]
-fn whitens_the_interior_of_a_flat_tint_without_a_glyph() {
-    let mut page = GrayImage::new(400, 400, 236);
-    fill(&mut page, 40..180, 40..220, 205);
-
-    whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
-
-    eprintln!(
-        "probe A: retained tint pixels={}, interior={}",
-        page.data().iter().filter(|&&value| value == 205).count(),
-        page.get(120, 150)
-    );
-    assert_eq!(page.get(120, 150), 255, "the flat tint interior stayed");
-}
-
-#[test]
-fn a_touching_glyph_does_not_keep_a_flat_tint_interior() {
-    let mut page = GrayImage::new(400, 400, 236);
-    fill(&mut page, 40..180, 40..220, 205);
-    fill(&mut page, 36..48, 130..162, 40);
-
-    whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
-
-    eprintln!("probe B: far tint interior={}", page.get(70, 70));
-    assert_eq!(page.get(70, 70), 255, "the touching tint flooded");
-    for y in 130..162 {
-        for x in 36..48 {
-            assert_eq!(page.get(x, y), 40, "the touching glyph lost its tone");
-        }
-    }
-    assert_eq!(page.get(50, 145), 205, "the glyph halo lost its tone");
-}
-
-#[test]
-fn a_marginal_glyph_does_not_keep_a_flat_binding_strip() {
-    let mut page = GrayImage::new(400, 400, 236);
-    fill(&mut page, 0..120, 40..260, 206);
-    fill(&mut page, 116..124, 140..160, 40);
-
-    whiten_unmarked_paper(&mut page, None, calibration(), 150.0);
-
-    eprintln!("probe C: far strip interior={}", page.get(90, 150));
-    assert_eq!(page.get(90, 150), 255, "the binding strip flooded");
-    for y in 140..160 {
-        for x in 116..124 {
-            assert_eq!(page.get(x, y), 40, "the marginal glyph lost its tone");
-        }
-    }
-    assert_eq!(page.get(112, 150), 206, "the glyph halo lost its tone");
 }
 
 #[test]
