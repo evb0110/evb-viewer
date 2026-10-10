@@ -26,10 +26,12 @@ fn parse_annotations_cli_writes_the_streaming_jsonl_sidecar() {
     let pages_id = document.new_object_id();
     let page_id = document.new_object_id();
     // A note that overhangs the page but is centred on it belongs to the
-    // page; one centred off the page is not this page's note.
+    // page, a centre on the bottom edge included, as when a split places it;
+    // one centred off the page is not this page's note.
     let annotations = [
         ("cli-note", [10, 20, 30, 40]),
         ("overhanging-note", [85, 20, 105, 40]),
+        ("bottom-edge-note", [40, -10, 60, 10]),
         ("off-page-note", [300, 20, 320, 40]),
     ]
     .map(|(name, rect)| {
@@ -101,6 +103,7 @@ fn parse_annotations_cli_writes_the_streaming_jsonl_sidecar() {
     };
     assert_eq!(kind_of("cli-note").unwrap(), "note");
     assert_eq!(kind_of("overhanging-note").unwrap(), "note");
+    assert_eq!(kind_of("bottom-edge-note").unwrap(), "note");
     assert_ne!(kind_of("off-page-note").unwrap(), "note");
     assert!(lines.next().is_none());
 

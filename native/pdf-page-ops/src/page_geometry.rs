@@ -483,9 +483,8 @@ pub(crate) fn pdf_rect_to_note_marker_rect(
     page_rotation: i64,
 ) -> Result<MarkerRect> {
     let mut marker_rect = pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)?;
-    let centre_x = marker_rect.left + marker_rect.width / 2.0;
-    let centre_y = marker_rect.top + marker_rect.height / 2.0;
-    if (0.0..1.0).contains(&centre_x) && (0.0..1.0).contains(&centre_y) {
+    let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
+    if (page_view.x1..page_view.x2).contains(&x) && (page_view.y1..page_view.y2).contains(&y) {
         marker_rect.left = marker_rect.left.min(1.0 - marker_rect.width).max(0.0);
         marker_rect.top = marker_rect.top.min(1.0 - marker_rect.height).max(0.0);
     }
