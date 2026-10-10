@@ -1,0 +1,26 @@
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_4d188619137033::t_f4bec4daa67dec 368-372,374-383,386-388,390-391
+  s_4d188619137033::t_8dfa12b6c48c6d 98,367,392-400
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_4d188619137033::t_4812eb062eb3a1 1610-1613,1623-1633,1637,1643-1644
+  s_4d188619137033::t_c8fc79b4875d6d 1524-1539,1541-1543
+  s_4d188619137033::t_903a237feed252 1558,1565,1593-1594,1634-1636
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_4d188619137033::t_8dfa12b6c48c6d 2253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8b25a80928f99d4fc8bef71062443bb0ce72e950",
+  "prompts": {},
+  "sessions": {
+    "s_4d188619137033": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123a7-1af7-7212-9bc7-3d482dc6985a",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
