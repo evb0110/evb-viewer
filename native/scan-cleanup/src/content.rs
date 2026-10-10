@@ -196,9 +196,8 @@ fn detect_content_at_analysis_scale(
             hard_paper: 248,
         },
     );
-    let borders = border_artifact_mask_from_binary(working, &binary);
-    let (rails, rail_reach) = side_edge_rails(&binary);
-    let borders = borders.or(&rails);
+    let (rails, rail_reach) = side_edge_rails(&binary, None);
+    let borders = border_artifact_mask_from_binary(working, &binary).or(&rails);
     // Picture ownership is semantic/render state, but content bounds need a
     // stricter authority. Qualify it after the spread has been split into
     // local pages: a central gutter is not an outer-sheet rail, while each

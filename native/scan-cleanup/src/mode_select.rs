@@ -1372,7 +1372,7 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
     let minimum_area = minimum_height.saturating_mul(3);
     let maximum_width = (image.width() / 5).max(1);
     let maximum_height = (image.height() / 5).max(1);
-    let (rails, _) = crate::edge_artifacts::side_edge_rails(&edges);
+    let (rails, _) = crate::edge_artifacts::side_edge_rails(&edges, None);
     let components = ComponentMap::from_binary(&edges.subtract(&rails));
     let candidates = components
         .components()

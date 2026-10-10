@@ -6,7 +6,7 @@
 use scan_primitives::{
     morphology::{open, reconstruct_binary},
     threshold::{threshold_local, LocalThreshold},
-    BinaryImage, Component, ComponentMap, GrayImage,
+    BinaryImage, Component, ComponentMap, GrayImage, Rect,
 };
 use std::ops::Range;
 
@@ -35,23 +35,19 @@ pub(crate) fn touches_raster_edge(component: &Component, width: usize, height: u
 /// than the band may be is still a band when every row of it is thin and the
 /// row centres drift without jumping, as a straight tilted strip does; line
 /// beginnings merged into one shape jump from line to line.
-fn is_side_edge_rail(
-    components: &ComponentMap,
-    component: &Component,
-    width: usize,
-    height: usize,
-) -> bool {
+fn is_side_edge_rail(components: &ComponentMap, component: &Component, page: Rect) -> bool {
     let length = component.bottom - component.top + 1;
     let box_thickness = component.right - component.left + 1;
-    let band = width.div_ceil(20);
-    let touching = component.left <= RASTER_EDGE_SLIVER_PX
-        || component.right + 1 + RASTER_EDGE_SLIVER_PX >= width;
-    let inside_band = component.right < band || component.left + band >= width;
-    let long_enough = length * if touching { 40 } else { 8 } >= height;
+    let band = (page.width / 20.0).ceil();
+    let touching = component.left as f64 <= page.x + RASTER_EDGE_SLIVER_PX as f64
+        || (component.right + 1 + RASTER_EDGE_SLIVER_PX) as f64 >= page.right();
+    let inside_band =
+        (component.right as f64) < page.x + band || component.left as f64 + band >= page.right();
+    let long_enough = (length * if touching { 40 } else { 8 }) as f64 >= page.height;
     if !inside_band || !long_enough {
         return false;
     }
-    if box_thickness * 40 <= width {
+    if (box_thickness * 40) as f64 <= page.width {
         return length >= box_thickness.saturating_mul(8);
     }
     let mut widths = Vec::with_capacity(length);
@@ -80,29 +76,32 @@ fn is_side_edge_rail(
         .get(widths.len() * 9 / 10)
         .copied()
         .unwrap_or(box_thickness);
-    row_thickness * 40 <= width && length >= row_thickness.saturating_mul(8)
+    (row_thickness * 40) as f64 <= page.width && length >= row_thickness.saturating_mul(8)
 }
 
 /// Side rails and their inner columns. Detached dashes use the same outer
 /// twentieth as bands, but must form a spatially connected, isolated run.
 /// Separate compact edge marks cannot borrow another strand's length.
-pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usize>; 2]) {
+pub(crate) fn side_edge_rails(
+    binary: &BinaryImage,
+    page: Option<Rect>,
+) -> (BinaryImage, [Option<usize>; 2]) {
     let (width, height) = (binary.width(), binary.height());
+    let page = page.unwrap_or_else(|| Rect::new(0.0, 0.0, width as f64, height as f64));
     let components = ComponentMap::from_binary(binary);
     let mut rail = vec![false; components.components().len() + 1];
     for component in components.components() {
-        rail[component.label as usize] = is_side_edge_rail(&components, component, width, height);
+        rail[component.label as usize] = is_side_edge_rail(&components, component, page);
     }
     let clearance = (width / 50).max(4);
     let owner_area = (width / 50).max(4);
-    let band = width.div_ceil(20);
-    let mut reach = [None; 2];
-    for (index, side_reach) in reach.iter_mut().enumerate() {
+    let reach = [0, 1].map(|index| {
+        let band = [page.x, width as f64 - page.right()][index] + (page.width / 20.0).ceil();
         let depth = |component: &Component| [component.right, width - 1 - component.left][index];
         let column = |cross: usize| [cross, width - 1 - cross][index];
         let piece = |component: &Component| {
             !rail[component.label as usize]
-                && depth(component) < band
+                && (depth(component) as f64) < band
                 && component.bottom + 1 - component.top
                     >= (component.right + 1 - component.left) * 2
         };
@@ -128,7 +127,7 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usi
         let mut pending = components
             .components()
             .iter()
-            .filter(|component| rail[component.label as usize] && depth(component) < band)
+            .filter(|component| rail[component.label as usize] && (depth(component) as f64) < band)
             .chain(isolated)
             .collect::<Vec<_>>();
         let mut covered = vec![false; height];
@@ -154,14 +153,14 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usi
                 }
             }
         }
-        *side_reach = components
+        components
             .components()
             .iter()
-            .filter(|component| rail[component.label as usize] && depth(component) < band)
+            .filter(|component| rail[component.label as usize] && (depth(component) as f64) < band)
             .map(depth)
             .max()
-            .map(column);
-    }
+            .map(column)
+    });
     (
         components.retain(|component| rail[component.label as usize]),
         reach,
@@ -325,7 +324,7 @@ mod tests {
         }
         fill(785..790, 100..900);
 
-        let (rails, reach) = side_edge_rails(&page);
+        let (rails, reach) = side_edge_rails(&page, None);
 
         assert_eq!(reach, [None, Some(785)]);
         assert!(rails.get(787, 500), "the strip is not a rail");

@@ -1,4 +1,4 @@
-//! Typed handoff for fold-edge fragment filtering.
+//! Acquisition rails on full pages and foreign fragments at a spread's fold.
 
 use super::*;
 
@@ -393,9 +393,33 @@ pub(crate) fn run(input: Input<'_>) -> Output {
         || binary.width() == 0
         || binary.height() == 0
     {
+        let removed = if half == PageHalf::Full && binary.width() > 0 && binary.height() > 0 {
+            map_rect_bounds(region, |point| render_plan.source_to_output(point)).map_or_else(
+                || BinaryImage::new(binary.width(), binary.height()),
+                |page| {
+                    let (rails, _) = crate::edge_artifacts::side_edge_rails(binary, Some(page));
+                    let components = ComponentMap::from_binary(&rails);
+                    components.retain(|component| {
+                        ![picture_mask, text_mask, text_vicinity_mask]
+                            .into_iter()
+                            .flatten()
+                            .any(|mask| {
+                                (component.top..=component.bottom).any(|y| {
+                                    (component.left..=component.right).any(|x| {
+                                        components.label_at(x, y) == component.label
+                                            && mask.get(x, y)
+                                    })
+                                })
+                            })
+                    })
+                },
+            )
+        } else {
+            BinaryImage::new(binary.width(), binary.height())
+        };
         return Output {
-            kept: binary.clone(),
-            removed: BinaryImage::new(binary.width(), binary.height()),
+            kept: binary.subtract(&removed),
+            removed,
         };
     }
     debug_assert!(picture_mask
