@@ -889,8 +889,25 @@ describe('image export', () => {
         mocks.pdfPageCount = 6_000;
         mocks.pageSizeOverrides[1] = hugePageSize;
 
+        // Observe the planned DPI at the renderer boundary, then settle the
+        // export before cleanup. Rendering and publishing 6,000 real files
+        // adds no coverage of the streamed-metadata planning regression.
+        const renderStopped = new Error('DPI planning observed');
+        const defaultRunCommand = mocks.runCommand.getMockImplementation()!;
+        mocks.runCommand.mockImplementation(async (
+            command: string,
+            args: string[],
+            options?: {onStdout?: (chunk: string) => void},
+        ) => {
+            if (command === '/mock/pdftoppm') {
+                mocks.requestedRenderDpis.push(Number.parseFloat(String(args[args.indexOf('-r') + 1])));
+                throw renderStopped;
+            }
+            return defaultRunCommand(command, args, options);
+        });
+
         const outputPath = join(tempDir, 'huge-first-page.png');
-        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(6_000);
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).rejects.toBe(renderStopped);
 
         const ppmHeaderReserveBytes = 64 * 1024;
         const maxRenderDimension = Math.floor(Math.sqrt(
@@ -900,6 +917,7 @@ describe('image export', () => {
         expect(hugePageSafeDpi).toBeLessThan(300);
         expect(mocks.requestedRenderDpis.length).toBeGreaterThan(0);
         expect(mocks.requestedRenderDpis.every(dpi => dpi === hugePageSafeDpi)).toBe(true);
+        expect(readdirSync(tempDir)).toEqual([]);
     }, 60_000);
 
     it('uses the default export DPI when the source-resolution probe fails', async () => {
