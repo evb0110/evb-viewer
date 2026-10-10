@@ -134,15 +134,15 @@ pub(crate) fn side_edge_rails(binary: &BinaryImage) -> (BinaryImage, [Option<usi
         let mut covered = vec![false; height];
         while let Some(seed) = pending.pop() {
             let mut run = vec![seed];
-            while let Some(index) = pending.iter().position(|candidate| {
-                run.iter().any(|member| {
+            let mut next = 0;
+            while let Some(&member) = run.get(next) {
+                run.extend(pending.extract_if(.., |candidate| {
                     candidate.left <= member.right + RASTER_EDGE_SLIVER_PX
                         && member.left <= candidate.right + RASTER_EDGE_SLIVER_PX
                         && candidate.top <= member.bottom + clearance
                         && member.top <= candidate.bottom + clearance
-                })
-            }) {
-                run.push(pending.swap_remove(index));
+                }));
+                next += 1;
             }
             covered.fill(false);
             for component in &run {
