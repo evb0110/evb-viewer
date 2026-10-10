@@ -28,6 +28,17 @@ import type {
     TScanCleanupProgress,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
+import {DEFAULT_SCAN_CLEANUP_PREFERENCES} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {
+    buildScanCleanupPlacementAnchorSummary,
+    resolveScanCleanupPlacementAnchorsFromResult,
+} from '@evb/scan-cleanup/core/placementAnchors';
+import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
@@ -225,27 +236,13 @@ function parseMargins(value: string) {
 }
 
 function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
+    const {
+        firstRunGuidanceDismissed: _firstRunGuidanceDismissed, ...preferences
+    } = DEFAULT_SCAN_CLEANUP_PREFERENCES;
     const options: IScanCleanupOptions = {
-        preserveOriginalQuality: false,
-        layoutMode: 'auto',
+        ...preferences,
+        marginsMm: {...preferences.marginsMm},
         outputMode: 'auto',
-        binarization: 'auto',
-        normalizeIllumination: true,
-        readingOrder: 'ltr',
-        thickness: 0,
-        crop: true,
-        matchPageSize: true,
-        pageAlignment: 'top-center',
-        marginsMm: {
-            leftMm: 5,
-            topMm: 5,
-            rightMm: 5,
-            bottomMm: 5,
-        },
-        despeckleLevel: 'normal',
-        autoDewarp: false,
-        autoDewarpDepth: undefined,
-        skipBlankPages: false,
         pageOverrides: {},
     };
     let sourcePdfPath: string | undefined;
@@ -706,6 +703,8 @@ type TScanCleanupCliDetectionRequestFields = Pick<IRunScanCleanupPipelineRequest
     | 'layoutByPage'
     | 'outputModeRecommendations'
     | 'pagePlanEvidenceByPage'
+    | 'placementAnchorsByPage'
+    | 'placementAnchorSummary'
     | 'softAlphaForegroundRecommendations'
     | 'sourcePageMetadataByPage'
 >;
@@ -716,14 +715,21 @@ type TScanCleanupCliDetectionRequestFields = Pick<IRunScanCleanupPipelineRequest
  * this helper never creates one object entry per source page.
  */
 export function buildScanCleanupCliDetectionRequestFields(
-    detection: IScanCleanupDetectionRunResult,
+    detection: IScanCleanupDetectionRunResult & Pick<IRunScanCleanupPipelineRequest, 'placementAnchorSummary'>,
+    options: IScanCleanupOptions,
 ): TScanCleanupCliDetectionRequestFields {
+    const placementFields = detection.placementAnchorSummary === undefined
+        ? {}
+        : {placementAnchorSummary: detection.placementAnchorSummary};
     if (
         detection.resultStore !== undefined
         && (detection.results.length === 0
             || detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES)
     ) {
-        return {detectionResultStore: detection.resultStore};
+        return {
+            detectionResultStore: detection.resultStore,
+            ...placementFields,
+        };
     }
     const layoutByPage: NonNullable<IRunScanCleanupPipelineRequest['layoutByPage']> = {};
     const pagePlanEvidenceByPage: NonNullable<IRunScanCleanupPipelineRequest['pagePlanEvidenceByPage']> = {};
@@ -731,6 +737,7 @@ export function buildScanCleanupCliDetectionRequestFields(
     const softAlphaForegroundRecommendations: NonNullable<IRunScanCleanupPipelineRequest['softAlphaForegroundRecommendations']> = {};
     const sourcePageMetadataByPage: NonNullable<IRunScanCleanupPipelineRequest['sourcePageMetadataByPage']> = {};
     const documentPriorByPage: NonNullable<IRunScanCleanupPipelineRequest['documentPriorByPage']> = {};
+    const placementAnchorsByPage: NonNullable<IRunScanCleanupPipelineRequest['placementAnchorsByPage']> = {};
     for (const result of detection.results) {
         const key = String(result.pageNumber);
         layoutByPage[key] = result.classification;
@@ -745,12 +752,21 @@ export function buildScanCleanupCliDetectionRequestFields(
             sourcePageMetadataByPage[key] = result.sourcePageMetadata;
         }
         if (result.documentPrior !== null) documentPriorByPage[key] = result.documentPrior;
+        if (detection.placementAnchorSummary !== undefined) {
+            placementAnchorsByPage[key] = resolveScanCleanupPlacementAnchorsFromResult(
+                detection.placementAnchorSummary,
+                options,
+                result,
+            );
+        }
     }
     return {
         documentPriorByPage,
         layoutByPage,
         outputModeRecommendations,
         pagePlanEvidenceByPage,
+        ...placementFields,
+        ...(detection.placementAnchorSummary === undefined ? {} : {placementAnchorsByPage}),
         softAlphaForegroundRecommendations,
         sourcePageMetadataByPage,
     };
@@ -963,7 +979,8 @@ async function main() {
             renderPagePpm: renderers.renderPagePpm,
             runSidecar: runCliScanCleanupSidecar,
         };
-        const detection = await runScanCleanupDetectionWithCache({
+        const documentRevision = `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`;
+        const detection: IScanCleanupDetectionRunResult & Pick<IRunScanCleanupPipelineRequest, 'placementAnchorSummary'> = await runScanCleanupDetectionWithCache({
             cachePath: argumentsValue.detectionCachePath,
             key: detectionCacheKey,
             refresh: argumentsValue.refreshDetection,
@@ -971,7 +988,7 @@ async function main() {
             detect: () => runScanCleanupDetection(
                 {
                     ownerId: 'scan-cleanup-cli',
-                    documentRevision: `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`,
+                    documentRevision,
                     sourcePdfPath: argumentsValue.sourcePdfPath,
                     options: argumentsValue.options,
                 },
@@ -987,6 +1004,28 @@ async function main() {
         detectionResultStore = detection.resultStore;
         if (detection.results.length === 0 && detectionResultStore === undefined) {
             throw new Error('Scan cleanup detection returned no bounded result store');
+        }
+        let placementAnchorSummary = detection.placementAnchorSummary;
+        if (usesScanCleanupInkAlignment(argumentsValue.options) && placementAnchorSummary === undefined) {
+            // Cache entries retain detection evidence, not its ink calibration.
+            // Reuse the same bounded calibration as a cold app detection run.
+            if (detectionResultStore === undefined) {
+                detectionResultStore = await createFileBackedScanCleanupDetectionResultStore({
+                    rootDir: temporaryRoot,
+                    pageCount: documentPageCount,
+                });
+                for (const result of detection.results) await detectionResultStore.append(result);
+            }
+            placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
+                options: argumentsValue.options,
+                resultStore: detectionResultStore,
+                signal: new AbortController().signal,
+                identity: {
+                    documentRevision,
+                    detectionSignature: createScanCleanupDetectionSignature(argumentsValue.options),
+                    calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(argumentsValue.options),
+                },
+            });
         }
         if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
             const evidenceDirectory = argumentsValue.diagnosticEvidenceDirectory;
@@ -1052,7 +1091,8 @@ async function main() {
             ...buildScanCleanupCliDetectionRequestFields({
                 results: detection.results,
                 ...(detectionResultStore === undefined ? {} : {resultStore: detectionResultStore}),
-            }),
+                ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
+            }, argumentsValue.options),
         };
         const summary = await runScanCleanupConversion(
             request,

@@ -13,6 +13,7 @@ import type {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {buildScanCleanupCliDetectionRequestFields} from '@scripts/scan-cleanup-convert';
 import {
     createScanCleanupDetectionCacheKey,
@@ -82,6 +83,76 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup detection cache', () => {
+    it('keeps centered ink below the body text in a small CLI conversion', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-cli-ink-placement-'));
+        temporaryDirectories.push(directory);
+        const inkOptions: IScanCleanupOptions = {
+            ...options,
+            pageAlignment: 'ink',
+        };
+        const records: IScanCleanupDetectionResult[] = [
+            0.1,
+            0.1,
+            0.5,
+        ].map((yNormalized, index) => {
+            const pageNumber = requirePageNumber(index + 1);
+            return {
+                ...result,
+                pageNumber,
+                sourcePageMetadata: {
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    sourceDpi: 144,
+                },
+                pagePlanEvidence: {
+                    pageNumber,
+                    rotationDegrees: 0,
+                    layoutClassification: 'single-uncut-page',
+                    outputs: {full: {contentBox: {
+                        xNormalized: 0.1,
+                        yNormalized,
+                        widthNormalized: 0.8,
+                        heightNormalized: 0.2,
+                        rotationDegrees: 0,
+                    }}},
+                },
+            };
+        });
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            rootDir: directory,
+            pageCount: records.length,
+        });
+        try {
+            for (const record of records) await store.append(record);
+            const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
+                options: inkOptions,
+                resultStore: store,
+                signal: new AbortController().signal,
+                identity: {
+                    documentRevision: 'revision',
+                    detectionSignature: 'detection',
+                    calibrationSignature: 'calibration',
+                },
+            });
+            const fields = buildScanCleanupCliDetectionRequestFields({
+                results: records,
+                resultStore: store,
+                placementAnchorSummary,
+            }, inkOptions);
+            expect(fields.placementAnchorsByPage).toEqual({
+                '1': {full: {yNormalized: 0}},
+                '2': {full: {yNormalized: 0}},
+                '3': {full: {yNormalized: expect.closeTo(0.4)}},
+            });
+        } finally {
+            await store.close();
+        }
+    });
+
     it('keys source bytes and every detection option canonically', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-detection-cache-key-'));
         temporaryDirectories.push(directory);
@@ -170,7 +241,7 @@ describe('scan-cleanup detection cache', () => {
             const fields = buildScanCleanupCliDetectionRequestFields({
                 resultStore: store,
                 results: [],
-            });
+            }, options);
             expect(fields).toEqual({detectionResultStore: store});
             expect(fromEntries).not.toHaveBeenCalled();
 
@@ -230,7 +301,7 @@ describe('scan-cleanup detection cache', () => {
             // result store remains authoritative even if a caller supplies a
             // partial snapshot while migrating an older detector.
             results: [result],
-        });
+        }, options);
         expect('detectionResultStore' in fields).toBe(expectsStore);
         if (expectsStore) {
             expect(fields).toEqual({detectionResultStore: store});
