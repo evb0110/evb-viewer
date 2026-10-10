@@ -1,0 +1,22 @@
+scripts/diagnostics/scan-cleanup-preview-harness.mjs
+  s_4d188619137033::t_865bce9f7f5e7f 76-79,101,982
+  s_4d188619137033::t_2e204936126a84 41,224
+scripts/scanCleanupDetectionCache.ts
+  s_4d188619137033::t_3070987e36dc2e 270,387,470,513,544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7b7ce2504c70b0bba350dd69b935c07ff567cee2",
+  "prompts": {},
+  "sessions": {
+    "s_4d188619137033": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123a7-1af7-7212-9bc7-3d482dc6985a",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
