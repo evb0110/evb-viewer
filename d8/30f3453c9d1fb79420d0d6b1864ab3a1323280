@@ -1,0 +1,49 @@
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 46,71
+electron/features/scan-cleanup/scanCleanupPreviewShared.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 34
+packages/scan-cleanup/core/placementAnchors.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 15-17,21,28
+packages/scan-cleanup/core/policy/scanCleanupPagePolicy.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 1-495
+app/modules/scan-cleanup/composables/useScanCleanupSelection.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 22-23,26
+tests/unit/packages/scan-cleanup/policy/scanCleanupPagePolicy.test.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 15-18,24
+packages/scan-cleanup/core/policy/documentCanvas.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 8
+app/modules/scan-cleanup/composables/useScanCleanupDetectionSession.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 17-19,23
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 7,17,22-24,27
+packages/scan-cleanup/core/detection.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 81
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 17,22-24,27
+tests/unit/app/modules/scan-cleanup/scanCleanupPreviewCache.test.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 15
+app/modules/scan-cleanup/composables/useScanCleanupPreviewSession.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 32,36-37,42
+app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue
+  s_28723ec1f4ac18::t_527dd3407b895b 198-199,203
+packages/scan-cleanup/core/policy/effectiveOptions.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 18
+tests/unit/app/modules/scan-cleanup/scanCleanupDetectionResults.test.ts
+  s_28723ec1f4ac18::t_527dd3407b895b 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d830f3453c9d1fb79420d0d6b1864ab3a1323280",
+  "prompts": {},
+  "sessions": {
+    "s_28723ec1f4ac18": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12397-5b47-7eb1-8d9d-2fd2a3765e09",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
