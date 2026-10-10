@@ -954,6 +954,10 @@ export default {
             'existingTextSkipped': 'Pagina {page}: bestaande tekst is behouden.',
         },
         'preparing': 'OCR voorbereiden...',
+        'modelDownload': {
+            'progress': '{language} downloaden: {received} / {total} MB ({percent}%)',
+            'retrying': 'Download van {language} opnieuw proberen (poging {attempt} van {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Taalmodellen downloaden...',
             'pdfPrep': 'PDF voorbereiden...',

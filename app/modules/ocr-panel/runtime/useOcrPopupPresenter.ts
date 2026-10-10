@@ -5,6 +5,7 @@ import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
 import {
     isAvailableOcrLanguageCode,
     type TOcrLanguageCode,
+    type TOcrModelCode,
 } from '@contracts/ocrLanguages';
 import type { IOcrLanguage } from '@contracts/shared';
 import type {
@@ -110,7 +111,10 @@ const OCR_LANGUAGE_NAME_KEYS = {
     tur: 'ocr.languagePicker.names.tur',
     ukr: 'ocr.languagePicker.names.ukr',
     vie: 'ocr.languagePicker.names.vie',
-} as const satisfies Record<TOcrLanguageCode, TTranslationKey>;
+    ita_old: 'ocr.languagePicker.names.ita',
+    lat_dictionary: 'ocr.languagePicker.names.lat',
+    spa_old: 'ocr.languagePicker.names.spa',
+} as const satisfies Record<TOcrModelCode, TTranslationKey>;
 
 function createLanguageDisplayNames(locale: TLocale) {
     try {
@@ -332,7 +336,6 @@ export const useOcrPopupPresenter = ({
     const pendingAppliedOcrRequestId = ref<string | null>(null);
     const pendingAppliedOcrSourceDocumentRevision = ref<TDocumentRevisionToken | null>(null);
     const languageSearchQuery = ref('');
-    const activeRunNeedsModelDownload = ref(false);
 
     const {
         start: startCopyLogsStateReset,
@@ -451,8 +454,27 @@ export const useOcrPopupPresenter = ({
             });
         }
 
-        if (progress.value.phase === 'model-prep' && !activeRunNeedsModelDownload.value) {
-            return t('ocr.preparing');
+        if (progress.value.phase === 'model-prep') {
+            const download = progress.value.modelDownload;
+            if (!download) return t('ocr.preparing');
+            const language = t(OCR_LANGUAGE_NAME_KEYS[download.languageCode], undefined);
+            const retry = t('ocr.modelDownload.retrying', {
+                language,
+                attempt: download.attempt,
+                attempts: download.maxAttempts,
+            });
+            if (download.retrying) return retry;
+            const formatMegabytes = (bytes: number) => (bytes / 1_000_000).toLocaleString(locale.value, {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+            });
+            const text = t('ocr.modelDownload.progress', {
+                language,
+                received: formatMegabytes(download.receivedBytes),
+                total: formatMegabytes(download.totalBytes),
+                percent: Math.min(100, Math.floor(100 * download.receivedBytes / download.totalBytes)),
+            });
+            return download.attempt > 1 ? `${text} · ${retry}` : text;
         }
 
         return t(ocrProgressStageKeys[progress.value.phase], undefined);
@@ -615,24 +637,12 @@ export const useOcrPopupPresenter = ({
         }
     }
 
-    function computeActiveRunNeedsModelDownload() {
-        const stateByCode = new Map<string, IOcrLanguage['modelState']>(availableLanguages.value.map(language => [
-            language.code,
-            language.modelState,
-        ]));
-        return settings.value.selectedLanguages.some((code) => {
-            const state = stateByCode.get(code);
-            return state === 'missing' || state === 'downloading';
-        });
-    }
-
     function handleRunOcr() {
         if (!canRunOcr.value || !workingCopyPath.value) {
             return;
         }
         activeOcrSourcePath.value = workingCopyPath.value;
         activeOcrSourcePage.value = currentPage.value;
-        activeRunNeedsModelDownload.value = computeActiveRunNeedsModelDownload();
         void runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
     }
 
@@ -670,7 +680,6 @@ export const useOcrPopupPresenter = ({
 
         activeOcrSourcePath.value = workingCopyPath.value;
         activeOcrSourcePage.value = currentPage.value;
-        activeRunNeedsModelDownload.value = computeActiveRunNeedsModelDownload();
         await runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
         await nextTick();
 

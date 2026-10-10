@@ -276,6 +276,7 @@ export const useOcr = () => {
 
     function applyProgress(p: Parameters<Parameters<IOcrCapability['onProgress']>[0]>[0]) {
         progress.value.phase = p.phase ?? 'processing';
+        progress.value.modelDownload = p.modelDownload;
         progress.value.currentPage = p.currentPage;
         progress.value.processedCount = p.processedCount;
         progress.value.phaseProgress = typeof p.phaseProgress === 'number'
@@ -675,6 +676,10 @@ export const useOcr = () => {
     const hasResults = computed(() => results.value.searchablePdfResult !== null);
 
     const progressPercent = computed(() => {
+        const download = progress.value.modelDownload;
+        if (progress.value.phase === 'model-prep' && download) {
+            return download.retrying ? null : 100 * download.receivedBytes / download.totalBytes;
+        }
         if (progress.value.phase !== 'processing') {
             return progress.value.phaseProgress;
         }

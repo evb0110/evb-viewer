@@ -438,6 +438,10 @@ export default {
             'existingTextSkipped': 'Страница {page}: существующий текст сохранён.',
         },
         'preparing': 'Подготовка OCR...',
+        'modelDownload': {
+            'progress': 'Загрузка модели «{language}»: {received} / {total} МБ ({percent}%)',
+            'retrying': 'Повторная загрузка модели «{language}» (попытка {attempt} из {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Загрузка языковых моделей...',
             'pdfPrep': 'Подготовка PDF...',

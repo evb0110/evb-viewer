@@ -955,6 +955,10 @@ export default {
             'existingTextSkipped': 'Página {page}: o texto existente foi preservado.',
         },
         'preparing': 'Preparando OCR...',
+        'modelDownload': {
+            'progress': 'Baixando {language}: {received} / {total} MB ({percent}%)',
+            'retrying': 'Tentando baixar {language} novamente (tentativa {attempt} de {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Baixando modelos de idioma...',
             'pdfPrep': 'Preparando PDF...',

@@ -16,7 +16,10 @@ import {
 import type * as NodeFs from 'fs';
 import type * as NodeFsPromises from 'node:fs/promises';
 import type * as NodeOs from 'node:os';
-import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
+import {
+    OCR_LANGUAGE_MODEL_SHA256, OCR_LANGUAGE_MODEL_BYTES,
+} from '@contracts/ocrLanguages';
+import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 
 const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
 
@@ -724,8 +727,22 @@ describe('verified model download publication', () => {
         });
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
-        await ensureTessdataLanguages([code]);
+        const progress: IOcrModelDownloadProgress[] = [];
+        await ensureTessdataLanguages([code], {onProgress: update => progress.push(update)});
         await expectVerifiedModel(code);
+        expect(OCR_LANGUAGE_MODEL_BYTES[code]).toBe(modelBytes.length);
+        expect(progress[0]).toMatchObject({
+            languageCode: code,
+            receivedBytes: 0,
+            totalBytes: modelBytes.length,
+            attempt: 1,
+        });
+        expect(progress.at(-1)).toMatchObject({
+            receivedBytes: modelBytes.length,
+            totalBytes: modelBytes.length,
+            retrying: false,
+        });
+        expect(progress.some(update => update.retrying)).toBe(code === 'eng');
         vi.stubGlobal('fetch', () => { throw new Error('offline'); });
         await ensureTessdataLanguages([code]);
         await expectVerifiedModel(code);
@@ -749,17 +766,26 @@ describe('verified model download publication', () => {
             getOcrLanguageModelStates,
         } = await import('@electron/features/ocr/languageModels');
         const canceled = new AbortController();
-        const first = ensureTessdataLanguages(['eng'], {signal: canceled.signal});
+        const firstProgress: IOcrModelDownloadProgress[] = [];
+        const secondProgress: IOcrModelDownloadProgress[] = [];
+        const first = ensureTessdataLanguages(['eng'], {
+            signal: canceled.signal,
+            onProgress: update => firstProgress.push(update),
+        });
         const firstOutcome = first.catch(error => error as Error);
         await started.promise;
-        const second = ensureTessdataLanguages(['eng']);
+        const second = ensureTessdataLanguages(['eng'], {onProgress: update => secondProgress.push(update)});
         expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('downloading');
         canceled.abort();
         expect(await firstOutcome).toMatchObject({name: 'AbortError'});
+        const progressAtCancel = [...firstProgress];
         deliverBody();
 
         await second;
         await expectVerifiedModel();
+        expect(firstProgress).toEqual(progressAtCancel);
+        expect(secondProgress[0]).toEqual(firstProgress.at(-1));
+        expect(secondProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
     });
 
     it('leaves no usable model or staging file after a checksum mismatch', async () => {
