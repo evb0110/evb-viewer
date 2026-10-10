@@ -38,6 +38,7 @@ import {
     loadImage,
 } from '@napi-rs/canvas';
 import {tsImport} from 'tsx/esm/api';
+import {omit} from 'es-toolkit';
 import {createScanCleanupDiagnosticsManifestScope} from './scan-cleanup-diagnostics-manifest.mjs';
 import {loadGrayscaleImage} from './load-grayscale-image.mjs';
 import {
@@ -71,7 +72,11 @@ const [
         resolveCliNativeToolPath,
     },
     {detectSourceDpiDetails},
-    {createScanCleanupDetectionCacheKey},
+    {
+        createScanCleanupDetectionCacheKey,
+        resolveScanCleanupDetectionCacheEntryPath,
+    },
+    {DEFAULT_SCAN_CLEANUP_PREFERENCES},
     {
         resolvePreviewMetadataPlacement,
         toPreviewStyleRect,
@@ -93,6 +98,7 @@ const [
     importTs('../scanCleanupCliAdapters.ts'),
     importTs('../../packages/scan-cleanup/core/sourceDpiDetection.ts'),
     importTs('../scanCleanupDetectionCache.ts'),
+    importTs('../../packages/contracts/scan-cleanup/scanCleanupSettings.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
     importTs('../../app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts'),
@@ -215,26 +221,8 @@ function parseArgs(argv) {
 }
 
 const defaultOptions = {
-    preserveOriginalQuality: false,
-    layoutMode: 'auto',
+    ...omit(DEFAULT_SCAN_CLEANUP_PREFERENCES, ['firstRunGuidanceDismissed']),
     outputMode: 'auto',
-    binarization: 'auto',
-    normalizeIllumination: true,
-    readingOrder: 'ltr',
-    thickness: 0,
-    crop: true,
-    matchPageSize: true,
-    pageAlignment: 'top-center',
-    marginsMm: {
-        leftMm: 5,
-        topMm: 5,
-        rightMm: 5,
-        bottomMm: 5,
-    },
-    despeckleLevel: 'normal',
-    autoDewarp: false,
-    autoDewarpDepth: undefined,
-    skipBlankPages: false,
     pageOverrides: {},
 };
 
@@ -991,9 +979,7 @@ async function loadDetection(args, tools) {
             scanCleanupBinaryPath: tools.scanCleanup,
         },
     );
-    const path = args.detectionCache.toLowerCase().endsWith('.json')
-        ? args.detectionCache
-        : join(args.detectionCache, `${cacheKey.key}.json`);
+    const path = resolveScanCleanupDetectionCacheEntryPath(args.detectionCache, cacheKey);
     const cache = JSON.parse(await readFile(path, 'utf8'));
     if (!Array.isArray(cache.results) || cache.results.length === 0) {
         throw new Error(`Detection cache has no results: ${path}`);

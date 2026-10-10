@@ -267,7 +267,7 @@ function getPdftoppmVersion(path: string) {
     return version;
 }
 
-function resolveCacheEntryPath(cachePath: string, key: IScanCleanupDetectionCacheKey) {
+export function resolveScanCleanupDetectionCacheEntryPath(cachePath: string, key: IScanCleanupDetectionCacheKey) {
     return extname(cachePath).toLowerCase() === '.json'
         ? cachePath
         : join(cachePath, `${key.key}.json`);
@@ -384,7 +384,7 @@ export async function openScanCleanupDetectionCacheStore(
     cachePath: string,
     key: IScanCleanupDetectionCacheKey,
 ): Promise<IScanCleanupDetectionResultStore | null> {
-    const entryPath = resolveCacheEntryPath(cachePath, key);
+    const entryPath = resolveScanCleanupDetectionCacheEntryPath(cachePath, key);
     const descriptor = await readStreamingCacheDescriptor(entryPath, key);
     if (descriptor === null) {
         return null;
@@ -467,7 +467,7 @@ export async function readScanCleanupDetectionCache(
     cachePath: string,
     key: IScanCleanupDetectionCacheKey,
 ): Promise<IScanCleanupDetectionResult[] | null> {
-    const entryPath = resolveCacheEntryPath(cachePath, key);
+    const entryPath = resolveScanCleanupDetectionCacheEntryPath(cachePath, key);
     // A streaming descriptor is intentionally not adapted back into one array.
     // Callers that need document-scale results must use the store API below.
     if (await readStreamingCacheDescriptor(entryPath, key) !== null) {
@@ -510,7 +510,7 @@ export async function writeScanCleanupDetectionCache(
     key: IScanCleanupDetectionCacheKey,
     results: readonly IScanCleanupDetectionResult[],
 ) {
-    const entryPath = resolveCacheEntryPath(cachePath, key);
+    const entryPath = resolveScanCleanupDetectionCacheEntryPath(cachePath, key);
     await mkdir(dirname(entryPath), {recursive: true});
     const cacheFile: IScanCleanupDetectionCacheFile = {
         cacheFormatVersion: SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION,
@@ -541,7 +541,7 @@ export async function writeScanCleanupDetectionCacheStore(
     if (store.pageCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
         throw new RangeError('Streaming detection cache requires an xlarge result store');
     }
-    const entryPath = resolveCacheEntryPath(cachePath, key);
+    const entryPath = resolveScanCleanupDetectionCacheEntryPath(cachePath, key);
     const recordsPath = resolveStreamingCacheRecordsPath(entryPath);
     await mkdir(dirname(entryPath), {recursive: true});
     const temporaryRecordsPath = `${recordsPath}.${process.pid}.${randomUUID()}.tmp`;
