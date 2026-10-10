@@ -936,7 +936,10 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expectSplitPaneCloseContinuity(continuity);
     }, 120_000);
 
-    it('keeps the DjVu reading point through window resizes at custom zoom', async () => {
+    it.each([
+        'toolbar',
+        'pointer',
+    ] as const)('keeps the DjVu reading point through window resizes after %s zoom', async (zoomInput) => {
         const session = sessionFixture.getSession();
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
@@ -948,6 +951,21 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         // itself when the window narrows (#1320).
         await clickVisibleToolbarButton(session.page, 'Zoom In');
         await waitForViewportQuiet(session.page);
+        if (zoomInput === 'pointer') {
+            await waitForActiveDjvuCommittedPage(session, 7);
+            const viewport = await session.page.$('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+            const box = await viewport?.boundingBox();
+            if (!box) throw new Error('DjVu viewport was not found for pointer zoom');
+            await session.page.mouse.move(box.x + 100, box.y + 100);
+            await session.page.keyboard.down('Control');
+            try {
+                await session.page.mouse.wheel({deltaY: -120});
+            } finally {
+                await session.page.keyboard.up('Control');
+            }
+            // Settled rendering also outlasts the pointer gesture's grace period.
+            await waitForViewportQuiet(session.page);
+        }
         // The page point at the unobscured viewport centre, then where that
         // point is drawn relative to the centre.
         const readCentre = (anchor: {
