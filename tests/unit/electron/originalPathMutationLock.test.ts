@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {withOriginalPathMutationLock} from '@electron/features/documents/main/withOriginalPathMutationLock';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 
 describe('withOriginalPathMutationLock', () => {
     it('serializes distinct working-copy saves targeting the same original', async () => {

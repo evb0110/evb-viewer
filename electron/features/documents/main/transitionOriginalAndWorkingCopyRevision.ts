@@ -11,7 +11,7 @@ import {
     recoverWorkingCopyTransition,
     type IWorkingCopyJournal,
 } from '@electron/file-access/workingCopyJournal';
-import {withOriginalPathMutationLock} from '@electron/features/documents/main/withOriginalPathMutationLock';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {

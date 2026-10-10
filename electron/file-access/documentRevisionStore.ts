@@ -44,6 +44,7 @@ import {
     isManagedWorkingCopyPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {
     completeWorkingCopyTransition,
     prepareWorkingCopyTransition,
@@ -267,7 +268,7 @@ export async function initializeFreshWorkingCopyRevision(
 
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
     if (originalPath) {
-        await sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath);
+        await withOriginalPathMutationLock(originalPath, () => sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath));
     }
 
     const revision = createRevision(normalizedWorkingPath, 1, senderId);
@@ -352,7 +353,7 @@ export async function ensureWorkingCopyRevision(
     await recoverWorkingCopyTransition(normalizedWorkingPath);
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
     if (originalPath) {
-        await sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath);
+        await withOriginalPathMutationLock(originalPath, () => sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath));
     }
     hydrateWorkingCopySyncRequired(normalizedWorkingPath);
 

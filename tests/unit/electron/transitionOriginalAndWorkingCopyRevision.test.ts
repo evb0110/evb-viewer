@@ -405,6 +405,40 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
+    it('restores the original when a revision read runs while its backup is the only record', async () => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare('old-original', 'old-working');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        let revisionRead: Promise<unknown> = Promise.resolve();
+
+        // The backup exists before the journal names it; a revision read in
+        // that window (the renderer reads right after a rotation) must not
+        // take the backup for an orphan.
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            onPhase: phase => {
+                if (phase === 'transition-backup-original') {
+                    revisionRead = ensureWorkingCopyRevision(workingCopyPath, 7);
+                }
+            },
+            publishOriginal: async () => {
+                await rename(stagedPath, originalPath);
+                throw new Error('publication failed');
+            },
+        })).rejects.toThrow('publication failed');
+        await revisionRead;
+
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+    });
+
     it('restores every durable record when manifest publication fails', async () => {
         vi.doMock('@electron/file-access/workingCopyManifest', async (importOriginal) => {
             const actual = await importOriginal<typeof WorkingCopyManifestModule>();
