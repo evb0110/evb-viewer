@@ -753,6 +753,69 @@ mod tests {
     }
 
     #[test]
+    fn a_crop_past_the_scan_edge_keeps_a_shaded_corner_paper() {
+        // The crop runs past the scan, and the scan's shaded corner meets the
+        // area beyond it. That area must read as the scan's paper, not white.
+        let mut source = GrayImage::new(600, 800, 222);
+        for row in 0..6 {
+            let top = 120 + row * 60;
+            for glyph in 0..10 {
+                let left = 120 + glyph * 36;
+                for y in top..top + 24 {
+                    for x in left..left + 4 {
+                        source.set(x, y, 40);
+                        source.set(x + 14, y, 40);
+                    }
+                }
+            }
+        }
+        // A grainy shaded corner: crisp enough that only the cut decides it.
+        for y in 700..800 {
+            for x in 0..90 {
+                source.set(x, y, if (x + y) % 2 == 0 { 175 } else { 205 });
+            }
+        }
+        let output = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi: 150.0,
+                output_mode: OutputMode::Bw,
+                layout: crate::LayoutMode::Single,
+                crop_content: true,
+                match_page_size: false,
+                margins_mm: None,
+                margins_pixels: Some([24.0; 4]),
+                manual_content_boxes: crate::ManualContentBoxes {
+                    full: Some(crate::NormalizedRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 1.0,
+                        height: 1.0,
+                        rotation: OrthogonalRotation::None,
+                    }),
+                    ..crate::ManualContentBoxes::default()
+                },
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+
+        let CleanupRaster::Bilevel(binary) = &output.image else {
+            panic!("a text page renders black and white");
+        };
+        assert_eq!((binary.width(), binary.height()), (648, 848));
+        let corner = (binary.height() - 124..binary.height())
+            .flat_map(|y| (0..114).map(move |x| (x, y)))
+            .filter(|&(x, y)| binary.get(x, y))
+            .count();
+        assert_eq!(corner, 0, "the shaded corner became {corner} ink pixels");
+        assert!(binary.count_black() > 10_000, "the text stays ink");
+    }
+
+    #[test]
     fn midpoint_route_keeps_a_soft_hairline_through_the_bleed_filter() {
         // A blurred hairline is as shallow and soft as bleed, but it joins the
         // two stems of its letter. Only a local route can capture bleed, so
@@ -877,6 +940,49 @@ mod tests {
                 .count(),
             0,
             "the final bleed authority must remove show-through even after rescue"
+        );
+    }
+
+    #[test]
+    fn midpoint_rescue_leaves_no_speck_in_the_gap_between_two_letters() {
+        // Two captured stems whose gray halos meet in the gap, with darker
+        // grains of paper there, as between the letters of a 300 dpi book scan.
+        let mut raw = GrayImage::new(100, 80, 230);
+        let mut damaged = BinaryImage::new(100, 80);
+        let mut text_vicinity = BinaryImage::new(100, 80);
+        for y in 20..60 {
+            for x in 40..62 {
+                raw.set(x, y, 190);
+            }
+            for x in (40..46).chain(56..62) {
+                raw.set(x, y, 60);
+                damaged.set(x, y, true);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        raw.set(50, 28, 120);
+        raw.set(50, 44, 120);
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            crate::BinarizationMode::Auto,
+            crate::BinarizationMode::Otsu,
+            300.0,
+            false,
+        );
+
+        assert!(damaged.and(&rescued).count_black() == damaged.count_black());
+        assert_eq!(
+            (48..53)
+                .flat_map(|x| (22..58).map(move |y| (x, y)))
+                .filter(|&(x, y)| rescued.get(x, y))
+                .count(),
+            0,
+            "a grain smaller than a full stop between two letters is not a stroke"
         );
     }
 

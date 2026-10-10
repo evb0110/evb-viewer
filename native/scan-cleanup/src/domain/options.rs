@@ -655,7 +655,25 @@ pub struct CleanupOptions {
     #[serde(rename = "maxDimensionPx")]
     #[serde(default = "default_max_dimension")]
     pub max_dimension: u32,
+    /// Scan pixels per inch for each placement pixel per inch: above 1 only
+    /// after `at_scan_resolution` recognized a placeholder placement. Runtime
+    /// state, never caller-authored manifest input.
+    #[serde(skip, default = "unit_scale")]
+    pub placement_scale: f64,
 }
+
+fn unit_scale() -> f64 {
+    1.0
+}
+
+/// A PDF that places a scan at one pixel per point says nothing about the
+/// scan's resolution. No book page is longer than half a metre, so such a
+/// placement on a longer page is taken as a placeholder.
+const PLACEHOLDER_DPI: f64 = 72.0;
+const PLAUSIBLE_PAGE_LONG_SIDE_MM: f64 = 500.0;
+/// The resolution a placeholder scan is taken at: the archival default, or
+/// the finer one when even that leaves the page longer than half a metre.
+const PLACEHOLDER_SCAN_DPI: [f64; 2] = [300.0, 600.0];
 
 impl Default for CleanupOptions {
     fn default() -> Self {
@@ -701,6 +719,7 @@ impl Default for CleanupOptions {
             skip_blank_pages: false,
             max_pixels: DEFAULT_MAX_PIXELS,
             max_dimension: DEFAULT_MAX_DIMENSION,
+            placement_scale: 1.0,
         }
     }
 }
@@ -947,6 +966,45 @@ impl CleanupOptions {
 
     pub fn requested_render_dpi(&self) -> f64 {
         self.requested_render_dpi.unwrap_or(self.dpi)
+    }
+
+    /// The resolution this page's pixels are placed at in its PDF: the unit of
+    /// every point and every resolution reported back to the caller.
+    pub(crate) fn placement_dpi(&self) -> f64 {
+        self.dpi / self.placement_scale
+    }
+
+    /// These options measured at the scan's own resolution, for a page raster
+    /// of `width` by `height` pixels at `dpi`. A placeholder placement (see
+    /// `PLACEHOLDER_DPI`) would make every physical window, from millimetre
+    /// margins to text-line gaps, four times too small for its glyphs; the
+    /// scan is measured at `PLACEHOLDER_SCAN_DPI` instead, while points stay
+    /// in placement units through `placement_dpi`.
+    pub(crate) fn at_scan_resolution(&self, width: usize, height: usize) -> CleanupOptions {
+        let source_dpi = self.source_dpi();
+        let page_long_side_mm = width.max(height) as f64 / self.dpi * 25.4;
+        if (source_dpi - PLACEHOLDER_DPI).abs() > 0.5
+            || page_long_side_mm <= PLAUSIBLE_PAGE_LONG_SIDE_MM
+            || self.placement_scale != 1.0
+        {
+            return self.clone();
+        }
+        let scan_long_side_px = page_long_side_mm / 25.4 * source_dpi;
+        let scan_dpi = PLACEHOLDER_SCAN_DPI
+            .into_iter()
+            .find(|dpi| scan_long_side_px / dpi * 25.4 <= PLAUSIBLE_PAGE_LONG_SIDE_MM)
+            .unwrap_or(PLACEHOLDER_SCAN_DPI[1]);
+        // Ratios to the source resolution first, so a raster rendered at it
+        // measures at exactly the scan resolution.
+        let at_scan = |dpi: f64| dpi / source_dpi * scan_dpi;
+        CleanupOptions {
+            dpi: at_scan(self.dpi),
+            source_dpi: Some(scan_dpi),
+            source_background_dpi: self.source_background_dpi.map(at_scan),
+            requested_render_dpi: self.requested_render_dpi.map(at_scan),
+            placement_scale: scan_dpi / source_dpi,
+            ..self.clone()
+        }
     }
 
     pub fn resolved_render_crop(&self, width: usize, height: usize) -> Option<Rect> {
