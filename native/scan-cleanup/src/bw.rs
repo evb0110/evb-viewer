@@ -45,8 +45,8 @@ const LOCAL_MIDPOINT_MIN_DEPTH: i16 = 24;
 /// print: a light dash or pencil note. Show-through and paper texture stay
 /// far shallower (a tenth of the depth on the owner's 1915 book).
 const LOCAL_MARK_DEPTH_FRACTION: f32 = 0.3;
-/// Smallest window, in pixels, in which a mark's ink core is measured.
-const LOCAL_INK_MIN_RADIUS: usize = 4;
+/// Reach to a pixel's own ink core: past a stem's blur, short of a neighbour.
+const LOCAL_INK_RADIUS_MM: f64 = 0.6;
 /// Where the local cut sits between paper (0) and ink core (1). The printed
 /// edge of a stroke wider than the scanner's blur is at one half; a hairline
 /// narrower than the blur peaks only near that depth, so an exact half cut
@@ -1696,10 +1696,10 @@ fn threshold_local_midpoint(
         }
     };
     let paper = erode_gray(&neutral(0), radius, radius);
-    // A mark's own core sets its cut: a light dash printed beside dark digits
-    // keeps its stroke instead of falling under theirs. The paper window stays
-    // wide enough to see past a large glyph's interior.
-    let ink_radius = (radius / 3).max(LOCAL_INK_MIN_RADIUS);
+    // A stroke's own core sets its cut: a hairline beside a heavy stem, or a
+    // light dash beside dark digits, is cut at its own depth and keeps its
+    // printed width instead of shrinking to the darkest pixel of the line.
+    let ink_radius = ((dpi * LOCAL_INK_RADIUS_MM / 25.4).round() as usize).max(1);
     let ink = dilate_gray(&neutral(255), ink_radius, ink_radius);
     let output = BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
         let local_paper = i16::from(paper.get(x, y));

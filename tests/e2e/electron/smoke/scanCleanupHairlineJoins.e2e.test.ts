@@ -19,6 +19,7 @@ import {
     PDFName,
     PDFNumber,
     PDFRawStream,
+    StandardFonts,
 } from 'pdf-lib';
 import {
     describe,
@@ -332,8 +333,8 @@ async function renderPageInk(pdfPath: string, directory: string, pageNumber: num
     };
 }
 
-/** Areas of the 8-connected ink shapes. */
-function inkShapeAreas({
+/** The 8-connected ink shapes: each pixel's shape (-1 for paper) and each shape's area. */
+function inkShapes({
     ink, width, height,
 }: IInkRaster) {
     const label = new Int32Array(ink.length).fill(-1);
@@ -365,7 +366,15 @@ function inkShapeAreas({
         }
         areas.push(area);
     }
-    return areas;
+    return {
+        label,
+        areas,
+    };
+}
+
+/** Areas of the 8-connected ink shapes. */
+function inkShapeAreas(raster: IInkRaster) {
+    return inkShapes(raster).areas;
 }
 
 /** Opens a scan, runs scan cleanup as a user would, and returns the cleaned path. */
@@ -420,6 +429,124 @@ async function cleanScan(sourcePath: string, options: {blackAndWhite: boolean}) 
     const {originalPath: outputPath} = await readWorkspaceStateValues(session.page, ['originalPath']);
     expect(typeof outputPath).toBe('string');
     return outputPath as string;
+}
+
+/** Title lines set in a modern face: hairlines beside heavy stems. */
+const TITLE_TYPE: ReadonlyArray<readonly [string, number]> = [
+    [
+        'NEUARAMAISCHE',
+        30,
+    ],
+    [
+        'MARCHEN',
+        30,
+    ],
+    [
+        'UND ANDERE TEXTE',
+        13,
+    ],
+    [
+        'AUS MALULA',
+        22,
+    ],
+    [
+        'UND ANDERE TEXTE',
+        13,
+    ],
+];
+const DISPLAY_TYPE_INK = 45;
+
+/** A soft scan of title type; returns the sharp type's own ink. */
+async function createTitleTypeScanPdf(path: string, directory: string): Promise<IInkRaster> {
+    const vector = await PDFDocument.create();
+    const font = await vector.embedFont(StandardFonts.TimesRoman);
+    const page = vector.addPage([
+        PAGE_WIDTH / SCAN_DPI * 72,
+        PAGE_HEIGHT / SCAN_DPI * 72,
+    ]);
+    let baseline = 500;
+    for (const [
+        text,
+        size,
+    ] of TITLE_TYPE) {
+        page.drawText(text, {
+            x: 30,
+            y: baseline,
+            size,
+            font,
+        });
+        baseline -= size * 2.4;
+    }
+    const vectorPath = join(directory, 'title-type.pdf');
+    writeFileSync(vectorPath, await vector.save());
+    const prefix = join(directory, 'title-type');
+    await execFileAsync(getPdfNativeToolPaths().pdftoppm, [
+        '-png',
+        '-gray',
+        '-singlefile',
+        '-r',
+        String(SCAN_DPI),
+        vectorPath,
+        prefix,
+    ], {timeout: 60_000});
+    const sharp = decode(readFileSync(`${prefix}.png`));
+    const channels = sharp.data.length / (sharp.width * sharp.height);
+    const coverage = new Float32Array(PAGE_WIDTH * PAGE_HEIGHT);
+    const ink = new Uint8Array(PAGE_WIDTH * PAGE_HEIGHT);
+    for (let index = 0; index < coverage.length; index += 1) {
+        const value = sharp.data[index * channels]!;
+        coverage[index] = (255 - value) / 255;
+        ink[index] = value < 128 ? 1 : 0;
+    }
+    const scan = blur(blur(coverage, SOFT_SCAN_KERNEL), SOFT_SCAN_KERNEL);
+    await writeScanPdf(path, [Uint8Array.from(scan, value => Math.round(SOFT_PAPER - value * (SOFT_PAPER - DISPLAY_TYPE_INK)))]);
+    return {
+        ink,
+        width: PAGE_WIDTH,
+        height: PAGE_HEIGHT,
+    };
+}
+
+/** Ink on a stroke at most three pixels across, horizontally or vertically. */
+function thinStrokeInk({
+    ink, width, height,
+}: IInkRaster) {
+    const across = new Uint16Array(ink.length).fill(0xffff);
+    const measure = (start: number, step: number, count: number) => {
+        let run = 0;
+        for (let offset = 0; offset <= count; offset += 1) {
+            const index = start + offset * step;
+            if (offset < count && ink[index]) {
+                run += 1;
+                continue;
+            }
+            for (let back = 1; back <= run; back += 1) {
+                const inked = index - back * step;
+                across[inked] = Math.min(across[inked]!, run);
+            }
+            run = 0;
+        }
+    };
+    for (let y = 0; y < height; y += 1) measure(y * width, 1, width);
+    for (let x = 0; x < width; x += 1) measure(x, width, height);
+    return Uint8Array.from(across, (run, index) => (ink[index] && run <= 3 ? 1 : 0));
+}
+
+/** The top-left corner of a raster's ink. */
+function inkOrigin({
+    ink, width,
+}: IInkRaster) {
+    let left = Infinity;
+    let top = Infinity;
+    ink.forEach((inked, index) => {
+        if (!inked) return;
+        left = Math.min(left, index % width);
+        top = Math.min(top, Math.floor(index / width));
+    });
+    return {
+        left,
+        top,
+    };
 }
 
 function createScratchDirectory(prefix: string) {
@@ -503,5 +630,63 @@ describe('automatic scan cleanup of a scan placed at one pixel per point', () =>
         expect(page.height).toBeCloseTo(PAGE_HEIGHT, 3);
         expect(page.dpi).toBeCloseTo(72, 3);
         expect(glyphs).toHaveLength(6);
+    }, 300_000);
+});
+
+describe('scan cleanup of soft title type', () => {
+    it('keeps the hairlines of display capitals at their printed width', async () => {
+        const directory = createScratchDirectory('evb-e2e-cleanup-title-type-');
+        const sourcePath = join(directory, 'title-type-scan.pdf');
+        const sharp = await createTitleTypeScanPdf(sourcePath, directory);
+        const outputPath = await cleanScan(sourcePath, {blackAndWhite: true});
+        const cleaned = await renderPageInk(outputPath, directory, 1);
+
+        const from = inkOrigin(sharp);
+        const to = inkOrigin(cleaned);
+        const cleanedIndex = (index: number) => {
+            const x = index % sharp.width - from.left + to.left;
+            const y = Math.floor(index / sharp.width) - from.top + to.top;
+            return x >= 0 && y >= 0 && x < cleaned.width && y < cleaned.height ? y * cleaned.width + x : -1;
+        };
+        const thin = thinStrokeInk(sharp);
+        let thinInk = 0;
+        let thinKept = 0;
+        thin.forEach((inked, index) => {
+            if (!inked) return;
+            thinInk += 1;
+            const target = cleanedIndex(index);
+            if (target >= 0 && cleaned.ink[target]) thinKept += 1;
+        });
+        // Each letter is one cleaned shape, and each cleaned shape one letter:
+        // a letter broken in two cannot hide behind two letters run together.
+        const letters = inkShapes(sharp);
+        const shapes = inkShapes(cleaned);
+        const shapesOfLetter = letters.areas.map(() => new Set<number>());
+        const lettersOfShape = shapes.areas.map(() => new Set<number>());
+        letters.label.forEach((letter, index) => {
+            const target = cleanedIndex(index);
+            const shape = target >= 0 ? shapes.label[target]! : -1;
+            if (letter < 0 || shape < 0) return;
+            shapesOfLetter[letter]!.add(shape);
+            lettersOfShape[shape]!.add(letter);
+        });
+        const brokenLetters = shapesOfLetter.filter(found => found.size !== 1).length;
+        const mergedShapes = lettersOfShape.filter(found => found.size > 1).length;
+        const sharpInk = letters.areas.reduce((total, area) => total + area, 0);
+        const cleanedInk = shapes.areas.reduce((total, area) => total + area, 0);
+        console.log('scan-cleanup-title-type', JSON.stringify({
+            letters: letters.areas.length,
+            brokenLetters,
+            mergedShapes,
+            thinKept: thinKept / thinInk,
+            inkRatio: cleanedInk / sharpInk,
+        }));
+        expect(brokenLetters).toBe(0);
+        expect(mergedShapes).toBe(0);
+        // A hairline cut against the heavy stem beside it keeps little more
+        // than its darkest pixel: three fifths of the thin strokes here.
+        expect(thinKept / thinInk).toBeGreaterThan(0.7);
+        expect(cleanedInk).toBeGreaterThan(sharpInk * 0.85);
+        expect(cleanedInk).toBeLessThan(sharpInk * 1.15);
     }, 300_000);
 });

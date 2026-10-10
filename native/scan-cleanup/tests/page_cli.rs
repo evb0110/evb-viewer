@@ -2461,7 +2461,7 @@ fn final_cli_pins_the_adjudicated_stroke_budget_and_rescue_counters() {
     assert_eq!((cleaned.width(), cleaned.height()), (1830, 77));
     assert_eq!(
         cleaned.data().iter().filter(|&&value| value < 128).count(),
-        21_291,
+        21_293,
         "the public final-render path changed the adjudicated ink outcome",
     );
 }
