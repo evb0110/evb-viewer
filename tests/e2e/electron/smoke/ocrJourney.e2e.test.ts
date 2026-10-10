@@ -419,6 +419,7 @@ if (process.versions.electron && process.type === 'browser') {
                     await rm(modelPath, {force: true});
                     await rename(backupPath, modelPath);
                 }
+                await sessionFixture.start({sessionName: () => `e2e-ocr-journey-restored-${Date.now()}`});
             }
         }
     }, 300_000);
