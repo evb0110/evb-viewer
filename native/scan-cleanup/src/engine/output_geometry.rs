@@ -3,9 +3,9 @@ use crate::bw::binary_to_gray;
 use crate::bw::paper_reference;
 use crate::domain::geometry::PageHalf;
 use crate::domain::options::OutputMode;
+use crate::engine::render::{CleanupMetadata, MatchedCanvasPolicy};
 use crate::engine::render::{CleanupRaster, CleanupResult, CleanupWarningEvent, WarningExtentUnit};
-use crate::pipeline::{CleanupMetadata, MatchedCanvasPolicy};
-use crate::png::RgbImage;
+use crate::io::png::RgbImage;
 use crate::protocol::manifest_v3::DocumentCanvas;
 use crate::{CleanupOptions, OrthogonalRotation};
 use evb_native_support::{NativeError, NativeErrorCode};
@@ -2194,7 +2194,7 @@ pub(crate) fn canvas_warning_to_protocol(
             ..
         } => CleanupWarningEvent::MatchedCanvasPaperDownscaled {
             unit: WarningExtentUnit::Px,
-            scale_percent_tenths: crate::pipeline::quantize_decimal(paper_scale * 100.0, 1),
+            scale_percent_tenths: crate::engine::render::quantize_decimal(paper_scale * 100.0, 1),
             document_canvas_width,
             document_canvas_height,
             paper_width,
@@ -2431,13 +2431,13 @@ mod tests {
             2_203,
             1_573,
             OrthogonalRotation::None,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
         );
         let right_paper = matched_output_paper_dimensions_for(
             2_203,
             1_573,
             OrthogonalRotation::None,
-            crate::pipeline::PageHalf::Right,
+            crate::engine::render::PageHalf::Right,
         );
         assert_eq!(left_paper, (1_101.5, 1_573.0));
         assert_eq!(right_paper, left_paper);
@@ -2449,7 +2449,7 @@ mod tests {
             left_paper.1,
             true,
             &options,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
             &canvas,
         );
         let right = plan_canvas_placement_for(
@@ -2459,7 +2459,7 @@ mod tests {
             right_paper.1,
             true,
             &options,
-            crate::pipeline::PageHalf::Right,
+            crate::engine::render::PageHalf::Right,
             &canvas,
         );
 
@@ -2490,7 +2490,7 @@ mod tests {
             2_261,
             1_573,
             OrthogonalRotation::None,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
         );
         let leaves = [(1_198, 1_198), (599, 599)];
         let shared_fit = leaves
@@ -2510,7 +2510,7 @@ mod tests {
             paper.1,
             true,
             &options,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
             &canvas,
             None,
             Some(shared_fit),
@@ -2522,7 +2522,7 @@ mod tests {
             paper.1,
             true,
             &options,
-            crate::pipeline::PageHalf::Right,
+            crate::engine::render::PageHalf::Right,
             &canvas,
             None,
             Some(shared_fit),
@@ -2557,7 +2557,7 @@ mod tests {
             2_261,
             1_573,
             OrthogonalRotation::None,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
         );
         let mut leaf = GrayImage::new(1_198, 64, 255);
         // Reviewer regression: a pale gray-246 glyph reaching the fold-side
@@ -2566,7 +2566,7 @@ mod tests {
         for y in 20..44 {
             leaf.set(1_197, y, 246);
         }
-        let run = fold_side_near_paper_run_in_gray(&leaf, crate::pipeline::PageHalf::Left);
+        let run = fold_side_near_paper_run_in_gray(&leaf, crate::engine::render::PageHalf::Left);
         let fit = canvas_fit_for(
             leaf.width(),
             leaf.height(),
@@ -2576,7 +2576,12 @@ mod tests {
             &options,
             &canvas,
         );
-        let trim = fold_trim_for(leaf.width(), crate::pipeline::PageHalf::Left, run, fit);
+        let trim = fold_trim_for(
+            leaf.width(),
+            crate::engine::render::PageHalf::Left,
+            run,
+            fit,
+        );
 
         assert_eq!(run, 0);
         assert_eq!(trim.total(), 0);
@@ -2600,7 +2605,7 @@ mod tests {
             2_261,
             1_573,
             OrthogonalRotation::None,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
         );
         let mut left_raster = GrayImage::new(1_198, 1_198, 0);
         for y in 0..left_raster.height() {
@@ -2619,8 +2624,8 @@ mod tests {
         );
         let left_trim = fold_trim_for(
             left_raster.width(),
-            crate::pipeline::PageHalf::Left,
-            fold_side_near_paper_run_in_gray(&left_raster, crate::pipeline::PageHalf::Left),
+            crate::engine::render::PageHalf::Left,
+            fold_side_near_paper_run_in_gray(&left_raster, crate::engine::render::PageHalf::Left),
             left_fit,
         );
         let shared_fit = canvas_fit_for(
@@ -2643,7 +2648,7 @@ mod tests {
                 paper_height: paper.1,
                 content_detected: true,
                 options: &options,
-                half: crate::pipeline::PageHalf::Left,
+                half: crate::engine::render::PageHalf::Left,
                 optical_content_bounds_x: None,
                 shared_overflow_fit: Some(shared_fit),
                 fold_trim: left_trim,
@@ -2659,7 +2664,7 @@ mod tests {
                 paper_height: paper.1,
                 content_detected: true,
                 options: &options,
-                half: crate::pipeline::PageHalf::Right,
+                half: crate::engine::render::PageHalf::Right,
                 optical_content_bounds_x: None,
                 shared_overflow_fit: Some(shared_fit),
                 fold_trim: Default::default(),
@@ -2701,7 +2706,7 @@ mod tests {
             1_000.0,
             false,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
         let uncropped = plan_canvas_placement_for(
@@ -2711,7 +2716,7 @@ mod tests {
             1_000.0,
             false,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
 
@@ -2900,7 +2905,7 @@ mod tests {
             1_000.0,
             false,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
         assert_eq!(placement.left, 75);
@@ -2947,7 +2952,7 @@ mod tests {
             1_000.0,
             false,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
             optical_bounds,
         );
@@ -2989,7 +2994,7 @@ mod tests {
             240.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
             Some(bounds),
         );
@@ -3020,7 +3025,7 @@ mod tests {
             240.0,
             false,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
             optical_binary_bounds_x(&empty),
         );
@@ -3034,7 +3039,7 @@ mod tests {
             240.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
             Some((0.0, 400.0)),
         );
@@ -3069,7 +3074,7 @@ mod tests {
             3_241.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Left,
+            crate::engine::render::PageHalf::Left,
             &canvas,
             optical_bounds,
         );
@@ -3111,7 +3116,7 @@ mod tests {
                 paper_height: 3_136.0,
                 content_detected: true,
                 options: &options,
-                half: crate::pipeline::PageHalf::Left,
+                half: crate::engine::render::PageHalf::Left,
                 optical_content_bounds_x: Some((336.0, 2_002.0)),
                 shared_overflow_fit: Some(1.0),
                 fold_trim: FoldSideTrim {
@@ -3133,7 +3138,7 @@ mod tests {
                 paper_height: 3_136.0,
                 content_detected: true,
                 options: &options,
-                half: crate::pipeline::PageHalf::Right,
+                half: crate::engine::render::PageHalf::Right,
                 optical_content_bounds_x: Some((175.0, 1_301.0)),
                 shared_overflow_fit: Some(1.0),
                 fold_trim: FoldSideTrim::default(),
@@ -3175,7 +3180,7 @@ mod tests {
         let output = GeometryOutput {
             options: options.clone(),
             source_page_index: 0,
-            half: crate::pipeline::PageHalf::Full,
+            half: crate::engine::render::PageHalf::Full,
             width: 400,
             height: 240,
             paper_width: 400.0,
@@ -3235,7 +3240,7 @@ mod tests {
         let output = GeometryOutput {
             options: options.clone(),
             source_page_index: 0,
-            half: crate::pipeline::PageHalf::Left,
+            half: crate::engine::render::PageHalf::Left,
             width: 2_298,
             height: 2_810,
             paper_width: 2_196.0,
@@ -3326,7 +3331,7 @@ mod tests {
                 paper_height: 500.0,
                 content_detected: true,
                 options: &options,
-                half: crate::pipeline::PageHalf::Full,
+                half: crate::engine::render::PageHalf::Full,
                 optical_content_bounds_x: Some((300.0, 950.0)),
                 shared_overflow_fit: None,
                 fold_trim: FoldSideTrim::default(),
@@ -3366,7 +3371,7 @@ mod tests {
             500.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
             Some((300.0, 950.0)),
         );
@@ -3456,7 +3461,7 @@ mod tests {
             1_000.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
 
@@ -3507,7 +3512,7 @@ mod tests {
             1_000.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
 
@@ -3568,7 +3573,7 @@ mod tests {
                 180.0,
                 true,
                 &options,
-                crate::pipeline::PageHalf::Full,
+                crate::engine::render::PageHalf::Full,
                 &canvas,
             );
 
@@ -3603,7 +3608,7 @@ mod tests {
             8.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
 
@@ -3648,7 +3653,7 @@ mod tests {
             1_000.0,
             true,
             &ink_anchor_options(anchor),
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
             optical_content_bounds_x,
         )
@@ -3692,7 +3697,7 @@ mod tests {
                     page_alignment,
                     ..ink_anchor_options(Some(crate::PlacementAnchor { y_normalized: 0.3 }))
                 },
-                crate::pipeline::PageHalf::Full,
+                crate::engine::render::PageHalf::Full,
                 &canvas,
                 optical,
             );
@@ -3740,7 +3745,7 @@ mod tests {
                 1_000.0,
                 true,
                 &options,
-                crate::pipeline::PageHalf::Full,
+                crate::engine::render::PageHalf::Full,
                 &canvas,
             );
             (
@@ -3776,7 +3781,7 @@ mod tests {
             1_000.0,
             true,
             &options,
-            crate::pipeline::PageHalf::Full,
+            crate::engine::render::PageHalf::Full,
             &canvas,
         );
 

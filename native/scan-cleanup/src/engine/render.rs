@@ -38,6 +38,7 @@ use crate::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
     },
     ink_consistency::{stabilize_trusted_stroke_mass, InkConsistencyDiagnostics},
+    io::png::RgbImage,
     mrc::derive_halftone_zones,
     picture::{
         apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
@@ -46,7 +47,6 @@ use crate::{
         refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
         resample_binary_mask_nearest, semantic_tone_preservation_alpha, veto_text_like_regions,
     },
-    png::RgbImage,
     protocol::{
         manifest_v3::{ContentDiagnostics, DetailRenderPlan},
         progress::PageStageTimings,

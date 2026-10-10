@@ -1,4 +1,4 @@
-use crate::analysis::build_analysis_level;
+use crate::engine::prepare::build_analysis_level;
 use scan_primitives::{
     morphology::{open, reconstruct_binary},
     threshold::{otsu_threshold, threshold_global},

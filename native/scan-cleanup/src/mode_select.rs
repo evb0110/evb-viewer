@@ -2202,8 +2202,8 @@ mod tests {
             let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
                 "tests/fixtures/blank/rome-flyleaf-p{page_number:05}-150dpi.png",
             ));
-            let gray =
-                crate::png::decode_gray(&std::fs::read(path).unwrap(), 2_000_000, 2_000).unwrap();
+            let gray = crate::io::png::decode_gray(&std::fs::read(path).unwrap(), 2_000_000, 2_000)
+                .unwrap();
             let luminance = luminance_evidence(&gray);
             let chroma = chroma_evidence(&gray, None, 0);
             assert!(

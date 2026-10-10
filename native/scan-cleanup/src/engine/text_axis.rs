@@ -211,7 +211,7 @@ mod tests {
     use super::*;
     use crate::{
         background::normalize_illumination_for_layout, engine::render::analyze_page,
-        png::decode_gray, CleanupOptions, OrthogonalRotation, DEFAULT_MAX_DIMENSION,
+        io::png::decode_gray, CleanupOptions, OrthogonalRotation, DEFAULT_MAX_DIMENSION,
         DEFAULT_MAX_PIXELS,
     };
     use scan_primitives::threshold::otsu_threshold;

@@ -1,8 +1,8 @@
 use crate::{
-    analysis::build_analysis_level,
     bw::{despeckle_connected_calibrated, rescue_component_scoped_faint_strokes},
     calibration::{CalibrationConfig, PageCalibration},
     edge_artifacts::{border_artifact_mask_from_binary, is_scanner_border_shadow, side_edge_rails},
+    engine::prepare::build_analysis_level,
     protocol::manifest_v3::{
         ContentAcceptedTrim, ContentBlockEvidence, ContentDiagnosticRect, ContentDiagnostics,
         ContentSideConfidence, ContentTextMaskSummary, ContentTrimSide,

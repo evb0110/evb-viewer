@@ -1,6 +1,6 @@
 use evb_scan_cleanup::{
-    engine::render::analyze_page_with_color_and_document_prior, png::decode_image, CleanupOptions,
-    OutputMode,
+    engine::render::analyze_page_with_color_and_document_prior, io::png::decode_image,
+    CleanupOptions, OutputMode,
 };
 use std::{fs, path::Path};
 

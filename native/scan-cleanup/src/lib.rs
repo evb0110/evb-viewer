@@ -1,5 +1,4 @@
 pub mod adapters;
-mod analysis;
 pub mod auto_dewarp;
 pub mod background;
 pub mod bw;
@@ -17,8 +16,6 @@ pub mod io;
 pub mod mode_select;
 mod mrc;
 pub mod picture;
-pub mod pipeline;
-pub mod png;
 pub mod protocol;
 pub mod split;
 pub mod text_tone;

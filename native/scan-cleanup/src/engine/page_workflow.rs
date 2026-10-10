@@ -2,16 +2,16 @@
 use crate::cache::{PageCache, StageCacheKey};
 use crate::engine::output_geometry::*;
 use crate::engine::page_statistics::trusted_selection_is_incomplete;
-use crate::engine::render::{quantize_decimal, CleanupWarningEvent};
-use crate::engine::staged_input::{invalid, map_raster_error};
-use crate::ink_consistency::PageInkConsistencyContext;
-use crate::io::{pbm, png, raster};
-use crate::pipeline::{
+use crate::engine::render::{
     analyze_page_with_color_and_document_prior_cached_cancellable,
     clean_detail_page_with_color_cancellable, clean_page_with_color_and_document_prior_cached,
     downscale_rgb_to_dimensions, CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources,
     LayeredForegroundKind,
 };
+use crate::engine::render::{quantize_decimal, CleanupWarningEvent};
+use crate::engine::staged_input::{invalid, map_raster_error};
+use crate::ink_consistency::PageInkConsistencyContext;
+use crate::io::{pbm, png, raster};
 use crate::protocol::{
     manifest_v3::{CanvasScope, DocumentCanvas, Page, PageOutput},
     progress::PageStageTimings,
@@ -49,7 +49,7 @@ pub(crate) struct PageResultMetadata {
     pub(crate) blank_outputs_skipped: usize,
     pub(crate) output_count: usize,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) outputs: Vec<crate::pipeline::AnalysisOutputMetadata>,
+    pub(crate) outputs: Vec<crate::engine::render::AnalysisOutputMetadata>,
     pub(crate) tier1_verdict: LayoutClassification,
     pub(crate) reconciled: bool,
     pub(crate) cluster_agreement: f64,
@@ -98,13 +98,15 @@ const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
 type DecodedPageInputs = (Option<Arc<raster::DecodedRaster>>, Option<Arc<GrayImage>>);
 
-pub(crate) fn map_analysis_error(error: crate::pipeline::AnalysisError) -> NativeError {
+pub(crate) fn map_analysis_error(error: crate::engine::render::AnalysisError) -> NativeError {
     let (code, message) = match error {
-        crate::pipeline::AnalysisError::Invalid(message) => {
+        crate::engine::render::AnalysisError::Invalid(message) => {
             (NativeErrorCode::InvalidRequest, message)
         }
-        crate::pipeline::AnalysisError::TooLarge(message) => (NativeErrorCode::TooLarge, message),
-        crate::pipeline::AnalysisError::Canceled(message) => (NativeErrorCode::Io, message),
+        crate::engine::render::AnalysisError::TooLarge(message) => {
+            (NativeErrorCode::TooLarge, message)
+        }
+        crate::engine::render::AnalysisError::Canceled(message) => (NativeErrorCode::Io, message),
     };
     NativeError::new(code, message)
 }
@@ -1223,7 +1225,7 @@ mod moved_tests {
         let input = dir.join("page.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
         )
         .unwrap();
         let page = Page {
@@ -1268,21 +1270,21 @@ mod moved_tests {
     #[test]
     fn derived_geometry_guardrail_errors_are_too_large() {
         assert_eq!(
-            map_analysis_error(crate::pipeline::AnalysisError::TooLarge(
+            map_analysis_error(crate::engine::render::AnalysisError::TooLarge(
                 "Derived raster 100x100 exceeds cleanup guardrails".into(),
             ))
             .code,
             NativeErrorCode::TooLarge,
         );
         assert_eq!(
-            map_analysis_error(crate::pipeline::AnalysisError::Invalid(
+            map_analysis_error(crate::engine::render::AnalysisError::Invalid(
                 "Derived content geometry must be finite".into(),
             ))
             .code,
             NativeErrorCode::InvalidRequest,
         );
         assert_eq!(
-            map_analysis_error(crate::pipeline::AnalysisError::Invalid(
+            map_analysis_error(crate::engine::render::AnalysisError::Invalid(
                 "A request value mentions guardrails".into(),
             ))
             .code,

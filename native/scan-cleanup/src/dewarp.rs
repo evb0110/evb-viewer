@@ -1,4 +1,4 @@
-use crate::{png::RgbImage, DewarpOptions};
+use crate::{io::png::RgbImage, DewarpOptions};
 use rayon::prelude::*;
 use scan_primitives::{GrayImage, Point, Projective};
 use thiserror::Error;

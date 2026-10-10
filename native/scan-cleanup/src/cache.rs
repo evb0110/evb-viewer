@@ -197,7 +197,7 @@ impl StageCacheKey {
     pub(crate) fn content(
         options: &CleanupOptions,
         deskew_key: &Self,
-        half: crate::pipeline::PageHalf,
+        half: crate::engine::render::PageHalf,
     ) -> Self {
         Self {
             source: deskew_key.source.clone(),
@@ -482,7 +482,8 @@ mod tests {
             );
             let split = StageCacheKey::split(options, &analysis, None);
             let deskew = StageCacheKey::deskew(options, &split, region);
-            let content = StageCacheKey::content(options, &deskew, crate::pipeline::PageHalf::Full);
+            let content =
+                StageCacheKey::content(options, &deskew, crate::engine::render::PageHalf::Full);
             (analysis, content)
         };
 

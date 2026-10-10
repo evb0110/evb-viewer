@@ -8,7 +8,7 @@
 use crate::domain::geometry::{AppliedMargins, PageHalf};
 use crate::engine::output_geometry::write_json_atomic;
 use crate::engine::render::{quantize_decimal_half_up, CleanupWarningEvent, WarningExtentUnit};
-use crate::pipeline::{AnalysisOutputMetadata, CleanupMetadata};
+use crate::engine::render::{AnalysisOutputMetadata, CleanupMetadata};
 use crate::protocol::manifest_v3::DocumentCanvas;
 use crate::{CleanupOptions, OrthogonalRotation, PageAlignment};
 use scan_primitives::Rect;

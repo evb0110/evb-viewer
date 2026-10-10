@@ -665,7 +665,7 @@ mod tests {
         for page in &manifest.pages {
             fs::write(
                 &page.input_path,
-                crate::png::encode_gray(&GrayImage::new(64, 64, 240)).unwrap(),
+                crate::io::png::encode_gray(&GrayImage::new(64, 64, 240)).unwrap(),
             )
             .unwrap();
         }
@@ -736,7 +736,7 @@ mod tests {
         let input = dir.join("page.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
         )
         .unwrap();
         let page = typed_page(input, 0, OutputMode::Color);
@@ -777,7 +777,7 @@ mod tests {
         let background = dir.join("background.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
         )
         .unwrap();
         let mut selection = GrayImage::new(100, 50, 0);
@@ -786,8 +786,8 @@ mod tests {
                 selection.set(x, y, 255);
             }
         }
-        crate::png::write_gray_atomic(&mask, &selection).unwrap();
-        crate::png::write_gray_atomic(&background, &GrayImage::new(50, 25, 240)).unwrap();
+        crate::io::png::write_gray_atomic(&mask, &selection).unwrap();
+        crate::io::png::write_gray_atomic(&background, &GrayImage::new(50, 25, 240)).unwrap();
         let manifest = TypedTestManifest {
             operation: PlanningOperation::Render,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
@@ -830,7 +830,7 @@ mod tests {
         let input = dir.join("scheduler-input.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
         )
         .unwrap();
         typed_manifest_with(
@@ -1156,7 +1156,7 @@ mod tests {
         let input = dir.join("page.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
         )
         .unwrap();
         let manifest = |operation, output_mode| {
@@ -1209,7 +1209,7 @@ mod tests {
         let input = dir.join("page.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(2_000, 1_500, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(2_000, 1_500, 240)).unwrap(),
         )
         .unwrap();
         let manifest = |host_memory_bytes| {
@@ -1278,7 +1278,7 @@ mod moved_tests {
         let input = dir.join("page.png");
         fs::write(
             &input,
-            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+            crate::io::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
         )
         .unwrap();
         let duplicate_output = PageOutput {
