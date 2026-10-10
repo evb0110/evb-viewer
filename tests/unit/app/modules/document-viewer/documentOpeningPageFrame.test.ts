@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -426,18 +428,59 @@ describe('documentOpeningPageFrame', () => {
 
     it('uses the page-source frame policy for DjVu documents', () => {
         const surface = createDocumentOpenSurfaceSession();
+        let zoomMode: 'fit-width' | 'custom' = 'fit-width';
+        const viewport = document.createElement('div');
+        Object.defineProperties(viewport, {
+            offsetWidth: {value: 1_018},
+            clientWidth: {value: 1_000},
+        });
         const generation = surface.begin({
             documentId: '/documents/scan.djvu',
             documentRevision: 'pending',
         }, {
             ...pdfGeometry,
             documentId: '/documents/scan.djvu',
+            pageNumber: 7,
+        }, 7);
+        const authority = createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
+            openSurface: surface,
+            readRendererKind: () => 'page-source',
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 2,
+                zoomMode,
+                continuousScroll: true,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+            readViewport: () => viewport,
         });
 
-        expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
+        expect(authority.prepareOpeningPageFrame(generation)).toBe(true);
         expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
             width: '960px',
             height: '1280px',
+        });
+        zoomMode = 'custom';
+        surface.navigate(createPageNavigationRequest(7, 'restore', {
+            page: 7,
+            pageXFraction: 0.4,
+            pageYFraction: 0.2375,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center',
+        }));
+        expect(authority.prepareOpeningPageFrame(generation)).toBe(true);
+        // The old 800 px viewport had the page at 20 px. The final horizontal
+        // scrollbar makes it 782 px high, so restoration places it at 11 px.
+        expect(authority.shell.value?.style).toMatchObject({
+            width: '1200px',
+            height: '1600px',
+            top: '11px',
         });
     });
 

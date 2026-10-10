@@ -309,13 +309,24 @@ function resolveOpeningPageFrameStyle(
     if (!isDjvuDocument(geometry.documentId)) {
         return resolvePdfOpeningPageFrameStyle(geometry, viewport, policy, anchor);
     }
-    return resolveDocumentPageSourceOpeningFrame({
+    const frame = resolveDocumentPageSourceOpeningFrame({
         geometry,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
         zoom: policy.zoom,
         zoomMode: policy.zoomMode,
-    })?.style ?? null;
+    });
+    if (!frame || !anchor) {
+        return frame?.style ?? null;
+    }
+    // The page-source renderer rounds its page layout to whole pixels and
+    // restores this point into the final client box, scrollbar included.
+    const width = Math.round(frame.width);
+    const height = Math.round(frame.height);
+    return {
+        ...frame.style,
+        top: `${String(resolveAnchoredViewportHeight(width, viewport) * anchor.viewportYFraction - height * anchor.pageYFraction)}px`,
+    };
 }
 
 const PREPARABLE_PHASES: ReadonlySet<string> = new Set([
@@ -351,7 +362,6 @@ export function createDocumentOpeningPageFrame(
     // then the viewport shows its own background: a placeholder of a guessed
     // shape would change shape again when the geometry arrives.
     const shell = computed<IDocumentOpeningPageShell | null>(() => {
-        options.readLayoutRevision?.();
         const snapshot = options.openSurface.snapshot.value;
         const frame = snapshot.openingPageFrame;
         if (!PREPARABLE_PHASES.has(snapshot.phase) || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
@@ -360,29 +370,14 @@ export function createDocumentOpeningPageFrame(
         // The page the open presents, which a restore or a navigation during the
         // open can set before the viewport has shown any page.
         const openingPage = options.openSurface.viewportSession.value.requestedPage;
-        const geometry = snapshot.openingPageGeometry;
-        const {
-            zoom,
-            zoomMode,
-        } = options.readPolicy();
-        const viewport = options.readViewportSize();
-        const rendererKind = options.readRendererKind();
-        // PDF Fit Width follows the widest page, which only the prepared frame knows.
-        const liveFrame = rendererKind === 'page-source' && geometry?.pageNumber === openingPage ? resolveDocumentPageSourceOpeningFrame({
-            geometry,
-            viewportWidth: viewport.width,
-            viewportHeight: viewport.height,
-            zoom,
-            zoomMode,
-        }) : null;
-        const style = liveFrame?.style ?? (frame?.pageNumber === openingPage ? frame.style : null);
+        const style = frame?.pageNumber === openingPage ? frame.style : null;
         if (style === null) {
             return null;
         }
-        // Both frames hold a positive, finite page size.
-        const liveWidth = Number.parseFloat(style.width);
-        const liveHeight = Number.parseFloat(style.height);
-        const margin = resolveDocumentOpeningPageMargin(geometry, rendererKind);
+        // The prepared frame holds a positive, finite page size.
+        const liveWidth = Number.parseFloat(style.width!);
+        const liveHeight = Number.parseFloat(style.height!);
+        const margin = DOCUMENT_PAGE_GUTTER_PX;
         return {
             generation: snapshot.generation,
             height: liveHeight,
