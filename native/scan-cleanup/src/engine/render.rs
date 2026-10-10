@@ -1,4 +1,5 @@
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
+use crate::engine::edge_band::{owned_ink_pixels, LEAF_EDGE_BAND_FRACTION};
 use crate::engine::prepare::{build_analysis_level, AnalysisLevel};
 use crate::engine::render_plan::{
     content_result_for_dimensions, output_regions, ComposedRenderPlan,
@@ -1331,10 +1332,6 @@ fn page_ink_ownership_mask(
     }
 }
 
-fn owned_ink_pixels(binary: &BinaryImage, ownership: &BinaryImage) -> usize {
-    binary.and(ownership).count_black()
-}
-
 fn owned_ink_minimum(width: usize, height: usize) -> usize {
     ((width.saturating_mul(height) as f64 * OWNED_INK_RETENTION_MINIMUM_FRACTION) as usize)
         .max(OWNED_INK_RETENTION_MINIMUM_PIXELS)
@@ -1382,11 +1379,6 @@ fn conserve_page_ink(
     ));
     (conservative, true)
 }
-
-/// Width of the leaf edge band that carries the fold shadow and the scanner
-/// rail rather than page content. Page margins are wider than this at any scan
-/// resolution, so no printed matter falls inside the band.
-const LEAF_EDGE_BAND_FRACTION: f64 = 0.04;
 
 fn leaf_interior_is_blank(gray: &GrayImage, dpi: f64) -> bool {
     let inset_x = (gray.width() as f64 * LEAF_EDGE_BAND_FRACTION) as usize;

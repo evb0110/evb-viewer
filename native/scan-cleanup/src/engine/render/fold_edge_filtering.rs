@@ -1,6 +1,7 @@
 //! Acquisition rails on full pages and foreign fragments at a spread's fold.
 
 use super::*;
+use crate::engine::edge_band::touches_interior_print;
 
 pub(crate) struct Input<'a> {
     pub binary: &'a BinaryImage,
@@ -397,20 +398,18 @@ pub(crate) fn run(input: Input<'_>) -> Output {
             map_rect_bounds(region, |point| render_plan.source_to_output(point)).map_or_else(
                 || BinaryImage::new(binary.width(), binary.height()),
                 |page| {
+                    // A deskewed page can map a few pixels past the raster edge.
+                    let (left, top) = (page.x.max(0.0), page.y.max(0.0));
+                    let page = Rect::new(left, top, page.right() - left, page.bottom() - top);
                     let (rails, _) = crate::edge_artifacts::side_edge_rails(binary, Some(page));
                     let components = ComponentMap::from_binary(&rails);
                     components.retain(|component| {
-                        ![picture_mask, text_mask, text_vicinity_mask]
-                            .into_iter()
-                            .flatten()
-                            .any(|mask| {
-                                (component.top..=component.bottom).any(|y| {
-                                    (component.left..=component.right).any(|x| {
-                                        components.label_at(x, y) == component.label
-                                            && mask.get(x, y)
-                                    })
-                                })
-                            })
+                        !touches_interior_print(
+                            &components,
+                            component,
+                            [picture_mask, text_mask, text_vicinity_mask],
+                            binary.width(),
+                        )
                     })
                 },
             )

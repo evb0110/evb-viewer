@@ -7349,6 +7349,34 @@ mod tests {
     }
 
     #[test]
+    fn ink_conservation_does_not_restore_scanner_shadow_read_as_text() {
+        // A text line that reached the edge band owns only the scanner's
+        // shadow there, and cleanup correctly removed it. The guard must not
+        // count that shadow as owned ink and restore it.
+        let mut ownership = BinaryImage::new(400, 400);
+        for y in 20..320 {
+            for x in 392..400 {
+                ownership.set(x, y, true);
+            }
+        }
+        let shadow = ownership.clone();
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            shadow,
+            BinaryImage::new(400, 400),
+            Some(&ownership),
+            2,
+            PageHalf::Right,
+            &mut warnings,
+        );
+
+        assert!(!conserved);
+        assert_eq!(published.count_black(), 0);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
     fn ink_conservation_ignores_a_leaf_that_owns_almost_no_ink() {
         let mut ownership = BinaryImage::new(400, 400);
         let mut conservative = BinaryImage::new(400, 400);
