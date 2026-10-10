@@ -1466,7 +1466,7 @@ fn normalize_and_assemble_analysis_artifact(
         quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
     let faint_core = faint_stroke_masks[0]
         .as_deref()
-        .map(|mask| Arc::new(crate::faint_core::printed_core(mask, &normalized)));
+        .map(|mask| Arc::new(crate::faint_core::printed_core(mask, &layout_normalized)));
     let artifact = Arc::new(AnalysisArtifact {
         normalized,
         layout_normalized,
