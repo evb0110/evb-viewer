@@ -495,21 +495,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             requireIntentDocument(intent, signal);
             refreshGeometry();
         },
-        postArrival: async (request, signal) => {
-            if (!signal.aborted) {
-                await options.onNavigationPostArrival?.(request, signal);
-            }
-            if (signal.aborted) {
-                return;
-            }
-            const container = options.viewerContainer.value;
-            if (container && request.postArrival) {
-                container.dispatchEvent(new CustomEvent('pdf-navigation-post-arrival', {detail: {
-                    effect: request.postArrival,
-                    request,
-                }}));
-            }
-        },
         clearDemand: intentId => {
             resolvedTargets.delete(intentId);
         },

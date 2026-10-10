@@ -1127,7 +1127,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         viewMode: options.viewMode,
         getVisiblePageRange: viewport.scroll.getVisiblePageRange,
         renderVisiblePages,
-        isPageRendered: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         applySearchHighlights: pageRenderer.applySearchHighlights,
     });
     function waitForLoadedDocument(signal: AbortSignal) {

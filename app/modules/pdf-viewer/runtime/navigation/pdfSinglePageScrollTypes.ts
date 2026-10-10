@@ -7,10 +7,7 @@ import type {
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-import type {
-    IPdfPageLayoutMetrics,
-    IDocumentNavigationRequest,
-} from '@app/modules/document-viewer/public';
+import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
 export interface ITransactionVisibleRangeCommitOptions { transactionId?: number | undefined }
 
@@ -60,5 +57,4 @@ export interface IUsePdfSinglePageScrollOptions {
     viewportWritePort: IPdfViewportWritePort;
     getPhysicalScrollOrigin?: (() => number) | undefined;
     getPageLayoutMetrics?: (() => IPdfPageLayoutMetrics | null) | undefined;
-    onNavigationPostArrival?: ((request: IDocumentNavigationRequest, signal: AbortSignal) => Promise<void> | void) | undefined;
 }

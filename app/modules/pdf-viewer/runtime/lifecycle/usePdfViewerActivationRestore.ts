@@ -1,6 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
 import type {
     ComputedRef,
     Ref,
@@ -26,10 +25,7 @@ interface IUsePdfViewerActivationRestoreOptions {
     viewMode: ComputedRef<TPdfViewMode>;
     getVisiblePageRange: (container: HTMLElement | null, numPages: number) => IPageRange | null;
     renderVisiblePages: (range: IPageRange, options?: {preserveRenderedPages?: boolean}) => Promise<void>;
-    isPageRendered?: ((pageNumber: TPageNumber) => boolean) | undefined;
     applySearchHighlights: () => void;
-    // Retained only while callers shed the old transaction-controller argument.
-    transactionController?: unknown;
 }
 
 /**
