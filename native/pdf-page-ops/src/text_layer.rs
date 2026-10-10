@@ -1888,7 +1888,7 @@ fn append_source_annotations(
                     let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
                     !(x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2)
                 } else {
-                    intersect_rect(rect, view).is_none()
+                    !annotation_meets_view(owner, matrix, rect, view)
                 }
             }) {
                 continue;

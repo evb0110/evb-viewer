@@ -1844,12 +1844,28 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             "QuadPoints" => vec![90.into(), 55.into(), 110.into(), 55.into(), 90.into(), 45.into(), 110.into(), 45.into()],
             "Contents" => Object::string_literal("Cross-seam markup"),
         });
+        // Its Rect is padded across the seam, but every quad lies on the left.
+        let padded_markup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => page_id,
+            "Rect" => vec![40.into(), 45.into(), 104.into(), 55.into()],
+            "QuadPoints" => vec![40.into(), 55.into(), 70.into(), 55.into(), 40.into(), 45.into(), 70.into(), 45.into()],
+            "Contents" => Object::string_literal("Padded left markup"),
+        });
         document.get_dictionary_mut(page_id).unwrap().set(
             "Annots",
-            vec![seam, root, reply, popup, legacy_root, legacy_popup, markup]
-                .into_iter()
-                .map(Object::Reference)
-                .collect::<Vec<_>>(),
+            vec![
+                seam,
+                root,
+                reply,
+                popup,
+                legacy_root,
+                legacy_popup,
+                markup,
+                padded_markup,
+            ]
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
         );
         document.save(&source).unwrap();
         if incremental {
@@ -1950,6 +1966,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             .collect::<Vec<_>>();
         let mut expected_left = vec![
             "Cross-seam markup",
+            "Padded left markup",
             "Reply note",
             "Reply popup",
             "Root note",
