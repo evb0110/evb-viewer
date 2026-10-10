@@ -1,0 +1,27 @@
+packages/scan-cleanup/core/runLosslessScanCleanup.ts
+  s_4d188619137033::t_8dfa12b6c48c6d 96,365,390-398
+  s_4d188619137033::t_165c7dd74d3681 580,582,585
+  s_4d188619137033::t_f4bec4daa67dec 366-370,372-381,384-386,388-389
+packages/scan-cleanup/core/runScanCleanupConversion.ts
+  s_4d188619137033::t_8dfa12b6c48c6d 2253
+tests/unit/electron/scanCleanupCoreStreamingCoverage.test.ts
+  s_4d188619137033::t_c8fc79b4875d6d 1524-1539,1541-1543
+  s_4d188619137033::t_4812eb062eb3a1 1610-1613,1623-1633,1637,1643-1644
+  s_4d188619137033::t_903a237feed252 1558,1565,1593-1594,1634-1636
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f6ca92c70d14cf0d8584820ca62dcf5039726828",
+  "prompts": {},
+  "sessions": {
+    "s_4d188619137033": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123a7-1af7-7212-9bc7-3d482dc6985a",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}
