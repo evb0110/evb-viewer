@@ -439,6 +439,33 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
+    it('keeps a save when a revision read runs between publication and its journal record', async () => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare('old-original', 'old-working');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+        // A read here once took the live journal for a crash's and rolled the
+        // published save back while the save still reported success.
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            publishOriginal: async () => {
+                await publishImmutableFileAtomic(stagedPath, originalPath);
+                await ensureWorkingCopyRevision(workingCopyPath, 7);
+            },
+        })).resolves.toMatchObject({contentRevision: 2});
+
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
+    });
+
     it('restores every durable record when manifest publication fails', async () => {
         vi.doMock('@electron/file-access/workingCopyManifest', async (importOriginal) => {
             const actual = await importOriginal<typeof WorkingCopyManifestModule>();

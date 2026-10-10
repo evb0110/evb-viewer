@@ -44,7 +44,7 @@ import {
     isManagedWorkingCopyPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
-import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
+import {withIdleOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {
     completeWorkingCopyTransition,
     prepareWorkingCopyTransition,
@@ -65,6 +65,24 @@ interface IProvisionalWorkingCopyRevision {
 }
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
 const runContentTransitionSerially = createKeyedSerialQueue();
+
+// A transition repairs its own journal and original backup. A reader repairs
+// only what an ended or failed transition left behind: while the working copy
+// or its original is mid-transition it skips the repair, so it neither waits
+// for that transition nor rolls it back or deletes its backup.
+function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
+    const key = getRevisionQueueKey(workingCopyPath);
+    const repair = () => runContentTransitionSerially(key, async () => {
+        await recoverWorkingCopyTransition(workingCopyPath);
+        if (originalPath) {
+            await sweepOrphanedOriginalBackups(originalPath, workingCopyPath);
+        }
+    });
+    if (!runContentTransitionSerially.isIdle(key)) {
+        return Promise.resolve();
+    }
+    return originalPath ? withIdleOriginalPathMutationLock(originalPath, repair) : repair();
+}
 
 function requireDocumentRef(value: string): TDocumentRef {
     const parsed = parseDocumentRef(value);
@@ -266,10 +284,10 @@ export async function initializeFreshWorkingCopyRevision(
         return ensureWorkingCopyRevision(normalizedWorkingPath, senderId);
     }
 
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
-    if (originalPath) {
-        await withOriginalPathMutationLock(originalPath, () => sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath));
-    }
+    await repairEndedTransition(
+        normalizedWorkingPath,
+        getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath,
+    );
 
     const revision = createRevision(normalizedWorkingPath, 1, senderId);
     await writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {durable: false});
@@ -350,11 +368,10 @@ export async function ensureWorkingCopyRevision(
     if (provisional) {
         return provisional.revision;
     }
-    await recoverWorkingCopyTransition(normalizedWorkingPath);
-    const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
-    if (originalPath) {
-        await withOriginalPathMutationLock(originalPath, () => sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath));
-    }
+    await repairEndedTransition(
+        normalizedWorkingPath,
+        getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath,
+    );
     hydrateWorkingCopySyncRequired(normalizedWorkingPath);
 
     const existing = await readWorkingCopyRevision(normalizedWorkingPath);
