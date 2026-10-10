@@ -1,0 +1,58 @@
+packages/i18n-app/messages/en.ts
+  s_0971ec1f7fee89::t_af61083573e355 1721
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_0971ec1f7fee89::t_3f51c79f3c78f5 1053
+packages/i18n-app/messages/fr.ts
+  s_0971ec1f7fee89::t_af61083573e355 1732
+packages/i18n-app/messages/ru.ts
+  s_0971ec1f7fee89::t_af61083573e355 1761
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_0971ec1f7fee89::t_3f51c79f3c78f5 386,445
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFailureSurface.test.ts
+  s_0971ec1f7fee89::t_0eda7241c44852 17-21,214-215,217-242,244-259
+tests/e2e/electron/save/savePipeline.e2e.test.ts
+  s_0971ec1f7fee89::t_6b6ab38f5f34f5 943,947,952-953,993-994,1002-1003,1006-1007
+  s_0971ec1f7fee89::t_3b6a926bb638d7 1004-1005,1008
+packages/i18n-app/messages/ptBr.ts
+  s_0971ec1f7fee89::t_af61083573e355 1732
+packages/i18n-app/messages/nl.ts
+  s_0971ec1f7fee89::t_af61083573e355 1721
+electron/features/documents/main/workingCopySave.ts
+  s_0971ec1f7fee89::t_3f51c79f3c78f5 87-91
+packages/i18n-app/messages/de.ts
+  s_0971ec1f7fee89::t_af61083573e355 1721
+packages/i18n-app/messages/it.ts
+  s_0971ec1f7fee89::t_af61083573e355 1721
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_0971ec1f7fee89::t_4af77783b41d32 523-524,526-566
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_0971ec1f7fee89::t_3f51c79f3c78f5 672-679
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_0971ec1f7fee89::t_3f51c79f3c78f5 101-103,119-123,134,160-163
+  s_0971ec1f7fee89::t_2f782e3a006551 118
+  s_0971ec1f7fee89::t_6b6ab38f5f34f5 124-125
+tests/unit/app/modules/workspace-shell/composables/usePdfFile.test.ts
+  s_0971ec1f7fee89::t_0eda7241c44852 225-230,232-246,248-254
+packages/i18n-app/messages/es.ts
+  s_0971ec1f7fee89::t_af61083573e355 1721
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_0971ec1f7fee89::t_3f51c79f3c78f5 534-537
+packages/i18n-app/messages/pt.ts
+  s_0971ec1f7fee89::t_af61083573e355 1732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "34509159e30b6792e5abee8995f8c5b4d6ee2611",
+  "prompts": {},
+  "sessions": {
+    "s_0971ec1f7fee89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1239f-3cbd-7a21-9348-5947c95d38fa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
