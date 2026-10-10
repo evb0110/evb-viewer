@@ -127,6 +127,9 @@ const RIDGE_WIDTH_QUANTIZATION_STEP_PX: f64 = 2.0;
 /// ink before the cluster is judged halo accretion rather than missing
 /// stroke material.
 const RESCUE_ACCRETION_FRACTION_CAP: f64 = 0.55;
+/// A rescued cluster clear of captured ink must cover a full stop to be read
+/// as a mark; a smaller one is a gray pixel in the gap between two letters.
+const RESCUE_STANDALONE_MINIMUM_MM2: f64 = 0.12;
 
 // OpenCV DIST_L2 with maskSize=5 is the oracle's distance transform. These
 // documented chamfer weights reproduce it without introducing a second width
@@ -1836,26 +1839,6 @@ fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
 }
 
 #[cfg(test)]
-fn postprocess_binary_with_raw(
-    binary: &BinaryImage,
-    normalized: Option<&GrayImage>,
-    raw: Option<&GrayImage>,
-    options: &CleanupOptions,
-    calibration: PageCalibration,
-) -> BinaryImage {
-    let mut interventions = LineStrokeBudgetInterventions::default();
-    postprocess_binary_with_raw_budgeted(
-        binary,
-        normalized,
-        raw,
-        options,
-        calibration,
-        None,
-        &mut interventions,
-    )
-}
-
-#[cfg(test)]
 fn postprocess_binary_with_raw_budgeted(
     binary: &BinaryImage,
     normalized: Option<&GrayImage>,
@@ -2799,7 +2782,7 @@ fn rescue_component_scoped_faint_strokes_budgeted(
             }
         }
     }
-    let rescued = drop_boundary_accretion_clusters(&rescued, &retained);
+    let rescued = drop_boundary_accretion_clusters(&rescued, &retained, dpi);
     let source_supported_rescued = source_supported_rescued.and(&rescued);
     let candidate = retained.or(&rescued);
     cap_added_ink_to_stroke_budget(
@@ -2819,10 +2802,15 @@ fn rescue_component_scoped_faint_strokes_budgeted(
 /// thickens exactly the words whose halos are darkest, amplifying the page's
 /// existing weight contrast. Keep a cluster only when most of its pixels sit
 /// clear of captured ink; junction pixels of a kept fragment stay with it.
-fn drop_boundary_accretion_clusters(proposed: &BinaryImage, captured: &BinaryImage) -> BinaryImage {
+fn drop_boundary_accretion_clusters(
+    proposed: &BinaryImage,
+    captured: &BinaryImage,
+    dpi: f64,
+) -> BinaryImage {
     if proposed.count_black() == 0 {
         return proposed.clone();
     }
+    let standalone_minimum = RESCUE_STANDALONE_MINIMUM_MM2 * (dpi / 25.4).powi(2);
     let map = ComponentMap::from_binary(proposed);
     let mut kept = proposed.clone();
     for component in map.components() {
@@ -2842,7 +2830,9 @@ fn drop_boundary_accretion_clusters(proposed: &BinaryImage, captured: &BinaryIma
                 }
             }
         }
-        if (hugging as f64) <= RESCUE_ACCRETION_FRACTION_CAP * component.area as f64 {
+        if (hugging as f64) <= RESCUE_ACCRETION_FRACTION_CAP * component.area as f64
+            && (hugging > 0 || component.area as f64 >= standalone_minimum)
+        {
             continue;
         }
         for y in component.top..=component.bottom {
@@ -4813,7 +4803,7 @@ mod tests {
             };
             let calibration =
                 PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
-            let damaged = postprocess_binary_with_raw(
+            let damaged = postprocess_binary_with_raw_budgeted(
                 &threshold_with_mode(
                     &normalized,
                     &normalized,
@@ -4827,6 +4817,8 @@ mod tests {
                 Some(&normalized),
                 &options,
                 calibration,
+                None,
+                &mut LineStrokeBudgetInterventions::default(),
             );
             assert!(!damaged.get(38, 40));
             let (routed, diagnostics, _, _) =
@@ -5481,8 +5473,8 @@ mod tests {
                 rail.set(x, y, true);
             }
         }
-        for y in 48..52 {
-            for x in 84..86 {
+        for y in 46..54 {
+            for x in 84..87 {
                 raw.set(x, y, 198);
             }
         }
