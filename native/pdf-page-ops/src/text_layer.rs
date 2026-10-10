@@ -1849,8 +1849,6 @@ fn append_source_annotations(
         })
         .transpose()?;
     let rotation = resolve_page_rotation(target, target_page_id)?;
-    let source_view = resolve_page_view(source, source_page_id)?;
-    let source_rotation = resolve_page_rotation(source, source_page_id)?;
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
         transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
         annotation.set("P", target_page_id);
@@ -1868,6 +1866,8 @@ fn append_source_annotations(
         let subtype = resolved_name(source, owner.get(b"Subtype").unwrap_or(&Object::Null));
         // The terminal owner places the whole reply and popup thread.
         if let Some((matrix, view)) = filter {
+            let source_view = resolve_page_view(source, source_page_id)?;
+            let source_rotation = resolve_page_rotation(source, source_page_id)?;
             let mut owners = HashSet::from([owner as *const Dictionary]);
             while let Some(next) = owner
                 .get(b"IRT")
