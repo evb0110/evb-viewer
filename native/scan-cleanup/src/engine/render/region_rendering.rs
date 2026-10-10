@@ -184,30 +184,55 @@ pub(crate) fn render_detail_page(
             apply_text_tone(image, diagnostics);
         }
     }
-    let payload_rect = Rect::new(
-        render_region.x - sampled_region.x,
-        render_region.y - sampled_region.y,
-        render_region.width,
-        render_region.height,
-    );
-    output.image = output.image.cropped(payload_rect);
-    output.color_image = output
-        .color_image
-        .map(|image| crop_rgb(&image, payload_rect));
-    output.picture_mask = output
-        .picture_mask
-        .map(|mask| crop_binary(&mask, payload_rect));
-    output.mixed_layers = output.mixed_layers.map(|layers| MixedLayers {
-        foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
-        foreground_alpha: layers
-            .foreground_alpha
-            .map(|alpha| crop_gray(&alpha, payload_rect)),
-        background: crop_gray(&layers.background, payload_rect),
-        color_background: layers
-            .color_background
-            .map(|image| crop_rgb(&image, payload_rect)),
-        source_mrc: layers.source_mrc,
+    if let CleanupRaster::Bilevel(binary) = &mut output.image {
+        for (encoded, preserve) in base_metadata.faint_stroke_masks.iter().zip([true, false]) {
+            let Some(encoded) = encoded else { continue };
+            let mask =
+                crate::io::png::decode_gray(encoded, options.max_pixels, options.max_dimension)?;
+            let mapped = BinaryImage::from_fn_parallel(binary.width(), binary.height(), |x, y| {
+                // Reuse the base pixel's decision throughout its zoomed footprint.
+                let point = Point::new(
+                    ((sampled_region.x + x as f64) / scale).floor() * scale - sampled_region.x,
+                    ((sampled_region.y + y as f64) / scale).floor() * scale - sampled_region.y,
+                );
+                let Some(source) = map_output(point) else {
+                    return false;
+                };
+                let (nx, ny) = rotated_normalized_detail_coordinate(
+                    (source.x + source_crop_rect.x) / scale,
+                    (source.y + source_crop_rect.y) / scale,
+                    base_metadata.input_width,
+                    base_metadata.input_height,
+                    base_metadata.rotation,
+                );
+                (0.0..=1.0).contains(&nx)
+                    && (0.0..=1.0).contains(&ny)
+                    && mask.get(
+                        (nx * mask.width().saturating_sub(1) as f64).round() as usize,
+                        (ny * mask.height().saturating_sub(1) as f64).round() as usize,
+                    ) < 128
+            });
+            *binary = if preserve {
+                binary.or(&mapped)
+            } else {
+                binary.subtract(&mapped)
+            };
+        }
+    }
+    let payload = apply_payload_crop(PayloadCropInput {
+        image: output.image,
+        color_image: output.color_image,
+        picture_mask: output.picture_mask,
+        tone_alpha: output.tone_preservation_alpha,
+        mixed_layers: output.mixed_layers,
+        render_region: Some(render_region),
+        sampled_region: Some(sampled_region),
     });
+    output.image = payload.image;
+    output.color_image = payload.color_image;
+    output.picture_mask = payload.picture_mask;
+    output.tone_preservation_alpha = payload.tone_alpha;
+    output.mixed_layers = payload.mixed_layers;
 
     let mut metadata = scale_detail_metadata(base_metadata, scale);
     metadata.source_page_index = source_page_index;
@@ -480,55 +505,61 @@ pub(crate) fn render_page(
         None
     };
     let mut outputs = Vec::with_capacity(regions.len());
+    let [preserved, rejected] = faint_stroke_masks.each_ref().map(|mask| {
+        mask.as_ref()
+            .map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
+            .transpose()
+    });
+    let encoded_faint_strokes = [preserved?, rejected?];
     for (((region, half), canonical_routing_input), canonical_leaf_source) in regions
         .into_iter()
         .zip(canonical_routing_inputs.iter())
         .zip(canonical_leaf_sources.iter())
     {
         let spread_plan = spread_plans.as_ref().map(|plans| plans.for_half(half));
-        outputs.push(
-            run(region_rendering::Input {
-                source,
-                routing_source: rotated_source.as_deref().unwrap_or(&normalized),
-                normalized: &normalized,
-                analysis_normalized: analysis_normalized.as_deref().unwrap_or(&normalized),
-                analysis_scale_x,
-                analysis_scale_y,
-                canonical_routing_sample: canonical_routing_input,
-                canonical_leaf_source,
-                canonical_routing_dpi,
-                calibration,
-                color_source: rotated_color.as_ref(),
-                analysis_picture_mask: content_picture_mask.as_deref(),
-                faint_stroke_masks: faint_stroke_masks.each_ref().map(|mask| mask.as_deref()),
-                source_picture_mask: picture_mask.as_deref(),
-                halftone_zone_mask: halftone_zone_mask.as_deref(),
-                spatial_tone_mask: spatial_tone_mask.as_deref(),
-                chroma_picture_mask: chroma_picture_mask.as_deref(),
-                tone_picture_mask: tone_picture_mask.as_deref(),
-                preserve_confirmed_photo_tones,
-                use_soft_alpha_foreground,
-                tone_preservation_alpha: tone_preservation_alpha.as_deref(),
-                text_mask: text_mask.as_deref(),
-                text_vicinity_mask: text_vicinity_mask.as_deref(),
-                trusted_foreground_mask: trusted_foreground_mask.as_ref(),
-                options,
-                resolved_output_mode,
-                source_page_index,
-                split: &split,
-                spread_plan: spread_plan.as_ref(),
-                region,
-                half,
-                cache,
-                split_cache_key: split_cache_key.as_ref(),
-                source_effectively_blank,
-                create_mixed_layers: render_policy.create_mixed_layers,
-                create_mixed_composite: render_policy.create_mixed_composite,
-                render_policy,
-                timings,
-            })
-            .map(map_region_semantic_output)?,
-        );
+        let mut output = run(region_rendering::Input {
+            source,
+            routing_source: rotated_source.as_deref().unwrap_or(&normalized),
+            normalized: &normalized,
+            analysis_normalized: analysis_normalized.as_deref().unwrap_or(&normalized),
+            analysis_scale_x,
+            analysis_scale_y,
+            canonical_routing_sample: canonical_routing_input,
+            canonical_leaf_source,
+            canonical_routing_dpi,
+            calibration,
+            color_source: rotated_color.as_ref(),
+            analysis_picture_mask: content_picture_mask.as_deref(),
+            faint_stroke_masks: faint_stroke_masks.each_ref().map(|mask| mask.as_deref()),
+            source_picture_mask: picture_mask.as_deref(),
+            halftone_zone_mask: halftone_zone_mask.as_deref(),
+            spatial_tone_mask: spatial_tone_mask.as_deref(),
+            chroma_picture_mask: chroma_picture_mask.as_deref(),
+            tone_picture_mask: tone_picture_mask.as_deref(),
+            preserve_confirmed_photo_tones,
+            use_soft_alpha_foreground,
+            tone_preservation_alpha: tone_preservation_alpha.as_deref(),
+            text_mask: text_mask.as_deref(),
+            text_vicinity_mask: text_vicinity_mask.as_deref(),
+            trusted_foreground_mask: trusted_foreground_mask.as_ref(),
+            options,
+            resolved_output_mode,
+            source_page_index,
+            split: &split,
+            spread_plan: spread_plan.as_ref(),
+            region,
+            half,
+            cache,
+            split_cache_key: split_cache_key.as_ref(),
+            source_effectively_blank,
+            create_mixed_layers: render_policy.create_mixed_layers,
+            create_mixed_composite: render_policy.create_mixed_composite,
+            render_policy,
+            timings,
+        })
+        .map(map_region_semantic_output)?;
+        output.metadata.faint_stroke_masks = encoded_faint_strokes.clone();
+        outputs.push(output);
         render_policy.check_canceled()?;
     }
     let before_blank_filter = outputs.len();
@@ -731,6 +762,7 @@ fn assemble_region_result(
             trusted_selection_applied,
             illumination_normalized: options.normalize_illumination,
             text_tone_diagnostics,
+            faint_stroke_masks: Default::default(),
             binarization_mode,
             binarization_diagnostics,
             ink_consistency_diagnostics,
@@ -2525,34 +2557,8 @@ fn process_trusted_bilevel_output(input: TrustedBilevelInput<'_>) -> BilevelProc
     }
 }
 
-struct FreshBilevelInput<'a> {
-    rendered_gray: GrayImage,
-    rendered_source_gray: GrayImage,
-    canonical_routing_sample: &'a GrayImage,
-    options: &'a CleanupOptions,
-    spread_plan: Option<&'a SpreadBinarizationPlan>,
-    calibration: PageCalibration,
-    rendered_picture_mask: Option<&'a BinaryImage>,
-    rendered_text_mask: Option<&'a BinaryImage>,
-    rendered_text_vicinity_mask: Option<&'a BinaryImage>,
-    rendered_trusted_foreground_mask: Option<&'a BinaryImage>,
-    ink_ownership_mask: Option<&'a BinaryImage>,
-    source_page_index: usize,
-    half: PageHalf,
-    split: &'a SplitResult,
-    region: Rect,
-    render_plan: &'a ComposedRenderPlan,
-    source_content_box: Option<Rect>,
-    fold_edge_blank_leaf: bool,
-    unowned_fold_edge_blank_leaf: bool,
-    effectively_blank: bool,
-    pale_tonal_structure: bool,
-    create_mixed_layers: bool,
-    timings: &'a mut PageStageTimings,
-}
-
-fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessingOutput {
-    let FreshBilevelInput {
+fn process_fresh_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelProcessingOutput {
+    let BilevelProcessingInput {
         rendered_gray,
         rendered_source_gray,
         canonical_routing_sample,
@@ -2576,6 +2582,7 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
         pale_tonal_structure,
         create_mixed_layers,
         timings,
+        ..
     } = input;
     let mut conservation_warnings = Vec::new();
     let mut emitted_output_mode = options.output_mode;
@@ -2767,42 +2774,38 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
 }
 
 fn process_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelProcessingOutput {
-    let BilevelProcessingInput {
-        rendered_gray,
-        rendered_source_gray,
-        canonical_routing_sample,
-        options,
-        spread_plan,
-        calibration,
-        rendered_picture_mask,
-        rendered_text_mask,
-        rendered_text_vicinity_mask,
-        rendered_trusted_foreground_mask,
-        ink_ownership_mask,
-        normalized_width,
-        normalized_height,
-        source_page_index,
-        half,
-        split,
-        region,
-        render_plan,
-        source_content_box,
-        fold_edge_blank_leaf,
-        unowned_fold_edge_blank_leaf,
-        effectively_blank,
-        pale_tonal_structure,
-        create_mixed_layers,
-        timings,
-    } = input;
-    let routing_diagnostics = spread_plan.map_or_else(
-        || resolve_binarization_diagnostics(canonical_routing_sample, options),
-        |plan| plan.diagnostics(),
-    );
-    let mode = routing_diagnostics.route;
-    let complete_trusted_foreground = rendered_trusted_foreground_mask
-        .filter(|_| options.source_has_bilevel_layer && !options.trusted_selection_incomplete);
-    if let Some(trusted_foreground) = complete_trusted_foreground {
-        return process_trusted_bilevel_output(TrustedBilevelInput {
+    if let Some(trusted_foreground) = input.rendered_trusted_foreground_mask.filter(|_| {
+        input.options.source_has_bilevel_layer && !input.options.trusted_selection_incomplete
+    }) {
+        let BilevelProcessingInput {
+            rendered_source_gray,
+            canonical_routing_sample,
+            options,
+            spread_plan,
+            rendered_picture_mask,
+            rendered_text_mask,
+            rendered_text_vicinity_mask,
+            normalized_width,
+            normalized_height,
+            source_page_index,
+            half,
+            split,
+            region,
+            render_plan,
+            source_content_box,
+            fold_edge_blank_leaf,
+            unowned_fold_edge_blank_leaf,
+            effectively_blank,
+            pale_tonal_structure,
+            create_mixed_layers,
+            ..
+        } = input;
+        let routing_diagnostics = spread_plan.map_or_else(
+            || resolve_binarization_diagnostics(canonical_routing_sample, options),
+            |plan| plan.diagnostics(),
+        );
+        let mode = routing_diagnostics.route;
+        process_trusted_bilevel_output(TrustedBilevelInput {
             trusted_foreground,
             rendered_source_gray,
             rendered_picture_mask,
@@ -2824,33 +2827,10 @@ fn process_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelProcessin
             create_mixed_layers,
             normalized_width,
             normalized_height,
-        });
+        })
+    } else {
+        process_fresh_bilevel_output(input)
     }
-    process_fresh_bilevel_output(FreshBilevelInput {
-        rendered_gray,
-        rendered_source_gray,
-        canonical_routing_sample,
-        options,
-        spread_plan,
-        calibration,
-        rendered_picture_mask,
-        rendered_text_mask,
-        rendered_text_vicinity_mask,
-        rendered_trusted_foreground_mask,
-        ink_ownership_mask,
-        source_page_index,
-        half,
-        split,
-        region,
-        render_plan,
-        source_content_box,
-        fold_edge_blank_leaf,
-        unowned_fold_edge_blank_leaf,
-        effectively_blank,
-        pale_tonal_structure,
-        create_mixed_layers,
-        timings,
-    })
 }
 
 struct MixedProcessingInput<'a> {

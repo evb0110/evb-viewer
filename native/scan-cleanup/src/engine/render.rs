@@ -381,6 +381,9 @@ pub struct CleanupMetadata {
     pub illumination_normalized: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_tone_diagnostics: Option<TextToneDiagnostics>,
+    // Preserved/rejected PNG masks on the rotated canonical analysis plane.
+    #[serde(default)]
+    pub faint_stroke_masks: [Option<Vec<u8>>; 2],
     pub binarization_mode: Option<crate::BinarizationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binarization_diagnostics: Option<BinarizationDiagnostics>,
@@ -593,14 +596,14 @@ pub(crate) fn clean_detail_page_with_color(
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, AnalysisError> {
-    clean_detail_page_with_color_impl(
+    clean_detail_page_with_color_cancellable(
         sources,
         options,
         source_page_index,
         plan,
         base_metadata,
         timings,
-        None,
+        &AtomicBool::new(false),
     )
 }
 
@@ -613,33 +616,13 @@ pub(crate) fn clean_detail_page_with_color_cancellable(
     timings: &mut PageStageTimings,
     is_canceled: &AtomicBool,
 ) -> Result<PageCleanupResult, AnalysisError> {
-    clean_detail_page_with_color_impl(
-        sources,
-        options,
-        source_page_index,
-        plan,
-        base_metadata,
-        timings,
-        Some(is_canceled),
-    )
-}
-
-fn clean_detail_page_with_color_impl(
-    sources: DetailRenderSources<'_>,
-    options: &CleanupOptions,
-    source_page_index: usize,
-    plan: &DetailRenderPlan,
-    base_metadata: &CleanupMetadata,
-    timings: &mut PageStageTimings,
-    cancellation: Option<&AtomicBool>,
-) -> Result<PageCleanupResult, AnalysisError> {
     region_rendering::render_detail_page(region_rendering::DetailPageInput {
         sources,
         options,
         source_page_index,
         plan,
         base_metadata,
-        cancellation,
+        cancellation: Some(is_canceled),
         timings,
     })
 }
