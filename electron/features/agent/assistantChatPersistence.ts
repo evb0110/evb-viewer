@@ -617,10 +617,12 @@ export class AssistantChatPersistence {
                     sizeBytes: fileStat.size,
                 });
             } catch (error) {
-                try {
-                    await this.quarantineCorruptSession(filePath);
-                } catch (quarantineError) {
-                    this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
+                if (!(error instanceof AssistantChatPersistenceError)) {
+                    try {
+                        await this.quarantineCorruptSession(filePath);
+                    } catch (quarantineError) {
+                        this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
+                    }
                 }
                 this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
             }
@@ -664,8 +666,10 @@ export class AssistantChatPersistence {
                 try {
                     file = this.recoverSessionContents(candidate.filePath, key, contents);
                 } catch (error) {
-                    await this.quarantineCorruptSession(candidate.filePath);
-                    this.onError(`Quarantined corrupt assistant chat session "${key}" during lookup`, error);
+                    if (!(error instanceof AssistantChatPersistenceError)) {
+                        await this.quarantineCorruptSession(candidate.filePath);
+                    }
+                    this.onError(`Failed to recover assistant chat session "${key}" during lookup`, error);
                     break;
                 }
                 if (file) {
@@ -972,6 +976,9 @@ export class AssistantChatPersistence {
         try {
             recovered = await this.recoverSessionFileAsync(filePath, key);
         } catch (error) {
+            if (error instanceof AssistantChatPersistenceError) {
+                throw error;
+            }
             await this.quarantineCorruptSession(filePath);
             this.onError(`Quarantined corrupt assistant chat session "${key}" during compaction`, error);
             return;
@@ -1020,11 +1027,15 @@ export class AssistantChatPersistence {
                     && key !== null
                     && lastSession !== null
                 ) {
-                    this.snapshotStorage.writeBoundedSnapshotSync(
-                        filePath,
-                        createPersistedSnapshotRecord(key, clonePersistedSession(lastSession)),
-                        key,
-                    );
+                    try {
+                        this.snapshotStorage.writeBoundedSnapshotSync(
+                            filePath,
+                            createPersistedSnapshotRecord(key, clonePersistedSession(lastSession)),
+                            key,
+                        );
+                    } catch (error) {
+                        throw this.toPersistenceError(key, error);
+                    }
                     break;
                 }
                 throw new Error('Assistant chat transcript contains a malformed persisted record.');
@@ -1146,8 +1157,10 @@ export class AssistantChatPersistence {
             try {
                 recovered = await this.recoverSessionFileAsync(filePath, key ?? undefined);
             } catch (error) {
-                await this.quarantineCorruptSession(filePath);
-                this.onError(`Quarantined corrupt assistant chat session "${key ?? entry.name}" during maintenance`, error);
+                if (!(error instanceof AssistantChatPersistenceError)) {
+                    await this.quarantineCorruptSession(filePath);
+                }
+                this.onError(`Failed to recover assistant chat session "${key ?? entry.name}" during maintenance`, error);
                 continue;
             }
             const fileStat = await stat(filePath).catch(() => null);

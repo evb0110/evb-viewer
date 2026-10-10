@@ -10,6 +10,7 @@ import {
     openSync,
     readFileSync,
     renameSync,
+    rmSync,
     writeFileSync,
 } from 'fs';
 import {
@@ -114,10 +115,14 @@ async function atomicWriteJsonLineFile(filePath: string, payload: unknown) {
 function atomicWriteJsonLineFileSync(filePath: string, payload: unknown) {
     mkdirSync(dirname(filePath), {recursive: true});
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    writeFileSync(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
-    fsyncFileSync(tempPath);
-    renameSync(tempPath, filePath);
-    fsyncParentDirectorySync(filePath);
+    try {
+        writeFileSync(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
+        fsyncFileSync(tempPath);
+        renameSync(tempPath, filePath);
+        fsyncParentDirectorySync(filePath);
+    } finally {
+        rmSync(tempPath, {force: true});
+    }
 }
 
 function serializedBytes(value: unknown) {

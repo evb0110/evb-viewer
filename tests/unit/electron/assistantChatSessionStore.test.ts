@@ -40,6 +40,8 @@ import type { IAssistantSelection } from '@electron/features/agent/assistantProv
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
 import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
+import * as fileFlush from '@electron/utils/fsyncPath';
+import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
 
 const tempRoots: string[] = [];
 
@@ -779,7 +781,10 @@ describe('assistant chat session store persistence', () => {
         expect(readdirSync(join(rootDir, 'sessions'))).toEqual([]);
     });
 
-    it('recovers the last durable snapshot when a crash leaves a torn final record', async () => {
+    it.each([
+        false,
+        true,
+    ])('keeps a torn final record recoverable when its repair flush fails (%s)', async (flushFails) => {
         const rootDir = createTempRoot();
         const persistence = createPersistence(rootDir);
         const store = createAssistantChatSessionStore({persistence});
@@ -792,13 +797,62 @@ describe('assistant chat session store persistence', () => {
 
         const transcriptPath = persistence.sessionPath(store.keyForSession(session));
         writeFileSync(transcriptPath, '{"type":"session-snapshot"', {flag: 'a'});
+        const originalContents = readFileSync(transcriptPath, 'utf8');
 
-        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
-        await recoveredStore.ready;
-
-        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['durable message']);
+        const flush = vi.spyOn(fileFlush, 'fsyncFileSync');
+        const flushError = new Error('Recovery flush failed');
+        if (flushFails) flush.mockImplementation(() => {throw flushError;});
+        const onError = vi.fn();
+        const recovery = createPersistence(rootDir, {onError});
+        try {
+            const recovered = await recovery.recoverSessions();
+            expect(recovered.flatMap(record => record.session.messages.map(message => message.text)))
+                .toEqual(flushFails ? [] : ['durable message']);
+            if (flushFails) {
+                expect(await recovery.recoverSession(store.keyForSession(session))).toBeNull();
+                expect(readFileSync(transcriptPath, 'utf8')).toBe(originalContents);
+                expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to recover'), expect.objectContaining({
+                    code: 'write-failed',
+                    cause: flushError,
+                }));
+            } else {
+                expect(readFileSync(transcriptPath, 'utf8')).toMatch(/\n$/u);
+                expect(onError).not.toHaveBeenCalled();
+            }
+            expect(readdirSync(join(rootDir, 'archive'))).toEqual([]);
+            expect(readdirSync(join(rootDir, 'sessions'))).toEqual([basename(transcriptPath)]);
+        } finally {
+            flush.mockRestore();
+        }
+        expect((await recovery.recoverSession(store.keyForSession(session)))?.session.messages.map(message => message.text))
+            .toEqual(['durable message']);
         expect(readFileSync(transcriptPath, 'utf8')).toMatch(/\n$/u);
-        expect(readdirSync(join(rootDir, 'archive'))).toEqual([]);
+    });
+
+    it('removes a recovery staging file when replacement fails and keeps the destination', () => {
+        const rootDir = createTempRoot();
+        const destination = join(rootDir, 'blocked.jsonl');
+        mkdirSync(destination);
+        writeFileSync(join(destination, 'keep'), 'original');
+        const storage = new AssistantChatSnapshotStorage<{text: string}, 1>({
+            blobsDir: join(rootDir, 'blobs'),
+            maxSessionBytes: 1024,
+            createTooLargeError: (_key, message) => new Error(message),
+            parseRecord: () => null,
+        });
+
+        expect(() => storage.writeBoundedSnapshotSync(destination, {
+            schemaVersion: 1,
+            type: 'session-snapshot',
+            key: 'session',
+            writtenAt: '2026-10-10T00:00:00.000Z',
+            session: {text: 'recovered'},
+        }, 'session')).toThrow();
+        expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('original');
+        expect(readdirSync(rootDir).sort()).toEqual([
+            'blobs',
+            'blocked.jsonl',
+        ]);
     });
 
     it('deeply rejects and quarantines malformed nested recovery payloads', async () => {

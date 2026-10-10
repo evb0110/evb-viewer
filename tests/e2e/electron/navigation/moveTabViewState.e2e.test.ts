@@ -365,11 +365,13 @@ describe('Move Tab to New Window view state', () => {
         });
         await waitForPdfLoaded(target);
         // Wait for the actual transfer decision before checking the copies.
-        await Promise.race([
-            transferFailed.promise,
-            waitForFunctionInPage(source, () => !Array.from(document.querySelectorAll('.tab-label'))
-                .some(tab => tab.textContent?.trim() === 'superseded-slow.pdf'), {timeout: 15_000}),
-        ]);
+        await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Superseded transfer did not report failure within 15 seconds')), 15_000);
+            void transferFailed.promise.then(() => {
+                clearTimeout(timeout);
+                resolve();
+            });
+        });
         const outcome = {
             replacement: await readView(target),
             sourceTabs: await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),

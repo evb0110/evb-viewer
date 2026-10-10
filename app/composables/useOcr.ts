@@ -678,7 +678,7 @@ export const useOcr = () => {
     const progressPercent = computed(() => {
         const download = progress.value.modelDownload;
         if (progress.value.phase === 'model-prep' && download) {
-            return download.retrying ? null : 100 * download.receivedBytes / download.totalBytes;
+            return download.retrying ? null : Math.min(100, 100 * download.receivedBytes / download.totalBytes);
         }
         if (progress.value.phase !== 'processing') {
             return progress.value.phaseProgress;

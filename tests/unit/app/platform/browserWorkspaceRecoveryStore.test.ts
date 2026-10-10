@@ -19,6 +19,7 @@ import {
     FakeLockManager,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {
+    BROWSER_LIVE_LEASES_STORE,
     DB_NAME,
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
@@ -60,9 +61,12 @@ const checkpoint: IWorkspaceCheckpoint = {
 };
 
 describe('browserWorkspaceRecoveryStore', () => {
+    let recoveryDbFactory: FakeIndexedDbFactory;
+
     beforeEach(() => {
         vi.unstubAllGlobals();
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        recoveryDbFactory = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', recoveryDbFactory);
         // Node provides Web Locks; these cases are a browser without them,
         // where the owner's heartbeat age decides a claim.
         vi.stubGlobal('navigator', {});
@@ -94,12 +98,21 @@ describe('browserWorkspaceRecoveryStore', () => {
             snapshotRefs: ['browser://documents/recovery.pdf'],
         }));
 
+        const database = recoveryDbFactory.getDatabase(DB_NAME);
+        if (!database) throw new Error('Recovery database is unavailable');
+        database.rejectNextTransaction(new Error('Lease release failed'));
+        await expect(recovery.load('window:other')).resolves.toBeNull();
+
         await expect(recovery.clear('window:1', 1))
             .resolves.toEqual({
                 saved: true,
                 generation: 0,
             });
         await expect(loadBrowserWorkspaceRecovery('window:1')).resolves.toBeNull();
+        expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
+            status: 'dead',
+            protectedDependencies: [],
+        });
     });
 
     it('isolates concurrent window owners and rejects stale owner generations', async () => {

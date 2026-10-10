@@ -796,6 +796,48 @@ describe('verified model download publication', () => {
         expect(secondProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
     });
 
+    it.each([
+        false,
+        true,
+    ])('publishes a shared model despite a throwing listener (replay: %s)', async (throwOnReplay) => {
+        const started = Promise.withResolvers<undefined>();
+        let deliverBody = () => {};
+        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+            if (init.method === 'HEAD') return new Response(null, {status: 200});
+            return new Response(new ReadableStream<Uint8Array>({start(controller) {
+                deliverBody = () => {
+                    controller.enqueue(modelBytes);
+                    controller.close();
+                };
+                started.resolve(undefined);
+            }}));
+        });
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+        const healthyProgress: IOcrModelDownloadProgress[] = [];
+        const first = ensureTessdataLanguages(['eng'], {onProgress: update => healthyProgress.push(update)});
+        await started.promise;
+        const second = ensureTessdataLanguages(['eng'], {onProgress: update => {
+            if (throwOnReplay || update.receivedBytes > 0) throw new Error('Listener failed');
+        }});
+        const laterProgress: IOcrModelDownloadProgress[] = [];
+        const third = ensureTessdataLanguages(['eng'], {onProgress: update => laterProgress.push(update)});
+        const outcomes = Promise.allSettled([
+            first,
+            second,
+            third,
+        ]);
+        await new Promise(resolve => setImmediate(resolve));
+        deliverBody();
+
+        expect(await outcomes).toEqual(Array.from({length: 3}, () => ({
+            status: 'fulfilled',
+            value: undefined,
+        })));
+        await expectVerifiedModel();
+        expect(healthyProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
+        expect(laterProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
+    });
+
     it('leaves no usable model or staging file after a checksum mismatch', async () => {
         const changedBytes = Buffer.from(modelBytes);
         changedBytes[changedBytes.length - 1]! ^= 1;

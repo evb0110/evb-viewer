@@ -1,12 +1,13 @@
 import {createHash} from 'node:crypto';
 import {createServer} from 'node:http';
+import {existsSync} from 'node:fs';
 import {delay} from 'es-toolkit/promise';
 import {tmpdir} from 'node:os';
 import {
     dirname, join,
 } from 'node:path';
 import {
-    copyFile, mkdir, mkdtemp, readFile, readdir, rename, stat, writeFile,
+    copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import {
     GlobalFonts, createCanvas,
@@ -305,8 +306,8 @@ describe('Electron E2E - OCR journey', () => {
             });
         });
         await sessionFixture.stop({preserveArtifacts: true});
-        await rename(modelPath, backupPath);
         try {
+            await rename(modelPath, backupPath);
             await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
             const address = transport.address();
             if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
@@ -414,7 +415,10 @@ if (process.versions.electron && process.type === 'browser') {
             } finally {
                 transport.closeAllConnections();
                 if (transport.listening) await new Promise<void>(resolve => transport.close(() => resolve()));
-                await rename(backupPath, modelPath);
+                if (existsSync(backupPath)) {
+                    await rm(modelPath, {force: true});
+                    await rename(backupPath, modelPath);
+                }
             }
         }
     }, 300_000);
@@ -1163,8 +1167,8 @@ if (process.versions.electron && process.type === 'browser') {
             response.once('close', () => clearInterval(stream));
         });
         await sessionFixture.stop({preserveArtifacts: true});
-        await rename(modelPath, backupPath);
         try {
+            await rename(modelPath, backupPath);
             await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
             const address = transport.address();
             if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
@@ -1243,7 +1247,10 @@ if (process.versions.electron && process.type === 'browser') {
                     }
                     await writeFile(join(scratch, 'transport.json'), JSON.stringify(transportEvents, null, 2));
                 } finally {
-                    await rename(backupPath, modelPath);
+                    if (existsSync(backupPath)) {
+                        await rm(modelPath, {force: true});
+                        await rename(backupPath, modelPath);
+                    }
                 }
                 await sessionFixture.start({sessionName: () => `e2e-ocr-journey-restored-${Date.now()}`});
             }

@@ -1031,7 +1031,6 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         async load(ownerId) {
             if (recoveryLiveLease && recoveryLiveLease.ownerId !== ownerId) {
                 await releaseRecoveryLiveLease();
-                recoveryLiveLease = null;
             }
             return loadBrowserWorkspaceRecovery(ownerId);
         },
