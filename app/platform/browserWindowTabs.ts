@@ -256,6 +256,7 @@ const incomingTransferNonces = new Map<string, IIncomingBrowserTransferNonce>();
 const queuedTransfersByWindow = new Map<number, string[]>();
 
 const browserWindowTabsInstanceId = Symbol('browserWindowTabsInstance');
+const inheritedWindowId = hasBrowserWindowContext() ? readNamedWindowId() : null;
 
 let channel: BroadcastChannel | null = null;
 let initialized = false;
@@ -361,6 +362,8 @@ function resolveCurrentWindowId() {
         return -1;
     }
 
+    const state = getBrowserWindowTabsState();
+    const stateWindowId = parsePositiveWindowId(state?.windowId);
     try {
         const url = new URL(window.location.href);
         const fromQuery = Number(url.searchParams.get(WINDOW_ID_QUERY_PARAM));
@@ -371,38 +374,32 @@ function resolveCurrentWindowId() {
                 '',
                 url.toString(),
             );
-            const state = getBrowserWindowTabsState();
-            if (state) {
-                state.windowId = fromQuery;
-            }
+            window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
+            if (state) state.windowId = fromQuery;
             rememberNamedWindowId(fromQuery);
             return fromQuery;
         }
+        if (stateWindowId !== null) {
+            rememberNamedWindowId(stateWindowId);
+            return stateWindowId;
+        }
+
+        const namedWindowId = readNamedWindowId();
+        const reloadingWindowId = parsePositiveWindowId(Number(window.sessionStorage?.getItem(WINDOW_TABS_STATE_KEY)));
+        window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
+        if (namedWindowId && (holdsLeaseOwnerLock(recoveryOwnerId(namedWindowId)) !== null
+            || (namedWindowId === reloadingWindowId
+                && performance.getEntriesByType('navigation').some(entry => 'type' in entry && entry.type === 'reload')))) {
+            if (state) state.windowId = namedWindowId;
+            rememberNamedWindowId(namedWindowId);
+            return namedWindowId;
+        }
     } catch (error) {
-        BrowserLogger.warn(
-            'browserWindowTabs',
-            'Failed to resolve browser window ID from URL',
-            error,
-        );
-    }
-
-    const state = getBrowserWindowTabsState();
-    const stateWindowId = parsePositiveWindowId(state?.windowId);
-    if (stateWindowId !== null) {
-        rememberNamedWindowId(stateWindowId);
-        return stateWindowId;
-    }
-
-    const namedWindowId = readNamedWindowId();
-    if (namedWindowId) {
-        if (state) state.windowId = namedWindowId;
-        return namedWindowId;
+        BrowserLogger.warn('browserWindowTabs', 'Failed to resolve retained browser window identity', error);
     }
 
     const windowId = createWindowId();
-    if (state) {
-        state.windowId = windowId;
-    }
+    if (state) state.windowId = windowId;
     rememberNamedWindowId(windowId);
     return windowId;
 }
@@ -845,6 +842,8 @@ function handleWindowPageHide(event: PageTransitionEvent) {
         });
         return;
     }
+    // Only a departing established context hands its owner to a reload.
+    window.sessionStorage?.setItem(WINDOW_TABS_STATE_KEY, String(currentWindowId));
     cleanupBrowserWindowTabsInstance(true);
 }
 
@@ -1073,18 +1072,13 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             pruneStaleTargetWindows(discoveryStartedAt);
         }
 
-        let ownerId = await holdRecoveryOwnerLock();
+        const ownerId = await holdRecoveryOwnerLock();
         if (!ownerId) return null;
         const records = await loadBrowserWorkspaceRecoveries();
-        const exact = records.find(record => record.ownerId === ownerId);
-        if (exact && ownerId === getBrowserWindowRecoveryOwnerId()) {
-            // A reload replaced its context; a copied name alone proves nothing.
-            if (holdsLeaseOwnerLock(ownerId) || performance.getEntriesByType('navigation').some(entry => 'type' in entry && entry.type === 'reload')) {
-                return exact.checkpoint;
-            }
-            rekeyCurrentWindow();
-            ownerId = await holdRecoveryOwnerLock();
-            if (!ownerId) return null;
+        const exact = records.find(record => record.ownerId === ownerId)
+            ?? records.find(record => record.ownerId === recoveryOwnerId(inheritedWindowId ?? -1));
+        if (exact?.ownerId === ownerId && ownerId === getBrowserWindowRecoveryOwnerId()) {
+            return exact.checkpoint;
         }
 
         const activeOwnerIds = new Set(Array.from(knownWindows.keys(), recoveryOwnerId));

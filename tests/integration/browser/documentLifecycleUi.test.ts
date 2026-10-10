@@ -98,10 +98,9 @@ async function waitForServer(url: string) {
 }
 
 async function waitForOpenFileReady(page: Page) {
-    await page.waitForFunction(() => Boolean(Reflect.get(window, '__evbTestApi')), undefined, {timeout: 30_000});
     await page.waitForFunction(() => {
         const api = Reflect.get(window, '__evbTestApi') as {isStartupOpenClaimPending?: () => boolean};
-        return !api.isStartupOpenClaimPending?.();
+        return Boolean(api) && !api.isStartupOpenClaimPending?.();
     }, undefined, {timeout: 30_000});
 }
 
@@ -2634,7 +2633,22 @@ describe('browser document lifecycle UI', () => {
             const copy = await openWindow(page => page.addInitScript((windowName) => {
                 if (!window.name) window.name = windowName;
                 Reflect.set(window, '__evbBrowserWindowTabsState', {recoveryInstanceNonce: '!'});
+                if (!navigator.locks) {
+                    // Reload at the first asynchronous discovery wait, before
+                    // an unproven inherited owner could finish its claim.
+                    const setWindowTimeout = window.setTimeout.bind(window);
+                    Reflect.set(window, 'setTimeout', (handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+                        if (timeout === 60 && !sessionStorage.getItem('evb-test:duplicate-reloaded')) {
+                            sessionStorage.setItem('evb-test:duplicate-reloaded', '1');
+                            window.location.reload();
+                            return 0;
+                        }
+                        return setWindowTimeout(handler, timeout, ...args);
+                    });
+                }
             }, `evb-viewer-window:${originalOwnerId.slice('window:'.length)}`));
+            if (!hasWebLocks) expect(await copy.evaluate(() => performance.getEntriesByType('navigation')
+                .some(entry => 'type' in entry && entry.type === 'reload'))).toBe(true);
             const copyOwnerId = await copy.evaluate(() => `window:${window.name.slice('evb-viewer-window:'.length)}`);
             expect(copyOwnerId).not.toBe(originalOwnerId);
             expect(await copy.locator('.page_container').count()).toBe(0);
