@@ -2,9 +2,7 @@ import {createHash} from 'node:crypto';
 import type {BigIntStats} from 'node:fs';
 import {
     lstat,
-    open,
     stat,
-    type FileHandle,
 } from 'node:fs/promises';
 import {
     getWorkingCopyBackingEntry,
@@ -19,6 +17,7 @@ import {
     readPersistedWorkingCopyManifest,
 } from '@electron/file-access/readWorkingCopyManifest';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {readFileChunk} from '@electron/file-access/readFileChunk';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {createLogger} from '@electron/utils/createLogger';
 
@@ -48,7 +47,6 @@ export class OriginalPathSaveConflictError extends Error {
 
 export interface IOriginalPathSaveWitness {
     assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
-    close: () => Promise<void>;
     getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
     rebaseOnUnchangedContent: () => Promise<void>;
@@ -120,7 +118,7 @@ function snapshotsMatch(
         ));
 }
 
-async function sampleFileHandle(handle: FileHandle, size: bigint) {
+async function sampleFilePath(originalPath: string, size: bigint) {
     const numericSize = Number(size);
     if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
         throw new OriginalPathSaveConflictError();
@@ -135,7 +133,7 @@ async function sampleFileHandle(handle: FileHandle, size: bigint) {
     const hash = createHash('sha256');
     for (const offset of offsets) {
         const sample = Buffer.allocUnsafe(sampleLength);
-        const {bytesRead} = await handle.read(sample, 0, sampleLength, offset);
+        const bytesRead = await readFileChunk(originalPath, sample, offset);
         if (bytesRead !== sampleLength) {
             throw new OriginalPathSaveConflictError();
         }
@@ -145,8 +143,8 @@ async function sampleFileHandle(handle: FileHandle, size: bigint) {
     return hash.digest('hex');
 }
 
-async function hashFileHandle(
-    handle: FileHandle,
+async function hashFilePath(
+    originalPath: string,
     size: bigint,
     hash: ReturnType<typeof createHash>,
     signal?: AbortSignal,
@@ -162,7 +160,7 @@ async function hashFileHandle(
         const length = Math.min(buffer.byteLength, numericSize - offset);
         let readOffset = 0;
         while (readOffset < length) {
-            const {bytesRead} = await handle.read(buffer, readOffset, length - readOffset, offset + readOffset);
+            const bytesRead = await readFileChunk(originalPath, buffer.subarray(readOffset, length), offset + readOffset);
             if (bytesRead <= 0) {
                 throw new OriginalPathSaveConflictError();
             }
@@ -175,17 +173,16 @@ async function hashFileHandle(
     return hash.digest('hex');
 }
 
-async function hashContentFingerprintFileHandle(handle: FileHandle, size: bigint, signal?: AbortSignal) {
+async function hashContentFingerprintFilePath(originalPath: string, size: bigint, signal?: AbortSignal) {
     const numericSize = Number(size);
     if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
         throw new OriginalPathSaveConflictError();
     }
     const hash = createOriginalFileContentFingerprintHash(numericSize);
-    return `sha256-full-v1:${await hashFileHandle(handle, size, hash, signal)}`;
+    return `sha256-full-v1:${await hashFilePath(originalPath, size, hash, signal)}`;
 }
 
-async function matchesBaselineOnWitnessHandle(
-    handle: FileHandle,
+async function matchesBaselineOnWitnessPath(
     originalPath: string,
     expected: IWorkingCopyOriginalFileExpectation,
     snapshot: IOriginalPathSaveSnapshot,
@@ -204,12 +201,10 @@ async function matchesBaselineOnWitnessHandle(
         if (!snapshotsMatch(snapshot, pathBefore)) {
             return false;
         }
-        const actualFingerprint = await hashContentFingerprintFileHandle(handle, snapshot.size, signal);
+        const actualFingerprint = await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
         signal?.throwIfAborted();
-        const handleAfter = await handle.stat({bigint: true});
         const pathAfter = await capturePathSnapshot(originalPath);
-        return snapshotsMatch(snapshot, createSnapshot(handleAfter, snapshot.sampleSha256))
-            && snapshotsMatch(snapshot, pathAfter)
+        return snapshotsMatch(snapshot, pathAfter)
             && actualFingerprint === expected.contentFingerprint;
     } catch {
         return false;
@@ -232,54 +227,20 @@ async function matchesExpectedContentFingerprint(
         return false;
     }
 
-    let handle: FileHandle;
     try {
-        handle = await open(originalPath, 'r');
+        const before = await lstat(originalPath, {bigint: true});
+        if (!before.isFile() || before.size !== admittedStat.size || before.dev !== admittedStat.dev || before.ino !== admittedStat.ino) {
+            return false;
+        }
+        const actualFingerprint = await hashContentFingerprintFilePath(originalPath, before.size, signal);
+        const after = await lstat(originalPath, {bigint: true});
+        return after.isFile()
+            && after.size === before.size && after.dev === before.dev && after.ino === before.ino
+            && after.mtimeNs === before.mtimeNs && after.ctimeNs === before.ctimeNs
+            && actualFingerprint === expected.contentFingerprint;
     } catch {
         return false;
     }
-    try {
-        const before = await handle.stat({bigint: true});
-        if (
-            !before.isFile()
-            || before.size !== admittedStat.size
-            || before.dev !== admittedStat.dev
-            || before.ino !== admittedStat.ino
-        ) {
-            return false;
-        }
-        const actualFingerprint = await hashContentFingerprintFileHandle(handle, before.size, signal);
-        const after = await handle.stat({bigint: true});
-        if (
-            after.size !== before.size
-            || after.dev !== before.dev
-            || after.ino !== before.ino
-            || after.mtimeNs !== before.mtimeNs
-            || after.ctimeNs !== before.ctimeNs
-        ) {
-            return false;
-        }
-        return actualFingerprint === expected.contentFingerprint;
-    } catch {
-        return false;
-    } finally {
-        await handle.close().catch(() => undefined);
-    }
-}
-
-async function captureHandleSnapshot(handle: FileHandle): Promise<IOriginalPathSaveSnapshot> {
-    const before = await handle.stat({bigint: true});
-    if (!before.isFile()) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const sampleSha256 = await sampleFileHandle(handle, before.size);
-    const after = await handle.stat({bigint: true});
-    const beforeSnapshot = createSnapshot(before, sampleSha256);
-    const afterSnapshot = createSnapshot(after, sampleSha256);
-    if (!snapshotsMatch(beforeSnapshot, afterSnapshot, {allowBackupMetadataChange: true})) {
-        throw new OriginalPathSaveConflictError();
-    }
-    return afterSnapshot;
 }
 
 function createSnapshot(
@@ -311,25 +272,17 @@ function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOriginalPathSa
 }
 
 async function capturePathSnapshot(originalPath: string) {
-    const namedBefore = await lstat(originalPath, {bigint: true});
-    if (!namedBefore.isFile()) {
+    const before = await lstat(originalPath, {bigint: true});
+    if (!before.isFile()) {
         throw new OriginalPathSaveConflictError();
     }
-    const pathHandle = await open(originalPath, 'r');
-    try {
-        const snapshot = await captureHandleSnapshot(pathHandle);
-        const namedAfter = await lstat(originalPath, {bigint: true});
-        if (
-            !namedAfter.isFile()
-            || !snapshotsMatch(snapshot, createSnapshot(namedBefore, snapshot.sampleSha256), {allowBackupMetadataChange: true})
-            || !snapshotsMatch(snapshot, createSnapshot(namedAfter, snapshot.sampleSha256), {allowBackupMetadataChange: true})
-        ) {
-            throw new OriginalPathSaveConflictError();
-        }
-        return snapshot;
-    } finally {
-        await pathHandle.close().catch(() => undefined);
+    const sampleSha256 = await sampleFilePath(originalPath, before.size);
+    const after = await lstat(originalPath, {bigint: true});
+    const snapshot = createSnapshot(after, sampleSha256);
+    if (!after.isFile() || !snapshotsMatch(createSnapshot(before, sampleSha256), snapshot, {allowBackupMetadataChange: true})) {
+        throw new OriginalPathSaveConflictError();
     }
+    return snapshot;
 }
 
 function rethrowWitnessSnapshotError(error: unknown): never {
@@ -343,29 +296,14 @@ function rethrowWitnessSnapshotError(error: unknown): never {
 }
 
 class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
-    private snapshot: IOriginalPathSaveSnapshot;
-
     constructor(
         private readonly originalPath: string,
-        private handle: FileHandle,
-        snapshot: IOriginalPathSaveSnapshot,
-    ) {
-        this.snapshot = snapshot;
-    }
+        private snapshot: IOriginalPathSaveSnapshot,
+    ) {}
 
     async assertCurrent(options: {allowBackupMetadataChange?: boolean} = {}) {
         try {
-            const [
-                handleSnapshot,
-                pathSnapshot,
-            ] = await Promise.all([
-                captureHandleSnapshot(this.handle),
-                capturePathSnapshot(this.originalPath),
-            ]);
-            if (
-                !snapshotsMatch(this.snapshot, handleSnapshot, options)
-                || !snapshotsMatch(this.snapshot, pathSnapshot, options)
-            ) {
+            if (!snapshotsMatch(this.snapshot, await capturePathSnapshot(this.originalPath), options)) {
                 throw new OriginalPathSaveConflictError();
             }
         } catch (error) {
@@ -375,42 +313,25 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
 
     async rebaseOnUnchangedContent() {
         try {
-            const [
-                handleSnapshot,
-                pathSnapshot,
-            ] = await Promise.all([
-                captureHandleSnapshot(this.handle),
-                capturePathSnapshot(this.originalPath),
-            ]);
-            if (
-                !snapshotsMatch(this.snapshot, handleSnapshot, {allowBackupMetadataChange: true})
-                || !snapshotsMatch(handleSnapshot, pathSnapshot, {allowBackupMetadataChange: true})
-            ) {
+            const snapshot = await capturePathSnapshot(this.originalPath);
+            if (!snapshotsMatch(this.snapshot, snapshot, {allowBackupMetadataChange: true})) {
                 throw new OriginalPathSaveConflictError();
             }
-            this.snapshot = handleSnapshot;
+            this.snapshot = snapshot;
         } catch (error) {
             rethrowWitnessSnapshotError(error);
         }
     }
 
     async rebaseAfterPublish() {
-        let nextHandle: FileHandle | null = null;
         try {
-            nextHandle = await open(this.originalPath, 'r');
-            const nextSnapshot = await captureHandleSnapshot(nextHandle);
-            nextSnapshot.contentFingerprint = await hashContentFingerprintFileHandle(nextHandle, nextSnapshot.size);
-            const pathSnapshot = await capturePathSnapshot(this.originalPath);
-            if (!snapshotsMatch(nextSnapshot, pathSnapshot)) {
+            const snapshot = await capturePathSnapshot(this.originalPath);
+            snapshot.contentFingerprint = await hashContentFingerprintFilePath(this.originalPath, snapshot.size);
+            if (!snapshotsMatch(snapshot, await capturePathSnapshot(this.originalPath))) {
                 throw new OriginalPathSaveConflictError();
             }
-            const previousHandle = this.handle;
-            this.handle = nextHandle;
-            this.snapshot = nextSnapshot;
-            nextHandle = null;
-            await previousHandle.close().catch(() => undefined);
+            this.snapshot = snapshot;
         } catch (error) {
-            await nextHandle?.close().catch(() => undefined);
             rethrowWitnessSnapshotError(error);
         }
     }
@@ -429,10 +350,6 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
             mtimeNs: this.snapshot.mtimeNs.toString(),
             size: Number(this.snapshot.size),
         };
-    }
-
-    async close() {
-        await this.handle.close().catch(() => undefined);
     }
 }
 
@@ -454,17 +371,12 @@ export async function assertPathMatchesSaveWitnessSnapshot(
             throw new OriginalPathSaveConflictError();
         }
         if (expectedSnapshot.contentFingerprint !== undefined) {
-            const handle = await open(originalPath, 'r');
-            try {
-                if (!await matchesBaselineOnWitnessHandle(handle, originalPath, {
-                    mtimeMs: Number(expectedSnapshot.mtimeNs) / 1_000_000,
-                    size: Number(expectedSnapshot.size),
-                    contentFingerprint: expectedSnapshot.contentFingerprint,
-                }, actualSnapshot)) {
-                    throw new OriginalPathSaveConflictError();
-                }
-            } finally {
-                await handle.close().catch(() => undefined);
+            if (!await matchesBaselineOnWitnessPath(originalPath, {
+                mtimeMs: Number(expectedSnapshot.mtimeNs) / 1_000_000,
+                size: Number(expectedSnapshot.size),
+                contentFingerprint: expectedSnapshot.contentFingerprint,
+            }, actualSnapshot)) {
+                throw new OriginalPathSaveConflictError();
             }
         }
     } catch (error) {
@@ -473,18 +385,7 @@ export async function assertPathMatchesSaveWitnessSnapshot(
 }
 
 async function captureRequiredPathSaveWitness(originalPath: string): Promise<IOriginalPathSaveWitness> {
-    const handle = await open(originalPath, 'r');
-    try {
-        const snapshot = await captureHandleSnapshot(handle);
-        const pathSnapshot = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(snapshot, pathSnapshot, {allowBackupMetadataChange: true})) {
-            throw new OriginalPathSaveConflictError();
-        }
-        return new OriginalPathSaveWitness(originalPath, handle, snapshot);
-    } catch (error) {
-        await handle.close().catch(() => undefined);
-        throw error;
-    }
+    return new OriginalPathSaveWitness(originalPath, await capturePathSnapshot(originalPath));
 }
 
 export async function capturePathSaveWitness(
@@ -498,9 +399,9 @@ export async function capturePathSaveWitness(
 }
 
 /**
- * Holds an open's source from before its bytes are read until its working copy
- * is registered against the witnessed revision. Only a real snapshot
- * mismatch is a conflict; an unreadable or vanished source keeps its own error.
+ * Captures an open's source before its bytes are read and checks its named
+ * revision again before registration without retaining a handle. Only a real
+ * snapshot mismatch is a conflict; an unreadable or vanished source keeps its error.
  */
 export function captureOpenSourceWitness(originalPath: string) {
     return captureRequiredPathSaveWitness(originalPath);
@@ -520,28 +421,20 @@ export async function captureOriginalPathSaveWitness(
         return null;
     }
 
-    let handle: FileHandle;
     try {
-        handle = await open(originalPath, 'r');
-    } catch {
-        return null;
-    }
-    try {
-        const snapshot = await captureHandleSnapshot(handle);
-        const handleStat = await handle.stat({bigint: true});
-        const expectationStatMatches = expectationMatchesStat(expected, handleStat);
+        const snapshot = await capturePathSnapshot(originalPath);
+        const originalStat = await lstat(originalPath, {bigint: true});
+        const expectationStatMatches = expectationMatchesStat(expected, originalStat);
         let contentFingerprintVerified = false;
         if (!expectationStatMatches || process.platform === 'win32') {
-            if (handleStat.isFile()) {
-                contentFingerprintVerified = await matchesBaselineOnWitnessHandle(
-                    handle,
+            if (originalStat.isFile()) {
+                contentFingerprintVerified = await matchesBaselineOnWitnessPath(
                     originalPath,
                     expected,
                     snapshot,
                     signal,
                 );
                 if (signal?.aborted) {
-                    await handle.close().catch(() => undefined);
                     return null;
                 }
             }
@@ -551,7 +444,6 @@ export async function captureOriginalPathSaveWitness(
                 && expected.contentFingerprint !== undefined
                 && !contentFingerprintVerified
             ) {
-                await handle.close().catch(() => undefined);
                 return null;
             }
             if (!expectationStatMatches && !contentFingerprintVerified) {
@@ -560,45 +452,40 @@ export async function captureOriginalPathSaveWitness(
                     originalPath,
                     senderWebContentsId,
                     expected,
-                    handleStat,
+                    originalStat,
                 );
                 if (!restored) {
                     log.debug('Original save witness rejected a changed file expectation', {
-                        fields: getExpectationStatMismatches(expected, handleStat),
+                        fields: getExpectationStatMismatches(expected, originalStat),
                         originalPath,
                         expected,
                         actual: {
-                            ctimeNs: handleStat.ctimeNs.toString(),
-                            deviceId: handleStat.dev.toString(),
-                            inode: handleStat.ino.toString(),
-                            linkCount: handleStat.nlink.toString(),
-                            mtimeNs: handleStat.mtimeNs.toString(),
-                            size: handleStat.size.toString(),
+                            ctimeNs: originalStat.ctimeNs.toString(),
+                            deviceId: originalStat.dev.toString(),
+                            inode: originalStat.ino.toString(),
+                            linkCount: originalStat.nlink.toString(),
+                            mtimeNs: originalStat.mtimeNs.toString(),
+                            size: originalStat.size.toString(),
                         },
                         workingPath,
                     });
-                    await handle.close().catch(() => undefined);
                     return null;
                 }
                 expected = restored;
             }
         }
-        if (!contentFingerprintVerified && !await matchesExpectedContentFingerprint(originalPath, expected, handleStat, signal)) {
-            await handle.close().catch(() => undefined);
+        if (!contentFingerprintVerified && !await matchesExpectedContentFingerprint(originalPath, expected, originalStat, signal)) {
             return null;
         }
         if (signal?.aborted) {
-            await handle.close().catch(() => undefined);
             return null;
         }
         const pathSnapshot = await capturePathSnapshot(originalPath);
         if (!snapshotsMatch(snapshot, pathSnapshot)) {
-            await handle.close().catch(() => undefined);
             return null;
         }
-        return new OriginalPathSaveWitness(originalPath, handle, snapshot);
+        return new OriginalPathSaveWitness(originalPath, snapshot);
     } catch {
-        await handle.close().catch(() => undefined);
         return null;
     }
 }

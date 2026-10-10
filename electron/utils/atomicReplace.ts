@@ -447,24 +447,17 @@ export async function atomicReplace(
         const destinationWitness = await capturePathSaveWitness(dst);
         const sourceWitness = await capturePathSaveWitness(srcTemp);
         if (!destinationWitness || !sourceWitness) {
-            await destinationWitness?.close();
-            await sourceWitness?.close();
             throw error;
         }
         const backupPath = `${dst}.bak-${randomSuffix()}`;
-        try {
-            await writeJsonAtomic(atomicReplaceJournalPath(dst), {
-                version: ATOMIC_REPLACE_JOURNAL_VERSION,
-                sourcePath: srcTemp,
-                destinationPath: dst,
-                backupPath,
-                destinationSnapshot: destinationWitness.getSnapshotForJournal(),
-                sourceSnapshot: sourceWitness.getSnapshotForJournal(),
-            } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
-        } finally {
-            await destinationWitness.close();
-            await sourceWitness.close();
-        }
+        await writeJsonAtomic(atomicReplaceJournalPath(dst), {
+            version: ATOMIC_REPLACE_JOURNAL_VERSION,
+            sourcePath: srcTemp,
+            destinationPath: dst,
+            backupPath,
+            destinationSnapshot: destinationWitness.getSnapshotForJournal(),
+            sourceSnapshot: sourceWitness.getSnapshotForJournal(),
+        } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
 
         let hasBackup = false;
         try {

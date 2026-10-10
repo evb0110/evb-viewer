@@ -257,11 +257,7 @@ async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
     if (!witness) {
         throw new OriginalPathSaveConflictError();
     }
-    try {
-        await copyFileAtomic(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
-    } finally {
-        await witness.close();
-    }
+    await copyFileAtomic(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
 }
 
 /**

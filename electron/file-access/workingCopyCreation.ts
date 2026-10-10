@@ -54,7 +54,6 @@ import {
 import {
     captureOpenSourceWitness,
     OriginalPathSaveConflictError,
-    type IOriginalPathSaveWitness,
 } from '@electron/file-access/originalPathSaveWitness';
 import {
     initializeFreshWorkingCopyRevision,
@@ -176,7 +175,6 @@ async function createWorkingCopyWithOutcomeInternal(
     const operationStartedAt = performance.now();
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
-    let sourceWitness: IOriginalPathSaveWitness | null = null;
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
@@ -187,7 +185,7 @@ async function createWorkingCopyWithOutcomeInternal(
         // A rewrite reads the source for as long as qpdf takes. The original's
         // identity is fixed here, checked again before registration, and
         // registered as the save baseline.
-        sourceWitness = isPdf
+        const sourceWitness = isPdf
             ? await measureWorkingCopyPhase(phaseTimings, 'source-witness', () =>
                 captureOpenSourceWitness(originalPath))
             : null;
@@ -291,8 +289,6 @@ async function createWorkingCopyWithOutcomeInternal(
         throw error instanceof OriginalPathSaveConflictError || (isRecord(error) && error.code === 'SOURCE_BACKING_CHANGED')
             ? new DocumentOpenRefusalError('source-changed', 'The original document changed while it was being opened', {cause: error})
             : error;
-    } finally {
-        await sourceWitness?.close();
     }
 }
 

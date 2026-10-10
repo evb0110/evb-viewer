@@ -21,60 +21,47 @@ import {
     vi,
 } from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
+import type * as ReadFileChunk from '@electron/file-access/readFileChunk';
 
 const mocks = vi.hoisted(() => ({
     getWorkingCopyOriginalFileExpectation: vi.fn(),
     mutateDuringWitnessPath: '',
     mutateDuringWitnessReplacementPath: '',
     mutatePostHashStatPath: '',
+    postHashStatCalls: 0,
+    witnessReads: 0,
 }));
 
 vi.mock('node:fs/promises', async importOriginal => {
     const original = await importOriginal<typeof FsPromises>();
     return {
         ...original,
-        open: async (...args: Parameters<typeof original.open>) => {
-            const handle = await original.open(...args);
-            if (String(args[0]) !== mocks.mutatePostHashStatPath
-                && String(args[0]) !== mocks.mutateDuringWitnessPath) {
-                return handle;
+        lstat: async (...args: Parameters<typeof original.lstat>) => {
+            const fileStat = await original.lstat(...args);
+            if (String(args[0]) === mocks.mutatePostHashStatPath && ++mocks.postHashStatCalls === 2) {
+                const bigintStat = fileStat as BigIntStats;
+                return {
+                    ...bigintStat,
+                    ctimeNs: bigintStat.ctimeNs + 1n,
+                    mtimeNs: bigintStat.mtimeNs + 1n,
+                };
             }
-            const originalStat = handle.stat.bind(handle);
-            const originalRead = handle.read.bind(handle);
-            let statCallCount = 0;
-            let readCallCount = 0;
-            handle.stat = (async (...statArgs: Parameters<typeof handle.stat>) => {
-                const fileStat = await originalStat(...statArgs) as BigIntStats;
-                statCallCount += 1;
-                if (statCallCount === 2) {
-                    return {
-                        ...fileStat,
-                        ctimeNs: fileStat.ctimeNs + 1n,
-                        mtimeNs: fileStat.mtimeNs + 1n,
-                    };
-                }
-                return fileStat;
-            }) as typeof handle.stat;
-            if (String(args[0]) === mocks.mutateDuringWitnessPath) {
-                handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
-                    const result = await originalRead(...readArgs);
-                    readCallCount += 1;
-                    if (readCallCount === 2) {
-                        // Windows refuses to rename over a file that is open, so
-                        // the source changes in place there instead.
-                        if (process.platform === 'win32') {
-                            await original.writeFile(mocks.mutateDuringWitnessPath, Buffer.from('base'));
-                        } else {
-                            await original.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
-                            await original.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
-                        }
-                    }
-                    return result;
-                }) as typeof handle.read;
-            }
-            return handle;
+            return fileStat;
         },
     };
+});
+
+vi.mock('@electron/file-access/readFileChunk', async importOriginal => {
+    const original = await importOriginal<typeof ReadFileChunk>();
+    const fs = await import('node:fs/promises');
+    return {readFileChunk: async (...args: Parameters<typeof original.readFileChunk>) => {
+        const bytesRead = await original.readFileChunk(...args);
+        if (args[0] === mocks.mutateDuringWitnessPath && ++mocks.witnessReads === 2) {
+            await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+            await fs.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+        }
+        return bytesRead;
+    }};
 });
 
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
@@ -109,6 +96,8 @@ describe('originalPathSaveBaseMatches', () => {
         mocks.mutateDuringWitnessPath = '';
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
+        mocks.postHashStatCalls = 0;
+        mocks.witnessReads = 0;
         tempDir = await mkdtemp(join(tmpdir(), 'save-base-matches-test-'));
     });
 
@@ -166,7 +155,6 @@ describe('originalPathSaveBaseMatches', () => {
         const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
         expect(witness).not.toBeNull();
         await expect(witness!.assertCurrent()).resolves.toBeUndefined();
-        await witness!.close();
     });
 
     it('rejects an atomic replacement with an interior byte changed', async () => {
@@ -191,7 +179,7 @@ describe('originalPathSaveBaseMatches', () => {
             .resolves.toBeNull();
     });
 
-    it.skipIf(process.platform === 'win32')('rejects an identical replacement when it changes during the save comparison', async () => {
+    it('rejects an identical replacement when it changes during the save comparison', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         const bytes = Buffer.from('base');
         await writeFile(originalPath, bytes);
@@ -338,7 +326,6 @@ describe('originalPathSaveBaseMatches', () => {
 
             const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
             expect(witness).not.toBeNull();
-            await witness!.close();
             await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
         } finally {
             Object.defineProperty(process, 'platform', {
@@ -478,6 +465,8 @@ describe('captureOpenSourceWitness', () => {
         mocks.mutateDuringWitnessPath = '';
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
+        mocks.postHashStatCalls = 0;
+        mocks.witnessReads = 0;
         tempDir = await mkdtemp(join(tmpdir(), 'open-source-witness-test-'));
     });
 

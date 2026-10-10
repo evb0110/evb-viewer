@@ -62,18 +62,12 @@ function preventAutomaticWorkingCopyMaterialization() {
     vi.resetModules();
 }
 
-// Another program swaps in same-size bytes and restores the old mtime. On
-// POSIX it renames a new file over the source, as most editors save; Windows
-// refuses a rename over a file the open still holds, so there it rewrites the
-// source in place. Either way the witness must see a different file.
+// Another program swaps in same-size bytes and restores the old mtime.
+// The witness must still distinguish the replacement from the admitted file.
 function replaceSourceKeepingSizeAndMtime(sourcePath: string, bytes: Buffer, mtime: Date) {
-    if (originalPlatform === 'win32') {
-        writeFileSync(sourcePath, bytes);
-    } else {
-        const replacementPath = `${sourcePath}.replacement`;
-        writeFileSync(replacementPath, bytes);
-        renameSync(replacementPath, sourcePath);
-    }
+    const replacementPath = `${sourcePath}.replacement`;
+    writeFileSync(replacementPath, bytes);
+    renameSync(replacementPath, sourcePath);
     utimesSync(sourcePath, mtime, mtime);
 }
 
@@ -454,9 +448,6 @@ describe('workingCopy', () => {
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
-        const {ensureWorkingCopyMaterialized} = await import(
-            '@electron/file-access/workingCopyMaterialization'
-        );
         const originalPath = join(tempRoot, 'background-default.pdf');
         const originalBytes = Buffer.alloc(64 * 1024, 21);
         writeFileSync(originalPath, originalBytes);
@@ -464,17 +455,11 @@ describe('workingCopy', () => {
         expect(trustedOriginalPath).not.toBeNull();
 
         const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
-        expect([
-            'materializing',
-            'materialized',
-        ]).toContain(getWorkingCopyBackingEntry(workingPath, 7)?.backingState);
-        await ensureWorkingCopyMaterialized(workingPath, {
-            ownerWebContentsId: 7,
-            reason: 'save',
+        await vi.waitFor(() => {
+            expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('materialized');
         });
 
         expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
-        expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('materialized');
     }, 30_000);
 
     it('records a successful forced clone without starting materialization', async () => {
@@ -612,6 +597,66 @@ describe('workingCopy', () => {
             });
         } finally {
             await clearAllWorkingCopies();
+        }
+    });
+
+    it('allows external replacement during a large fingerprint and rejects the changed original', async () => {
+        const originalPath = join(tempRoot, 'externally-replaced-original.pdf');
+        const replacementPath = join(tempRoot, 'external-replacement.pdf');
+        const workingPath = join(tempRoot, 'working.pdf');
+        writeFileSync(originalPath, Buffer.alloc(1));
+        truncateSync(originalPath, 64 * 1024 * 1024 + 1);
+        writeFileSync(replacementPath, Buffer.from('external edit'));
+        writeFileSync(workingPath, Buffer.from('working edit'));
+        let replacementError: unknown;
+        let replaced = false;
+        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', async importOriginal => {
+            const original = await importOriginal<typeof CreateOriginalFileContentFingerprintHash>();
+            const {execFileSync} = await vi.importActual<typeof NodeChildProcess>('node:child_process');
+            return {createOriginalFileContentFingerprintHash: (size: number) => {
+                const hash = original.createOriginalFileContentFingerprintHash(size);
+                const update = hash.update.bind(hash);
+                hash.update = ((...args: Parameters<typeof hash.update>) => {
+                    if (!replaced && Buffer.isBuffer(args[0])) {
+                        replaced = true;
+                        try {
+                            execFileSync(process.execPath, [
+                                '-e',
+                                'require("node:fs").renameSync(process.argv[1], process.argv[2])',
+                                replacementPath,
+                                originalPath,
+                            ], {stdio: 'pipe'});
+                        } catch (error) {
+                            replacementError = error;
+                        }
+                    }
+                    return update(...args);
+                }) as typeof hash.update;
+                return hash;
+            }};
+        });
+        vi.resetModules();
+        const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+        try {
+            const {
+                getWorkingCopyBackingEntry,
+                getWorkingCopyOriginalFileExpectation,
+                setWorkingCopyOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+            await vi.waitFor(() => {
+                expect(replaced).toBe(true);
+                expect(getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController).toBeUndefined();
+            });
+            expect(replacementError).toBeUndefined();
+            expect(readFileSync(originalPath).toString()).toBe('external edit');
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBeUndefined();
+            await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.toBeNull();
+        } finally {
+            await clearAllWorkingCopies();
+            vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
+            vi.resetModules();
         }
     });
 

@@ -165,16 +165,12 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         await input.afterOriginalRestore?.();
                     }
                 } finally {
-                    try {
-                        if (!committed && originalRestored) {
-                            // Recovery finishes a clean rollback now; if the working copy
-                            // cannot be restored, the journal stays for the next attempt.
-                            await (journal
-                                ? recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined)
-                                : rm(originalBackupPath, {force: true}));
-                        }
-                    } finally {
-                        await witness?.close();
+                    if (!committed && originalRestored) {
+                        // Recovery finishes a clean rollback now; if the working copy
+                        // cannot be restored, the journal stays for the next attempt.
+                        await (journal
+                            ? recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined)
+                            : rm(originalBackupPath, {force: true}));
                     }
                 }
             }
