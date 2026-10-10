@@ -30,6 +30,7 @@ import {
     collectAnnotationOwnershipDebugState,
     createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
+    selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -304,9 +305,7 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         await clickAsUser(page, selector, {count: 2});
         await page.waitForSelector(`${selector} [contenteditable="true"]`);
         const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-        await page.keyboard.down(modifier);
-        await page.keyboard.press('KeyA');
-        await page.keyboard.up(modifier);
+        await selectAllFocusedAnnotationText(page);
         await page.keyboard.type('Project 8 edited annotation');
         expect((await readTextLine()).columns).toBeLessThan(1);
         await page.keyboard.down(modifier);
