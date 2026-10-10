@@ -155,11 +155,11 @@ function coverageArea(coverage: Float32Array) {
     return coverage.reduce((total, value) => total + value, 0);
 }
 
-/** Writes one 300 DPI page per gray raster. */
-async function writeScanPdf(path: string, pages: Uint8Array[]) {
+/** Writes one page per gray raster, its pixels placed at `dpi`. */
+async function writeScanPdf(path: string, pages: Uint8Array[], dpi = SCAN_DPI) {
     const doc = await PDFDocument.create();
-    const width = PAGE_WIDTH / SCAN_DPI * 72;
-    const height = PAGE_HEIGHT / SCAN_DPI * 72;
+    const width = PAGE_WIDTH / dpi * 72;
+    const height = PAGE_HEIGHT / dpi * 72;
     for (const data of pages) {
         const image = await doc.embedPng(encode({
             width: PAGE_WIDTH,
@@ -229,32 +229,37 @@ async function createSoftScanPdf(path: string) {
         }
     }
 
+    await writeScanPdf(path, [
+        titlePixels,
+        createContentsPixels(7, 6, GUTTER_WIDTH),
+    ]);
+    return coverageArea(title.coverage);
+}
+
+/** Short lines of soft contents type, beside a gutter shadow `gutter` pixels wide. */
+function createContentsPixels(lines: number, glyphsPerLine: number, gutter: number) {
     const contents = createCoverage();
-    for (let line = 0; line < 7; line += 1) {
+    for (let line = 0; line < lines; line += 1) {
         const top = 820 + line * 76;
-        for (let glyph = 0; glyph < 6; glyph += 1) {
+        for (let glyph = 0; glyph < glyphsPerLine; glyph += 1) {
             const left = 380 + glyph * 60;
             contents.fill(left, top, 5, 38);
             contents.fill(left, top, 32, 5);
             contents.fill(left, top + 33, 32, 5);
         }
     }
-    const contentsScan = blur(contents.coverage, SOFT_SCAN_KERNEL);
-    const contentsPixels = new Uint8Array(contentsScan.length);
+    const scan = blur(contents.coverage, SOFT_SCAN_KERNEL);
+    const pixels = new Uint8Array(scan.length);
     for (let y = 0; y < PAGE_HEIGHT; y += 1) {
         for (let x = 0; x < PAGE_WIDTH; x += 1) {
             const index = y * PAGE_WIDTH + x;
-            const paper = x < GUTTER_WIDTH
-                ? GUTTER_DARKEST + x * (SOFT_PAPER - GUTTER_DARKEST) / GUTTER_WIDTH
+            const paper = x < gutter
+                ? GUTTER_DARKEST + x * (SOFT_PAPER - GUTTER_DARKEST) / gutter
                 : SOFT_PAPER;
-            contentsPixels[index] = Math.round(paper - contentsScan[index]! * (SOFT_PAPER - CONTENTS_INK));
+            pixels[index] = Math.round(paper - scan[index]! * (SOFT_PAPER - CONTENTS_INK));
         }
     }
-    await writeScanPdf(path, [
-        titlePixels,
-        contentsPixels,
-    ]);
-    return coverageArea(title.coverage);
+    return pixels;
 }
 
 /**
@@ -282,6 +287,8 @@ async function readPageImage(path: string, pageIndex: number) {
     return {
         dpi: widest / page.getWidth() * 72,
         bilevel,
+        width: page.getWidth(),
+        height: page.getHeight(),
     };
 }
 
@@ -475,5 +482,26 @@ describe('automatic scan cleanup of a soft book scan', () => {
         expect(inkArea).toBeLessThan(sharpInk * 1.15);
         // Black type beside a gutter shadow is still a black-and-white page.
         expect(contents.bilevel).toBe(true);
+    }, 300_000);
+});
+
+describe('automatic scan cleanup of a scan placed at one pixel per point', () => {
+    it('cleans a sparse page to black and white and keeps its page size', async () => {
+        const directory = createScratchDirectory('evb-e2e-cleanup-placeholder-dpi-');
+        const sourcePath = join(directory, 'placeholder-dpi-scan.pdf');
+        // A 300 dpi page whose PDF declares 72 dpi, which makes it 85 cm tall.
+        await writeScanPdf(sourcePath, [createContentsPixels(2, 3, 0)], 72);
+        const outputPath = await cleanScan(sourcePath, {blackAndWhite: false});
+
+        const page = await readPageImage(outputPath, 0);
+        const glyphs = inkShapeAreas(await renderPageInk(outputPath, directory, 1))
+            .filter(area => area >= MINIMUM_GLYPH_AREA);
+        console.log('scan-cleanup-placeholder-dpi', JSON.stringify(page), glyphs.length);
+        expect(page.bilevel).toBe(true);
+        // The source's page, its pixels still placed at one per point.
+        expect(page.width).toBeCloseTo(PAGE_WIDTH, 3);
+        expect(page.height).toBeCloseTo(PAGE_HEIGHT, 3);
+        expect(page.dpi).toBeCloseTo(72, 3);
+        expect(glyphs).toHaveLength(6);
     }, 300_000);
 });

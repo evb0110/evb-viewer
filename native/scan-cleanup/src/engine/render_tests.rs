@@ -944,6 +944,49 @@ mod tests {
     }
 
     #[test]
+    fn midpoint_rescue_leaves_no_speck_in_the_gap_between_two_letters() {
+        // Two captured stems whose gray halos meet in the gap, with darker
+        // grains of paper there, as between the letters of a 300 dpi book scan.
+        let mut raw = GrayImage::new(100, 80, 230);
+        let mut damaged = BinaryImage::new(100, 80);
+        let mut text_vicinity = BinaryImage::new(100, 80);
+        for y in 20..60 {
+            for x in 40..62 {
+                raw.set(x, y, 190);
+            }
+            for x in (40..46).chain(56..62) {
+                raw.set(x, y, 60);
+                damaged.set(x, y, true);
+                text_vicinity.set(x, y, true);
+            }
+        }
+        raw.set(50, 28, 120);
+        raw.set(50, 44, 120);
+
+        let rescued = rescue_component_scoped_faint_strokes(
+            &damaged,
+            &raw,
+            None,
+            Some(&text_vicinity),
+            None,
+            crate::BinarizationMode::Auto,
+            crate::BinarizationMode::Otsu,
+            300.0,
+            false,
+        );
+
+        assert!(damaged.and(&rescued).count_black() == damaged.count_black());
+        assert_eq!(
+            (48..53)
+                .flat_map(|x| (22..58).map(move |y| (x, y)))
+                .filter(|&(x, y)| rescued.get(x, y))
+                .count(),
+            0,
+            "a grain smaller than a full stop between two letters is not a stroke"
+        );
+    }
+
+    #[test]
     fn soft_underline_below_text_row_is_preserved() {
         let mut raw = GrayImage::new(420, 160, 220);
         let mut binary = BinaryImage::new(420, 160);

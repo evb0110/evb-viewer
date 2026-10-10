@@ -12,6 +12,10 @@ or the shared raster cap), single pages and two-page spreads, and Latin, Hebrew,
 text represented in the reference corpus. Moderate skew, uneven paper tone,
 book-gutter shadow, marginal notes, stamps, sparse front matter, and occasional
 illustrations embedded in otherwise textual pages are supported conditions.
+A scan whose PDF places one pixel per point on a page longer than half a
+metre declares no real resolution; it is measured as a 300 DPI scan (600 DPI
+when even that leaves the page longer than half a metre), and its cleaned
+pages keep the source's page size.
 
 The feature may preserve original PDF content when the lossless path can prove
 that the requested crop, canvas, and placement are source-preserving. Other

@@ -2,6 +2,7 @@
 use crate::cache::{PageCache, StageCacheKey};
 use crate::engine::output_geometry::*;
 use crate::engine::page_statistics::trusted_selection_is_incomplete;
+use crate::engine::render::{quantize_decimal, CleanupWarningEvent};
 use crate::engine::staged_input::{invalid, map_raster_error};
 use crate::ink_consistency::PageInkConsistencyContext;
 use crate::io::{pbm, png, raster};
@@ -293,6 +294,7 @@ pub(crate) fn run_page(
         .map(|input| &input.gray)
         .or(gray_input.as_deref())
         .expect("cleanup input is initialized");
+    let options = options.at_scan_resolution(input_gray.width(), input_gray.height());
     let canonical_analysis_input = page
         .analysis_input_path
         .as_ref()
@@ -326,7 +328,8 @@ pub(crate) fn run_page(
                 color: Some(&canonical.rgb),
                 dpi: page
                     .analysis_dpi
-                    .expect("validated fixed analysis raster has a DPI"),
+                    .expect("validated fixed analysis raster has a DPI")
+                    * options.placement_scale,
             });
     let trusted_foreground = page
     .trusted_foreground_mask_path
@@ -509,6 +512,7 @@ pub(crate) fn run_page(
     }
     for output in &mut result.outputs {
         output.metadata.canvas_scope = canvas_scope;
+        report_in_placement_units(&mut output.metadata, &options);
     }
     if options.ocr_mode
         && (result.outputs.len() != 1
@@ -717,12 +721,12 @@ pub(crate) fn run_page(
                             } else {
                                 (
                                     ((layers.foreground_mask.width() as f64 * background_dpi
-                                        / options.dpi)
-                                        .round() as usize)
+                                        / options.placement_dpi())
+                                    .round() as usize)
                                         .max(1),
                                     ((layers.foreground_mask.height() as f64 * background_dpi
-                                        / options.dpi)
-                                        .round() as usize)
+                                        / options.placement_dpi())
+                                    .round() as usize)
                                         .max(1),
                                 )
                             };
@@ -758,15 +762,15 @@ pub(crate) fn run_page(
                         }
                         if let Some(alpha) = layers.foreground_alpha.as_ref() {
                             let foreground_dpi = layered_foreground_dpi(&options);
-                            let foreground_width =
-                                ((alpha.width() as f64 * foreground_dpi / options.dpi).round()
-                                    as usize)
-                                    .max(1);
-                            let foreground_height =
-                                ((alpha.height() as f64 * foreground_dpi / options.dpi).round()
-                                    as usize)
-                                    .max(1);
-                            let foreground = if foreground_dpi < options.dpi {
+                            let foreground_width = ((alpha.width() as f64 * foreground_dpi
+                                / options.placement_dpi())
+                            .round() as usize)
+                                .max(1);
+                            let foreground_height = ((alpha.height() as f64 * foreground_dpi
+                                / options.placement_dpi())
+                            .round() as usize)
+                                .max(1);
+                            let foreground = if foreground_dpi < options.placement_dpi() {
                                 alpha.downscale_to_dimensions(foreground_width, foreground_height)
                             } else {
                                 alpha.clone()
@@ -799,7 +803,7 @@ pub(crate) fn run_page(
                             // rendered page grid. The original JP2's own
                             // DPI is retained later by the PDF affine
                             // matrix and is not this raster's metadata.
-                            Some(options.dpi)
+                            Some(options.placement_dpi())
                         } else {
                             layers
                                 .foreground_alpha
@@ -1007,6 +1011,7 @@ pub(crate) fn run_classification(
         .map(|decoded| &decoded.gray)
         .or(gray_input.as_deref())
         .expect("classification input is initialized");
+    let options = options.at_scan_resolution(input.width(), input.height());
     let result = analyze_page_with_color_and_document_prior_cached_cancellable(
         input,
         color_input.as_ref().map(|decoded| &decoded.rgb),
@@ -1088,11 +1093,33 @@ pub(crate) fn run_classification(
     })
 }
 
+/// Restates the resolutions an output reports in its placement's units, which
+/// are what place its pixels on the PDF page.
+fn report_in_placement_units(metadata: &mut CleanupMetadata, options: &CleanupOptions) {
+    let scale = options.placement_scale;
+    metadata.source_dpi /= scale;
+    metadata.render_dpi /= scale;
+    metadata.requested_render_dpi /= scale;
+    for event in &mut metadata.warning_events {
+        if let CleanupWarningEvent::RenderDpiLimited {
+            applied_dpi_thousandths,
+            requested_dpi_thousandths,
+        } = event
+        {
+            *applied_dpi_thousandths = quantize_decimal(metadata.render_dpi, 3);
+            *requested_dpi_thousandths = quantize_decimal(metadata.requested_render_dpi, 3);
+        }
+    }
+}
+
+/// The soft foreground's resolution in placement units, capped at a physical
+/// resolution.
 pub(crate) fn layered_foreground_dpi(options: &CleanupOptions) -> f64 {
     options
         .source_dpi()
         .min(options.dpi)
         .min(SOFT_FOREGROUND_MAX_DPI)
+        / options.placement_scale
 }
 
 pub(crate) fn normalize_trusted_foreground_selection(

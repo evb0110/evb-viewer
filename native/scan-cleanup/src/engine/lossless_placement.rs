@@ -381,7 +381,17 @@ pub(crate) fn plan_lossless_page(
         .margins_mm
         .map(crate::MarginsMm::values)
         .unwrap_or([0.0; 4]);
-    let requested = margins_mm.map(|millimeters| (millimeters * grid_dpi / 25.4).round().max(0.0));
+    // Millimetres are the scan's, as on the raster route: a placeholder
+    // placement measures them at the scan's own resolution.
+    let (raster_width, raster_height) = grid_at_dpi(box_width, box_height, options.dpi);
+    let placement_scale = options
+        .at_scan_resolution(raster_width as usize, raster_height as usize)
+        .placement_scale;
+    let requested = margins_mm.map(|millimeters| {
+        (millimeters * grid_dpi * placement_scale / 25.4)
+            .round()
+            .max(0.0)
+    });
     let margins_requested = requested.iter().any(|margin| *margin > 0.0);
     let margins_available = options.crop_content;
     let fitted = {
@@ -811,6 +821,40 @@ mod tests {
         assert_eq!(preview.offset_y_px, 59);
         let free = preview.canvas_width_px - preview.content_width_px;
         assert!(preview.offset_x_px.abs_diff(free / 2) <= 1);
+    }
+
+    #[test]
+    fn measures_margins_on_a_placeholder_page_at_the_scan_resolution() {
+        let mut outputs = [output(
+            PageHalf::Full,
+            Rect::new(200.0, 300.0, 1600.0, 2600.0),
+            (2060, 3235),
+        )];
+        let geometry = PdfPageGeometry {
+            source_dpi: 72.0,
+            ..page(2060.0, 3235.0, 0)
+        };
+        plan_lossless_page(
+            &mut outputs,
+            &geometry,
+            OrthogonalRotation::None,
+            &CleanupOptions {
+                dpi: 72.0,
+                source_dpi: Some(72.0),
+                ..options([5.0; 4], PageAlignment::TopCenter)
+            },
+            Some(DocumentCanvas {
+                width_points: 2060.0,
+                height_points: 3235.0,
+                width_px: 2060,
+                height_px: 3235,
+            }),
+            true,
+        );
+        let preview = outputs[0].pdf_placement.clone().unwrap().preview.unwrap();
+        // A 300 dpi page placed at one pixel per point: 5 mm is 59 of its
+        // pixels, as on the raster route, not the 14 a 72 dpi page has.
+        assert_eq!(preview.offset_y_px, 59);
     }
 
     #[test]

@@ -1844,6 +1844,126 @@ fn matched_canvas_places_a_crop_where_the_callers_ink_anchor_says_it_sat() {
 }
 
 #[test]
+fn a_scan_placed_at_one_pixel_per_point_cleans_as_the_scan_it_is() {
+    // A 300 dpi book page of soft gray text, once placed at its true size and
+    // once at one pixel per point, which makes the same page 58 cm tall.
+    let (width, height) = (1_100, 1_650);
+    let mut image = GrayImage::new(width, height, 226);
+    let mut seed = 7_u32;
+    for line in 0..24 {
+        let top = 220 + line * 52;
+        let mut x = 150 + (line % 3) * 20;
+        while x < 940 {
+            let letters = 2 + (seed >> 7) as usize % 6;
+            for _ in 0..letters {
+                let tall = (seed >> 3) % 4 == 0;
+                for y in top - if tall { 9 } else { 0 }..top + 20 {
+                    for dx in 0..13 {
+                        let stroke = !(3..10).contains(&dx) || !(top + 3..top + 17).contains(&y);
+                        if stroke && (dx < 3 || !tall || y >= top) {
+                            image.set(x + dx, y, 52);
+                        }
+                    }
+                }
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                x += 17;
+            }
+            x += 15;
+        }
+    }
+    for value in image.data_mut() {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        *value = value
+            .saturating_add(((seed >> 16) % 9) as u8)
+            .saturating_sub(4);
+    }
+    let clean = |name: &str, dpi: f64| {
+        let scratch = Scratch::new(name);
+        let input = scratch.path("input.png");
+        fs::write(&input, encode_gray(&image).unwrap()).unwrap();
+        let (output, metadata, pbm) = (
+            scratch.path("output.png"),
+            scratch.path("output.json"),
+            scratch.path("output.pbm"),
+        );
+        let manifest = scratch.path("manifest.json");
+        let points = |pixels: usize| pixels as f64 / dpi * 72.0;
+        let payload = serde_json::json!({
+            "version": 3,
+            "operation": "render",
+            "renderMode": "final",
+            "canvasScope": "document",
+            "documentCanvas": {
+                "widthPoints": points(width),
+                "heightPoints": points(height),
+                "widthPx": width,
+                "heightPx": height
+            },
+            "pages": [{
+                "inputPath": input,
+                "sourcePageIndex": 0,
+                "pageMetadataPath": scratch.path("page.json"),
+                "options": CleanupOptions {
+                    dpi,
+                    source_dpi: Some(dpi),
+                    output_mode: OutputMode::Auto,
+                    margins_mm: Some(MarginsMm {
+                        left_mm: 5.0,
+                        top_mm: 5.0,
+                        right_mm: 5.0,
+                        bottom_mm: 5.0,
+                    }),
+                    ..CleanupOptions::default()
+                },
+                "outputs": [{
+                    "outputPath": output,
+                    "metadataPath": metadata,
+                    "bilevelOutputPath": pbm,
+                }]
+            }]
+        });
+        fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+            .args(["--manifest", manifest.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "stdout={}\nstderr={}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let metadata: Value = serde_json::from_slice(&fs::read(metadata).unwrap()).unwrap();
+        (fs::read(&pbm).ok(), metadata)
+    };
+    let (scan, scan_metadata) = clean("true-resolution", 300.0);
+    let (placed, placed_metadata) = clean("placeholder-resolution", 72.0);
+
+    let scan = scan.expect("the true-resolution text page is black and white");
+    assert!(
+        placed.as_ref() == Some(&scan),
+        "the placeholder page must clean to the same black-and-white page"
+    );
+    for key in [
+        "canvasWidthPx",
+        "canvasHeightPx",
+        "placementOffsetXPx",
+        "placementOffsetYPx",
+    ] {
+        assert_eq!(placed_metadata[key], scan_metadata[key], "{key}");
+    }
+    // Its pixels stay placed at one per point.
+    for (metadata, dpi) in [(&scan_metadata, 300.0), (&placed_metadata, 72.0)] {
+        for key in ["renderDpi", "sourceDpi", "requestedRenderDpi"] {
+            assert!(
+                (metadata[key].as_f64().unwrap() - dpi).abs() < 1e-9,
+                "{key}: {metadata}"
+            );
+        }
+    }
+}
+
+#[test]
 fn failed_bilevel_publication_falls_back_to_the_composite() {
     let scratch = Scratch::new("failed-bilevel");
     let input = scratch.path("failed-bilevel-input.png");
