@@ -247,11 +247,20 @@ pub(crate) fn validate_note_geometry_document_postconditions(
         {
             return Err("Note geometry target is missing from destination page Annots".into());
         }
-        validate_rect_approximately(
-            parse_rect(target_dict.get(b"Rect")?)?,
-            expected_rect,
-            "Note geometry annotation Rect",
-        )?;
+        let actual_rect = parse_rect(target_dict.get(b"Rect")?)?;
+        let actual_rect = if target_subtype == "freetext" && target_dict.has(b"EVBTextGeometry") {
+            crate::text_box_font::stored_editor_geometry(
+                document,
+                target_dict,
+                actual_rect,
+                target_dict.get(b"Rotate")?.as_i64()?,
+                page_rotation,
+            )?
+            .0
+        } else {
+            actual_rect
+        };
+        validate_rect_approximately(actual_rect, expected_rect, "Note geometry annotation Rect")?;
         if target_dict
             .get(b"P")
             .ok()
@@ -522,11 +531,12 @@ pub(crate) fn validate_text_box_document_postconditions(
         }
         let actual_rect = parse_rect(dict.get(b"Rect")?)?;
         validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
-        let source_rect = crate::text_box_font::stored_source_rect(
+        let (source_rect, _) = crate::text_box_font::stored_editor_geometry(
             document,
             dict,
             actual_rect,
             i64::from(editor.rotation),
+            resolve_page_rotation(document, page_id)?,
         )?;
         validate_rect_approximately(
             source_rect,

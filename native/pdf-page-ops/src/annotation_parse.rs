@@ -689,12 +689,9 @@ pub(crate) fn parse_text_box_entry(
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseTextBox, String> {
     let rect = read_annotation_rect(document, dict)?;
-    if dict.has(b"EVBTextGeometry") {
-        // Private source coordinates may cross the page edge, but the visible
-        // rectangle must still pass the page's ordinary bounds admission.
-        pdf_rect_to_marker_rect(rect, page_view, page_rotation)
-            .map_err(|error| error.to_string())?;
-    }
+    // Admit the visible rectangle once before recovering private layout
+    // coordinates, which may cross the page edge for rotated text.
+    pdf_rect_to_marker_rect(rect, page_view, page_rotation).map_err(|error| error.to_string())?;
     if dict.get(b"Contents").is_err() && dict.get(b"RC").is_ok() {
         return Err("FreeText has rich text without plain text contents".to_string());
     }
@@ -707,14 +704,11 @@ pub(crate) fn parse_text_box_entry(
             "Imported FreeText rotation is not supported by the canonical text editor".to_string(),
         );
     }
-    let rect = crate::text_box_font::stored_source_rect(document, dict, rect, rotation)
+    let (rect, rotation) =
+        crate::text_box_font::stored_editor_geometry(document, dict, rect, rotation, page_rotation)
+            .map_err(|error| error.to_string())?;
+    let rect = pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)
         .map_err(|error| error.to_string())?;
-    let rect = if dict.has(b"EVBTextGeometry") {
-        pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)
-    } else {
-        pdf_rect_to_marker_rect(rect, page_view, page_rotation)
-    }
-    .map_err(|error| error.to_string())?;
     Ok(PdfAnnotationParseTextBox {
         page_index,
         object_number: u64::from(object_id.0),

@@ -610,17 +610,18 @@ pub(crate) fn geometry(source: PdfRect, rotation: i64, page_rotation: i64) -> Re
     })
 }
 
-pub(crate) fn stored_source_rect(
+pub(crate) fn stored_editor_geometry(
     document: &impl PdfObjectSource,
     dictionary: &Dictionary,
     visible_rect: PdfRect,
     rotation: i64,
-) -> Result<PdfRect> {
+    page_rotation: i64,
+) -> Result<(PdfRect, i64)> {
     let Ok(metadata) = dictionary.get(b"EVBTextGeometry") else {
         if rotation != 0 {
             return Err("Imported rotated FreeText has no recoverable canonical geometry".into());
         }
-        return Ok(visible_rect);
+        return Ok((visible_rect, rotation));
     };
     let metadata = document.resolved(metadata)?.as_dict()?;
     if metadata.get(b"Version")?.as_i64()? != 1 || metadata.get(b"Rotation")?.as_i64()? != rotation
@@ -630,10 +631,10 @@ pub(crate) fn stored_source_rect(
     // A page operation changes /Rotate without rewriting the annotation's
     // PDF-space /Rect. The private source rectangle was written in the page
     // frame recorded here, so validate the visible rectangle against that
-    // frame. The caller then projects the source into the current page frame.
+    // frame, then recover the layout rectangle and angle in the current frame.
     // If an external viewer moved the annotation, this comparison still
     // fails closed instead of letting stale private metadata win.
-    let metadata_page_rotation = metadata.get(b"PageRotation")?.as_i64()?;
+    let metadata_page_rotation = metadata.get(b"PageRotation")?.as_i64()?.rem_euclid(360);
     let source = parse_rect(document.resolved(metadata.get(b"Rect")?)?)?;
     let expected = geometry(source, rotation, metadata_page_rotation)?.bounds;
     if [
@@ -647,12 +648,200 @@ pub(crate) fn stored_source_rect(
     {
         return Err("Text box geometry metadata does not match the visible rectangle".into());
     }
-    Ok(source)
+    // The source rectangle describes unrotated text layout in its authored
+    // page frame. Keep those layout dimensions when the page's axes swap;
+    // rotating only its bounding rectangle would rewrap upright text.
+    let source = if metadata_page_rotation % 180 != page_rotation % 180 {
+        let center_x = (source.x1 + source.x2) / 2.0;
+        let center_y = (source.y1 + source.y2) / 2.0;
+        PdfRect {
+            x1: center_x - source.height() / 2.0,
+            y1: center_y - source.width() / 2.0,
+            x2: center_x + source.height() / 2.0,
+            y2: center_y + source.width() / 2.0,
+        }
+    } else {
+        source
+    };
+    Ok((
+        source,
+        (rotation + page_rotation - metadata_page_rotation).rem_euclid(360),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_box_layout_and_angle_follow_changes_to_page_rotation() {
+        for authored_page_rotation in [0, 90, 180, 270] {
+            for authored_rotation in [0, 90, 180, 270] {
+                for page_rotation in [0, 90, 180, 270] {
+                    let mut document = Document::with_version("1.7");
+                    let pages_id = document.new_object_id();
+                    let page_id = document.add_object(dictionary! {
+                        "Type" => "Page", "Parent" => pages_id,
+                    });
+                    document.set_object(pages_id, dictionary! {
+                        "Type" => "Pages", "Kids" => vec![Object::Reference(page_id)], "Count" => 1,
+                    });
+                    let catalog_id =
+                        document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+                    document.trailer.set("Root", catalog_id);
+                    let page = document.get_dictionary_mut(page_id).unwrap();
+                    page.set(
+                        "MediaBox",
+                        rect_object(PdfRect {
+                            x1: 0.0,
+                            y1: 0.0,
+                            x2: 620.0,
+                            y2: 840.0,
+                        }),
+                    );
+                    page.set(
+                        "CropBox",
+                        rect_object(PdfRect {
+                            x1: 10.0,
+                            y1: 20.0,
+                            x2: 610.0,
+                            y2: 820.0,
+                        }),
+                    );
+                    page.set("Rotate", authored_page_rotation);
+                    let (width, height) = if authored_page_rotation % 180 == 0 {
+                        (360.0, 36.0)
+                    } else {
+                        (36.0, 360.0)
+                    };
+                    let source = PdfRect {
+                        x1: 340.0 - width / 2.0,
+                        y1: 440.0 - height / 2.0,
+                        x2: 340.0 + width / 2.0,
+                        y2: 440.0 + height / 2.0,
+                    };
+                    let mut editor = TextBoxMutation {
+                        page_index: 0,
+                        stable_key: "page-rotated-text".to_string(),
+                        annotation_id: None,
+                        text: "Project 8 recovered annotation".to_string(),
+                        rect: [source.x1, source.y1, source.x2, source.y2],
+                        rotation: authored_rotation,
+                        font_size: 22.0,
+                        color: [17, 24, 39],
+                        author: None,
+                        created_at: None,
+                        modified_at: None,
+                    };
+                    let mut visits = 0;
+                    upsert_text_boxes_with_counter(
+                        &mut document,
+                        std::slice::from_ref(&editor),
+                        "D:20261010000000Z",
+                        &mut visits,
+                        &mut None,
+                    )
+                    .unwrap();
+                    document
+                        .get_dictionary_mut(page_id)
+                        .unwrap()
+                        .set("Rotate", page_rotation);
+                    let entries =
+                        collect_parsed_annotations(&document, "D:20261010000000Z").unwrap();
+                    let PdfAnnotationParseEntry::TextBox(parsed) = &entries[0] else {
+                        panic!("expected text box, got {:?}", entries[0]);
+                    };
+                    let (page_width, page_height, center_x, center_y) = match page_rotation {
+                        0 => (600.0, 800.0, 0.55, 0.475),
+                        90 => (800.0, 600.0, 0.525, 0.55),
+                        180 => (600.0, 800.0, 0.45, 0.525),
+                        _ => (800.0, 600.0, 0.475, 0.45),
+                    };
+                    assert_eq!(
+                        parsed.rotation,
+                        (i64::from(authored_rotation) + page_rotation - authored_page_rotation)
+                            .rem_euclid(360)
+                    );
+                    for (actual, expected) in [
+                        (parsed.rect.left, center_x - 180.0 / page_width),
+                        (parsed.rect.top, center_y - 18.0 / page_height),
+                        (parsed.rect.width, 360.0 / page_width),
+                        (parsed.rect.height, 36.0 / page_height),
+                    ] {
+                        assert!((actual - expected).abs() < 1e-9);
+                    }
+                    let rewritten_source = marker_rect_to_pdf_rect(
+                        parsed.rect,
+                        resolve_page_view(&document, page_id).unwrap(),
+                        page_rotation,
+                    )
+                    .unwrap();
+                    let original = crate::text_box_font::geometry(
+                        source,
+                        i64::from(authored_rotation),
+                        authored_page_rotation,
+                    )
+                    .unwrap();
+                    let rewritten = crate::text_box_font::geometry(
+                        rewritten_source,
+                        parsed.rotation,
+                        page_rotation,
+                    )
+                    .unwrap();
+                    assert!((rewritten.width - original.width).abs() < 1e-9);
+                    assert!((rewritten.height - original.height).abs() < 1e-9);
+                    for (actual, expected) in rewritten.matrix.iter().zip(original.matrix) {
+                        assert!((actual - expected).abs() < 1e-9);
+                    }
+                    editor.rect = [
+                        rewritten_source.x1,
+                        rewritten_source.y1,
+                        rewritten_source.x2,
+                        rewritten_source.y2,
+                    ];
+                    editor.rotation = u16::try_from(parsed.rotation).unwrap();
+                    editor.text.push_str(" edited");
+                    let mutations = NativeMutationsFile {
+                        geometry_updates: vec![NoteGeometryUpdate {
+                            object_number: u32::try_from(parsed.object_number).unwrap(),
+                            generation_number: u16::try_from(parsed.generation_number).unwrap(),
+                            page_index: 0,
+                            marker_rect: parsed.rect,
+                            color: None,
+                            open: None,
+                        }],
+                        text_boxes: vec![editor],
+                        ..NativeMutationsFile::default()
+                    };
+                    update_note_geometry(
+                        &mut document,
+                        &mutations.geometry_updates,
+                        "D:20261010000100Z",
+                    )
+                    .unwrap();
+                    upsert_text_boxes_with_counter(
+                        &mut document,
+                        &mutations.text_boxes,
+                        "D:20261010000100Z",
+                        &mut visits,
+                        &mut None,
+                    )
+                    .unwrap();
+                    validate_appended_revision_postconditions(
+                        &document,
+                        &mutations,
+                        "D:20261010000100Z",
+                    )
+                    .unwrap();
+                    let edited =
+                        collect_parsed_annotations(&document, "D:20261010000100Z").unwrap();
+                    assert!(
+                        matches!(&edited[0], PdfAnnotationParseEntry::TextBox(value) if value.rect == parsed.rect && value.rotation == parsed.rotation && value.text.ends_with(" edited"))
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn portable_font_preserves_shaping_and_embedding_contract() {

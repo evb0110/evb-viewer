@@ -21,11 +21,17 @@ import type {Page} from 'puppeteer-core';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
 import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAnnotationTool,
     collectAnnotationOwnershipDebugState,
+    createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
     callWorkspaceCommand,
     waitForAutomationEvent,
@@ -33,6 +39,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     triggerOpenPathInApp,
+    openDocumentSidebarTab,
     openPdfInApp,
     saveViaVisibleToolbar,
     waitForPdfLoaded,
@@ -235,6 +242,81 @@ async function saveDecryptedOutput(page: Page, path: string) {
 }
 
 describe('Electron E2E - VPS interoperability acceptance', () => {
+    it('keeps text on one rotated line through page rotation, save, and editing', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixturePath = await createMultiPageTextFixturePdf(`rotated-text-box-${Date.now()}.pdf`, 2);
+        await openPdfInApp(page, fixturePath);
+        await waitForViewerInteractive(page);
+        const id = await createCanonicalTextBoxWithPointer(page, 'Project 8 recovered annotation', {
+            x: 0.4,
+            y: 0.3,
+        });
+        const selector = `.editor-pane.is-active .pdf-annotation-editor-text-box[data-annotation-id="${id}"]`;
+        async function readTextLine() {
+            return page.$eval(selector, entity => {
+                const content = entity.querySelector('[contenteditable="true"]') ?? entity;
+                const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+                const letters: DOMRect[] = [];
+                while (walker.nextNode()) {
+                    const node = walker.currentNode;
+                    for (let index = 0; index < (node.textContent?.length ?? 0); index += 1) {
+                        if (/\s|\u200b|\ufeff/u.test(node.textContent![index]!)) continue;
+                        const range = document.createRange();
+                        range.setStart(node, index);
+                        range.setEnd(node, index + 1);
+                        letters.push(range.getBoundingClientRect());
+                    }
+                }
+                return {
+                    text: content.textContent?.trim(),
+                    columns: Math.max(...letters.map(letter => letter.x)) - Math.min(...letters.map(letter => letter.x)),
+                    rows: Math.max(...letters.map(letter => letter.y)) - Math.min(...letters.map(letter => letter.y)),
+                };
+            });
+        }
+        async function rotatePage(direction: 'clockwise' | 'counterclockwise') {
+            const previous = await page.$eval(selector, entity => (entity as HTMLElement).style.cssText);
+            await openDocumentSidebarTab(page, 'Pages');
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+            await clickFoundAsUser(page, target => Array.from(document.querySelectorAll('[role="menuitem"]'))
+                .find(item => item.textContent?.trim().toLowerCase() === `rotate ${target}`), direction, {description: `Rotate page ${direction}`});
+            await page.waitForFunction((target: string, before: string) => {
+                const entity = document.querySelector<HTMLElement>(target);
+                return entity && entity.style.cssText !== before;
+            }, {timeout: SAVE_TIMEOUT_MS}, selector, previous);
+            await waitForViewerInteractive(page);
+        }
+        const original = await readTextLine();
+        expect(original.rows).toBeLessThan(1);
+        await rotatePage('clockwise');
+        const rotated = await readTextLine();
+        expect(rotated.columns).toBeLessThan(1);
+        expect(rotated.rows).toBeGreaterThan(100);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixturePath);
+        const reopenPath = copyFreshFixture(fixturePath, 'rotated-text-reopen');
+        await openPdfInApp(page, reopenPath);
+        await waitForViewerInteractive(page);
+        expect((await readTextLine()).columns).toBeLessThan(1);
+        await rotatePage('counterclockwise');
+        expect((await readTextLine()).rows).toBeLessThan(1);
+        await rotatePage('clockwise');
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector} [contenteditable="true"]`);
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        await page.keyboard.press('KeyA');
+        await page.keyboard.up(modifier);
+        await page.keyboard.type('Project 8 edited annotation');
+        expect((await readTextLine()).columns).toBeLessThan(1);
+        await page.keyboard.down(modifier);
+        await page.keyboard.press('Enter');
+        await page.keyboard.up(modifier);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, reopenPath);
+        expect(await readTextLine()).toMatchObject({text: 'Project 8 edited annotation'});
+        expect((await readTextLine()).columns).toBeLessThan(1);
+    }, ACCEPTANCE_TIMEOUT_MS);
+
     it('imports, edits, saves, independently renders, and reopens the committed corpus twice', async () => {
         const session = sessionFixture.getSession();
         const fixturePath = copyFreshFixture(SYNTHETIC_FIXTURE, 'corpus');
