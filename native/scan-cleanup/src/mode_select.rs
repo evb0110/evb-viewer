@@ -1,6 +1,6 @@
 use crate::coherent_edges::has_coherent_edge_structure;
 use crate::protocol::manifest_v3::ContentBlockEvidence;
-use crate::{calibration::PageCalibration, io::png::RgbImage, OutputMode};
+use crate::{calibration::PageCalibration, faint_core, io::png::RgbImage, OutputMode};
 use scan_primitives::{threshold::otsu_threshold, BinaryImage, Component, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
 
@@ -210,7 +210,7 @@ struct ChromaEvidence {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct LuminanceEvidence {
+pub(crate) struct LuminanceEvidence {
     otsu_threshold: u8,
     dark_mean: f64,
     light_mean: f64,
@@ -635,7 +635,10 @@ pub(crate) fn qualifies_independent_outside_tone(
 }
 
 /// Partition shallow components by the existing continuity proof, on one census.
-fn faint_stroke_masks(image: &GrayImage, luminance: LuminanceEvidence) -> [Option<BinaryImage>; 2] {
+pub(crate) fn faint_stroke_masks(
+    image: &GrayImage,
+    luminance: LuminanceEvidence,
+) -> [Option<BinaryImage>; 2] {
     let paper = grayscale_percentile(image, 0.7);
     let maximum_depth = luminance.mode_distance * 0.5;
     let marks = BinaryImage::from_fn_parallel(image.width(), image.height(), |x, y| {
@@ -682,10 +685,7 @@ fn faint_stroke_masks(image: &GrayImage, luminance: LuminanceEvidence) -> [Optio
                 curved.saturating_mul(2) >= width.saturating_add(height)
             }
     });
-    let rejected = map
-        .retain(|component| shallow[component.label as usize - 1])
-        .subtract(&preserved);
-    [preserved, rejected].map(|mask| (mask.count_black() > 0).then_some(mask))
+    faint_core::split(&map, &shallow, preserved)
 }
 
 /// Auto's mode and preserved/rejected shallow masks share a census and tonal hysteresis.
@@ -1621,7 +1621,7 @@ fn is_leaf_edge_strip(component: &Component, width: usize, height: usize) -> boo
     along_side || along_top_or_bottom
 }
 
-fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
+pub(crate) fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
     luminance_evidence_region(image, (0, 0, image.width(), image.height()))
 }
 
@@ -1791,7 +1791,7 @@ fn luminance_histogram_percentile(histogram: &[u64; 256], total: u64, percentile
     255.0
 }
 
-fn grayscale_percentile(image: &GrayImage, percentile: f64) -> u8 {
+pub(crate) fn grayscale_percentile(image: &GrayImage, percentile: f64) -> u8 {
     let mut histogram = [0usize; 256];
     for y in 0..image.height() {
         for &value in image.row(y) {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::auto_dewarp::AutoDewarpResult;
 use crate::content::ContentResult;
-use crate::DewarpOptions;
+use crate::{faint_core, DewarpOptions};
 use source_gray::render_source_gray;
 
 pub(crate) struct DetailPageInput<'a> {
@@ -467,6 +467,7 @@ pub(crate) fn render_page(
     } else {
         canonical_regions.iter().map(|_| None).collect::<Vec<_>>()
     };
+    let analysis_gray = analysis_normalized.as_deref().unwrap_or(&normalized);
     let spread_plans = if split.classification == LayoutClassification::TwoPageSpread
         && regions.len() == 2
         && matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
@@ -475,14 +476,13 @@ pub(crate) fn render_page(
         // now on the fixed canonical plane. Leaf routes remain raw-canonical;
         // full canonical leaves own intensity anchors, while established
         // working-leaf units remain authoritative for radius/faint-ink drift.
-        let canonical_normalized = analysis_normalized.as_deref().unwrap_or(&normalized);
         let joint_routing_input = crop_canonical_routing_input(
-            canonical_normalized,
+            analysis_gray,
             Rect::new(
                 0.0,
                 0.0,
-                canonical_normalized.width() as f64,
-                canonical_normalized.height() as f64,
+                analysis_gray.width() as f64,
+                analysis_gray.height() as f64,
             ),
             picture_mask.as_deref(),
             canonical_routing_dpi,
@@ -505,9 +505,9 @@ pub(crate) fn render_page(
         None
     };
     let mut outputs = Vec::with_capacity(regions.len());
-    let [preserved, rejected] = faint_stroke_masks.each_ref().map(|mask| {
-        mask.as_ref()
-            .map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
+    let cores = faint_core::printed_core(faint_stroke_masks[0].as_deref(), analysis_gray);
+    let [preserved, rejected] = [cores.as_ref(), faint_stroke_masks[1].as_deref()].map(|mask| {
+        mask.map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
             .transpose()
     });
     let encoded_faint_strokes = [preserved?, rejected?];
@@ -3424,7 +3424,7 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         render_policy,
         timings,
     } = input;
-    let source_faint_strokes = faint_stroke_masks[0];
+    let faint = faint_core::printed_core(faint_stroke_masks[0], analysis_normalized);
     render_policy.check_canceled()?;
     let working_width = region.width.round().max(1.0) as usize;
     let working_height = region.height.round().max(1.0) as usize;
@@ -3592,7 +3592,7 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
     render_policy.check_canceled()?;
     let output = process_region_output(OutputProcessingInput {
         content_present: content.content.is_some(),
-        faint_strokes: source_faint_strokes.map(|mask| {
+        faint_strokes: faint.as_ref().map(|mask| {
             render_auxiliary_mask(
                 mask,
                 normalized,
