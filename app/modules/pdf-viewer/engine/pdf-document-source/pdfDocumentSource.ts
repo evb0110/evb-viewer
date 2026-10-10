@@ -199,6 +199,15 @@ async function waitForPdfPageRequest(
     }
 }
 
+// PDF.js never settles work on a destroyed document, so work holding one of
+// its pages must be told when the cache gives that document up.
+const pageDocumentTeardownSignals = new WeakMap<IPdfPage, AbortSignal>();
+
+/** Aborts when the page cache gives up the document this page came from. */
+export function readPdfPageDocumentTeardownSignal(page: IPdfPage) {
+    return pageDocumentTeardownSignals.get(page);
+}
+
 export function createStalePdfDocumentError(message: string) {
     const error = new Error(message);
     error.name = 'RenderingCancelledException';
@@ -215,6 +224,7 @@ export function createStalePdfDocumentError(message: string) {
 export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheOptions) {
     const entriesByPageNumber = new Map<number, IPdfCachedPageEntry>();
     const entriesByProxy = new WeakMap<IPdfPage, IPdfCachedPageEntry>();
+    let documentTeardown = new AbortController();
 
     function touch(pageNumber: number, entry: IPdfCachedPageEntry) {
         entriesByPageNumber.delete(pageNumber);
@@ -302,6 +312,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         entry.pageNumber = pageNumber;
         entry.pendingEviction = false;
         entriesByProxy.set(page, entry);
+        pageDocumentTeardownSignals.set(page, documentTeardown.signal);
         touch(pageNumber, entry);
         enforceLimit();
         return entry;
@@ -448,6 +459,8 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
     }
 
     function cleanupAll() {
+        documentTeardown.abort();
+        documentTeardown = new AbortController();
         logPdfRenderTrace('pdf-document-page-cache-cleanup-all', {
             pageCount: entriesByPageNumber.size,
             pages: Array.from(entriesByPageNumber.keys()).slice(0, 40),
