@@ -1,5 +1,27 @@
 import { getErrorMessage } from '@app/utils/error';
 import {
+    BOX_LAYOUT,
+    BYTES_HEADER,
+    DOCUMENT_LIST_HEADER,
+    GEOMETRY_HEADER,
+    MAX_DOCUMENTS,
+    MAX_U32,
+    MUTATION_HEADER,
+    NATIVE_MUTATION_HEADER,
+    NATIVE_MUTATION_POSTCONDITIONS_VERIFIED,
+    OPERATION_CODES,
+    REQUEST_HEADER,
+    REQUEST_MAGIC,
+    REQUEST_VERSION,
+    REQUEST_VERSION_DOCUMENT_LIST,
+    RESPONSE_ANNOTATION_PARSE,
+    RESPONSE_GEOMETRY,
+    RESPONSE_JSON,
+    RESPONSE_MUTATION,
+    RESPONSE_NATIVE_MUTATIONS,
+    U32_BYTES,
+} from '@contracts/browserPageOpsWasm.generated';
+import {
     BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
     type IBrowserPageOpsWorkerRequestMap,
     type IBrowserPageOpsWorkerResultMap,
@@ -72,40 +94,7 @@ type TBrowserPageOpsWasmRequest = {
     };
 }[TBrowserPageOpsWasmRequestType];
 
-const REQUEST_MAGIC = 'EPPO';
-// Version 2 appends a trailing u32 password length (and password bytes) after
-// the insertion-data length. No existing operation carries a password; the
-// decrypt operation (OP_DECRYPT = 9 on the Rust side) is wired by the browser
-// decrypt host.
-const REQUEST_VERSION = 2;
-const REQUEST_VERSION_DOCUMENT_LIST = 3;
 const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
-const REQUEST_HEADER_BYTES = 4 + (8 * 4) + (4 * 8) + 4;
-const DOCUMENT_LIST_HEADER_BYTES = 4 + (3 * 4);
-
-const OP_DELETE_PAGES = 1;
-const OP_EXTRACT_PAGES = 2;
-const OP_REORDER_PAGES = 3;
-const OP_INSERT_PAGES = 4;
-const OP_ROTATE = 5;
-const OP_CROP = 6;
-const OP_REMOVE_CROP = 7;
-const OP_GET_PAGE_GEOMETRY = 8;
-const OP_DECRYPT = 9;
-const OP_PARSE_ANNOTATIONS = 10;
-const OP_SAVE_MUTATIONS = 11;
-const OP_READ_CATALOG = 12;
-const OP_CONFORMANCE = 13;
-const OP_MERGE_PAGES = 14;
-const OP_PRINT_LAYOUT = 15;
-
-const RESPONSE_MUTATION = 1;
-const RESPONSE_GEOMETRY = 2;
-const RESPONSE_ANNOTATION_PARSE = 3;
-const RESPONSE_SAVE_MUTATIONS = 4;
-const RESPONSE_JSON = 5;
-const MAX_U32 = 0xffff_ffff;
-const MAX_DOCUMENTS = 500;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
 
@@ -199,7 +188,6 @@ async function loadPdfPageOpsWasm() {
 
 function writeMagic(request: Uint8Array, offset: number) {
     request.set(new TextEncoder().encode(REQUEST_MAGIC), offset);
-    return offset + REQUEST_MAGIC.length;
 }
 
 function toWasmU32(value: number) {
@@ -220,47 +208,7 @@ function toWasmF64(value: number) {
 
 function writeU32(view: DataView, offset: number, value: number) {
     view.setUint32(offset, value, true);
-    return offset + 4;
-}
-
-function writeF64(view: DataView, offset: number, value: number) {
-    view.setFloat64(offset, value, true);
-    return offset + 8;
-}
-
-function getOperationCode(type: TBrowserPageOpsWasmRequestType) {
-    switch (type) {
-        case 'deletePages':
-            return OP_DELETE_PAGES;
-        case 'extractPages':
-            return OP_EXTRACT_PAGES;
-        case 'reorderPages':
-            return OP_REORDER_PAGES;
-        case 'insertPages':
-            return OP_INSERT_PAGES;
-        case 'rotate':
-            return OP_ROTATE;
-        case 'crop':
-            return OP_CROP;
-        case 'removeCrop':
-            return OP_REMOVE_CROP;
-        case 'getPageGeometry':
-            return OP_GET_PAGE_GEOMETRY;
-        case 'decrypt':
-            return OP_DECRYPT;
-        case 'parseAnnotations':
-            return OP_PARSE_ANNOTATIONS;
-        case 'saveMutations':
-            return OP_SAVE_MUTATIONS;
-        case 'readCatalog':
-            return OP_READ_CATALOG;
-        case 'conformance':
-            return OP_CONFORMANCE;
-        case 'mergePages':
-            return OP_MERGE_PAGES;
-        case 'printLayout':
-            return OP_PRINT_LAYOUT;
-    }
+    return offset + U32_BYTES;
 }
 
 function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
@@ -393,16 +341,16 @@ function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
     }
     const encodedLengths = documents.map(document => toWasmU32(document.byteLength));
     const payloadLength = encodedLengths.reduce(
-        (total, length) => total + 4 + length,
-        DOCUMENT_LIST_HEADER_BYTES,
+        (total, length) => total + U32_BYTES + length,
+        DOCUMENT_LIST_HEADER.bytes,
     );
     const output: Uint8Array<ArrayBuffer> = new Uint8Array(payloadLength);
     const view = new DataView(output.buffer);
-    let offset = 0;
-    offset = writeMagic(output, offset);
-    offset = writeU32(view, offset, REQUEST_VERSION_DOCUMENT_LIST);
-    offset = writeU32(view, offset, getOperationCode(request.type));
-    offset = writeU32(view, offset, documents.length);
+    writeMagic(output, DOCUMENT_LIST_HEADER.magic);
+    writeU32(view, DOCUMENT_LIST_HEADER.version, REQUEST_VERSION_DOCUMENT_LIST);
+    writeU32(view, DOCUMENT_LIST_HEADER.operation, OPERATION_CODES[request.type]);
+    writeU32(view, DOCUMENT_LIST_HEADER.documentCount, documents.length);
+    let offset: number = DOCUMENT_LIST_HEADER.bytes;
     for (const [
         index,
         document,
@@ -438,30 +386,29 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const insertionDataLength = toWasmU32(insertionData.byteLength);
     const passwordLength = toWasmU32(password.byteLength);
     const output: Uint8Array<ArrayBuffer> = new Uint8Array(
-        REQUEST_HEADER_BYTES
-        + (pages.length * 4)
+        REQUEST_HEADER.bytes
+        + (pages.length * U32_BYTES)
         + dataLength
         + insertionDataLength
         + passwordLength,
     );
     const view = new DataView(output.buffer);
     const margins = getMargins(request);
-    let offset = 0;
-
-    offset = writeMagic(output, offset);
-    offset = writeU32(view, offset, REQUEST_VERSION);
-    offset = writeU32(view, offset, getOperationCode(request.type));
-    offset = writeU32(view, offset, pages.length);
-    offset = writeU32(view, offset, pageNumber);
-    offset = writeU32(view, offset, afterPage);
-    offset = writeU32(view, offset, angle);
-    offset = writeF64(view, offset, toWasmF64(margins.top));
-    offset = writeF64(view, offset, toWasmF64(margins.bottom));
-    offset = writeF64(view, offset, toWasmF64(margins.left));
-    offset = writeF64(view, offset, toWasmF64(margins.right));
-    offset = writeU32(view, offset, dataLength);
-    offset = writeU32(view, offset, insertionDataLength);
-    offset = writeU32(view, offset, passwordLength);
+    writeMagic(output, REQUEST_HEADER.magic);
+    writeU32(view, REQUEST_HEADER.version, REQUEST_VERSION);
+    writeU32(view, REQUEST_HEADER.operation, OPERATION_CODES[request.type]);
+    writeU32(view, REQUEST_HEADER.pageCount, pages.length);
+    writeU32(view, REQUEST_HEADER.pageNumber, pageNumber);
+    writeU32(view, REQUEST_HEADER.afterPage, afterPage);
+    writeU32(view, REQUEST_HEADER.angle, angle);
+    view.setFloat64(REQUEST_HEADER.top, toWasmF64(margins.top), true);
+    view.setFloat64(REQUEST_HEADER.bottom, toWasmF64(margins.bottom), true);
+    view.setFloat64(REQUEST_HEADER.left, toWasmF64(margins.left), true);
+    view.setFloat64(REQUEST_HEADER.right, toWasmF64(margins.right), true);
+    writeU32(view, REQUEST_HEADER.dataLength, dataLength);
+    writeU32(view, REQUEST_HEADER.insertionDataLength, insertionDataLength);
+    writeU32(view, REQUEST_HEADER.passwordLength, passwordLength);
+    let offset: number = REQUEST_HEADER.bytes;
 
     for (const page of pages) {
         offset = writeU32(view, offset, page);
@@ -523,11 +470,9 @@ function readWasmFailure(
 
 function readMutationResult(output: Uint8Array) {
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    let offset = 4;
-    const pageCount = view.getUint32(offset, true);
-    offset += 4;
-    const dataLength = view.getUint32(offset, true);
-    offset += 4;
+    const pageCount = view.getUint32(MUTATION_HEADER.pageCount, true);
+    const dataLength = view.getUint32(MUTATION_HEADER.dataLength, true);
+    const offset = MUTATION_HEADER.bytes;
     if (offset + dataLength !== output.byteLength) {
         return null;
     }
@@ -540,49 +485,41 @@ function readMutationResult(output: Uint8Array) {
 
 function readBox(view: DataView, offset: number) {
     return {
-        box: {
-            x: view.getFloat64(offset, true),
-            y: view.getFloat64(offset + 8, true),
-            width: view.getFloat64(offset + 16, true),
-            height: view.getFloat64(offset + 24, true),
-        },
-        offset: offset + 32,
+        x: view.getFloat64(offset + BOX_LAYOUT.x, true),
+        y: view.getFloat64(offset + BOX_LAYOUT.y, true),
+        width: view.getFloat64(offset + BOX_LAYOUT.width, true),
+        height: view.getFloat64(offset + BOX_LAYOUT.height, true),
     };
 }
 
 function readGeometryResult(output: Uint8Array) {
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    let offset = 4;
-    const rotation = view.getUint32(offset, true);
-    offset += 4;
-    const media = readBox(view, offset);
-    offset = media.offset;
-    const hasCropBox = view.getUint32(offset, true) === 1;
-    offset += 4;
-    const crop = readBox(view, offset);
-    offset = crop.offset;
-    if (offset !== output.byteLength) {
+    const rotation = view.getUint32(GEOMETRY_HEADER.rotation, true);
+    const mediaBox = readBox(view, GEOMETRY_HEADER.mediaBox);
+    const hasCropBox = view.getUint32(GEOMETRY_HEADER.hasCropBox, true) === 1;
+    const cropBox = readBox(view, GEOMETRY_HEADER.cropBox);
+    if (GEOMETRY_HEADER.bytes !== output.byteLength) {
         return null;
     }
 
     return {
-        mediaBox: media.box,
-        cropBox: hasCropBox ? crop.box : null,
+        mediaBox,
+        cropBox: hasCropBox ? cropBox : null,
         rotation,
     };
 }
 
 function readJsonResult(output: Uint8Array) {
-    if (output.byteLength < 8) {
+    if (output.byteLength < BYTES_HEADER.bytes) {
         return null;
     }
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    const dataLength = view.getUint32(4, true);
-    if (dataLength !== output.byteLength - 8) {
+    const dataLength = view.getUint32(BYTES_HEADER.dataLength, true);
+    if (dataLength !== output.byteLength - BYTES_HEADER.bytes) {
         return null;
     }
     try {
-        return JSON.parse(new TextDecoder().decode(output.slice(8))) as unknown;
+        return JSON.parse(new TextDecoder().decode(output.slice(BYTES_HEADER.bytes))) as unknown;
     } catch {
         return null;
     }
@@ -592,12 +529,12 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
     output: Uint8Array,
 ): IBrowserPageOpsWasmResultMap[K] | null {
-    if (output.byteLength < 4) {
+    if (output.byteLength < U32_BYTES) {
         return null;
     }
 
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
-    const kind = view.getUint32(0, true);
+    const kind = view.getUint32(MUTATION_HEADER.kind, true);
     if (type === 'getPageGeometry') {
         const parsed = kind === RESPONSE_GEOMETRY
             ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.getPageGeometry, readGeometryResult(output), {abortEarly: true})
@@ -606,37 +543,37 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     }
 
     if (type === 'parseAnnotations') {
-        if (kind !== RESPONSE_ANNOTATION_PARSE || output.byteLength < 8) {
+        if (kind !== RESPONSE_ANNOTATION_PARSE || output.byteLength < BYTES_HEADER.bytes) {
             return null;
         }
-        const dataLength = view.getUint32(4, true);
-        if (dataLength !== output.byteLength - 8) {
+        const dataLength = view.getUint32(BYTES_HEADER.dataLength, true);
+        if (dataLength !== output.byteLength - BYTES_HEADER.bytes) {
             return null;
         }
         const parsed = v.safeParse(
             BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.parseAnnotations,
-            {data: toTransferableUint8Array(output.slice(8))},
+            {data: toTransferableUint8Array(output.slice(BYTES_HEADER.bytes))},
             {abortEarly: true},
         );
         return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
     if (type === 'saveMutations') {
-        if (kind !== RESPONSE_SAVE_MUTATIONS || output.byteLength < 20) {
+        if (kind !== RESPONSE_NATIVE_MUTATIONS || output.byteLength < NATIVE_MUTATION_HEADER.bytes) {
             return null;
         }
-        const dataLength = view.getUint32(8, true);
-        const identityBindingsLength = view.getUint32(12, true);
+        const dataLength = view.getUint32(NATIVE_MUTATION_HEADER.dataLength, true);
+        const identityBindingsLength = view.getUint32(NATIVE_MUTATION_HEADER.identityBindingsLength, true);
         if (
-            view.getUint32(16, true) !== 1
-            || dataLength + identityBindingsLength + 20 !== output.byteLength
+            view.getUint32(NATIVE_MUTATION_HEADER.postconditionsVerified, true) !== NATIVE_MUTATION_POSTCONDITIONS_VERIFIED
+            || dataLength + identityBindingsLength + NATIVE_MUTATION_HEADER.bytes !== output.byteLength
         ) {
             return null;
         }
         let identityBindings: unknown;
         try {
             identityBindings = JSON.parse(new TextDecoder().decode(
-                output.slice(20 + dataLength),
+                output.slice(NATIVE_MUTATION_HEADER.bytes + dataLength),
             )) as unknown;
         } catch {
             return null;
@@ -646,8 +583,8 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
             return null;
         }
         const parsed = v.safeParse(BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA, {
-            data: toTransferableUint8Array(output.slice(20, 20 + dataLength)),
-            pageCount: view.getUint32(4, true),
+            data: toTransferableUint8Array(output.slice(NATIVE_MUTATION_HEADER.bytes, NATIVE_MUTATION_HEADER.bytes + dataLength)),
+            pageCount: view.getUint32(NATIVE_MUTATION_HEADER.pageCount, true),
             identityBindings: parsedBindings.output,
             nativeMutationPostconditionsVerified: true,
         }, {abortEarly: true});

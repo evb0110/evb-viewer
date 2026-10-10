@@ -35,55 +35,15 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             pages_file,
             with_evb_ocr_text,
         } => {
-            let mut input = std::io::stdin().lock();
-            let requests: Box<dyn Iterator<Item = Result<Vec<u32>>> + '_> = match pages_file {
-                Some(path) => Box::new(std::iter::once(Ok(read_pages_file(path).map_err(
-                    |error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest),
-                )?))),
-                None => {
-                    Box::new(std::iter::from_fn(|| {
-                        use std::io::BufRead;
-                        let mut bytes = Vec::new();
-                        match (&mut input).take(4097).read_until(b'\n', &mut bytes) {
-                        Ok(0) => None,
-                        Ok(_) => Some((|| {
-                            if bytes.len() > 4096 || bytes.last() != Some(&b'\n') {
-                                return Err(domain_error(NativeErrorCode::TooLarge, "Visibility request exceeds 4096 bytes or is unterminated"));
-                            }
-                            let pages: Vec<u32> = serde_json::from_slice(&bytes)?;
-                            if pages.is_empty() || pages.len() > 256 || pages.contains(&0) {
-                                return Err("Visibility request must select 1 to 256 positive pages".into());
-                            }
-                            Ok(pages)
-                        })().map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))),
-                        Err(error) => Some(Err(error.into())),
-                    }
-                    }))
-                }
-            };
-            let mut output = std::io::stdout().lock();
-            inspect_ocr_text_visibility(
+            let pages = read_pages_file(pages_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_ocr_text_visibility(
                 &config.input_path,
-                requests,
+                &pages,
                 *with_evb_ocr_text,
                 config.qpdf_path.as_deref(),
-                |report| {
-                    let bytes = serde_json::to_vec(report)?;
-                    if pages_file.is_none() && bytes.len() > MAX_AGGREGATE_TEXT_BYTES {
-                        return Err(domain_error(
-                            NativeErrorCode::TooLarge,
-                            "Visibility report exceeds its byte ceiling",
-                        ));
-                    }
-                    output.write_all(&bytes)?;
-                    if pages_file.is_none() {
-                        output.write_all(b"\n")?;
-                    }
-                    output.flush()?;
-                    Ok(())
-                },
-            )?;
-            return Ok(());
+                &mut std::io::stdout().lock(),
+            );
         }
         _ => {}
     }
@@ -228,13 +188,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             _ => None,
         };
         let append_in_place = match &config.operation {
-            Operation::UpdateNoteText {
-                append_in_place, ..
-            }
-            | Operation::SaveNoteChanges {
-                append_in_place, ..
-            }
-            | Operation::SaveMutations {
+            Operation::SaveMutations {
                 append_in_place, ..
             } => *append_in_place,
             _ => false,
@@ -290,43 +244,12 @@ pub(crate) fn classify_pdf_load_error(error: Box<dyn Error>, context: &str) -> B
     }
 }
 
-/// The three append commands differ only in the payload schema they accept, so
-/// they are normalized to one mutation set and share a single append path.
+/// `save-mutations` is the only note-writing command, so the append path reads
+/// the same payload that the non-append path reads.
 pub(crate) fn read_append_mutations(
     operation: &Operation,
 ) -> Result<Option<(NativeMutationsFile, &str)>> {
     let mutations = match operation {
-        Operation::UpdateNoteText {
-            updates_file,
-            modified_at,
-            append: true,
-            ..
-        } => (
-            NativeMutationsFile {
-                updates: read_note_text_updates(updates_file)?,
-                ..NativeMutationsFile::default()
-            },
-            modified_at.as_str(),
-        ),
-        Operation::SaveNoteChanges {
-            changes_file,
-            modified_at,
-            append: true,
-            ..
-        } => {
-            let changes = read_note_changes(changes_file)?;
-            (
-                NativeMutationsFile {
-                    updates: changes.updates,
-                    geometry_updates: changes.geometry_updates,
-                    notes: changes.notes,
-                    free_text_notes: changes.free_text_notes,
-                    deletes: changes.deletes,
-                    ..NativeMutationsFile::default()
-                },
-                modified_at.as_str(),
-            )
-        }
         Operation::SaveMutations {
             mutations_file,
             modified_at,
@@ -342,37 +265,6 @@ pub(crate) fn read_non_append_mutations(
     operation: &Operation,
 ) -> Result<Option<(NativeMutationsFile, &str)>> {
     let mutations = match operation {
-        Operation::UpdateNoteText {
-            updates_file,
-            modified_at,
-            append: false,
-            ..
-        } => (
-            NativeMutationsFile {
-                updates: read_note_text_updates(updates_file)?,
-                ..NativeMutationsFile::default()
-            },
-            modified_at.as_str(),
-        ),
-        Operation::SaveNoteChanges {
-            changes_file,
-            modified_at,
-            append: false,
-            ..
-        } => {
-            let changes = read_note_changes(changes_file)?;
-            (
-                NativeMutationsFile {
-                    updates: changes.updates,
-                    geometry_updates: changes.geometry_updates,
-                    notes: changes.notes,
-                    free_text_notes: changes.free_text_notes,
-                    deletes: changes.deletes,
-                    ..NativeMutationsFile::default()
-                },
-                modified_at.as_str(),
-            )
-        }
         Operation::SaveMutations {
             mutations_file,
             modified_at,

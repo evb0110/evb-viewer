@@ -47,6 +47,7 @@ import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolic
 import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
 import {
     AVAILABLE_OCR_LANGUAGES,
+    getOcrModelSourcePath,
     isAvailableOcrLanguageCode,
     OCR_LANGUAGE_MODEL_SHA256,
     OCR_MODEL_CODES,
@@ -57,7 +58,9 @@ import {
 const log = createLogger('ocr-languageModels');
 export const TESSDATA_BEST_REF = 'e12c65a915945e4c28e237a9b52bc4a8f39a0cec';
 const DOWNLOAD_BASE_URL = `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}`;
-const DOWNLOAD_TIMEOUT_MS = 90_000;
+// A download attempt fails after this long without receiving headers or body
+// bytes, however long a steady download takes in total.
+const DOWNLOAD_STALL_TIMEOUT_MS = 90_000;
 const DOWNLOAD_RETRIES = 3;
 const RETRY_DELAY_MS = 1_500;
 const PRECHECK_TIMEOUT_MS = 4_000;
@@ -228,6 +231,9 @@ function createTimedAbortSignal(
 
     return {
         signal: controller.signal,
+        restart: () => {
+            timeoutHandle.refresh();
+        },
         cleanup: () => {
             clearTimeout(timeoutHandle);
             if (signal) {
@@ -324,7 +330,7 @@ function createHttpDownloadError(languageCode: string, statusCode: number) {
     );
 }
 
-function classifyDownloadError(languageCode: string, error: unknown, timeoutMs = DOWNLOAD_TIMEOUT_MS) {
+function classifyDownloadError(languageCode: string, error: unknown, timeoutMs = DOWNLOAD_STALL_TIMEOUT_MS) {
     if (error instanceof LanguageModelDownloadError) {
         return error;
     }
@@ -738,24 +744,19 @@ async function precheckLanguageDownload(
 async function writeDownloadResponseBody(
     response: Response,
     tempPath: string,
-    signal?: AbortSignal,
+    stallTimeout: ReturnType<typeof createTimedAbortSignal>,
 ) {
-    if (response.body && typeof Readable.fromWeb === 'function') {
-        const readable = Readable.fromWeb(response.body as NodeReadableStream);
-        const writable = createWriteStream(tempPath, { flags: 'wx' });
-        await pipeline(readable, writable, { signal });
-        return;
-    }
-
-    // Fallback for environments where Readable.fromWeb is unavailable.
-    if (signal?.aborted) {
-        throw signal.reason ?? createAbortError();
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    if (signal?.aborted) {
-        throw signal.reason ?? createAbortError();
-    }
-    await writeFile(tempPath, Buffer.from(arrayBuffer), { signal });
+    await pipeline(
+        Readable.fromWeb(response.body as NodeReadableStream),
+        async function* (chunks: AsyncIterable<Uint8Array>) {
+            for await (const chunk of chunks) {
+                stallTimeout.restart();
+                yield chunk;
+            }
+        },
+        createWriteStream(tempPath, { flags: 'wx' }),
+        { signal: stallTimeout.signal },
+    );
 }
 
 async function downloadLanguageModelAttempt(
@@ -768,12 +769,12 @@ async function downloadLanguageModelAttempt(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    const timedSignal = createTimedAbortSignal(DOWNLOAD_TIMEOUT_MS, signal);
+    const stallTimeout = createTimedAbortSignal(DOWNLOAD_STALL_TIMEOUT_MS, signal);
     try {
         log.info(`Downloading OCR model ${languageCode} (attempt ${attempt}/${DOWNLOAD_RETRIES})`);
         const response = await fetch(languageUrl, {
             method: 'GET',
-            signal: timedSignal.signal,
+            signal: stallTimeout.signal,
         });
         throwIfAborted(signal);
 
@@ -781,8 +782,11 @@ async function downloadLanguageModelAttempt(
             throw createHttpDownloadError(languageCode, response.status);
         }
 
+        stallTimeout.restart();
         await mkdir(runtimeDir, { recursive: true });
-        await writeDownloadResponseBody(response, tempPath, timedSignal.signal);
+        await writeDownloadResponseBody(response, tempPath, stallTimeout);
+        // Verification reads the local file; only the caller can cancel it.
+        stallTimeout.cleanup();
         throwIfAborted(signal);
 
         const validation = validateTraineddataFile(tempPath);
@@ -799,7 +803,7 @@ async function downloadLanguageModelAttempt(
             );
         }
         const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode];
-        const actualSha256 = await hashFileSha256(tempPath, timedSignal.signal);
+        const actualSha256 = await hashFileSha256(tempPath, signal);
         if (actualSha256 !== expectedSha256) {
             throw new LanguageModelDownloadError(
                 `OCR language model "${languageCode}" failed SHA-256 verification.`,
@@ -828,10 +832,10 @@ async function downloadLanguageModelAttempt(
         }
         throw classifyDownloadError(
             languageCode,
-            timedSignal.signal.aborted ? timedSignal.signal.reason : err,
+            stallTimeout.signal.aborted ? stallTimeout.signal.reason : err,
         );
     } finally {
-        timedSignal.cleanup();
+        stallTimeout.cleanup();
         await rm(tempPath, { force: true }).catch(() => {});
     }
 }
@@ -870,7 +874,8 @@ async function downloadLanguageModel(
         return;
     }
 
-    const languageUrl = `${DOWNLOAD_BASE_URL}/${encodeURIComponent(languageCode)}.traineddata`;
+    const sourcePath = getOcrModelSourcePath(languageCode).split('/').map(encodeURIComponent).join('/');
+    const languageUrl = `${DOWNLOAD_BASE_URL}/${sourcePath}.traineddata`;
     const tempPath = `${modelPath}.download-${randomUUID()}`;
     await precheckLanguageDownload(languageCode, languageUrl, options);
 

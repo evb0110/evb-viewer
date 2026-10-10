@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
         2,
         3,
     ]));
-    const mkdtemp = vi.fn(async () => '/tmp/pdf-combine-normalized');
+    const mkdtemp = vi.fn(async () => '/tmp/pdfExport-scope-normalized');
     const rm = vi.fn(async () => undefined);
     const writeFile = vi.fn(async () => undefined);
     const stat = vi.fn(async () => ({
@@ -92,10 +92,27 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({tryCreatePdfWithNativeImageCombiner: mocks.nativeCombine}));
 
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => '/tmp'}));
+
 vi.mock('fs/promises', () => ({
+    mkdir: async () => undefined,
+    lstat: async () => ({
+        isDirectory: () => true,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+    }),
     mkdtemp: mocks.mkdtemp,
     open: mocks.open,
-    readFile: mocks.readFile,
+    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-managed-scratch.json')
+        ? Promise.resolve(JSON.stringify({
+            createdAt: 0,
+            pid: process.pid,
+            prefix: 'pdfExport-scope-',
+        }))
+        : Reflect.apply(mocks.readFile, undefined, [
+            path,
+            ...args,
+        ]),
     rm: mocks.rm,
     stat: mocks.stat,
     writeFile: mocks.writeFile,
@@ -255,18 +272,18 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.nativeImageCreateFromPath).toHaveBeenCalledWith(sourcePath);
         expect(mocks.nativeImageToPng).toHaveBeenCalledTimes(1);
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/pdf-combine-normalized/input-1.png',
+            '/tmp/pdfExport-scope-normalized/input-1.png',
             new Uint8Array([
                 8,
                 8,
             ]),
         );
         expect(mocks.nativeCombine).toHaveBeenCalledWith(
-            ['/tmp/pdf-combine-normalized/input-1.png'],
+            ['/tmp/pdfExport-scope-normalized/input-1.png'],
             expect.any(Object),
         );
         expect(mocks.embedPng).not.toHaveBeenCalled();
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
             recursive: true,
             force: true,
         });
@@ -283,10 +300,10 @@ describe('createCombinedPdf native image fast path', () => {
         await expect(createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`})).rejects.toBe(terminationError);
 
         expect(mocks.nativeCombine).toHaveBeenCalledWith(
-            ['/tmp/pdf-combine-normalized/input-1.png'],
+            ['/tmp/pdfExport-scope-normalized/input-1.png'],
             expect.any(Object),
         );
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
             recursive: true,
             force: true,
         });
@@ -302,18 +319,16 @@ describe('createCombinedPdf native image fast path', () => {
 
         const pending = createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`});
         await expect(pending).rejects.toThrow('native image tree is still running');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
             recursive: true,
             force: true,
         });
 
         termination.resolve(true);
-        await Promise.resolve();
-        await Promise.resolve();
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+        await vi.waitFor(() => expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-normalized', {
             recursive: true,
             force: true,
-        });
+        }));
     });
 
     it.each([

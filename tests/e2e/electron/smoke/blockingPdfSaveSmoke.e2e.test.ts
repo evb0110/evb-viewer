@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
+    existsSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -16,6 +17,7 @@ import {
     join,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
+import { PDFDocument } from 'pdf-lib';
 import type { Page } from 'puppeteer-core';
 import {
     createLargeScannedFixturePdf,
@@ -37,7 +39,10 @@ import {
     createFreeTextAnnotationWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     callWorkspaceCommand,
@@ -174,6 +179,145 @@ async function holdViewerLayoutOff(page: Page, holdMs: number) {
         document.head.appendChild(style);
         setTimeout(() => style.remove(), duration);
     }, holdMs);
+}
+
+interface ICombinedOpenHandoff {
+    workingPath: string;
+    bytes: Buffer;
+}
+
+// Pauses the renderer where the Combine page hands its combined PDF to a tab.
+// A requested failure replaces that file's bytes, so the real open refuses it;
+// restoring puts the combined bytes back into the file the failed open kept.
+async function interceptCombinedOpenHandoffs(page: Page) {
+    const client = await page.createCDPSession();
+    const scriptIds: string[] = [];
+    client.on('Debugger.scriptParsed', (event) => {
+        if (event.url.includes('/_nuxt/')) {
+            scriptIds.push(event.scriptId);
+        }
+    });
+    await client.send('Debugger.enable');
+    let handoffCall: {
+        scriptId: string;
+        source: string;
+        match: RegExpExecArray;
+    } | null = null;
+    for (const scriptId of scriptIds) {
+        const {scriptSource} = await client.send('Debugger.getScriptSource', {scriptId});
+        const match = scriptSource.includes('ERR_COMBINE_RESULT_OPEN_FAILED')
+            ? /[\w$]+\.openResult\(([\w$]+)\)/u.exec(scriptSource)
+            : null;
+        if (match) {
+            handoffCall = {
+                scriptId,
+                source: scriptSource,
+                match,
+            };
+            break;
+        }
+    }
+    if (!handoffCall) {
+        throw new Error('The Combine page module is not loaded');
+    }
+    const before = handoffCall.source.slice(0, handoffCall.match.index);
+    const lineNumber = before.split('\n').length - 1;
+    const columnNumber = before.length - before.lastIndexOf('\n') - 1;
+    const {locations} = await client.send('Debugger.getPossibleBreakpoints', {
+        start: {
+            scriptId: handoffCall.scriptId,
+            lineNumber,
+            columnNumber,
+        },
+        end: {
+            scriptId: handoffCall.scriptId,
+            lineNumber,
+            columnNumber: columnNumber + handoffCall.match[0].length,
+        },
+    });
+    if (!locations[0]) {
+        throw new Error('No breakpoint location at the Combine open handoff');
+    }
+    await client.send('Debugger.setBreakpoint', {location: locations[0]});
+    const resultExpression = `${handoffCall.match[1]}.workingPath`;
+    const handoffs: ICombinedOpenHandoff[] = [];
+    let failuresRequested = 0;
+    let corrupted: ICombinedOpenHandoff | null = null;
+    let pauseError: Error | null = null;
+    async function onPaused(callFrameId: string) {
+        try {
+            const evaluated = await client.send('Debugger.evaluateOnCallFrame', {
+                callFrameId,
+                expression: resultExpression,
+                returnByValue: true,
+            });
+            const workingPath = String(evaluated.result.value);
+            const handoff = {
+                workingPath,
+                bytes: readFileSync(workingPath),
+            };
+            handoffs.push(handoff);
+            if (failuresRequested > 0) {
+                failuresRequested -= 1;
+                writeFileSync(workingPath, 'not a PDF, so this open fails');
+                corrupted = handoff;
+            }
+        } catch (error) {
+            pauseError = error instanceof Error ? error : new Error(String(error));
+        } finally {
+            await client.send('Debugger.resume').catch(() => undefined);
+        }
+    }
+    client.on('Debugger.paused', (event) => {
+        void onPaused(event.callFrames[0]!.callFrameId);
+    });
+    return {
+        handoffs,
+        failNextOpen() {
+            failuresRequested += 1;
+        },
+        restoreFailedOpen() {
+            if (pauseError) {
+                throw pauseError;
+            }
+            const failed: ICombinedOpenHandoff | null = corrupted;
+            if (!failed) {
+                throw new Error('No combined open was made to fail');
+            }
+            expect(existsSync(failed.workingPath), 'the failed open keeps the combined file').toBe(true);
+            writeFileSync(failed.workingPath, failed.bytes);
+            corrupted = null;
+            return failed;
+        },
+        async dispose() {
+            await client.send('Debugger.disable').catch(() => undefined);
+            await client.detach().catch(() => undefined);
+        },
+    };
+}
+
+async function waitForCombineRetry(page: Page) {
+    await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLButtonElement>('footer.combine-actions button'))
+        .some(button => button.textContent?.trim() === 'Retry' && !button.disabled), {timeout: 60_000});
+}
+
+function findCombinePageButton(label: string) {
+    return Array.from(document.querySelectorAll<HTMLButtonElement>('[data-combine-page] button'))
+        .find(button => button.textContent?.trim() === label && button.getBoundingClientRect().width > 0);
+}
+
+async function waitForSaveAsOutcome(page: Page, savedPath: string) {
+    const deadline = Date.now() + SAVE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (existsSync(savedPath)) {
+            return 'saved';
+        }
+        if ((await page.evaluate(() => document.body.innerText)).includes('Failed to save file')) {
+            return 'Failed to save file';
+        }
+        await delay(150);
+    }
+    return 'no outcome';
 }
 
 async function expectOpenedFirstPage(page: Page, label: string) {
@@ -357,6 +501,61 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             hasPdf: true,
             totalPages: 2,
         });
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('saves a combined PDF whose open failed, and Retry opens the kept file', async () => {
+        const savedPath = join(process.cwd(), '.devkit', `blocking-combine-save-as-${process.pid}-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(savedPath, {force: true}));
+        session = await startElectronE2ESession(`e2e-blocking-combine-save-as-${Date.now()}`, {
+            clean: true,
+            extraEnv: {
+                EVB_E2E_SAVE_DIALOG_PATH: savedPath,
+                EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+            },
+        });
+        const {page} = session;
+
+        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
+        );
+        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        const handoffs = await interceptCombinedOpenHandoffs(page);
+        onTestFinished(() => handoffs.dispose());
+        const fileInput = await page.$('input[type="file"]');
+        expect(fileInput).not.toBeNull();
+        await fileInput!.uploadFile(
+            join(process.cwd(), 'tests/fixtures/electron/document-ops-cleanup-two.pdf'),
+            join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'),
+        );
+        await page.waitForFunction(() => document.querySelectorAll('[data-combine-row]').length === 2, {timeout: 30_000});
+
+        // The open fails; Save As keeps the combined file elsewhere.
+        handoffs.failNextOpen();
+        await clickAsUser(page, 'footer.combine-actions button');
+        await waitForCombineRetry(page);
+        const failed = handoffs.restoreFailedOpen();
+        await clickFoundAsUser(page, findCombinePageButton, 'Save As...', {description: 'Combine Save As'});
+        expect(await waitForSaveAsOutcome(page, savedPath)).toBe('saved');
+        const saved = readFileSync(savedPath);
+        expect((await PDFDocument.load(saved)).getPageCount()).toBe(3);
+        expect(saved.equals(failed.bytes), 'Save As wrote the combined bytes').toBe(true);
+        await page.waitForFunction(() => !Array.from(document.querySelectorAll('[data-combine-page] button'))
+            .some(button => button.textContent?.trim() === 'Save As...'), {timeout: 10_000});
+
+        // The open fails again; Retry opens the same kept file.
+        handoffs.failNextOpen();
+        await clickAsUser(page, 'footer.combine-actions button');
+        await waitForCombineRetry(page);
+        const retained = handoffs.restoreFailedOpen();
+        await clickFoundAsUser(page, findCombinePageButton, 'Retry', {description: 'Combine Retry'});
+        await waitForPdfLoaded(page, 60_000);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 20_000}).toBe('3');
+        const retried = handoffs.handoffs.at(-1);
+        expect(retried?.workingPath).toBe(retained.workingPath);
+        expect(retried?.bytes.equals(retained.bytes)).toBe(true);
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('keeps a 700-file combine queue virtualized before native work starts', async () => {

@@ -34,7 +34,7 @@ const addZone = (target, from, except = []) => boundaryZones.push({
 });
 
 for (const [source, target] of [
-    ['electron', 'app'], ['landing', 'app'], ['landing', 'electron'], ['electron', 'landing'],
+    ['electron', 'app'], ['app', 'electron'], ['landing', 'app'], ['landing', 'electron'], ['electron', 'landing'],
     ['app', 'landing'], ['packages', 'app'], ['packages', 'electron'], ['packages', 'landing'],
     ['app/services', 'app/composables'], ['scripts', 'electron'], ['scripts', 'app'],
     ['app', 'scripts'], ['electron', 'scripts'], ['packages', 'scripts'], ['server', 'electron'],
@@ -89,7 +89,36 @@ for (const ownerRoot of ['app/platform/browser-api', 'app/modules/document-viewe
     }
 }
 for (const owner of readdirSync('app/modules', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
-    addZone('app/pages', `app/modules/${owner}`, moduleEntrypoints);
+    addZone(['app/pages', 'app/components', 'app/composables'], `app/modules/${owner}`, moduleEntrypoints);
+}
+// Only this composition root assembles private feature main bindings.
+const featureMainBindingEntrypoints = {
+    documents: ['documentsMainBindings.ts'],
+    djvu: ['mainBindings.ts'],
+    ocr: ['mainBindings.ts'],
+    'scan-cleanup': ['scanCleanupMainBindings.ts'],
+    settings: ['createSettingsMainBindings.ts'],
+    shell: ['shellMainBindings.ts'],
+};
+for (const owner of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
+    const featureRoot = `electron/features/${owner}`;
+    const entrypoints = [...moduleEntrypoints, 'contract.ts'];
+    addZone([
+        'electron/bootstrap',
+        'electron/platform-ipc/!(featureRegistrationDescriptors.ts)',
+        'electron/platform-ipc/*/**/*',
+        'electron/preload/!(createElectronApi.ts)',
+        'electron/preload/*/**/*',
+    ], featureRoot, entrypoints);
+    addZone('electron/platform-ipc/featureRegistrationDescriptors.ts', featureRoot, [
+        ...entrypoints,
+        ...(featureMainBindingEntrypoints[owner] ?? []),
+    ]);
+    addZone('electron/preload/createElectronApi.ts', featureRoot, [
+        ...entrypoints,
+        // Keep preload stream setup out of the documents main-process barrel.
+        ...(owner === 'documents' ? ['createDocumentsPreloadStreams.ts'] : []),
+    ]);
 }
 for (const [target, from] of [
     ['app/modules/pdf-viewer/runtime/annotations', 'app/modules/pdf-viewer/tools'],
@@ -166,6 +195,7 @@ const projectConfig = withNuxt(
         'nuxt.config.ts',
         'landing/nuxt.config.ts',
         'eslint.shared.mjs',
+        'packages/contracts/browserPageOpsWasm.generated.ts',
         'packages/contracts/scan-cleanup/nativeWire.generated.ts',
     ]},
     {
@@ -255,6 +285,13 @@ const projectConfig = withNuxt(
             'custom/component-directory-source': 'error',
             'custom/top-level-pdf-composable': 'error',
             ...stylisticRules,
+        },
+    },
+    {
+        files: ['app/**/*.{ts,vue}', 'electron/**/*.ts'],
+        settings: {
+            // Both sides of the app/Electron boundary need the canonical aliases.
+            'import/resolver': {typescript: {project: './tsconfig.base.json'}},
         },
     },
     {

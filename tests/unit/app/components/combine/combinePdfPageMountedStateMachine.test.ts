@@ -17,7 +17,7 @@ import {
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireDocumentRef} from '@contracts/documentRef';
-import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
+import { CombinePdfPage } from '@app/modules/combine/public';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
     isCombineCancellationSupported: vi.fn(),
     savePdfAs: vi.fn(),
+    getDocumentRevision: vi.fn(),
     cleanupFile: vi.fn(async () => {}),
     logError: vi.fn(),
     failure: {
@@ -55,7 +56,10 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
     }),
 }));
 const platformApi = createElectronPlatformApiFixture({
-    documentFiles: {savePdfAs: mocks.savePdfAs},
+    documentFiles: {
+        savePdfAs: mocks.savePdfAs,
+        getDocumentRevision: mocks.getDocumentRevision,
+    },
     documentWorkingCopy: {cleanupFile: mocks.cleanupFile},
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
@@ -192,6 +196,7 @@ describe('mounted Combine PDF page state machine', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
+        mocks.getDocumentRevision.mockImplementation(async (path: string) => ({token: `current-revision-of:${path}`}));
         mocks.logError.mockReturnValue(mocks.failure);
         mocks.isCombineCancellationSupported.mockReturnValue(true);
     });
@@ -261,7 +266,9 @@ describe('mounted Combine PDF page state machine', () => {
         expect(mocks.cleanupFile).not.toHaveBeenCalled();
         (page.host.querySelector('.save-as') as HTMLButtonElement).click();
         await flushUpdates();
-        expect(mocks.savePdfAs).toHaveBeenCalledWith('/tmp/combined-working.pdf', undefined);
+        // No document opened the result, so Save As names the working copy's
+        // current revision; the main process refuses a save without one.
+        expect(mocks.savePdfAs).toHaveBeenCalledWith('/tmp/combined-working.pdf', undefined, {expectedDocumentRevisionToken: 'current-revision-of:/tmp/combined-working.pdf'});
         // Saved elsewhere, the temporary combined file has no owner left.
         expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
 

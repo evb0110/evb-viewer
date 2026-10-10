@@ -33,8 +33,6 @@ import {
     managedHandleArgs,
     managedHandleResult,
     menuStateArgs,
-    nativeNoteChangesArgs,
-    nativeNoteTextArgs,
     nativeSaveResult,
     noPayload,
     nonNegativeInteger,
@@ -525,30 +523,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ipc: {
                 args: optimizeAsCopyArgs,
                 result: optimizeResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        savePdfNoteTextUpdates: {
-            ...defineIpcMethod(
-                'savePdfNoteTextUpdates', 'file:savePdfNoteTextUpdates', nativeNoteTextArgs,
-                nativeSaveResult, 'savePdfNoteTextUpdates', 'sender',
-            ),
-            ipc: {
-                args: nativeNoteTextArgs,
-                result: nativeSaveResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        savePdfNoteChanges: {
-            ...defineIpcMethod(
-                'savePdfNoteChanges', 'file:savePdfNoteChanges', nativeNoteChangesArgs,
-                nativeSaveResult, 'savePdfNoteChanges', 'sender',
-            ),
-            ipc: {
-                args: nativeNoteChangesArgs,
-                result: nativeSaveResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,

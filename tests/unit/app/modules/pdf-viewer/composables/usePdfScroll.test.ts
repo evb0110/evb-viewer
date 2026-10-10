@@ -137,6 +137,36 @@ function createMountedPageScrollHarness(options: {
 }
 
 describe('usePdfScroll page layout fallback', () => {
+    it('reports unmeasured visibility when neither DOM nor layout describes a page', () => {
+        const { container } = createContainerStub();
+        const scroll = usePdfScroll();
+
+        expect(scroll.getVisiblePageRange(container, 10)).toBeNull();
+        expect(scroll.getVisiblePageRange(null, 10)).toBeNull();
+        expect(scroll.getVisiblePageRange(container, 0)).toBeNull();
+
+        scroll.setPageLayoutMetrics(buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 10}, () => ({
+                width: 200,
+                height: 100,
+            })),
+            totalPages: 10,
+            viewMode: 'single',
+            scale: 1,
+            gap: 0,
+            paddingTop: 0,
+            paddingBottom: 0,
+        }));
+        container.scrollTop = 400;
+        expect(scroll.getVisiblePageRange(container, 10)).toEqual({
+            start: 5,
+            end: 6,
+        });
+
+        scroll.setPageLayoutMetrics(null);
+        expect(scroll.getVisiblePageRange(container, 10)).toBeNull();
+    });
+
     it('prefers a pinned current page while viewport metrics are stabilizing', () => {
         const { container } = createContainerStub();
         const getPinnedMostVisiblePage = vi.fn(() => 3);

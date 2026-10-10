@@ -179,8 +179,6 @@ export function createBrowserDocumentsCapability(
         ...(fileCapability.repairPdf ? {repairPdf: fileCapability.repairPdf} : {}),
         ...(fileCapability.optimizePdfForInteraction ? {optimizePdfForInteraction: fileCapability.optimizePdfForInteraction} : {}),
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
-        ...(fileCapability.savePdfNoteTextUpdates ? {savePdfNoteTextUpdates: fileCapability.savePdfNoteTextUpdates} : {}),
-        ...(fileCapability.savePdfNoteChanges ? {savePdfNoteChanges: fileCapability.savePdfNoteChanges} : {}),
         ...(fileCapability.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: fileCapability.applyPdfNativeMutationsToWorkingCopy}
             : {}),

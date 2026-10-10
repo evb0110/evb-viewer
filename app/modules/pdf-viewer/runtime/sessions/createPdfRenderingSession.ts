@@ -1126,7 +1126,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         visibleRange: viewport.visibleRange,
         viewMode: options.viewMode,
         getVisiblePageRange: viewport.scroll.getVisiblePageRange,
-        updateVisibleRange: viewport.scroll.updateVisibleRange,
         scrollToPage: pageNumber => viewport.singlePageScroll.scrollToPage(pageNumber),
         renderVisiblePages,
         isPageRendered: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',

@@ -13,7 +13,7 @@ import {requirePageIndex} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => {
     const copyFile = vi.fn(async () => undefined);
-    const mkdtemp = vi.fn(async () => '/tmp/djvu-bookmarks-native');
+    const mkdtemp = vi.fn(async () => '/tmp/pdf-page-ops-bookmarks-native');
     const readFile = vi.fn(async () => new Uint8Array([
         1,
         2,
@@ -52,10 +52,27 @@ const mocks = vi.hoisted(() => {
     };
 });
 
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => '/tmp'}));
+
 vi.mock('fs/promises', () => ({
+    mkdir: async () => undefined,
+    lstat: async () => ({
+        isDirectory: () => true,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+    }),
     copyFile: mocks.copyFile,
     mkdtemp: mocks.mkdtemp,
-    readFile: mocks.readFile,
+    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-managed-scratch.json')
+        ? Promise.resolve(JSON.stringify({
+            createdAt: 0,
+            pid: process.pid,
+            prefix: 'pdf-page-ops-',
+        }))
+        : Reflect.apply(mocks.readFile, undefined, [
+            path,
+            ...args,
+        ]),
     rm: mocks.rm,
     stat: mocks.stat,
     writeFile: mocks.writeFile,
@@ -141,10 +158,10 @@ describe('embedBookmarksIntoPdfFile native path', () => {
                 ],
             }),
         );
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', '/tmp/djvu-bookmarks-native/input.pdf');
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, '/tmp/djvu-bookmarks-native/input.pdf', '/tmp/output.pdf');
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', '/tmp/pdf-page-ops-bookmarks-native/input.pdf');
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, '/tmp/pdf-page-ops-bookmarks-native/input.pdf', '/tmp/output.pdf');
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/djvu-bookmarks-native/bookmarks.json',
+            '/tmp/pdf-page-ops-bookmarks-native/bookmarks.json',
             JSON.stringify({bookmarks: expectedBookmarkMutation}),
             'utf8',
         );
@@ -153,11 +170,11 @@ describe('embedBookmarksIntoPdfFile native path', () => {
             expect.arrayContaining([
                 'save-mutations',
                 '--input',
-                '/tmp/djvu-bookmarks-native/input.pdf',
+                '/tmp/pdf-page-ops-bookmarks-native/input.pdf',
                 '--output',
-                '/tmp/djvu-bookmarks-native/input.pdf',
+                '/tmp/pdf-page-ops-bookmarks-native/input.pdf',
                 '--mutations-file',
-                '/tmp/djvu-bookmarks-native/bookmarks.json',
+                '/tmp/pdf-page-ops-bookmarks-native/bookmarks.json',
                 '--qpdf',
                 '/native/qpdf',
                 '--modified-at',
@@ -171,7 +188,7 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         expect(publishOutputOrder).toBeGreaterThan(commandOrder);
         expect(mocks.load).not.toHaveBeenCalled();
         expect(mocks.readFile).not.toHaveBeenCalled();
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/djvu-bookmarks-native', {
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-page-ops-bookmarks-native', {
             recursive: true,
             force: true,
         });

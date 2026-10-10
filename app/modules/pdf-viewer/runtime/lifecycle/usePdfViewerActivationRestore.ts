@@ -26,8 +26,7 @@ interface IUsePdfViewerActivationRestoreOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<IPageRange>;
     viewMode: ComputedRef<TPdfViewMode>;
-    getVisiblePageRange?: ((container: HTMLElement | null, numPages: number) => IPageRange) | undefined;
-    updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
+    getVisiblePageRange: (container: HTMLElement | null, numPages: number) => IPageRange | null;
     scrollToPage: (pageNumber: TPageNumber) => void;
     renderVisiblePages: (range: IPageRange, options?: {preserveRenderedPages?: boolean}) => Promise<void>;
     isPageRendered?: ((pageNumber: TPageNumber) => boolean) | undefined;
@@ -81,14 +80,12 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
                 {isCurrent},
             ),
             measure: () => {
-                const measured = options.getVisiblePageRange?.(
+                const measured = options.getVisiblePageRange(
                     options.viewerContainer.value,
                     options.numPages.value,
                 );
                 if (measured) {
                     options.visibleRange.value = measured;
-                } else {
-                    options.updateVisibleRange(options.viewerContainer.value, options.numPages.value);
                 }
             },
             reconcile: async () => {

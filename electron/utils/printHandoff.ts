@@ -1,11 +1,15 @@
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    createManagedScratchTempDir,
+    removeManagedScratchTempDir,
+} from '@electron/utils/managedScratchTemp';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { BrowserWindow } from 'electron';
 import type { WebContentsPrintOptions } from 'electron';
 import {
     copyFile,
-    mkdtemp,
     readdir,
     open,
-    rm,
     stat,
     unlink,
     writeFile,
@@ -16,7 +20,6 @@ import {
     parse,
 } from 'path';
 import { pathToFileURL } from 'url';
-import { tmpdir } from 'os';
 import { sortBy } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
@@ -531,15 +534,13 @@ async function waitForRasterPrintSurfaceReady(printWindow: BrowserWindow) {
 }
 
 async function createRasterPrintHtmlPath(path: string, documentTitle: string, signal?: AbortSignal) {
-    const workDir = await mkdtemp(join(tmpdir(), 'evb-print-raster-'));
+    const scratchRoot = getAppTempDir();
+    const workDir = await createManagedScratchTempDir('pdfExport-', scratchRoot);
     try {
         throwIfPrintHandoffAborted(signal);
         const layout = await readPdfPrintLayout(path, signal);
         if (layout.pageCount > PRINT_RASTER_MAX_PAGES) {
-            await rm(workDir, {
-                force: true,
-                recursive: true,
-            });
+            await removeManagedScratchTempDir(workDir, 'pdfExport-', scratchRoot);
             return null;
         }
         let totalPixels = 0;
@@ -547,10 +548,7 @@ async function createRasterPrintHtmlPath(path: string, documentTitle: string, si
             const pagePixels = Math.ceil(pageSize.width * PRINT_RASTER_DPI / 72)
                 * Math.ceil(pageSize.height * PRINT_RASTER_DPI / 72);
             if (!Number.isSafeInteger(pagePixels) || pagePixels <= 0 || totalPixels > PRINT_RASTER_MAX_TOTAL_PIXELS - pagePixels) {
-                await rm(workDir, {
-                    force: true,
-                    recursive: true,
-                });
+                await removeManagedScratchTempDir(workDir, 'pdfExport-', scratchRoot);
                 return null;
             }
             totalPixels += pagePixels;
@@ -565,10 +563,9 @@ async function createRasterPrintHtmlPath(path: string, documentTitle: string, si
             workDir,
         };
     } catch (error) {
-        await rm(workDir, {
-            force: true,
-            recursive: true,
-        }).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(error) === undefined) {
+            await removeManagedScratchTempDir(workDir, 'pdfExport-', scratchRoot).catch(() => undefined);
+        }
         throw error;
     }
 }
@@ -1058,10 +1055,7 @@ export async function printManagedTempPdfPath(
 
 function scheduleRasterSurfaceCleanup(path: string, delayMs = PRINT_JOB_RESOURCE_RETENTION_MS) {
     const timer = setTimeout(() => {
-        void rm(path, {
-            force: true,
-            recursive: true,
-        }).catch(() => undefined);
+        void removeManagedScratchTempDir(path, 'pdfExport-', getAppTempDir()).catch(() => undefined);
     }, delayMs);
     timer.unref();
 }

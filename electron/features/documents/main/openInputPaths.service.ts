@@ -1,10 +1,7 @@
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import { existsSync } from 'fs';
-import {
-    mkdtemp,
-    rm,
-    stat,
-} from 'fs/promises';
-import { tmpdir } from 'os';
+import {stat} from 'fs/promises';
 import {
     basename,
     join,
@@ -313,63 +310,62 @@ export async function openInputPaths(
     }
 
     const outputPath = buildCombinedPdfOutputPath(normalizedPaths);
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-combine-open-'));
-    let lifecycle: IOpenInputPathsAbortLifecycle | null = null;
-    let brokerLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
-    let workingPath: string;
-    try {
-        lifecycle = createOpenInputPathsAbortLifecycle(
-            owner,
-            outputPath,
-            options.signal,
-        );
-        const { signal } = lifecycle;
-        const combinedInputBytes = await Promise.all(normalizedPaths.map(path => stat(path)
-            .then(fileStat => fileStat.size, () => 0)))
-            .then(sizes => sizes.reduce((total, size) => total + size, 0));
-        brokerLease = await mainJobBroker.acquire({
-            ownerId: `pdf-combine:${getOwnerWebContentsId(owner) ?? 'main'}`,
-            kind: 'pdf-combine',
-            priority: 'user',
-            perOwnerLimit: 1,
-            signal,
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: Math.min(
-                    256 * 1024 * 1024,
-                    Math.max(32 * 1024 * 1024, Math.ceil(combinedInputBytes / 2)),
-                ),
-                nativeProcesses: 1,
-                ioWeight: 4,
-            },
-        });
-        const tempOutputPath = join(tempDir, basename(outputPath));
-        throwIfAborted(signal);
-        await createPdfFileFromInputPaths(
-            normalizedPaths,
-            tempOutputPath,
-            {
-                ...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {}),
+    const workingPath = await usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
+        let lifecycle: IOpenInputPathsAbortLifecycle | null = null;
+        let brokerLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
+        let workingPath: string;
+        try {
+            lifecycle = createOpenInputPathsAbortLifecycle(
+                owner,
+                outputPath,
+                options.signal,
+            );
+            const { signal } = lifecycle;
+            const combinedInputBytes = await Promise.all(normalizedPaths.map(path => stat(path)
+                .then(fileStat => fileStat.size, () => 0)))
+                .then(sizes => sizes.reduce((total, size) => total + size, 0));
+            brokerLease = await mainJobBroker.acquire({
+                ownerId: `pdf-combine:${getOwnerWebContentsId(owner) ?? 'main'}`,
+                kind: 'pdf-combine',
+                priority: 'user',
+                perOwnerLimit: 1,
                 signal,
-            },
-        );
-        throwIfAborted(signal);
-        logger.info('Created combined PDF for input batch', {outputPath});
-        allowOpenPaths([tempOutputPath], owner);
-        const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
-        workingPath = await createWorkingCopyFromPath(
-            trustedTempOutputPath,
-            outputPath,
-            getOwnerWebContentsId(owner),
-        );
-    } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
-        brokerLease?.release();
-        lifecycle?.cleanup();
-    }
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: Math.min(
+                        256 * 1024 * 1024,
+                        Math.max(32 * 1024 * 1024, Math.ceil(combinedInputBytes / 2)),
+                    ),
+                    nativeProcesses: 1,
+                    ioWeight: 4,
+                },
+            });
+            const tempOutputPath = join(tempDir, basename(outputPath));
+            throwIfAborted(signal);
+            await createPdfFileFromInputPaths(
+                normalizedPaths,
+                tempOutputPath,
+                {
+                    ...(options.onCombineProgress ? { onProgress: options.onCombineProgress } : {}),
+                    signal,
+                },
+            );
+            throwIfAborted(signal);
+            logger.info('Created combined PDF for input batch', {outputPath});
+            allowOpenPaths([tempOutputPath], owner);
+            const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
+            workingPath = await createWorkingCopyFromPath(
+                trustedTempOutputPath,
+                outputPath,
+                getOwnerWebContentsId(owner),
+            );
+        } finally {
+            brokerLease?.release();
+            lifecycle?.cleanup();
+        }
+
+        return workingPath;
+    });
 
     return {
         kind: 'pdf',

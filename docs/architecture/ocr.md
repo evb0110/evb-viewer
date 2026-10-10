@@ -19,6 +19,15 @@ revision on first use. Downloads must match the registry's SHA-256 digest before
 atomic publication into the profile's tessdata directory. Concurrent requests
 share a download; canceling one request does not abort other waiters.
 
+Latin keeps the selection code `lat` but recognizes with upstream
+`script/Latin`, whose character set includes æ, Æ, œ and Œ. Its pinned data is
+101.4 MB rather than `lat`'s 9.7 MB. On the 39 transcribed lines of the 1835
+missal fixture, faithful character error fell from 1.87% to 0.06%; the
+single-thread production recognizer took 3.8 seconds instead of 2.3 seconds.
+Recognition quality takes priority over the larger first download and slower run.
+In a hidden real-app run of the same page, saved-layer character error fell
+from 1.68% to 0.13%, with all 14 æ and both œ retained instead of none.
+
 The packaged app seeds and repairs its models from bundled resources. It also
 refreshes the bundled `pdf.ttf` at startup so a stale or damaged runtime font
 cannot keep breaking searchable-PDF creation. Development uses the repository's
@@ -65,7 +74,10 @@ each of their lines with the first reading's and:
   print shows a gap and every part, at most three, is a dictionary word.
 
 The dictionary is the selected languages' own: their models' LSTM word lists,
-read from the `.traineddata` files. Latin's list is web text that holds OCR of
+read from the `.traineddata` files. Latin retains upstream `lat` as the pinned
+`lat_dictionary` model, downloaded with the early-print models. The script
+recognizer's multilingual dictionary exceeds the bounded reader and is not
+used. Latin's list is web text that holds OCR of
 old books, so words with an f no Latin word has (`fefto`, `poft`) are dropped
 from it. The page keeps its first reading unless `ita_old` finds ſ under at
 least a fifth of its in-word f, so a misjudged modern page is left alone.
@@ -76,6 +88,9 @@ right on each against 197 and 73 gained. Words with ſ went from none to 92% and
 95%, with æ or œ from none to 89% and 100%, with ct from about a third to 91%
 and 83%. Character error fell from 7.9% to 3.6%. An affected page takes
 about four times as long: the selected model twice, then `ita_old` and `fra`.
+With `script/Latin` as the recognizer and the same Latin dictionary and
+early-print readings, faithful character error on the fixture's 26 transcribed
+lines fell from 3.91% to 3.21%, retaining the long s.
 
 The page data carries the edited words, and `ocr-text-layer` applies the same
 edits to Tesseract's PDF before copying its text: Tesseract writes one `TJ`

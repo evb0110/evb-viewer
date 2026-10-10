@@ -2,11 +2,13 @@ import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
 
 import {
     mkdtemp,
+    readdir,
     rm,
     writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 import {
     afterEach,
     beforeEach,
@@ -30,14 +32,27 @@ const mocks = vi.hoisted(() => ({
     })),
     commitStagedFilePublications: vi.fn(),
     rollbackStagedFilePublications: vi.fn(),
+    estimateTask: vi.fn(),
+    appTempDir: '',
 }));
 
-vi.mock('@electron/features/djvu/main/metadata', () => ({getDjvuPageCount: mocks.getPageCount}));
-vi.mock('@electron/features/djvu/public', () => ({
-    convertDjvuPageToImage: mocks.convertPage,
+vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getPageCount,
+    getDjvuResolution: async () => 300,
+}));
+vi.mock('@electron/features/djvu/public', () => ({
+    cancelConversion: vi.fn(async () => undefined),
+    convertDjvuPageToImage: mocks.convertPage,
+    createDjvuPdfEstimateTask: mocks.estimateTask,
+    DjvuPdfWorkerStartupError: class extends Error {},
+    getDjvuPageCount: mocks.getPageCount,
+    getDjvuPageSizeForViewing: async () => ({
+        width: 1000,
+        height: 1400,
+    }),
     getDjvuPageSizeWindowsForViewing: mocks.getPageSizeWindows,
 }));
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.appTempDir}));
 vi.mock('@electron/features/image-export/main/export', () => ({
     convertRenderedPpmToImage: mocks.convertPpmToImage,
     promoteStagedFiles: mocks.promoteStagedFiles,
@@ -399,5 +414,70 @@ describe('DjVu image export limits', () => {
             {signal: controller.signal},
         )).rejects.toThrow('aborted');
         expect(mocks.convertPage).not.toHaveBeenCalled();
+    });
+});
+
+describe('DjVu size estimates', () => {
+    let estimateDir = '';
+    let pathCounter = 0;
+    const freshDjvuPath = () => `/books/estimate-${pathCounter++}.djvu`;
+    const keptScratchDirs = async () => (await readdir(estimateDir))
+        .filter(entry => entry.startsWith('djvu-export-'));
+    const writeSample = async (outputPath: string) => {
+        await writeFile(outputPath, 'ppm');
+        return {success: true};
+    };
+
+    beforeEach(async () => {
+        estimateDir = await mkdtemp(join(tmpdir(), 'djvu-estimate-test-'));
+        mocks.appTempDir = estimateDir;
+        mocks.estimateTask.mockImplementation(() => ({promise: Promise.resolve(1000)}));
+        mocks.convertPage.mockImplementation(async (_source: string, outputPath: string) => writeSample(outputPath));
+    });
+
+    afterEach(async () => rm(estimateDir, {
+        recursive: true,
+        force: true,
+    }));
+
+    it('keeps the other presets when one preset termination is unproven and retains only its scratch', async () => {
+        mocks.convertPage.mockImplementation(async (_source: string, outputPath: string) => {
+            if (outputPath.endsWith('sample-s2.ppm')) {
+                return {
+                    success: false,
+                    cause: markUnprovenNativeTermination(new Error('tool tree outlived kill'), 'process group alive'),
+                };
+            }
+            return writeSample(outputPath);
+        });
+        const {estimateSizes} = await import('@electron/features/djvu/main/estimateSizes');
+
+        const estimates = await estimateSizes(freshDjvuPath(), 10);
+
+        expect(estimates.map(estimate => estimate.subsample)).toEqual([
+            1,
+            2,
+            4,
+        ]);
+        expect(estimates[0]?.estimatedBytes).toBeGreaterThan(0);
+        expect(estimates[1]?.estimatedBytes).toBe(0);
+        expect(estimates[2]?.estimatedBytes).toBeGreaterThan(0);
+        expect(await keptScratchDirs()).toHaveLength(1);
+    });
+
+    it('reports a user cancel as an abort even when the termination it caused is unproven', async () => {
+        const controller = new AbortController();
+        mocks.convertPage.mockImplementation(async () => {
+            controller.abort();
+            return {
+                success: false,
+                cause: markUnprovenNativeTermination(new Error('tool tree outlived kill'), 'process group alive'),
+            };
+        });
+        const {estimateSizes} = await import('@electron/features/djvu/main/estimateSizes');
+
+        await expect(estimateSizes(freshDjvuPath(), 10, {signal: controller.signal}))
+            .rejects.toMatchObject({name: 'AbortError'});
+        expect(await keptScratchDirs()).toHaveLength(1);
     });
 });

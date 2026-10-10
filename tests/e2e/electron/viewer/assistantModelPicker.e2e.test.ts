@@ -3,7 +3,10 @@ import {
     describe, expect, it,
 } from 'vitest';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
+import {
+    activateMenuItemAsUser,
+    clickAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     openPdfInApp, waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -74,9 +77,7 @@ describe('Electron E2E - assistant model discovery', () => {
             const bytes = Uint8Array.from(atob(base64), character => character.charCodeAt(0));
             await navigator.clipboard.write([new ClipboardItem({'image/png': new Blob([bytes], {type: 'image/png'})})]);
         }, png.toString('base64'));
-        await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
-        await page.keyboard.press('V');
-        await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
         await page.waitForSelector('.agent-assistant-composer-attachment-image');
         await page.keyboard.type('Explain this image.');
         await page.keyboard.press('Enter');

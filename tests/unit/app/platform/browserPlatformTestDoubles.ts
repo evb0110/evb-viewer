@@ -556,3 +556,38 @@ export class FakeIndexedDbFactory {
         return this.databases.get(name) ?? null;
     }
 }
+
+/** One origin's Web Locks; `holdElsewhere` stands for a lock another browser context holds. */
+export class FakeLockManager {
+    private readonly heldNames = new Set<string>();
+
+    public holdElsewhere(name: string) {
+        this.heldNames.add(name);
+    }
+
+    // Required by the LockManager-shaped object consumed structurally by the browser lease store.
+    // fallow-ignore-next-line unused-class-member
+    public async request<T>(
+        name: string,
+        options: {ifAvailable?: boolean},
+        callback: (lock: {name: string} | null) => Promise<T>,
+    ): Promise<T> {
+        if (this.heldNames.has(name)) {
+            if (options.ifAvailable) {
+                return callback(null);
+            }
+            throw new Error(`The fake lock manager does not queue requests for ${name}.`);
+        }
+        this.heldNames.add(name);
+        try {
+            return await callback({name});
+        } finally {
+            this.heldNames.delete(name);
+        }
+    }
+
+    // fallow-ignore-next-line unused-class-member
+    public async query() {
+        return {held: Array.from(this.heldNames, name => ({name}))};
+    }
+}

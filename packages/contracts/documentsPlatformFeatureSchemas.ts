@@ -21,8 +21,6 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeModifiedAt,
     normalizePdfNativeMutationSet,
-    normalizePdfNativeNoteChanges,
-    normalizePdfNativeNoteTextUpdates,
 } from '@contracts/nativePdfMutations';
 import {PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
 import {OPEN_FILE_RESULT_SCHEMA} from '@contracts/pdfOpenFileSchemas';
@@ -234,18 +232,6 @@ const optimizeAsCopyArgs = v.strictTuple([
 ]);
 
 // Native mutation normalizers canonicalize PDF dates, identities, and cross-field mutation semantics.
-const nativeNoteTextArgs = v.strictTuple([
-    documentRefSchema,
-    v.pipe(v.unknown(), v.transform(value => normalizePdfNativeNoteTextUpdates(value, 'updates', {allowEmpty: true}))),
-    v.pipe(v.string(), v.transform(value => normalizePdfNativeModifiedAt(value, 'modifiedAt'))),
-    optionalRevisionOptionsSchema,
-]);
-const nativeNoteChangesArgs = v.strictTuple([
-    documentRefSchema,
-    v.pipe(v.unknown(), v.transform(value => normalizePdfNativeNoteChanges(value, 'changes'))),
-    v.pipe(v.string(), v.transform(value => normalizePdfNativeModifiedAt(value, 'modifiedAt'))),
-    optionalRevisionOptionsSchema,
-]);
 const applyNativeMutationsArgs = v.strictTuple([
     documentRefSchema,
     v.pipe(v.unknown(), v.transform(value => normalizePdfNativeMutationSet(value, 'mutations'))),
@@ -527,8 +513,6 @@ export {
     managedHandleArgs,
     managedHandleResult,
     menuStateArgs,
-    nativeNoteChangesArgs,
-    nativeNoteTextArgs,
     nativeSaveResult,
     noPayload,
     nonNegativeIntegerSchema as nonNegativeInteger,

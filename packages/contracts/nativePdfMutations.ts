@@ -14,7 +14,6 @@ import type {
     IPdfNativeMarkupMarkerRect,
     IPdfNativeMarkupSubtypeHint,
     IPdfNativeMutationSet,
-    IPdfNativeNoteChanges,
     IPdfNativePageLabelRange,
     IPdfNativePageLabelsMutation,
     IPdfNativePlacedImage,
@@ -1396,31 +1395,6 @@ export function normalizePdfNativeNoteTextUpdates(
             text,
         };
     });
-}
-
-export function normalizePdfNativeNoteChanges(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions = {},
-): IPdfNativeNoteChanges {
-    if (!isRecord(value)) {
-        fail(`${label} must be an object`, options);
-    }
-    const updates = normalizeOptionalPdfNativeNoteTextUpdates(value.updates, `${label}.updates`, options);
-    const geometryUpdates = normalizePdfNativeNoteGeometryUpdates(value.geometryUpdates, `${label}.geometryUpdates`, options);
-    const freeTextNotes = normalizeFreeTextNotes(value.freeTextNotes, `${label}.freeTextNotes`, options);
-    const deletes = normalizeAnnotationDeletes(value.deletes, `${label}.deletes`, options);
-    if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
-        fail(`${label} must include at least one note change`, options);
-    }
-    const normalized: IPdfNativeNoteChanges = {
-        ...(updates.length > 0 ? {updates} : {}),
-        ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
-        ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-        ...(deletes.length > 0 ? {deletes} : {}),
-    };
-    validateNativeMutationCollectionBudget(normalized, label, options);
-    return normalized;
 }
 
 export function normalizePdfNativeMutationSet(

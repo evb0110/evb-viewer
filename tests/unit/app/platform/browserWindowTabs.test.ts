@@ -9,6 +9,7 @@ import {
 import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {IBrowserTransferAuthorityRecord} from '@app/platform/browser/browserDocumentIdb';
+import {FakeLockManager} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const recoveryMocks = vi.hoisted(() => ({
     claimBrowserWorkspaceRecoveryOwner: vi.fn(),
@@ -101,7 +102,8 @@ function requireBrowserTransferAuthority(
     return value;
 }
 
-function stubBrowserGlobals(href = 'http://localhost:3235/') {
+// Without `locks`, the browser has no lock manager (Node provides one).
+function stubBrowserGlobals(href = 'http://localhost:3235/', locks?: FakeLockManager) {
     const windowListeners = new Map<string, Set<EventListener>>();
     const windowStub = {
         location: { href },
@@ -131,6 +133,7 @@ function stubBrowserGlobals(href = 'http://localhost:3235/') {
 
     vi.stubGlobal('window', windowStub);
     vi.stubGlobal('document', { title: 'EVB Viewer Web' });
+    vi.stubGlobal('navigator', locks ? {locks} : {});
     vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
     return {
         ...windowStub,
@@ -323,7 +326,7 @@ describe('browserWindowTabsCapability', () => {
         expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).not.toHaveBeenCalled();
     });
 
-    it('does not steal a fresh heartbeat when a live tab misses the discovery window', async () => {
+    it('does not steal a fresh heartbeat without Web Locks when a live tab misses the discovery window', async () => {
         vi.setSystemTime(100_000);
         stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');
         recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
@@ -345,6 +348,75 @@ describe('browserWindowTabsCapability', () => {
 
         await expect(claim).resolves.toBeNull();
         expect(recoveryMocks.claimBrowserWorkspaceRecoveryOwner).not.toHaveBeenCalled();
+    });
+
+    it('does not claim a silent owner that still holds its lease lock, however old its heartbeat', async () => {
+        vi.setSystemTime(100_000);
+        const locks = new FakeLockManager();
+        locks.holdElsewhere('evb-viewer:browser-lease-owner:window:321');
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=444', locks);
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            leaseRevision: 7,
+            updatedAt: 0,
+        }]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+
+        const claim = browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+
+        await expect(claim).resolves.toBeNull();
+    });
+
+    it('claims a fresh silent owner whose lease lock is free, passing over one that holds it', async () => {
+        vi.setSystemTime(100_000);
+        const locks = new FakeLockManager();
+        locks.holdElsewhere('evb-viewer:browser-lease-owner:window:321');
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=444', locks);
+        const frozen = {
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            leaseRevision: 7,
+            updatedAt: 99_999,
+        };
+        const closed = {
+            ...frozen,
+            ownerId: 'window:111',
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            updatedAt: 99_000,
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([
+            frozen,
+            closed,
+        ]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
+
+        const claim = browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+
+        await expect(claim).resolves.toBe(closed.checkpoint);
     });
 
     it('claims an expired recovery owner when live-peer discovery is unavailable', async () => {

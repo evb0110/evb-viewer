@@ -3,6 +3,7 @@ import { join } from 'path';
 import * as electron from 'electron';
 import type {
     IAgentAssistantChatScope,
+    IAgentAssistantImageAttachment,
     TAgentAssistantEffort,
 } from '@contracts/agent';
 import { ASSISTANT_DEFAULT_EFFORT } from '@contracts/agentModels';
@@ -13,6 +14,7 @@ import {
 } from '@electron/features/agent/codexCli';
 import {
     ASSISTANT_MCP_CONTRACT_VERSION,
+    ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_SERVER_NAME,
     ASSISTANT_MCP_TOKEN_ENV,
     ASSISTANT_MODEL_CONFIG_DIR,
@@ -21,6 +23,7 @@ import {
 } from '@electron/features/agent/codexAssistantConfig';
 import {
     CodexAppServerClient,
+    isCodexAppServerRequestTimeoutError,
     type ICodexAppServerNotification,
 } from '@electron/features/agent/codexAppServerClient';
 import {
@@ -32,6 +35,7 @@ import {
     normalizeAssistantEffort,
     normalizeAssistantModel,
     normalizeCodexAssistantModel,
+    resolveCodexServiceTier,
     type IAssistantSelection,
 } from '@electron/features/agent/assistantProviderStatus';
 import {
@@ -47,7 +51,10 @@ import type {
     IAssistantChatSession,
     TAssistantChatSessionStore,
 } from '@electron/features/agent/assistantChatSessionStore';
-import {isAssistantTurnActive} from '@electron/features/agent/assistantTurnLifecycle';
+import {
+    getAssistantTurnProviderTurnId,
+    isAssistantTurnActive,
+} from '@electron/features/agent/assistantTurnLifecycle';
 import {
     getEmbeddedMcpServerDescriptor,
     isEmbeddedMcpServerRunning,
@@ -72,6 +79,11 @@ interface IAssistantRuntime {
 interface IEnsuredAssistantThread {
     threadId: string;
     created: boolean;
+}
+
+interface ICodexAssistantTurn extends IEnsuredAssistantThread {
+    runtime: IAssistantRuntime;
+    turnId: string | null;
 }
 
 interface IAssistantRuntimeLifecycleLogger {
@@ -612,12 +624,157 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         };
     }
 
+    async function prepareTurn(
+        session: IAssistantChatSession,
+        selection: IAssistantSelection,
+        assertClaimCurrent: () => Promise<void>,
+    ): Promise<ICodexAssistantTurn> {
+        const currentRuntime = await ensureRuntime();
+        await assertClaimCurrent();
+        await assertRuntimeEnabled(currentRuntime, currentRuntime.generation);
+        session.model = normalizeCodexAssistantModel(options.getCodexModels(), selection.model);
+        session.effort = selection.effort;
+        session.speedMode = selection.speedMode;
+        const thread = await ensureThread(session);
+        return {
+            ...thread,
+            runtime: currentRuntime,
+            turnId: null,
+        };
+    }
+
+    async function startTurn(
+        turn: ICodexAssistantTurn,
+        text: string,
+        attachments: IAgentAssistantImageAttachment[],
+        selection: IAssistantSelection,
+        assertClaimCurrent: () => Promise<void>,
+    ) {
+        const model = normalizeCodexAssistantModel(options.getCodexModels(), selection.model);
+        const serviceTier = resolveCodexServiceTier(options.getCodexModels(), selection.model, selection.speedMode);
+        const response = await turn.runtime.client.requestDecoded('turn/start', {
+            threadId: turn.threadId,
+            input: [
+                {
+                    type: 'text',
+                    text: text || ASSISTANT_IMAGE_ONLY_PROMPT,
+                    text_elements: [],
+                },
+                ...attachments.map(attachment => ({
+                    type: 'image',
+                    url: attachment.dataUrl,
+                })),
+            ],
+            ...(model ? {model} : {}),
+            effort: selection.effort,
+            ...(serviceTier ? {serviceTier} : {}),
+            cwd: turn.runtime.cwd,
+            approvalPolicy: 'never',
+            sandboxPolicy: {
+                type: 'readOnly',
+                networkAccess: false,
+            },
+            personality: 'friendly',
+        }, decodeRecordResponse);
+        // Retain the accepted provider ID before the shared fence yields, so a
+        // cancellation that wins the response can still interrupt this turn.
+        turn.turnId = isRecord(response.turn) && typeof response.turn.id === 'string'
+            ? response.turn.id
+            : null;
+        await assertClaimCurrent();
+        await assertRuntimeEnabled(turn.runtime, turn.runtime.generation);
+        if (!turn.turnId || turn.turnId.trim() === '') {
+            throw new Error('Codex returned an invalid turn/start response.');
+        }
+        return turn.turnId;
+    }
+
+    function archiveThread(threadId: string, reason: string) {
+        if (!runtime) {
+            return;
+        }
+        void runtime.client.request('thread/archive', {threadId}).catch((error: unknown) => {
+            options.logger.warn(`Failed to archive ${reason} assistant thread: ${getErrorMessage(error)}`);
+        });
+    }
+
+    function requestTurnCleanup(threadId: string, turnId: string | null, reason: string) {
+        if (!runtime) {
+            return;
+        }
+        if (turnId) {
+            void runtime.client.request('turn/interrupt', {
+                threadId,
+                turnId,
+            }).catch((error: unknown) => {
+                options.logger.warn(`Failed to interrupt ${reason} assistant turn: ${getErrorMessage(error)}`);
+            });
+        }
+        archiveThread(threadId, reason);
+    }
+
+    function abandonTurn(session: IAssistantChatSession, turn: ICodexAssistantTurn | null, reason: string) {
+        if (!turn) {
+            return;
+        }
+        requestTurnCleanup(turn.threadId, turn.turnId, reason);
+        if (turn.created && session.providerThreadId === turn.threadId) {
+            session.providerThreadId = null;
+        }
+    }
+
+    function recoverTurnFailure(
+        session: IAssistantChatSession,
+        turn: ICodexAssistantTurn | null,
+        error: unknown,
+        ownsTurn: boolean,
+    ) {
+        const providerError = options.providerRuntime.lastError;
+        const message = providerError?.startsWith('Could not verify Codex authentication')
+            ? providerError
+            : getErrorMessage(error);
+        options.providerRuntime.lastError = message;
+        const timedOut = isCodexAppServerRequestTimeoutError(error) && turn !== null && runtime !== null;
+        if (!timedOut || ownsTurn) {
+            options.providerRuntime.runtimeState = 'error';
+        }
+        if (timedOut) {
+            const turnId = getAssistantTurnProviderTurnId(session.turnOwner);
+            if (ownsTurn && session.providerThreadId === turn.threadId) {
+                session.providerThreadId = null;
+            }
+            requestTurnCleanup(turn.threadId, turnId, 'timed-out');
+        }
+        return {
+            message,
+            fenceTurn: timedOut,
+        };
+    }
+
+    function createTurnInterrupt(session: IAssistantChatSession) {
+        const currentRuntime = runtime;
+        const threadId = session.providerThreadId;
+        const turnId = getAssistantTurnProviderTurnId(session.turnOwner);
+        return currentRuntime && threadId && turnId
+            ? () => currentRuntime.client.request('turn/interrupt', {
+                threadId,
+                turnId,
+            })
+            : null;
+    }
+
     return {
+        abandonTurn,
+        archiveThread,
+        createTurnInterrupt,
         clearRuntimeForExit,
         assertRuntimeEnabled: (expectedRuntime: IAssistantRuntime) =>
             assertRuntimeEnabled(expectedRuntime, expectedRuntime.generation),
         ensureRuntime,
         ensureThread,
+        prepareTurn,
+        startTurn,
+        recoverTurnFailure,
         getCodexInfo,
         getMcpToolCount,
         getRuntime,

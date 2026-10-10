@@ -1,5 +1,5 @@
 #[test]
-fn save_note_changes_preserves_geometry_updates_in_both_dispatch_modes() {
+fn save_mutations_preserves_geometry_updates_in_both_dispatch_modes() {
     let path = temp_pdf_path("dispatcher-geometry").with_extension("json");
     let _cleanup = RemovePdfFilesOnDrop([path.clone()]);
     std::fs::write(
@@ -9,11 +9,12 @@ fn save_note_changes_preserves_geometry_updates_in_both_dispatch_modes() {
     .unwrap();
 
     for append in [true, false] {
-        let operation = Operation::SaveNoteChanges {
-            changes_file: path.clone(),
+        let operation = Operation::SaveMutations {
+            mutations_file: path.clone(),
             modified_at: "D:20260831120000Z".to_string(),
             append,
             append_in_place: false,
+            identity_bindings_file: None,
         };
         let (mutations, _) = if append {
             read_append_mutations(&operation).unwrap().unwrap()

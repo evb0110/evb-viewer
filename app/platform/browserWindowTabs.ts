@@ -24,6 +24,7 @@ import {
     loadBrowserWorkspaceRecovery,
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import { loadLiveLeaseOwnerIds } from '@app/platform/browser/browserDocumentLeaseStore';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
@@ -982,15 +983,20 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         }
 
         const activeOwnerIds = new Set(Array.from(knownWindows.keys(), id => `window:${String(id)}`));
+        const liveOwnerIds = await loadLiveLeaseOwnerIds();
         const now = Date.now();
         const orphaned = (await loadBrowserWorkspaceRecoveries())
             .filter(record => (
                 record.ownerId !== ownerId
                 && !activeOwnerIds.has(record.ownerId)
                 // A channel response proves liveness, but a missed 60ms
-                // response does not prove death (background tabs are heavily
-                // throttled). Never steal a fresh durable owner heartbeat.
-                && now - record.updatedAt >= RECOVERY_OWNER_LEASE_TIMEOUT_MS
+                // response does not prove death: background tabs are heavily
+                // throttled and frozen ones do not answer. A held lease lock
+                // proves the owner alive. Without a lock manager, never steal
+                // a fresh durable owner heartbeat.
+                && (liveOwnerIds
+                    ? !liveOwnerIds.has(record.ownerId)
+                    : now - record.updatedAt >= RECOVERY_OWNER_LEASE_TIMEOUT_MS)
             ))
             .sort((first, second) => (
                 second.updatedAt - first.updatedAt
