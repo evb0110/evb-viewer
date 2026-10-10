@@ -150,7 +150,7 @@ describe('window tab transfer orchestration helpers', () => {
         expect(shouldCloseSourceWindowAfterTransfer(1, false)).toBe(false);
     });
 
-    it('rejects a transfer after its workspace mount fails and proceeds to the next queued transfer', async () => {
+    it('rejects each failed target without making another transfer wait for its mount', async () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         onTestFinished(() => {
             vi.unstubAllGlobals();
@@ -244,6 +244,9 @@ describe('window tab transfer orchestration helpers', () => {
         const firstTransfer = transfers.handleIncomingTabTransfer(makeTransfer('transfer-failed-mount'));
         await mountWaiterStarted.promise;
         const secondTransfer = transfers.handleIncomingTabTransfer(makeTransfer('transfer-next'));
+        await secondTransfer;
+        expect(transferAckMock.mock.calls.map(([ack]) => ack.transferId)).toEqual(['transfer-next']);
+        expect(tabs.value.map(tab => tab.id)).toEqual(['incoming-1']);
         sessions.get('incoming-1')?.markFailed({
             message: 'Workspace chunk failed',
             failure: null,
@@ -260,11 +263,11 @@ describe('window tab transfer orchestration helpers', () => {
             ack.success,
         ])).toEqual([
             [
-                'transfer-failed-mount',
+                'transfer-next',
                 false,
             ],
             [
-                'transfer-next',
+                'transfer-failed-mount',
                 false,
             ],
         ]);

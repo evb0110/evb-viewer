@@ -190,10 +190,12 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                     }
                 }
                 const accepted = await run();
-                if (!accepted) {
-                    session.markFailed(options.readOpenFailure());
-                } else if (transactionId && activeOpen.value?.id === transactionId) {
-                    acceptedTransactionId.value = transactionId;
+                if (activeOpen.value?.id === id) {
+                    if (accepted) {
+                        acceptedTransactionId.value = id;
+                    } else {
+                        session.markFailed(options.readOpenFailure());
+                    }
                 }
                 return accepted;
             });

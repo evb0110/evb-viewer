@@ -350,10 +350,11 @@ export const useWorkspaceFileLifecycleController = (
     }
 
     // A moved tab's document: it brings its own view.
-    function openFileInDocumentTransaction(result: TOpenFileResult) {
+    function openFileInDocumentTransaction(result: TOpenFileResult, transactionId?: string) {
         return openInDocumentTransaction({
             ...describeOpenResult(result),
             carriesView: true,
+            transactionId,
         }, () => openFileWithViewerLifecycle(result));
     }
 

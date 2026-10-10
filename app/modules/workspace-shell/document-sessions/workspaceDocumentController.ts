@@ -66,6 +66,8 @@ export interface IWorkspaceOpenRequest {
     kind: Exclude<TWorkspaceDocumentTransactionKind, 'close'>;
     target: IWorkspaceDocumentTarget | null;
     acceptDocumentWithoutVisual?: boolean | undefined;
+    /** Continues the open this caller already claimed before mounting its workspace. */
+    transactionId?: string | undefined;
     /** The page-shape read the open's input started, if it started one. */
     pageShape?: IPdfPageShapeRead | null | undefined;
     /** The file whose pages the open shows, when not the target's source (a recovered, decrypted or
@@ -86,6 +88,7 @@ export interface IWorkspaceDocumentController {
     readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
+    claimOpen(request: IWorkspaceOpenRequest): string;
     runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>): Promise<boolean>;
     setOpeningLabel(label: string | null): void;
     commitDocument(document: IWorkspaceCommittedDocument): void;
@@ -319,7 +322,7 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    function runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>) {
+    function claimOpen(request: IWorkspaceOpenRequest) {
         supersedeActiveTransaction();
         nextTransactionIndex += 1;
         const transaction: IWorkspaceDocumentTransaction = {
@@ -335,7 +338,23 @@ export function createWorkspaceDocumentController(options: {
             openingLabel: null,
             failure: null,
         }, true);
-        const isActive = () => snapshot.value.activeTransaction?.id === transaction.id;
+        return transaction.id;
+    }
+
+    function runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>) {
+        const transactionId = request.transactionId ?? claimOpen(request);
+        const transaction = snapshot.value.activeTransaction;
+        const settled = settleWaiters.get(transactionId);
+        if (!transaction || transaction.id !== transactionId || !settled) {
+            return Promise.resolve(false);
+        }
+        update({activeTransaction: {
+            ...transaction,
+            kind: request.kind,
+            target: request.target,
+            acceptDocumentWithoutVisual: request.acceptDocumentWithoutVisual === true,
+        }});
+        const isActive = () => snapshot.value.activeTransaction?.id === transactionId;
         // The intent is busy while its shape is admitted. Publishing opening
         // and claiming its surface happen together, so Start never uncovers
         // an idle viewport between the two owners.
@@ -667,6 +686,7 @@ export function createWorkspaceDocumentController(options: {
         views,
         operationLease,
         assign,
+        claimOpen,
         runOpen,
         setOpeningLabel,
         commitDocument,

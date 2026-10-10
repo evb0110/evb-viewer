@@ -54,7 +54,7 @@ interface IUseWorkspaceSplitPayloadOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerSplitPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
-    openFileWithViewerLifecycle: (result: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
+    openFileWithViewerLifecycle: (result: TOpenFileResult, transactionId?: string) => Promise<TDocumentOpenOutcome>;
     waitForPdfReload: (page: number) => Promise<void>;
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
@@ -360,7 +360,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             : payload;
     }
 
-    async function restoreSplitPayload(payload: TSplitPayload): Promise<TDocumentOpenOutcome> {
+    async function restoreSplitPayload(payload: TSplitPayload, transactionId?: string): Promise<TDocumentOpenOutcome> {
         if (payload.kind === 'empty') {
             return {status: 'cancelled'};
         }
@@ -381,7 +381,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 kind: 'djvu',
                 workingPath: '',
                 originalPath: payload.sourcePath,
-            });
+            }, transactionId);
             if (outcome.status !== 'opened') {
                 return outcome;
             }
@@ -417,7 +417,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             ...(payload.isDirty ? {recoveryDirtyBaseline: true} : {}),
         };
         retainDocumentOpenWorkingCopyForRetry(result);
-        const outcome = await options.openFileWithViewerLifecycle(result);
+        const outcome = await options.openFileWithViewerLifecycle(result, transactionId);
         if (outcome.status !== 'opened') {
             return outcome;
         }

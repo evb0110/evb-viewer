@@ -51,28 +51,21 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
     const isCancelled = ref(false);
     const shouldRestoreScroll = options.restoreScroll !== false;
     const initialViewportInteractionEpoch = readUserViewportInteractionEpoch(options.pdfViewerRef.value);
-    const initialOpenSurfaceState = options.openSurface
-        ? {
-            generation: options.openSurface.snapshot.value.generation,
-            documentRevision: options.openSurface.snapshot.value.identity?.documentRevision ?? null,
-        }
-        : null;
+    const initialOpenSurfaceState = options.openSurface?.snapshot.value ?? null;
 
-    async function waitForOpenSurfaceVisualSettle() {
+    async function waitForOpenSurfaceVisualSettle(isCurrentReload: () => boolean) {
         const openSurface = options.openSurface;
         if (!openSurface) {
             return true;
         }
 
         try {
-            await until(() => {
+            const settled = await until(() => {
                 const snapshot = openSurface.snapshot.value;
                 const viewport = openSurface.viewportSession.value;
-                const identityChanged = snapshot.generation !== initialOpenSurfaceState?.generation
-                    || snapshot.identity?.documentRevision !== initialOpenSurfaceState?.documentRevision;
                 return {
                     cancelled: isCancelled.value,
-                    identityChanged,
+                    current: isCurrentReload(),
                     ready: snapshot.phase === 'ready'
                         && snapshot.presentation === 'committed'
                         && viewport.lifecycle === 'ready',
@@ -80,12 +73,12 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             }).toMatch(
                 ({
                     cancelled,
-                    identityChanged,
+                    current,
                     ready,
-                }) => cancelled || (identityChanged && ready),
+                }) => cancelled || !current || ready,
                 {timeout: PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS},
             );
-            return !isCancelled.value;
+            return !settled.cancelled && settled.current && settled.ready;
         } catch (error) {
             if (!isCancelled.value) {
                 BrowserLogger.warn('loader', 'Timed out waiting for the PDF open surface to settle after reload; skipping page restore', {
@@ -97,33 +90,52 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
         }
     }
 
-    const promise = until(() => ({
-        doc: options.pdfDocument.value,
-        cancelled: isCancelled.value,
-    }))
-        .toMatch(({
+    const promise = until(() => {
+        const surface = options.openSurface?.snapshot.value ?? null;
+        const doc = surface ? null : options.pdfDocument.value;
+        return {
             doc,
+            surface,
+            cancelled: isCancelled.value,
+            reloaded: surface
+                ? Boolean(surface.identity && !surface.identity.provisional && (
+                    surface.generation !== initialOpenSurfaceState?.generation
+                    || surface.identity.documentId !== initialOpenSurfaceState?.identity?.documentId
+                    || surface.identity.documentRevision !== initialOpenSurfaceState?.identity?.documentRevision
+                ))
+                : Boolean(doc && doc !== initialDoc),
+        };
+    })
+        .toMatch(({
             cancelled,
-        }) => cancelled || Boolean(doc && doc !== initialDoc), { timeout: PDF_DOCUMENT_RELOAD_TIMEOUT_MS })
+            reloaded,
+        }) => cancelled || reloaded, { timeout: PDF_DOCUMENT_RELOAD_TIMEOUT_MS })
         .then(async ({
             doc,
+            surface,
             cancelled,
+            reloaded,
         }) => {
-            if (cancelled || !doc || doc === initialDoc) {
+            if (cancelled || !reloaded) {
                 return;
             }
 
-            const matchedDoc = doc;
-            const viewer = options.pdfViewerRef.value;
+            // The owner that admitted the reload also fences its placement.
+            // A later document, generation or revision cannot inherit it.
+            const isCurrentReload = () => surface
+                ? options.openSurface?.snapshot.value.generation === surface.generation
+                    && options.openSurface.snapshot.value.identity?.documentId === surface.identity?.documentId
+                    && options.openSurface.snapshot.value.identity?.documentRevision === surface.identity?.documentRevision
+                : options.pdfDocument.value === doc;
             if (options.openSurface) {
-                if (!await waitForOpenSurfaceVisualSettle()) {
+                if (!await waitForOpenSurfaceVisualSettle(isCurrentReload)) {
                     return;
                 }
-            } else if (viewer?.waitForViewerLoadSettled) {
+            } else if (options.pdfViewerRef.value?.waitForViewerLoadSettled) {
                 const timeoutController = new AbortController();
                 try {
                     const didSettle = await Promise.race([
-                        viewer.waitForViewerLoadSettled().then(() => true),
+                        options.pdfViewerRef.value.waitForViewerLoadSettled().then(() => true),
                         delay(PDF_VIEWER_LOAD_SETTLE_TIMEOUT_MS, { signal: timeoutController.signal }).then(() => false),
                     ]);
                     if (!didSettle) {
@@ -135,11 +147,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                     timeoutController.abort();
                 }
             }
-            if (isCancelled.value) {
-                return;
-            }
-
-            if (options.pdfDocument.value !== matchedDoc) {
+            if (isCancelled.value || !isCurrentReload()) {
                 return;
             }
             try {
@@ -152,7 +160,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             } catch (error) {
                 logReloadWaiterRecovery('post-reload tick', error);
             }
-            if (Boolean(isCancelled.value) || options.pdfDocument.value !== matchedDoc) {
+            if (Boolean(isCancelled.value) || !isCurrentReload()) {
                 return;
             }
             if (!shouldRestoreScroll) {
@@ -166,7 +174,8 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 BrowserLogger.diagnostic('loader', 'Skipped redundant PDF reload page restore', {pageToRestore: options.pageToRestore});
                 return;
             }
-            const currentViewportInteractionEpoch = readUserViewportInteractionEpoch(viewer ?? null);
+            const viewer = options.pdfViewerRef.value;
+            const currentViewportInteractionEpoch = readUserViewportInteractionEpoch(viewer);
             if (
                 initialViewportInteractionEpoch !== null
                 && currentViewportInteractionEpoch !== null
@@ -179,7 +188,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
                 });
                 return;
             }
-            restoreReloadScroll(viewer ?? null, options.pageToRestore);
+            restoreReloadScroll(viewer, options.pageToRestore);
         });
 
     return {
