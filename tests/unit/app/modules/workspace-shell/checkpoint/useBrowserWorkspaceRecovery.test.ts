@@ -32,54 +32,52 @@ import { cast } from '@tests/helpers/cast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
-// The browser stores are the boundary: what recovery stores is what a later
-// session recovers from.
+// Capability output is the durable document and checkpoint a later session reads.
 const stores = vi.hoisted(() => ({
     documents: [] as string[],
     readableDocuments: new Map<string, Uint8Array>(),
     checkpoints: [] as unknown[],
 }));
 
-vi.mock('@app/platform/browserDocumentStore', () => ({browserDocumentStore: {
-    createStoredDocument: vi.fn(async (fileName: string, bytes: Uint8Array) => {
-        stores.documents.push(fileName);
-        const ref = `/browser-recovery/${String(stores.documents.length)}-${fileName}`;
-        stores.readableDocuments.set(ref, bytes.slice());
-        return ref;
-    }),
-    read: vi.fn(async (ref: string) => {
-        const bytes = stores.readableDocuments.get(ref);
-        if (!bytes) throw new Error(`Browser document not found: ${ref}`);
-        return bytes;
-    }),
-    cleanupDetachedDocument: vi.fn(async (ref: string) => stores.readableDocuments.delete(ref)),
-}}));
-vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => ({
-    loadBrowserWorkspaceRecovery: vi.fn(async () => {
+const recovery = {
+    getOwnerId: () => 'owner-1',
+    load: async () => {
         const checkpoint = stores.checkpoints.at(-1) as IWorkspaceCheckpoint | undefined;
         return checkpoint ? {
             checkpoint,
             generation: stores.checkpoints.length,
             snapshotRefs: checkpoint.tabs.flatMap(tab => tab.isDirty && tab.workingCopyRef ? [tab.workingCopyRef] : []),
         } : null;
-    }),
-    saveBrowserWorkspaceRecovery: vi.fn(async (_ownerId: string, generation: number, checkpoint: unknown) => {
+    },
+    save: async (_ownerId: string, generation: number, checkpoint: unknown) => {
         stores.checkpoints.push(checkpoint);
         return {
             saved: true,
             generation: generation + 1,
         };
+    },
+    clear: async (_ownerId: string, generation: number) => ({
+        saved: true,
+        generation,
     }),
-    clearBrowserWorkspaceRecovery: vi.fn(async (_ownerId: string, generation: number) => ({
+    touch: async (_ownerId: string, generation: number) => ({
         saved: true,
         generation,
-    })),
-    touchBrowserWorkspaceRecovery: vi.fn(async (_ownerId: string, generation: number) => ({
-        saved: true,
-        generation,
-    })),
-}));
-vi.mock('@app/platform/browserWindowTabs', () => ({getBrowserWindowRecoveryOwnerId: () => 'owner-1'}));
+    }),
+};
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({recovery: {
+    async createSnapshot(fileName: string, bytes: Uint8Array) {
+        stores.documents.push(fileName);
+        const ref = requireDocumentRef(`/browser-recovery/${String(stores.documents.length)}-${fileName}`);
+        stores.readableDocuments.set(ref, bytes.slice());
+        return {
+            ref,
+            revisionToken: requireDocumentRevisionToken('recovery-revision'),
+        };
+    },
+    cleanupSnapshot: async (ref: string) => { stores.readableDocuments.delete(ref); },
+}})}));
+
 // The desktop crash checkpoint's boundary: the checkpoints main saved.
 const desktop = vi.hoisted(() => ({
     saved: [] as unknown[],
@@ -87,15 +85,13 @@ const desktop = vi.hoisted(() => ({
         desktop.saved.push(checkpoint);
     },
 }));
-vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({saveWorkspaceCheckpoint: (checkpoint: unknown) => desktop.save(checkpoint)})}));
+vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
+    browserRecovery: recovery,
+    saveWorkspaceCheckpoint: (checkpoint: unknown) => desktop.save(checkpoint),
+})}));
 vi.mock('@app/utils/platform', async importOriginal => ({
     ...await importOriginal<object>(),
     waitForDesktopPlatformBridge: async () => undefined,
-}));
-vi.mock('@app/platform/browser/browserDocumentLeaseStore', () => ({
-    createBrowserDocumentLiveLease: vi.fn(async () => ({generation: 1})),
-    saveBrowserDocumentLiveLease: vi.fn(async () => ({generation: 1})),
-    releaseBrowserDocumentLiveLease: vi.fn(async () => {}),
 }));
 
 const { useBrowserWorkspaceRecovery } = await import(
@@ -269,15 +265,14 @@ describe('browser workspace recovery', () => {
         const session = mountLinkedDocumentRecovery(async () => PDF_BYTES, ref(0), adoptedRef);
         await vi.advanceTimersByTimeAsync(1_000);
         const replacementRef = requireDocumentRef(latestCheckpointRefs()[0]);
-        const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
         expect(replacementRef).not.toBe(adoptedRef);
-        await expect(browserDocumentStore.read(adoptedRef)).resolves.toEqual(PDF_BYTES);
-        await expect(browserDocumentStore.read(replacementRef)).resolves.toEqual(PDF_BYTES);
+        expect(stores.readableDocuments.get(adoptedRef)).toEqual(PDF_BYTES);
+        expect(stores.readableDocuments.get(replacementRef)).toEqual(PDF_BYTES);
 
         session.setDirty(false);
         await vi.advanceTimersByTimeAsync(1_000);
-        await expect(browserDocumentStore.read(adoptedRef)).resolves.toEqual(PDF_BYTES);
-        await expect(browserDocumentStore.read(replacementRef)).rejects.toThrow('Browser document not found');
+        expect(stores.readableDocuments.get(adoptedRef)).toEqual(PDF_BYTES);
+        expect(stores.readableDocuments.has(replacementRef)).toBe(false);
     });
 
     it('updates linked reading views while retaining unchanged dirty recovery bytes', async () => {
@@ -431,8 +426,7 @@ describe('browser workspace recovery', () => {
             await vi.advanceTimersByTimeAsync(1_000);
             expect(diagnostics.some(message => message.includes('Failed to refresh recovery snapshot') && message.includes(error.message))).toBe(true);
             expect(latestCheckpointRefs()).toEqual(refs);
-            const {browserDocumentStore} = await import('@app/platform/browserDocumentStore');
-            await expect(browserDocumentStore.read(requireDocumentRef(refs[0]))).resolves.toEqual(PDF_BYTES);
+            expect(stores.readableDocuments.get(requireDocumentRef(refs[0]))).toEqual(PDF_BYTES);
         } finally {
             warning.mockRestore();
         }

@@ -44,7 +44,7 @@ import {
     hasNativePathBackedSource,
     alignLoadedPathSourceLength,
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
-import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import { PDF_COMBINE_MAX_OUTPUT_BYTES } from '@contracts/pdfCombineOutputPolicy';
 import {
     collectExpectedNativeIdentityIds,
     createDocumentMutationRevisionOptions,
@@ -93,7 +93,7 @@ interface IWorkingCopyPersistOptions {
     expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
 }
 
-const MAX_IN_MEMORY_PDF_BYTES = BROWSER_MAX_FULL_READ_BYTES;
+const MAX_IN_MEMORY_PDF_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 
 export function createDocumentPersistence(
     state: IDocumentSessionState,

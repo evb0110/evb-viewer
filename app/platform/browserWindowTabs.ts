@@ -20,15 +20,22 @@ import {
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     claimBrowserWorkspaceRecoveryOwner,
+    clearBrowserWorkspaceRecovery,
+    saveBrowserWorkspaceRecovery,
+    touchBrowserWorkspaceRecovery,
     loadBrowserWorkspaceRecoveries,
     loadBrowserWorkspaceRecovery,
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import {
+    createBrowserDocumentLiveLease,
+    releaseBrowserDocumentLiveLease,
+    saveBrowserDocumentLiveLease,
     holdLeaseOwnerLock,
     holdsLeaseOwnerLock,
     loadLiveLeaseOwnerIds,
 } from '@app/platform/browser/browserDocumentLeaseStore';
+import type { TDocumentRef } from '@contracts/documentRef';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
@@ -985,8 +992,71 @@ async function holdRecoveryOwnerLock() {
         }
     }
 }
+// Recovery records and their live document leases share this platform owner.
+let recoveryLiveLease: {
+    ownerId: string;
+    generation: number
+} | null = null;
+
+async function releaseRecoveryLiveLease() {
+    if (!recoveryLiveLease) return;
+    const lease = recoveryLiveLease;
+    try {
+        await releaseBrowserDocumentLiveLease(lease.ownerId, lease.generation);
+        recoveryLiveLease = null;
+    } catch {
+        // Retain the generation so the next clean checkpoint retries release.
+    }
+}
+
+async function publishRecoveryLiveLease(ownerId: string, refs: TDocumentRef[]) {
+    try {
+        const dependencies = refs.map(ref => ({ref}));
+        const lease = recoveryLiveLease
+            ? await saveBrowserDocumentLiveLease(ownerId, recoveryLiveLease.generation, 'active', dependencies)
+            : await createBrowserDocumentLiveLease(ownerId, dependencies);
+        recoveryLiveLease = {
+            ownerId,
+            generation: lease.generation,
+        };
+    } catch (error) {
+        // A later successful record write or heartbeat reacquires the lease.
+        recoveryLiveLease = null;
+        BrowserLogger.warn('workspace-recovery', 'Failed to publish browser document live lease', error);
+    }
+}
+
 export const browserWindowTabsCapability: IWindowTabsCapability = {
+    browserRecovery: {
+        getOwnerId: getBrowserWindowRecoveryOwnerId,
+        async load(ownerId) {
+            if (recoveryLiveLease && recoveryLiveLease.ownerId !== ownerId) {
+                await releaseRecoveryLiveLease();
+                recoveryLiveLease = null;
+            }
+            return loadBrowserWorkspaceRecovery(ownerId);
+        },
+        async save(ownerId, expectedGeneration, checkpoint, snapshotRefs, liveDocumentRefs) {
+            const outcome = await saveBrowserWorkspaceRecovery(ownerId, expectedGeneration, checkpoint, snapshotRefs);
+            if (outcome.saved) await publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+            return outcome;
+        },
+        async touch(ownerId, expectedGeneration, liveDocumentRefs) {
+            const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
+            if (outcome.saved && (recoveryLiveLease || liveDocumentRefs.length > 0)) {
+                await publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+            }
+            return outcome;
+        },
+        async clear(ownerId, expectedGeneration) {
+            const outcome = await clearBrowserWorkspaceRecovery(ownerId, expectedGeneration);
+            if (outcome.saved) await releaseRecoveryLiveLease();
+            return outcome;
+        },
+    },
     async saveWorkspaceCheckpoint() {},
+    // Restore acknowledgement cannot delete the browser's only dirty bytes.
+    // The browser writer retires them after a replacement or clean checkpoint.
     async acknowledgeWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},

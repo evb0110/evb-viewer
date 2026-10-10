@@ -766,7 +766,13 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'createWorkingCopyFromPath'
     | 'parsePdfAnnotations'
     | 'cleanupFile'
-> {}
+> {recovery?: {
+    createSnapshot(fileName: string, data: Uint8Array, sourceRef?: TDocumentRef): Promise<{
+        ref: TDocumentRef;
+        revisionToken: TDocumentRevisionToken;
+    }>;
+    cleanupSnapshot(ref: TDocumentRef): Promise<void>;
+};}
 
 export interface IDocumentsReadCapability extends Pick<
     IDocumentsFileCapability,

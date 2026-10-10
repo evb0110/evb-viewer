@@ -22,6 +22,7 @@ import {
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requirePaneId} from '@contracts/editorPanes';
@@ -67,10 +68,12 @@ describe('browserWorkspaceRecoveryStore', () => {
     });
 
     it('publishes and clears only committed recovery checkpoints', async () => {
-        await expect(saveBrowserWorkspaceRecovery('window:1', 0, checkpoint, [
+        const recovery = browserWindowTabsCapability.browserRecovery;
+        if (!recovery) throw new Error('Browser recovery capability is unavailable');
+        await expect(recovery.save('window:1', 0, checkpoint, [
             requireDocumentRef('browser://documents/recovery.pdf'),
             requireDocumentRef('browser://documents/not-in-checkpoint.pdf'),
-        ])).resolves.toEqual({
+        ], [requireDocumentRef('browser://documents/source.pdf')])).resolves.toEqual({
             saved: true,
             generation: 1,
         });
@@ -84,7 +87,13 @@ describe('browserWorkspaceRecoveryStore', () => {
             updatedAt: expect.any(Number),
         });
 
-        await expect(clearBrowserWorkspaceRecovery('window:1', 1))
+        await browserWindowTabsCapability.acknowledgeWorkspaceCheckpoint();
+        await expect(recovery.load('window:1')).resolves.toEqual(expect.objectContaining({
+            checkpoint,
+            snapshotRefs: ['browser://documents/recovery.pdf'],
+        }));
+
+        await expect(recovery.clear('window:1', 1))
             .resolves.toEqual({
                 saved: true,
                 generation: 0,

@@ -20,6 +20,7 @@ import {
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
 } from '@contracts/workspaceCheckpoint';
+import type { TDocumentRef } from '@contracts/documentRef';
 import * as v from 'valibot';
 
 const noArgs = v.strictTuple([]);
@@ -161,7 +162,38 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
     },
 });
 
-interface IWindowTabsLifecycleCapability {notifyRendererReady: () => void;}
+/** Browser snapshot CAS stays separate from main-owned desktop checkpoints. */
+export interface IBrowserWorkspaceRecoveryCapability {
+    getOwnerId(): string | null;
+    load(ownerId: string): Promise<{
+        generation: number;
+        checkpoint: IWorkspaceCheckpoint;
+        snapshotRefs: TDocumentRef[];
+    } | null>;
+    save(
+        ownerId: string,
+        expectedGeneration: number,
+        checkpoint: IWorkspaceCheckpoint,
+        snapshotRefs: TDocumentRef[],
+        liveDocumentRefs: TDocumentRef[],
+    ): Promise<{
+        saved: boolean;
+        generation: number
+    }>;
+    touch(ownerId: string, expectedGeneration: number, liveDocumentRefs: TDocumentRef[]): Promise<{
+        saved: boolean;
+        generation: number
+    }>;
+    clear(ownerId: string, expectedGeneration: number): Promise<{
+        saved: boolean;
+        generation: number
+    }>;
+}
+
+interface IWindowTabsLifecycleCapability {
+    notifyRendererReady: () => void;
+    browserRecovery?: IBrowserWorkspaceRecoveryCapability;
+}
 
 export type IWindowTabsApi = Pick<
     TFeatureCapability<typeof WINDOW_TABS_PLATFORM_FEATURE>,
