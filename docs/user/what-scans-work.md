@@ -12,6 +12,10 @@ or the shared raster cap), single pages and two-page spreads, and Latin, Hebrew,
 text represented in the reference corpus. Moderate skew, uneven paper tone,
 book-gutter shadow, marginal notes, stamps, sparse front matter, and occasional
 illustrations embedded in otherwise textual pages are supported conditions.
+A scan whose PDF places one pixel per point on a page longer than half a
+metre declares no real resolution; it is measured as a 300 DPI scan (600 DPI
+when even that leaves the page longer than half a metre), and its cleaned
+pages keep the source's page size.
 
 The feature may preserve original PDF content when the lossless path can prove
 that the requested crop, canvas, and placement are source-preserving. Other
@@ -21,11 +25,13 @@ margins, alignment, and page mapping are part of the output contract.
 ## Automatic routes
 
 Auto binarizes every page with the paper/ink midpoint route (reported as
-Otsu). Each stroke is cut between the paper and the ink core measured within
-one and a half x-heights of it, slightly toward the paper, so a stroke keeps
-its printed weight and a hairline narrower than the scanner's blur stays
-joined. Where the nearby ink is less than half as deep as the page's ink, the
-page-wide midpoint applies, so faint show-through stays paper.
+Otsu). Each stroke is cut between the paper found within one and a half
+x-heights of it and its own ink core found within half an x-height, slightly
+toward the paper, so a stroke keeps its printed weight, a hairline narrower
+than the scanner's blur stays joined, and a light dash beside dark digits
+keeps its own cut. Where the nearby ink is shallower than three tenths of the
+page's ink depth, the page-wide midpoint applies, so faint show-through stays
+paper.
 
 Wolf and Sauvola remain available as explicit choices. They normalize contrast
 per window, which thickens light words more than dark ones; Auto no longer

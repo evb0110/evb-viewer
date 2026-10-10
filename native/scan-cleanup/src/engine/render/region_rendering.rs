@@ -2,6 +2,7 @@ use super::*;
 use crate::auto_dewarp::AutoDewarpResult;
 use crate::content::ContentResult;
 use crate::DewarpOptions;
+use source_gray::render_source_gray;
 
 pub(crate) struct DetailPageInput<'a> {
     pub sources: super::DetailRenderSources<'a>,
@@ -2005,22 +2006,8 @@ fn prepare_render_planes(
         };
     // Only B&W and Mixed threshold the routing source in output space;
     // Grayscale and Color publish the cleaned tonal planes alone.
-    let rendered_source_gray = output_mode_uses_source_gray(options.output_mode).then(|| {
-        if render_plan.has_dewarp() {
-            rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
-                render_plan.output_to_source(point)
-            })
-        } else {
-            render_affine_gray(
-                routing_source,
-                rendered_width,
-                rendered_height,
-                render_plan
-                    .affine_inverse()
-                    .expect("cleanup affine render plan is available"),
-            )
-        }
-    });
+    let rendered_source_gray = output_mode_uses_source_gray(options.output_mode)
+        .then(|| render_source_gray(routing_source, render_plan, rendered_width, rendered_height));
     timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     // Coarse tonal evidence is valid for deriving the global tone curve, but
     // only pixel-resolution picture geometry may form a boundary in the
@@ -3689,3 +3676,6 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
 #[cfg(test)]
 #[path = "region_rendering_tests.rs"]
 mod tests;
+
+#[path = "source_gray.rs"]
+mod source_gray;
