@@ -62,7 +62,8 @@ describe('sha256_file shell helper', () => {
         }
     });
 
-    it('uses sha256sum when shasum is unavailable', () => {
+    // Bash and the /usr/bin/awk shell fixtures run only on POSIX hosts.
+    it.skipIf(process.platform === 'win32')('uses sha256sum when shasum is unavailable', () => {
         const dir = createTempDir();
         const filePath = join(dir, 'payload.txt');
         writeFileSync(filePath, 'hello');
@@ -80,7 +81,8 @@ describe('sha256_file shell helper', () => {
         expect(runSha256WithPath(binDir, filePath)).toBe(expectedSha256);
     });
 
-    it('falls back to certutil-style output when Unix checksum tools are unavailable', () => {
+    // Bash and the /usr/bin/awk shell fixtures run only on POSIX hosts.
+    it.skipIf(process.platform === 'win32')('falls back to certutil-style output when Unix checksum tools are unavailable', () => {
         const dir = createTempDir();
         const filePath = join(dir, 'payload.txt');
         writeFileSync(filePath, 'hello');

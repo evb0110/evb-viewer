@@ -355,10 +355,10 @@ describe('diagnostic frame capture', () => {
             outDir: '/repo/.devkit/blink-video',
         });
 
-        expect(commands.mp4.outputPath).toBe('/repo/.devkit/blink-video/trace.mp4');
-        expect(commands.mp4.args).toContain('/repo/.devkit/blink-video/frames/frame-*.jpg');
+        expect(commands.mp4.outputPath).toBe(join('/repo/.devkit/blink-video', 'trace.mp4'));
+        expect(commands.mp4.args).toContain(join('/repo/.devkit/blink-video/frames', 'frame-*.jpg'));
         expect(commands.mp4.args).toContain('libx264');
-        expect(commands.contactSheet.outputPath).toBe('/repo/.devkit/blink-video/contact-sheet.jpg');
+        expect(commands.contactSheet.outputPath).toBe(join('/repo/.devkit/blink-video', 'contact-sheet.jpg'));
         expect(commands.contactSheet.args).toContain('select=\'not(mod(n\\,4))\',scale=320:-1,tile=5x5');
     });
 

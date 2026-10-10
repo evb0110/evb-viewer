@@ -73,8 +73,8 @@ describe('run-build-strict', () => {
     it('adds a heap floor for strict build child processes', () => {
         const env = getStrictBuildEnv({});
         expect(env.NODE_OPTIONS).toBe('--max-old-space-size=6144');
-        expect(env.EVB_NUXT_BUILD_DIR).toMatch(/\.devkit\/cache\/strict-build\/nuxt-build$/u);
-        expect(env.EVB_NUXT_VITE_CACHE_DIR).toMatch(/\.devkit\/cache\/strict-build\/vite-cache$/u);
+        expect(env.EVB_NUXT_BUILD_DIR).toBe(path.resolve('.devkit', 'cache', 'strict-build', 'nuxt-build'));
+        expect(env.EVB_NUXT_VITE_CACHE_DIR).toBe(path.resolve('.devkit', 'cache', 'strict-build', 'vite-cache'));
         expect(getStrictBuildEnv({ NODE_OPTIONS: '--trace-warnings' }).NODE_OPTIONS)
             .toBe('--trace-warnings --max-old-space-size=6144');
     });

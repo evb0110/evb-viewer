@@ -1,5 +1,6 @@
 import {
     access,
+    link,
     mkdir,
     mkdtemp,
     readFile,
@@ -996,16 +997,46 @@ describe('scan-cleanup-core conversion coverage', () => {
         });
     });
 
-    it('accumulates a bounded compact-source budget across every full Auto batch', {timeout: 30_000}, async () => {
+    // Each independent conversion keeps the full batch boundary and the existing
+    // timeout. Combining successful, canceled and corrupt runs makes fixture I/O
+    // consume the budget for unrelated outcomes on Windows.
+    it.each([
+        'complete',
+        'insufficient scratch',
+        'canceled probe',
+        'incomplete probe',
+        'truncated sidecar',
+    ] as const)('accumulates a bounded compact-source budget across every full Auto batch (%s)', {timeout: 30_000}, async (scenario) => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-xlarge-auto-budget-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
         const outputPdfPath = join(root, 'output.pdf');
         const evidenceDir = join(root, 'evidence');
-        const incompleteEvidenceDir = join(root, 'incomplete-evidence');
         const documentPageCount = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
         const progress: TScanCleanupProgress[] = [];
         await writeFile(sourcePdfPath, '%PDF-xlarge-auto-source');
+        // Reuse identical immutable fixture bytes through hard links. Thousands
+        // of repeated writes otherwise dominate this bounded-batch proof on NTFS.
+        // Four copies leave room for the retained raster links within NTFS's 1,024-link limit.
+        const fixturePaths = [
+            0,
+            1,
+            2,
+            3,
+        ].map(index => ({
+            png: join(root, `fixture-${index}.png`),
+            ppm: join(root, `fixture-${index}.ppm`),
+            composite: join(root, `fixture-${index}-composite`),
+            outputMetadata: join(root, `fixture-${index}-output.json`),
+            pageMetadata: join(root, `fixture-${index}-page.json`),
+        }));
+        await Promise.all(fixturePaths.flatMap(fixture => [
+            writeFile(fixture.png, PNG),
+            writeFile(fixture.ppm, PPM),
+            writeFile(fixture.composite, 'composite'),
+            writeFile(fixture.outputMetadata, JSON.stringify(compactOutputMetadata())),
+            writeFile(fixture.pageMetadata, JSON.stringify(pageMetadata())),
+        ]));
 
         const pageSizeStore: IPdfPageSizeStore = {
             pageCount: documentPageCount,
@@ -1052,14 +1083,13 @@ describe('scan-cleanup-core conversion coverage', () => {
             backgroundDpi: 120,
             pageNumber,
         }));
-        let sourceDpi: IScanCleanupPageRasterSource | ISourceDpiDetectionResult = {
+        const sourceDpi: IScanCleanupPageRasterSource | ISourceDpiDetectionResult = {
             detected: true,
             documentDpi: 300,
             getPageRaster: sourceRasterCalls,
         };
-        let truncateBatchSummarySidecar = false;
         let didTruncateBatchSummarySidecar = false;
-        let thirdRunSidecarCalls = 0;
+        let sidecarCalls = 0;
         const hashNativeBinary = vi.fn(async () => 'a'.repeat(64));
         const runSidecar = vi.fn(async (
             _binaryPath,
@@ -1075,12 +1105,13 @@ describe('scan-cleanup-core conversion coverage', () => {
                     outputPath: string;
                 }>;
             }>};
-            await Promise.all(manifest.pages.map(async page => {
+            await Promise.all(manifest.pages.map(async (page, index) => {
+                const fixture = fixturePaths[index % fixturePaths.length]!;
                 const output = page.outputs[0]!;
                 await Promise.all([
-                    writeFile(output.outputPath, 'composite'),
-                    writeFile(output.metadataPath, JSON.stringify(compactOutputMetadata())),
-                    writeFile(page.pageMetadataPath, JSON.stringify(pageMetadata())),
+                    link(fixture.composite, output.outputPath),
+                    link(fixture.outputMetadata, output.metadataPath),
+                    link(fixture.pageMetadata, page.pageMetadataPath),
                 ]);
             }));
             for (const [index] of manifest.pages.entries()) {
@@ -1091,7 +1122,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                     pageNumber: index + 1,
                 });
             }
-            if (truncateBatchSummarySidecar && ++thirdRunSidecarCalls === 2) {
+            if (scenario === 'truncated sidecar' && ++sidecarCalls === 2) {
                 const sidecarPath = findScratchFile(root, 'scan-cleanup-batch-summaries.jsonl');
                 if (sidecarPath === null) {
                     throw new Error('test could not locate the coordinator batch-summary sidecar');
@@ -1134,7 +1165,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                 _source: string,
                 outputPath: string,
             ) => {
-                await writeFile(outputPath, PNG);
+                await link(fixturePaths[_pageNumber % fixturePaths.length]!.png, outputPath);
             }),
             renderPagePpm: vi.fn(async (
                 _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
@@ -1143,45 +1174,46 @@ describe('scan-cleanup-core conversion coverage', () => {
                 _source: string,
                 outputPath: string,
             ) => {
-                await writeFile(outputPath, PPM);
+                await link(fixturePaths[_pageNumber % fixturePaths.length]!.ppm, outputPath);
             }),
             runSidecar,
             runCommand,
             getAvailableScratchBytes: vi.fn(async () => null),
             hashNativeBinary,
         };
-        const refusedOutputPdfPath = join(root, 'insufficient-scratch-output.pdf');
-        dependencies.getAvailableScratchBytes = vi.fn(async () => 520 * 1024 * 1024);
-        await expect(runScanCleanupConversion(
-            {
-                sourcePdfPath,
-                outputPdfPath: refusedOutputPdfPath,
-                options: {
-                    ...options,
-                    outputMode: 'auto',
+        const signal = new AbortController();
+        if (scenario === 'insufficient scratch') {
+            dependencies.getAvailableScratchBytes = vi.fn(async () => 520 * 1024 * 1024);
+        } else if (scenario === 'canceled probe') {
+            dependencies.detectSourceDpi = vi.fn(async () => {
+                signal.abort(new Error('conversion canceled during the raster probe'));
+                throw signal.signal.reason;
+            });
+        } else if (scenario === 'incomplete probe') {
+            const rasterByPage = new Map([[
+                1,
+                {
+                    dpi: 300,
+                    width: 2_550,
+                    height: 3_300,
+                    hasBilevelLayer: true,
+                    backgroundDpi: 120,
                 },
-                detectionResultStore,
-            },
-            {
-                ...paths(root),
-                pdfimagesBinary: '/pdfimages',
-            },
-            new AbortController().signal,
-            vi.fn(),
-            policy,
-            log,
-            dependencies,
-        )).rejects.toMatchObject({
-            code: 'insufficient-scratch',
-            availableBytes: 520 * 1024 * 1024,
-            requiredBytes: expect.any(Number),
-        });
-        expect(existsSync(refusedOutputPdfPath)).toBe(false);
-        expect(runSidecar).not.toHaveBeenCalled();
-        hashNativeBinary.mockClear();
-        dependencies.getAvailableScratchBytes = vi.fn(async () => null);
+            ]]);
+            dependencies.detectSourceDpi = vi.fn(async (...args) => {
+                const pageNumbers = args[5];
+                if (pageNumbers?.some((pageNumber: number) => pageNumber > 1)) {
+                    throw new Error('test source raster probe was incomplete');
+                }
+                return {
+                    detected: true,
+                    documentDpi: 300,
+                    getPageRaster: (pageNumber: number) => rasterByPage.get(pageNumber),
+                };
+            });
+        }
         try {
-            const summary = await runScanCleanupConversion(
+            const conversion = runScanCleanupConversion(
                 {
                     sourcePdfPath,
                     outputPdfPath,
@@ -1195,12 +1227,44 @@ describe('scan-cleanup-core conversion coverage', () => {
                     ...paths(root),
                     pdfimagesBinary: '/pdfimages',
                 },
-                new AbortController().signal,
+                signal.signal,
                 value => progress.push(value),
                 policy,
                 log,
                 dependencies,
             );
+            if (scenario === 'insufficient scratch') {
+                await expect(conversion).rejects.toMatchObject({
+                    code: 'insufficient-scratch',
+                    availableBytes: 520 * 1024 * 1024,
+                    requiredBytes: expect.any(Number),
+                });
+                expect(existsSync(outputPdfPath)).toBe(false);
+                expect(runSidecar).not.toHaveBeenCalled();
+                return;
+            }
+            if (scenario === 'canceled probe') {
+                // Every cached page rejects, including pages the caller has not
+                // awaited; the console-error guard still catches unhandled failures.
+                await expect(conversion).rejects.toThrow('conversion canceled during the raster probe');
+                return;
+            }
+            if (scenario === 'incomplete probe') {
+                await expect(conversion).rejects.toMatchObject({name: 'ScanCleanupStreamingEvidenceError'});
+                return;
+            }
+            if (scenario === 'truncated sidecar') {
+                await expect(conversion).rejects.toMatchObject({
+                    code: 'SCAN_CLEANUP_STREAMING_EVIDENCE_INVALID',
+                    name: 'ScanCleanupStreamingEvidenceError',
+                });
+                expect(didTruncateBatchSummarySidecar).toBe(true);
+                expect(await readFile(join(evidenceDir, 'scan-cleanup-batch-summaries.jsonl'), 'utf8'))
+                    .toContain('{"batchIndex":0');
+                expect(sourceRasterCalls).toHaveBeenCalledTimes(documentPageCount);
+                return;
+            }
+            const summary = await conversion;
             expect(summary).toMatchObject({
                 inputPages: documentPageCount,
                 outputPages: documentPageCount,
@@ -1217,127 +1281,11 @@ describe('scan-cleanup-core conversion coverage', () => {
                 percent: 100,
             });
             expect(hashNativeBinary).toHaveBeenCalledTimes(3);
-            // The canvas pass and the batches each walk the document in page
-            // order; each probe covers a window of pages, not one page.
+            // The canvas pass and the batches walk the document in page order;
+            // each probe covers a window of pages, not one page.
             expect(vi.mocked(dependencies.detectSourceDpi).mock.calls.length)
                 .toBeLessThanOrEqual(2 * Math.ceil(documentPageCount / 256) + 2);
-            // Canceling while a window is probed rejects every page the window
-            // cached, not only the one the caller awaits; none of them may
-            // surface as an unhandled rejection.
-            const cancel = new AbortController();
-            const probeSourceDpi = dependencies.detectSourceDpi;
-            dependencies.evidenceDirectory = join(root, 'canceled-evidence');
-            dependencies.detectSourceDpi = vi.fn(async () => {
-                cancel.abort(new Error('conversion canceled during the raster probe'));
-                throw cancel.signal.reason;
-            });
-            await expect(runScanCleanupConversion(
-                {
-                    sourcePdfPath,
-                    outputPdfPath: join(root, 'canceled-output.pdf'),
-                    options: {
-                        ...options,
-                        outputMode: 'auto',
-                    },
-                    detectionResultStore,
-                },
-                {
-                    ...paths(root),
-                    pdfimagesBinary: '/pdfimages',
-                },
-                cancel.signal,
-                vi.fn(),
-                policy,
-                log,
-                dependencies,
-            )).rejects.toThrow('conversion canceled during the raster probe');
-            dependencies.detectSourceDpi = probeSourceDpi;
-            dependencies.evidenceDirectory = evidenceDir;
-
-            const rasterByPage = new Map([[
-                1,
-                {
-                    dpi: 300,
-                    width: 2_550,
-                    height: 3_300,
-                    hasBilevelLayer: true,
-                    backgroundDpi: 120,
-                },
-            ]]);
-            sourceDpi = {
-                detected: true,
-                documentDpi: 300,
-                getPageRaster: pageNumber => rasterByPage.get(pageNumber),
-            };
-            dependencies.detectSourceDpi = vi.fn(async (...args) => {
-                const pageNumbers = args[5];
-                if (pageNumbers?.some((pageNumber: number) => pageNumber > 1)) {
-                    throw new Error('test source raster probe was incomplete');
-                }
-                return sourceDpi;
-            });
-            dependencies.evidenceDirectory = incompleteEvidenceDir;
-            await expect(runScanCleanupConversion(
-                {
-                    sourcePdfPath,
-                    outputPdfPath: join(root, 'incomplete-legacy-output.pdf'),
-                    options: {
-                        ...options,
-                        outputMode: 'auto',
-                    },
-                    detectionResultStore,
-                },
-                {
-                    ...paths(root),
-                    pdfimagesBinary: '/pdfimages',
-                },
-                new AbortController().signal,
-                vi.fn(),
-                policy,
-                vi.fn<TScanCleanupLog>(),
-                dependencies,
-            )).rejects.toMatchObject({name: 'ScanCleanupStreamingEvidenceError'});
-
-            dependencies.evidenceDirectory = evidenceDir;
-            sourceDpi = {
-                detected: true,
-                documentDpi: 300,
-                getPageRaster: sourceRasterCalls,
-            };
-            dependencies.detectSourceDpi = vi.fn(async () => sourceDpi);
-            const truncatedEvidenceDir = join(root, 'truncated-evidence');
-            truncateBatchSummarySidecar = true;
-            thirdRunSidecarCalls = 0;
-            dependencies.evidenceDirectory = truncatedEvidenceDir;
-            const truncatedRun = runScanCleanupConversion(
-                {
-                    sourcePdfPath,
-                    outputPdfPath: join(root, 'truncated-output.pdf'),
-                    options: {
-                        ...options,
-                        outputMode: 'auto',
-                    },
-                    detectionResultStore,
-                },
-                {
-                    ...paths(root),
-                    pdfimagesBinary: '/pdfimages',
-                },
-                new AbortController().signal,
-                vi.fn(),
-                policy,
-                log,
-                dependencies,
-            );
-            await expect(truncatedRun).rejects.toMatchObject({
-                code: 'SCAN_CLEANUP_STREAMING_EVIDENCE_INVALID',
-                name: 'ScanCleanupStreamingEvidenceError',
-            });
-            expect(didTruncateBatchSummarySidecar).toBe(true);
-            expect(await readFile(join(truncatedEvidenceDir, 'scan-cleanup-batch-summaries.jsonl'), 'utf8'))
-                .toContain('{"batchIndex":0');
         } finally {
-            dependencies.evidenceDirectory = undefined;
             await detectionResultStore.close();
         }
 
@@ -1358,7 +1306,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             .trim()
             .split('\n');
         expect(sidecarLines).toHaveLength(2);
-        expect(sourceRasterCalls).toHaveBeenCalledTimes(documentPageCount * 2);
+        expect(sourceRasterCalls).toHaveBeenCalledTimes(documentPageCount);
     });
 
     it('runs the bounded PPM handoff and publishes a color output', async () => {

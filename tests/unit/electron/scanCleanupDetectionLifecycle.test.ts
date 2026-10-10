@@ -25,7 +25,7 @@ import {
     registerScanCleanupDetectionResultStore, claimScanCleanupDetectionResultStore, releaseScanCleanupDetectionResultStoreOwner,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
 import {
-    readdir, readFile, rm, stat, truncate, writeFile,
+    link, readdir, readFile, rm, stat, truncate, writeFile,
 } from 'fs/promises';
 import {
     join, normalize, sep,
@@ -1075,8 +1075,23 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
 
 export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRendererPageWindow(): Promise<void> {
 
-    const {deps} = await previewDependencies();
+    const {
+        dir,
+        deps,
+    } = await previewDependencies();
     const totalPages = 1_025;
+    // The raster bytes are identical. Reuse immutable fixtures rather than
+    // rewriting 1,025 PNGs on NTFS; multiple seeds leave room for retention links.
+    const rasterFixtures = [
+        0,
+        1,
+        2,
+        3,
+    ].map(index => join(dir, `fixture-${index}.png`));
+    await Promise.all(rasterFixtures.map(path => writeFile(path, PNG)));
+    deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
+        await link(rasterFixtures[pageNumber % rasterFixtures.length]!, outputPath);
+    });
     const pageSize = (pageNumber: number) => ({
         ...DOCUMENT_PAGE_SIZES[0]!,
         pageNumber,

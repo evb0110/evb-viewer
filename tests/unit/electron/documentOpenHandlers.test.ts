@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
     beforeEach,
     describe,
@@ -219,7 +220,7 @@ describe('direct batch open cancellation', () => {
 
         await expect(handlers.collectSupportedFolderPaths('/tmp/source-folder')).resolves.toEqual([]);
         expect(mocks.stat).not.toHaveBeenCalled();
-        expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(1, '/tmp/source-folder/linked.pdf');
+        expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(1, join('/tmp/source-folder', 'linked.pdf'));
         expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(2, '/tmp/source-folder/target.txt');
     });
 

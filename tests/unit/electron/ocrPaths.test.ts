@@ -8,7 +8,14 @@ import {
     it,
     vi,
 } from 'vitest';
+import { join } from 'node:path';
 import { OCR_MODEL_CODES } from '@contracts/ocrLanguages';
+
+const fixturePlatformArch = process.platform === 'win32' ? 'win32-x64' : 'darwin-arm64';
+const toolName = (name: string) => process.platform === 'win32' ? `${name}.exe` : name;
+const tessdataDir = join('/repo/resources', 'tesseract', 'tessdata');
+const tesseractPath = join('/repo/resources', 'tesseract', fixturePlatformArch, 'bin', toolName('tesseract'));
+const popplerDataDir = join('/repo/resources/poppler', fixturePlatformArch, 'share', 'poppler');
 
 const INSTALLED_LANGUAGE_CODES = [
     'ara',
@@ -43,12 +50,12 @@ vi.mock('child_process', () => ({spawn: vi.fn()}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/utils/platformArch', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    resolvePlatformArchTag: () => 'darwin-arm64',
+    resolvePlatformArchTag: () => fixturePlatformArch,
 }));
 vi.mock('@electron/features/ocr/languageModels', () => ({
     TESSDATA_BEST_REF: 'test-tessdata-resource-version',
     ensureRuntimeTessdataSeeded: () => mocks.ensureRuntimeTessdataSeeded(),
-    getRuntimeTessdataDir: () => '/repo/resources/tesseract/tessdata',
+    getRuntimeTessdataDir: () => tessdataDir,
 }));
 
 describe('getOcrToolPaths resource base resolution', () => {
@@ -68,9 +75,10 @@ describe('getOcrToolPaths resource base resolution', () => {
             stderr: '',
         });
         mocks.existsSync.mockImplementation((path: string) => [
-            '/repo/resources/tesseract',
-            '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
-            '/repo/resources/tesseract/tessdata',
+            join('/repo/resources', 'tesseract'),
+            tesseractPath,
+            tessdataDir,
+            ...(process.platform === 'win32' ? [popplerDataDir] : []),
         ].includes(path));
     });
 
@@ -82,11 +90,11 @@ describe('getOcrToolPaths resource base resolution', () => {
         const { getOcrToolPaths } = await import('@electron/features/ocr/main/paths');
 
         expect(getOcrToolPaths()).toMatchObject({
-            tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
-            tessdata: '/repo/resources/tesseract/tessdata',
-            pdftoppm: 'pdftoppm',
-            pdftotext: 'pdftotext',
-            qpdf: 'qpdf',
+            tesseract: tesseractPath,
+            tessdata: tessdataDir,
+            pdftoppm: toolName('pdftoppm'),
+            pdftotext: toolName('pdftotext'),
+            qpdf: toolName('qpdf'),
         });
     });
 
@@ -94,14 +102,14 @@ describe('getOcrToolPaths resource base resolution', () => {
         const { resolveOcrNativeToolPaths } = await import('@electron/features/ocr/main/nativeToolPaths');
 
         expect(resolveOcrNativeToolPaths({
-            exists: candidate => candidate.includes('/tesseract/darwin-arm64/bin/'),
+            exists: candidate => candidate.includes(join('tesseract', 'darwin-arm64', 'bin')),
             isPackaged: false,
             nativeToolsBase: '/repo/resources',
             platform: 'darwin',
             platformArch: 'darwin-arm64',
             tessdataDir: '/runtime/tessdata',
         })).toEqual({
-            tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
+            tesseract: join('/repo/resources', 'tesseract', 'darwin-arm64', 'bin', 'tesseract'),
             tessdata: '/runtime/tessdata',
         });
     });
@@ -113,8 +121,8 @@ describe('getOcrToolPaths resource base resolution', () => {
 
         expect(typeof paths.then).toBe('function');
         await expect(paths).resolves.toMatchObject({
-            tesseract: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
-            tessdata: '/repo/resources/tesseract/tessdata',
+            tesseract: tesseractPath,
+            tessdata: tessdataDir,
         });
         expect(mocks.ensureRuntimeTessdataSeeded).toHaveBeenCalled();
     });
@@ -133,12 +141,12 @@ describe('getOcrToolPaths resource base resolution', () => {
             tools: {
                 tesseract: {
                     found: true,
-                    path: '/repo/resources/tesseract/darwin-arm64/bin/tesseract',
+                    path: tesseractPath,
                     version: '5.5.0',
                 },
                 tessdata: {
                     found: true,
-                    path: '/repo/resources/tesseract/tessdata',
+                    path: tessdataDir,
                     languages: [...INSTALLED_LANGUAGE_CODES],
                     onDemandLanguages: OCR_MODEL_CODES
                         .filter(code => !INSTALLED_LANGUAGE_CODES.includes(code))
@@ -146,19 +154,20 @@ describe('getOcrToolPaths resource base resolution', () => {
                 },
                 pdftoppm: {
                     found: true,
-                    path: 'pdftoppm',
+                    path: toolName('pdftoppm'),
                 },
                 pdftotext: {
                     found: true,
-                    path: 'pdftotext',
+                    path: toolName('pdftotext'),
                 },
                 popplerRuntime: {
-                    dataDirFound: false,
+                    dataDirFound: process.platform === 'win32',
+                    ...(process.platform === 'win32' ? {dataDir: popplerDataDir} : {}),
                     fontConfigDirFound: false,
                 },
                 qpdf: {
                     found: true,
-                    path: 'qpdf',
+                    path: toolName('qpdf'),
                 },
             },
         });
@@ -181,23 +190,23 @@ describe('getOcrToolPaths resource base resolution', () => {
         expect(result.valid).toBe(false);
         expect(result.tools.tesseract).toEqual({
             found: false,
-            path: 'tesseract',
+            path: toolName('tesseract'),
         });
         expect(result.tools.tessdata).toEqual({
             found: false,
-            path: '/repo/resources/tesseract/tessdata',
+            path: tessdataDir,
         });
         expect(result.tools.pdftoppm.found).toBe(false);
         expect(result.tools.pdftotext.found).toBe(false);
         expect(result.tools.qpdf.found).toBe(false);
         expect(result.errors).toEqual(expect.arrayContaining([
-            'Tesseract binary not found: tesseract',
-            'Tessdata directory not found: /repo/resources/tesseract/tessdata',
-            'pdftoppm not found: pdftoppm (install Poppler or bundle it)',
-            'pdftotext not found: pdftotext (install Poppler or bundle it)',
-            'qpdf not found: qpdf (install qpdf or bundle it)',
+            `Tesseract binary not found: ${toolName('tesseract')}`,
+            `Tessdata directory not found: ${tessdataDir}`,
+            `pdftoppm not found: ${toolName('pdftoppm')} (install Poppler or bundle it)`,
+            `pdftotext not found: ${toolName('pdftotext')} (install Poppler or bundle it)`,
+            `qpdf not found: ${toolName('qpdf')} (install qpdf or bundle it)`,
         ]));
-        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('which', ['tesseract'], expect.any(Object));
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(process.platform === 'win32' ? 'where' : 'which', [toolName('tesseract')], expect.any(Object));
     });
 
     it('rejects empty or unreadable tessdata language directories', async () => {
@@ -208,10 +217,10 @@ describe('getOcrToolPaths resource base resolution', () => {
             valid: false,
             tools: {tessdata: {
                 found: true,
-                path: '/repo/resources/tesseract/tessdata',
+                path: tessdataDir,
                 languages: [],
             }},
-            errors: expect.arrayContaining(['No language models found in tessdata: /repo/resources/tesseract/tessdata']),
+            errors: expect.arrayContaining([`No language models found in tessdata: ${tessdataDir}`]),
         });
 
         vi.resetModules();
@@ -223,7 +232,7 @@ describe('getOcrToolPaths resource base resolution', () => {
             valid: false,
             tools: {tessdata: {
                 found: true,
-                path: '/repo/resources/tesseract/tessdata',
+                path: tessdataDir,
                 languages: [],
             }},
         });

@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -56,16 +57,16 @@ describe('sweepStaleOcrTempArtifacts', () => {
         await expect(sweepStaleOcrTempArtifacts(5_000)).resolves.toBe(3);
 
         expect(mocks.lstat).toHaveBeenCalledTimes(4);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/evb-viewer/ocr-stale-merged.pdf', {
+        expect(mocks.rm).toHaveBeenCalledWith(join(mocks.appTempDir, 'ocr-stale-merged.pdf'), {
             force: true,
             recursive: false,
         });
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/evb-viewer/searchable-stale.pdf', {
+        expect(mocks.rm).toHaveBeenCalledWith(join(mocks.appTempDir, 'searchable-stale.pdf'), {
             force: true,
             recursive: false,
         });
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/evb-viewer/ocr-fresh-page.png', expect.anything());
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/evb-viewer/ocr-stale-dir', {
+        expect(mocks.rm).not.toHaveBeenCalledWith(join(mocks.appTempDir, 'ocr-fresh-page.png'), expect.anything());
+        expect(mocks.rm).toHaveBeenCalledWith(join(mocks.appTempDir, 'ocr-stale-dir'), {
             force: true,
             recursive: true,
         });

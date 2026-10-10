@@ -41,7 +41,8 @@ print(json.dumps({"expected": expected, "unexpected": unexpected}))
 }
 
 describe('generated PDF compatibility classifier', () => {
-    it('attributes bootstrap and dependent warnings to the adjacent JPX page', () => {
+    // python3 drives the POSIX verifier with its extensionless Electron/Poppler launchers.
+    it.skipIf(process.platform === 'win32')('attributes bootstrap and dependent warnings to the adjacent JPX page', () => {
         const result = classify([
             'Warning: JpxImage#getJsModule failed to initialize',
             'Warning: Unable to decode image "img_p0_1": "JpxError: OpenJPEG failed to initialize".',
@@ -55,7 +56,8 @@ describe('generated PDF compatibility classifier', () => {
         expect(result.expected).toHaveLength(3);
     });
 
-    it('does not excuse an unattributed decoder failure in a mixed request', () => {
+    // python3 drives the POSIX verifier with its extensionless Electron/Poppler launchers.
+    it.skipIf(process.platform === 'win32')('does not excuse an unattributed decoder failure in a mixed request', () => {
         const result = classify(['Warning: JpxImage#getJsModule failed to initialize'], [1], [
             1,
             2,
@@ -65,7 +67,8 @@ describe('generated PDF compatibility classifier', () => {
         expect(result.unexpected).toHaveLength(1);
     });
 
-    it('accepts an unattributed JPX bootstrap failure when every page requires JPX', () => {
+    // python3 drives the POSIX verifier with its extensionless Electron/Poppler launchers.
+    it.skipIf(process.platform === 'win32')('accepts an unattributed JPX bootstrap failure when every page requires JPX', () => {
         const result = classify(['Warning: JpxImage#getJsModule failed to initialize'], [
             1,
             2,

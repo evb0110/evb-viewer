@@ -78,6 +78,11 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
 
+// Injected Windows spawns receive cmd.exe quoting before the target parses argv.
+function spawnedArg(arg: string) {
+    return process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg;
+}
+
 function createProjectFixture() {
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-fixture-'));
 
@@ -451,7 +456,6 @@ describe('private Vercel deployment source', () => {
                     };
                 },
             })).resolves.toBe(0);
-            const spawnedArg = (arg: string) => (process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg);
             expect(deployCalls).toEqual([expect.arrayContaining([
                 'deploy',
                 '--build-env',
@@ -477,7 +481,15 @@ describe('private Vercel deployment source', () => {
 
     it('hides the checkout from the Vercel CLI when TMPDIR is inside it', async () => {
         const projectRoot = createProjectFixture();
-        const previousTmpdir = process.env.TMPDIR;
+        const previousTempEnv = Object.fromEntries([
+            'TMPDIR',
+            'TEMP',
+            'TMP',
+        ]
+            .map(name => [
+                name,
+                process.env[name],
+            ]));
         const tmpInsideCheckout = path.join(projectRoot, '.devkit');
         const env = {
             ...process.env,
@@ -496,7 +508,9 @@ describe('private Vercel deployment source', () => {
 
         try {
             mkdirSync(tmpInsideCheckout);
-            process.env.TMPDIR = tmpInsideCheckout;
+            for (const name of Object.keys(previousTempEnv)) {
+                process.env[name] = tmpInsideCheckout;
+            }
             await expect(runPrivateVercelDeploy({
                 command: 'vercel-test',
                 env,
@@ -518,10 +532,15 @@ describe('private Vercel deployment source', () => {
             expect(controlStatus).toBe(0);
             expect(cliChildStatus).not.toBe(0);
         } finally {
-            if (previousTmpdir === undefined) {
-                delete process.env.TMPDIR;
-            } else {
-                process.env.TMPDIR = previousTmpdir;
+            for (const [
+                name,
+                previousValue,
+            ] of Object.entries(previousTempEnv)) {
+                if (previousValue === undefined) {
+                    Reflect.deleteProperty(process.env, name);
+                } else {
+                    process.env[name] = previousValue;
+                }
             }
             rmSync(projectRoot, {
                 force: true,
@@ -615,13 +634,13 @@ describe('private Vercel deployment source', () => {
                     'inspect',
                     'https://web.evb-viewer.com/',
                     '--json',
-                ],
-                expect.arrayContaining(['deploy']),
+                ].map(spawnedArg),
+                expect.arrayContaining(['deploy'].map(spawnedArg)),
                 [
                     'rollback',
                     'dpl_previous',
                     '--yes',
-                ],
+                ].map(spawnedArg),
             ]);
             expect(fetchedUrls).toEqual(['https://health.example/status']);
         } finally {
@@ -669,13 +688,13 @@ describe('private Vercel deployment source', () => {
                     'inspect',
                     'https://web.evb-viewer.com/',
                     '--json',
-                ],
-                expect.arrayContaining(['deploy']),
+                ].map(spawnedArg),
+                expect.arrayContaining(['deploy'].map(spawnedArg)),
                 [
                     'rollback',
                     'dpl_previous',
                     '--yes',
-                ],
+                ].map(spawnedArg),
             ]);
         } finally {
             rmSync(projectRoot, {
@@ -738,7 +757,7 @@ describe('private Vercel deployment source', () => {
                 'inspect',
                 'https://web.evb-viewer.com/',
                 '--json',
-            ]]);
+            ].map(spawnedArg)]);
         } finally {
             rmSync(projectRoot, {
                 force: true,
@@ -845,13 +864,13 @@ describe('private Vercel deployment source', () => {
                     'inspect',
                     'https://web.evb-viewer.com/',
                     '--json',
-                ],
-                expect.arrayContaining(['deploy']),
+                ].map(spawnedArg),
+                expect.arrayContaining(['deploy'].map(spawnedArg)),
                 [
                     'rollback',
                     'dpl_leader',
                     '--yes',
-                ],
+                ].map(spawnedArg),
             ]);
         } finally {
             releaseFirstAcceptance();
@@ -1041,7 +1060,7 @@ describe('private Vercel deployment source', () => {
             )).toBe(false);
             expect(readlinkSync(
                 path.join(projectRoot, '.vercel', 'output', 'functions', 'index-isr.func'),
-            )).toBe('./__fallback.func');
+            )).toBe(`.${path.sep}__fallback.func`);
         } finally {
             rmSync(projectRoot, {
                 force: true,

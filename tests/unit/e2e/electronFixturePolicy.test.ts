@@ -20,7 +20,11 @@ import {
     PDFName,
     PDFRef,
 } from 'pdf-lib';
-import { join } from 'node:path';
+import {
+    join,
+    relative,
+    sep,
+} from 'node:path';
 import { statSync } from 'node:fs';
 import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
@@ -380,7 +384,7 @@ describe('Electron E2E fixture policy', () => {
         const offenders: string[] = [];
 
         for (const file of files) {
-            const relativePath = file.replace(`${ELECTRON_FIXTURE_ROOT}/`, '');
+            const relativePath = relative(ELECTRON_FIXTURE_ROOT, file).split(sep).join('/');
             const size = (await stat(file)).size;
             if (
                 /\.(?:pdf|djvu|djv)$/i.test(relativePath)

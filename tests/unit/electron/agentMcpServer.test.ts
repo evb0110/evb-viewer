@@ -7,6 +7,8 @@ import {
 } from 'vitest';
 import { createServer } from 'node:net';
 import {request as createHttpRequest} from 'node:http';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import { rm } from 'node:fs/promises';
 import type {
     IAgentWorkspaceSnapshot,
@@ -36,11 +38,13 @@ import type {
     IAgentDocumentTextOperationInput,
 } from '@electron/features/agent/documentText';
 
+const userDataPath = join(tmpdir(), 'evb-unit-mcp-userData');
+
 vi.mock('electron', () => ({
     app: {
         getName: () => 'EVB Viewer Dev',
         getAppPath: () => '/tmp/app-root',
-        getPath: (name: string) => `/tmp/${name}`,
+        getPath: (name: string) => name === 'userData' ? userDataPath : join(tmpdir(), name),
         getVersion: () => 'test',
         isPackaged: false,
     },
@@ -179,7 +183,7 @@ function createOptions() {
             appName: 'EVB Viewer Dev',
             version: '1.2.3',
             isPackaged: false,
-            userDataPath: '/tmp/userData',
+            userDataPath,
             host: '127.0.0.1',
             port: 38672,
         },
@@ -290,7 +294,7 @@ describe('processMcpRequest', () => {
     afterEach(async () => {
         await shutdownEmbeddedMcpServer();
         await shutdownLocalMcpServer();
-        await rm('/tmp/userData/agent-mcp', {
+        await rm(join(userDataPath, 'agent-mcp'), {
             recursive: true,
             force: true,
         }).catch(() => {});
@@ -414,7 +418,7 @@ describe('processMcpRequest', () => {
         }>;};
 
         expect(launchConfig.command).toBe(process.execPath);
-        expect(launchConfig.args).toEqual(['/tmp/app-root/scripts/evb-mcp-proxy.mjs']);
+        expect(launchConfig.args).toEqual([join('/tmp/app-root', 'scripts', 'evb-mcp-proxy.mjs')]);
         expect(launchConfig.env).toMatchObject({
             ELECTRON_RUN_AS_NODE: '1',
             EVB_MCP_URL: descriptor.url,
@@ -425,7 +429,7 @@ describe('processMcpRequest', () => {
         expect(snippets.claude).toContain('claude mcp add');
         expect(cursorConfig.mcpServers[descriptor.name]).toEqual({
             command: process.execPath,
-            args: ['/tmp/app-root/scripts/evb-mcp-proxy.mjs'],
+            args: [join('/tmp/app-root', 'scripts', 'evb-mcp-proxy.mjs')],
             env: {
                 ELECTRON_RUN_AS_NODE: '1',
                 EVB_MCP_URL: descriptor.url,
@@ -441,7 +445,7 @@ describe('processMcpRequest', () => {
             appName: 'EVB Viewer Dev',
             version: 'test',
             isPackaged: false,
-            userDataPath: '/tmp/userData',
+            userDataPath,
             host: '127.0.0.1',
             port: 38672,
         });
@@ -471,7 +475,7 @@ describe('processMcpRequest', () => {
             _meta: {evb: {
                 appName: 'EVB Viewer Dev',
                 isPackaged: false,
-                userDataPath: '/tmp/userData',
+                userDataPath,
                 mcp: {
                     host: '127.0.0.1',
                     port: 38672,

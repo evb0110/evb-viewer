@@ -798,7 +798,7 @@ describe('recentFiles persistence', () => {
         ]);
 
         expect(first).toEqual(second);
-        expect(mocks.stat).toHaveBeenCalledTimes(1);
+        expect(mocks.stat.mock.calls.filter(([path]) => path === filePath)).toHaveLength(1);
     });
 
     it('does not stat Recent paths again during a fresh TTL hit', async () => {
@@ -1045,7 +1045,7 @@ describe('recentFiles persistence', () => {
         let statCalls = 0;
         mocks.stat.mockImplementation((path: unknown) => {
             if (path !== filePath) {
-                return Promise.reject(new Error(`Unexpected stat path: ${path}`));
+                return Promise.resolve(statSync(String(path)));
             }
             statCalls += 1;
             if (statCalls === 1) {

@@ -159,15 +159,13 @@ describe('Codex installation metadata freshness', () => {
         // Run the version-only Node fixture portably, including on Windows.
         mocks.spawn.mockImplementation((command, args, options) => childProcess.spawn(
             process.execPath,
-            /powershell\.exe$/iu.test(command)
-                ? [
-                    '--eval',
-                    fs.readFileSync(args[args.indexOf('-File') + 1]!, 'utf8'),
-                ]
-                : [
-                    command,
-                    ...args,
-                ],
+            [
+                '--eval',
+                fs.readFileSync(/powershell\.exe$/iu.test(command)
+                    ? args[args.indexOf('-File') + 1]!
+                    : command, 'utf8'),
+                '--',
+            ],
             options,
         ));
         vi.stubEnv('CODEX_CLI_PATH', executable);

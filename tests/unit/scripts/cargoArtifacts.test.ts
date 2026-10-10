@@ -286,17 +286,17 @@ describe('Cargo artifact staging', () => {
         expect(getCargoArtifactPath({
             fileName: 'evb-pdf-search',
             targetDirectory: '/checkout/native/target',
-        })).toBe('/checkout/native/target/release/evb-pdf-search');
+        })).toBe(path.join('/checkout/native/target', 'release', 'evb-pdf-search'));
         expect(getCargoArtifactPath({
             fileName: 'evb-pdf-search.exe',
             rustTarget: 'aarch64-pc-windows-msvc',
             targetDirectory: '/shared/cargo-target',
-        })).toBe('/shared/cargo-target/aarch64-pc-windows-msvc/release/evb-pdf-search.exe');
+        })).toBe(path.join('/shared/cargo-target', 'aarch64-pc-windows-msvc', 'release', 'evb-pdf-search.exe'));
         expect(getCargoArtifactPath({
             fileName: 'evb_pdf_page_ops.wasm',
             rustTarget: 'wasm32-unknown-unknown',
             targetDirectory: '/checkout/native/target',
-        })).toBe('/checkout/native/target/wasm32-unknown-unknown/release/evb_pdf_page_ops.wasm');
+        })).toBe(path.join('/checkout/native/target', 'wasm32-unknown-unknown', 'release', 'evb_pdf_page_ops.wasm'));
     });
 
     it('rejects malformed or non-absolute Cargo metadata paths', () => {

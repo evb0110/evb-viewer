@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import {
     describe,
     expect,
@@ -278,9 +279,9 @@ describe('benchmark-save-pipeline', () => {
             output: 'result.json',
             warmups: 5,
         }, '/workspace')).toEqual({
-            fixture: '/workspace/relative.pdf',
+            fixture: resolve('/workspace', 'relative.pdf'),
             iterations: 10,
-            output: '/workspace/result.json',
+            output: resolve('/workspace', 'result.json'),
             warmups: 5,
         });
     });

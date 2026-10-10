@@ -6,6 +6,11 @@ import {
     vi,
 } from 'vitest';
 
+import {
+    resolve, sep,
+} from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 const mocks = vi.hoisted(() => ({
     readdirSync: vi.fn(),
     fetch: vi.fn(),
@@ -25,14 +30,15 @@ vi.mock('node:fs', () => ({readdirSync: mocks.readdirSync}));
 function useStaticFiles(files: string[]) {
     mocks.readdirSync.mockImplementation((directory: string) => {
         const entries = new Map<string, boolean>();
-        for (const file of files) {
-            if (!file.startsWith(`${directory}/`)) {
+        for (const fixture of files) {
+            const file = resolve(fixture);
+            if (!file.startsWith(`${directory}${sep}`)) {
                 continue;
             }
             const [
                 name,
                 ...rest
-            ] = file.slice(directory.length + 1).split('/');
+            ] = file.slice(directory.length + 1).split(sep);
             entries.set(name!, rest.length > 0);
         }
         if (entries.size === 0) {
@@ -63,7 +69,7 @@ describe('app protocol', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.config.isDev = false;
-        mocks.config.renderer.staticRoot = '/app/dist';
+        mocks.config.renderer.staticRoot = resolve('/app/dist');
         mocks.isReady.mockReturnValue(true);
         useStaticFiles([]);
         mocks.fetch.mockImplementation(async () => new Response('asset', {
@@ -116,7 +122,7 @@ describe('app protocol', () => {
         const response = await handler(new Request('evb-viewer://app/assets/app.js'));
 
         expect(mocks.handle).toHaveBeenCalledWith('evb-viewer', expect.any(Function));
-        expect(mocks.fetch).toHaveBeenCalledWith('file:///app/dist/assets/app.js');
+        expect(mocks.fetch).toHaveBeenCalledWith(pathToFileURL(resolve('/app/dist/assets/app.js')).href);
         expect(response.status).toBe(200);
         expect(response.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
     });
@@ -129,7 +135,7 @@ describe('app protocol', () => {
 
         const response = await handler(new Request('evb-viewer://app/electron/'));
 
-        expect(mocks.fetch).toHaveBeenCalledWith('file:///app/dist/electron/index.html');
+        expect(mocks.fetch).toHaveBeenCalledWith(pathToFileURL(resolve('/app/dist/electron/index.html')).href);
         expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
     });
 
@@ -181,7 +187,7 @@ describe('app protocol', () => {
         await expect(handler(new Request('evb-viewer://app/electron')))
             .resolves.toMatchObject({status: 404});
 
-        expect(mocks.readdirSync).toHaveBeenCalledWith('/app/dist/electron', {withFileTypes: true});
+        expect(mocks.readdirSync).toHaveBeenCalledWith(resolve('/app/dist/electron'), {withFileTypes: true});
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 

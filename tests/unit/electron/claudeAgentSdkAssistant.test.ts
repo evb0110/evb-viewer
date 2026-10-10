@@ -1,4 +1,7 @@
 import {
+    delimiter, join,
+} from 'node:path';
+import {
     beforeEach,
     describe,
     expect,
@@ -313,21 +316,29 @@ describe('claudeAgentSdkAssistant', () => {
     });
 
     it('finds user-local Claude CLI when packaged metadata and GUI launch PATH are sparse', async () => {
+        const localAppData = join('/Users/test', 'AppData', 'Local');
+        const executablePath = process.platform === 'win32'
+            ? join(localAppData, 'Programs', 'Claude', 'claude.exe')
+            : join('/Users/test', '.local', 'bin', 'claude');
         const result = await getClaudeAgentSdkInfo({
             env: {
                 HOME: '/Users/test',
-                PATH: '/usr/bin:/bin',
+                PATH: [
+                    '/usr/bin',
+                    '/bin',
+                ].join(delimiter),
+                LOCALAPPDATA: localAppData,
             },
             resolveSdkPackageDir: () => {
                 throw new Error('Cannot find module @anthropic-ai/claude-agent-sdk');
             },
-            pathIsExecutable: vi.fn(async path => path === '/Users/test/.local/bin/claude'),
+            pathIsExecutable: vi.fn(async path => path === executablePath),
         });
 
         expect(result).toEqual({
             installed: true,
             version: null,
-            executablePath: '/Users/test/.local/bin/claude',
+            executablePath,
         });
     });
 

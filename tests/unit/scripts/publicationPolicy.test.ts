@@ -5,10 +5,7 @@ import {
     readFile,
     writeFile,
 } from 'node:fs/promises';
-import {
-    devNull,
-    tmpdir,
-} from 'node:os';
+import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -65,18 +62,11 @@ const addedChecks = await import(
 const ZERO_OID = '0'.repeat(40);
 const UNREACHABLE_OID = 'f'.repeat(40);
 
-function runGit(cwd: string, arguments_: string[]) {
+function runGit(cwd: string, arguments_: string[], input?: string | Buffer) {
     const result = spawnSync('git', arguments_, {
         cwd,
         encoding: 'utf8',
-        // These fixtures assert git's own behavior, so they must not inherit the
-        // developer's global config. `tag.gpgsign = true`, for one, turns the
-        // lightweight `git tag` below into a signed tag and fails the run.
-        env: {
-            ...process.env,
-            GIT_CONFIG_GLOBAL: devNull,
-            GIT_CONFIG_SYSTEM: devNull,
-        },
+        input,
     });
     if (result.status !== 0) {
         throw new Error(`git ${arguments_.join(' ')} failed: ${result.stderr}`);
@@ -439,7 +429,32 @@ describe('forbidden artifact detection in history', () => {
     it('detects an artifact under a directory whose name contains a newline', async () => {
         const repository = await createRepository('evb-artifact-newline-');
         try {
-            const introducing = await commit(repository, 'Add oddly named harness notes', {'notes\nlocal/CLAUDE.md': '# local rules\n'});
+            // Store the unusual name in a Git tree; Windows cannot create it on disk.
+            const blob = runGit(repository, [
+                'hash-object',
+                '-w',
+                '--stdin',
+            ], '# local rules\n');
+            const subtree = runGit(repository, ['mktree'], `100644 blob ${blob}\tCLAUDE.md\n`);
+            // Git for Windows rejects control characters in its index too. A tree
+            // object still represents commits created on POSIX without checking them out.
+            const tree = runGit(repository, [
+                'hash-object',
+                '-t',
+                'tree',
+                '-w',
+                '--stdin',
+                '--literally',
+            ], Buffer.concat([
+                Buffer.from('40000 notes\nlocal\0'),
+                Buffer.from(subtree, 'hex'),
+            ]));
+            const introducing = runGit(repository, [
+                'commit-tree',
+                tree,
+                '-m',
+                'Add oddly named harness notes',
+            ]);
 
             expect(checker.findPushPolicyViolations([introducing], repository)).toEqual([{
                 matches: ['agent instruction file CLAUDE.md at notes\nlocal/CLAUDE.md'],

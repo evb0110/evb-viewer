@@ -1,3 +1,4 @@
+import {join} from 'node:path';
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 
 import {
@@ -158,10 +159,10 @@ describe('embedBookmarksIntoPdfFile native path', () => {
                 ],
             }),
         );
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', '/tmp/pdf-page-ops-bookmarks-native/input.pdf');
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, '/tmp/pdf-page-ops-bookmarks-native/input.pdf', '/tmp/output.pdf');
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(1, '/tmp/input.pdf', join('/tmp/pdf-page-ops-bookmarks-native', 'input.pdf'));
+        expect(mocks.copyFile).toHaveBeenNthCalledWith(2, join('/tmp/pdf-page-ops-bookmarks-native', 'input.pdf'), '/tmp/output.pdf');
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/pdf-page-ops-bookmarks-native/bookmarks.json',
+            join('/tmp/pdf-page-ops-bookmarks-native', 'bookmarks.json'),
             JSON.stringify({bookmarks: expectedBookmarkMutation}),
             'utf8',
         );
@@ -170,11 +171,11 @@ describe('embedBookmarksIntoPdfFile native path', () => {
             expect.arrayContaining([
                 'save-mutations',
                 '--input',
-                '/tmp/pdf-page-ops-bookmarks-native/input.pdf',
+                join('/tmp/pdf-page-ops-bookmarks-native', 'input.pdf'),
                 '--output',
-                '/tmp/pdf-page-ops-bookmarks-native/input.pdf',
+                join('/tmp/pdf-page-ops-bookmarks-native', 'input.pdf'),
                 '--mutations-file',
-                '/tmp/pdf-page-ops-bookmarks-native/bookmarks.json',
+                join('/tmp/pdf-page-ops-bookmarks-native', 'bookmarks.json'),
                 '--qpdf',
                 '/native/qpdf',
                 '--modified-at',

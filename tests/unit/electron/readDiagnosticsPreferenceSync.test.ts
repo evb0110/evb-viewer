@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { join } from 'node:path';
 import type * as Fs from 'node:fs';
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 
@@ -42,7 +43,7 @@ describe('synchronous diagnostics preference reader', () => {
         const { readDiagnosticsPreferenceSync } = await import('@electron/features/diagnostics/readDiagnosticsPreferenceSync');
 
         expect(readDiagnosticsPreferenceSync()).toBe('granted');
-        expect(mocks.readFileSync).toHaveBeenCalledWith('/diagnostics-user-data/settings.json', 'utf-8');
+        expect(mocks.readFileSync).toHaveBeenCalledWith(join(mocks.userDataPath, 'settings.json'), 'utf-8');
     });
 
     it.each([

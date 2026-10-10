@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {join} from 'node:path';
 import {
     buildPopplerEnv,
     createOcrRasterRenderLimits,
@@ -67,7 +68,7 @@ describe('buildPopplerEnv', () => {
         })).toEqual({
             POPPLER_DATADIR: '/share/poppler',
             FONTCONFIG_PATH: '/share/fontconfig',
-            FONTCONFIG_FILE: '/share/fontconfig/fonts.conf',
+            FONTCONFIG_FILE: join('/share/fontconfig', 'fonts.conf'),
         });
     });
 });

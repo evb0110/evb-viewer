@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { join } from 'node:path';
 import type * as ElectronConfigModule from '@electron/config';
 
 const mocks = vi.hoisted(() => ({app: {isPackaged: false}}));
@@ -44,7 +45,7 @@ describe('electron config runtime mode', () => {
         expect(config.renderer.url).toBe('http://127.0.0.1:3235/electron');
         expect(config.renderer.trustedOrigin).toBe('http://127.0.0.1:3235');
         expect(config.renderer.trustedUrl).toBe(config.server.url);
-        expect(config.renderer.staticRoot).toContain('nuxt-output/public');
+        expect(config.renderer.staticRoot).toContain(join('nuxt-output', 'public'));
     });
 
     it('uses Electron app.isPackaged for packaged mode detection without inspecting module paths', async () => {
@@ -60,7 +61,7 @@ describe('electron config runtime mode', () => {
         expect(config.renderer.url).toBe('evb-viewer://app/electron');
         expect(config.renderer.trustedOrigin).toBe('evb-viewer://app');
         expect(config.renderer.trustedUrl).toBe('evb-viewer://app/electron');
-        expect(config.renderer.staticRoot).toBe('/Applications/EVB Viewer.app/Contents/Resources/app.asar/nuxt-output/public');
+        expect(config.renderer.staticRoot).toBe(join(process.resourcesPath, 'app.asar', 'nuxt-output', 'public'));
     });
 
     it('keeps the development server on loopback and uses fixed updater defaults', async () => {

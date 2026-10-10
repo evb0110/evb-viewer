@@ -1,8 +1,10 @@
-import { realpathSync } from 'node:fs';
 import {
-    devNull,
-    tmpdir,
-} from 'node:os';
+    existsSync,
+    realpathSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     afterEach,
     beforeEach,
@@ -24,7 +26,11 @@ delete process.env.GIT_OBJECT_DIRECTORY;
 delete process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
 delete process.env.GIT_NAMESPACE;
 delete process.env.GIT_PREFIX;
-process.env.GIT_CONFIG_GLOBAL = devNull;
+const emptyGitConfig = join(tmpdir(), 'evb-unit-empty.gitconfig');
+if (!existsSync(emptyGitConfig)) {
+    writeFileSync(emptyGitConfig, '');
+}
+process.env.GIT_CONFIG_GLOBAL = emptyGitConfig;
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.GIT_CEILING_DIRECTORIES = realpathSync(tmpdir());
 

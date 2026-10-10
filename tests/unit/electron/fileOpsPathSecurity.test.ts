@@ -9,6 +9,13 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    dirname,
+    join,
+    resolve,
+    sep,
+} from 'node:path';
+import {escapeRegExp} from 'es-toolkit/string';
 import {Readable} from 'node:stream';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
@@ -258,11 +265,16 @@ describe('fileOps path security', () => {
                 }
                 : null
         ));
-        mocks.readFile.mockResolvedValue(Buffer.from([
-            1,
-            2,
-            3,
-        ]));
+        mocks.readFile.mockImplementation(async (path: string) => {
+            if (path.endsWith('.evb-atomic-replace.json')) {
+                throw Object.assign(new Error('No replacement journal'), {code: 'ENOENT'});
+            }
+            return Buffer.from([
+                1,
+                2,
+                3,
+            ]);
+        });
         mocks.analyzePdfConformanceFile.mockResolvedValue({
             isSigned: false,
             isEncrypted: false,
@@ -283,6 +295,7 @@ describe('fileOps path security', () => {
         mocks.lstat.mockResolvedValue({ isSymbolicLink: () => false });
         mocks.realpath.mockImplementation(async (path: string) => path);
         mocks.stat.mockResolvedValue({
+            isFile: () => true,
             size: 123,
             mtimeMs: 1,
         });
@@ -409,9 +422,19 @@ describe('fileOps path security', () => {
     });
 
     it('allows writes through standard macOS temp path aliases', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue('/var/folders/evb/safe.pdf');
-        mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === '/var'}));
-        mocks.realpathSync.mockImplementation((path: string) => (path === '/var' ? '/private/var' : path));
+        const aliasPath = resolve('/var/folders/evb/safe.pdf');
+        const aliasSegment = resolve('/var');
+        mocks.resolveAllowedWritePath.mockResolvedValue(aliasPath);
+        mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === aliasSegment}));
+        mocks.realpathSync.mockImplementation((path: string) => (path === aliasSegment ? resolve('/private/var') : path));
+
+        // The /var -> /private/var allowance names POSIX system paths, never Windows junctions.
+        if (process.platform === 'win32') {
+            await expect(handleFileWrite(writeContext, aliasPath, new Uint8Array([9])))
+                .rejects.toThrow(`Invalid file path: symlink path segment is not allowed (${aliasSegment})`);
+            expect(mocks.open).not.toHaveBeenCalled();
+            return;
+        }
 
         await handleFileWrite(
             writeContext,
@@ -420,7 +443,7 @@ describe('fileOps path security', () => {
         );
 
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/\/var\/folders\/evb\/.*[.]tmp$/u),
+            expect.stringMatching(new RegExp(`${escapeRegExp(`${join('/var/folders/evb')}${sep}`)}.*[.]tmp$`, 'u')),
             '/var/folders/evb/safe.pdf',
         );
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
@@ -428,7 +451,7 @@ describe('fileOps path security', () => {
 
     it('rejects writes through non-system symlink path segments', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/link/safe.pdf');
-        mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === '/tmp/electron-test/link'}));
+        mocks.lstatSync.mockImplementation((path: string) => ({isSymbolicLink: () => path === resolve('/tmp/electron-test/link')}));
 
         await expect(
             handleFileWrite(
@@ -436,7 +459,7 @@ describe('fileOps path security', () => {
                 '/tmp/electron-test/link/safe.pdf',
                 new Uint8Array([9]),
             ),
-        ).rejects.toThrow('Invalid file path: symlink path segment is not allowed (/tmp/electron-test/link)');
+        ).rejects.toThrow(`Invalid file path: symlink path segment is not allowed (${resolve('/tmp/electron-test/link')})`);
 
         expect(mocks.open).not.toHaveBeenCalled();
     });
@@ -492,10 +515,10 @@ describe('fileOps path security', () => {
         });
         expect(mocks.copyFile).toHaveBeenCalledWith(
             '/tmp/electron-test/ocr-1-merged.pdf',
-            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
+            expect.stringMatching(new RegExp(`^${escapeRegExp(`${join('/tmp/electron-test')}${sep}.`)}[0-9a-f]{16}\\.tmp$`, 'u')),
         );
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
+            expect.stringMatching(new RegExp(`^${escapeRegExp(`${join('/tmp/electron-test')}${sep}.`)}[0-9a-f]{16}\\.tmp$`, 'u')),
             '/tmp/electron-test/work.pdf',
         );
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
@@ -1368,7 +1391,7 @@ describe('fileOps path security', () => {
         const content = await handleFileRead({}, '/Users/alice/Documents/file.djvu');
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
-        expect(mocks.readFile).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(mocks.readFile).toHaveBeenCalledWith(resolve('/Users/alice/Documents/file.djvu'));
         expect(content).toEqual(new Uint8Array([
             1,
             2,
@@ -1384,7 +1407,7 @@ describe('fileOps path security', () => {
         const result = await handleFileStat({}, '/Users/alice/Documents/file.djvu');
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
-        expect(mocks.statSync).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
+        expect(mocks.statSync).toHaveBeenCalledWith(resolve('/Users/alice/Documents/file.djvu'));
         expect(result).toEqual({
             size: 123,
             modifiedAt: 1,
@@ -1411,7 +1434,7 @@ describe('fileOps path security', () => {
         const content = await handleFileReadRange({}, '/Users/alice/Documents/file.djvu', 10, 2);
 
         expect(mocks.isAllowedDjvuViewingPath).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu');
-        expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.djvu', 'r');
+        expect(mocks.open).toHaveBeenCalledWith(resolve('/Users/alice/Documents/file.djvu'), 'r');
         expect(content).toEqual(new Uint8Array([
             6,
             7,
@@ -1540,13 +1563,13 @@ describe('fileOps path security', () => {
 
         expect(mocks.consumeAllowedDocxWritePath).toHaveBeenCalledWith('/tmp/electron-test/export.docx', 42);
         expect(mocks.open).toHaveBeenCalledWith(
-            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
+            expect.stringMatching(new RegExp(`^${escapeRegExp(`${dirname(resolve('/tmp/electron-test/export.docx'))}${sep}.`)}[0-9a-f]{16}\\.tmp$`, 'u')),
             'wx',
         );
         expect(mocks.writeFile).toHaveBeenCalledWith(new Uint8Array([9]));
         expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
-            '/tmp/electron-test/export.docx',
+            expect.stringMatching(new RegExp(`^${escapeRegExp(`${dirname(resolve('/tmp/electron-test/export.docx'))}${sep}.`)}[0-9a-f]{16}\\.tmp$`, 'u')),
+            resolve('/tmp/electron-test/export.docx'),
         );
     });
 

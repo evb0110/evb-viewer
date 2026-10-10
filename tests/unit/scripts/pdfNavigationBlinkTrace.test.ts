@@ -1,4 +1,7 @@
 import {
+    join, resolve,
+} from 'node:path';
+import {
     describe,
     expect,
     it,
@@ -57,7 +60,7 @@ describe('pdf navigation blink trace options', () => {
     it('uses the checked-in rapid navigation fixture by default', () => {
         const options = readOptions([]);
 
-        expect(options.pdf).toContain('/.devkit/manual-pdf-fixtures/page-jump-source.pdf');
+        expect(options.pdf).toContain(join('.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf'));
         expect(options.scrollMode).toBe('continuous');
     });
 
@@ -91,12 +94,12 @@ describe('pdf navigation blink trace options', () => {
         expect(resolveVideoDirectory({
             out: '.devkit/pdf-navigation-blink-trace.json',
             videoDir: null,
-        }, '/repo')).toBe('/repo/.devkit/pdf-navigation-blink-trace-video');
+        }, '/repo')).toBe(resolve('/repo', '.devkit/pdf-navigation-blink-trace-video'));
 
         expect(resolveVideoDirectory({
             out: '.devkit/pdf-navigation-blink-trace.json',
             videoDir: '.devkit/custom-video',
-        }, '/repo')).toBe('/repo/.devkit/custom-video');
+        }, '/repo')).toBe(resolve('/repo', '.devkit/custom-video'));
     });
 });
 

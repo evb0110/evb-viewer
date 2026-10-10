@@ -296,9 +296,10 @@ describe('afterPack extraResources preflight', () => {
 
             makeTreeOwnerWritable(tempRoot);
 
-            expect((await stat(binaryPath)).mode & 0o777).toBe(0o755);
-            expect((await stat(libraryPath)).mode & 0o777).toBe(0o644);
-            expect((await stat(readOnlyDirectoryPath)).mode & 0o777).toBe(0o755);
+            // Windows chmod exposes only the writable bit, without POSIX execute modes.
+            expect((await stat(binaryPath)).mode & 0o777).toBe(process.platform === 'win32' ? 0o666 : 0o755);
+            expect((await stat(libraryPath)).mode & 0o777).toBe(process.platform === 'win32' ? 0o666 : 0o644);
+            expect((await stat(readOnlyDirectoryPath)).mode & 0o777).toBe(process.platform === 'win32' ? 0o666 : 0o755);
         } finally {
             await chmod(tempRoot, 0o700).catch(() => undefined);
             await rm(tempRoot, {
