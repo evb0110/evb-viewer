@@ -85,9 +85,9 @@ export const DEFAULT_SOURCE_DPI = 300;
 export const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const BASE_ANALYSIS_CACHE_PAGE_LIMIT = 32;
 // Canonical cleaned previews are retained only so detail tiles can replay the
-// exact page-global pixel transform. Bound them independently of the renderer
-// payloads so browsing a long document cannot turn detail parity into an
-// unbounded main-process heap.
+// exact page-global pixel transform. The budget covers their raster bytes and
+// the native metadata (stroke masks included) kept beside them, so browsing a
+// long document cannot turn detail parity into an unbounded main-process heap.
 export const BASE_ANALYSIS_CACHE_BYTE_LIMIT = 64 * 1024 * 1024;
 export const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
 // How long a background prefetch may wait for the machine before it is dropped.
