@@ -1,9 +1,9 @@
 //! Dark-side edge structure that keeps a blank-looking leaf from being erased:
-//! standalone glyphs and short aligned text.
+//! standalone glyphs, short aligned text, and not a column of crease fragments.
 
 use crate::edge_artifacts::side_edge_rails;
 use crate::mode_select::BLANK_EDGE_DIFFERENCE;
-use scan_primitives::{BinaryImage, ComponentMap, GrayImage};
+use scan_primitives::{BinaryImage, Component, ComponentMap, GrayImage};
 
 /// Global coverage is intentionally not sufficient to erase a page: a short
 /// word or page number can occupy less than the blank-coverage hysteresis. This
@@ -54,6 +54,26 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         })
         .collect::<Vec<_>>();
 
+    // A fold crease breaks into short line fragments stacked along one column,
+    // and each fragment can pass as a standalone mark. Line-shaped fragments
+    // whose column run exceeds maximum_height are one crease, not marks. Glyph
+    // shapes (numerals are at most about 3:1) never count as lines, so stacked
+    // numerals keep their standalone mark.
+    let is_line = |component: &Component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        height >= width.saturating_mul(4)
+    };
+    let column_run_height = |component: &Component| {
+        candidates
+            .iter()
+            .filter(|other| {
+                is_line(other) && other.left <= component.right && component.left <= other.right
+            })
+            .map(|other| other.bottom - other.top + 1)
+            .sum::<usize>()
+    };
+
     // Preserve larger standalone marks and short aligned text. Isolated
     // sensor noise still lacks their scale or neighbouring baseline.
     if candidates.iter().any(|component| {
@@ -63,6 +83,7 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
             && component.area >= minimum_area.saturating_mul(2)
             && width.saturating_mul(8) >= height
             && height.saturating_mul(8) >= width
+            && (!is_line(component) || column_run_height(component) <= maximum_height)
     }) {
         return true;
     }
@@ -88,4 +109,44 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
                 && horizontal_gap <= maximum_glyph_height.saturating_mul(4)
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mode_select::is_blank_scan_candidate;
+    use scan_primitives::GrayImage;
+
+    #[test]
+    fn a_rule_with_stacked_numerals_beside_it_is_not_a_blank_candidate() {
+        let mut gray = GrayImage::new(620, 877, 232);
+        for y in 200..350 {
+            for x in 300..308 {
+                gray.set(x, y, 60);
+            }
+        }
+        for top in [20, 60, 100] {
+            for y in top..top + 12 {
+                for x in 304..312 {
+                    gray.set(x, y, 60);
+                }
+            }
+        }
+        assert!(!is_blank_scan_candidate(&gray, None));
+    }
+
+    #[test]
+    fn a_fold_crease_broken_into_line_fragments_is_a_blank_candidate() {
+        let mut gray = GrayImage::new(620, 877, 236);
+        for index in 0..8 {
+            for y in 40 + index * 60..40 + index * 60 + 32 {
+                for x in 300..304 {
+                    gray.set(x, y, 166);
+                }
+            }
+        }
+        assert!(
+            is_blank_scan_candidate(&gray, None),
+            "a fold crease was read as structure",
+        );
+    }
 }
