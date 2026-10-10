@@ -10,21 +10,16 @@ TESSDATA_BASE_URL="https://raw.githubusercontent.com/tesseract-ocr/tessdata_best
 
 mkdir -p "$TESSDATA_DIR"
 
-# scripts/printOcrLanguageCodes.ts reads packages/contracts/ocrLanguages.ts with
-# source.matchAll(languageCodePattern), keeping downloads tied to the canonical registry.
-LANGS="$(
-  cd "$PROJECT_ROOT" && pnpm exec tsx scripts/printOcrLanguageCodes.ts --space
-)"
-HASHES="$(
+# Local model codes, digests and upstream paths all come from the registry.
+MODELS="$(
   cd "$PROJECT_ROOT" && pnpm exec tsx scripts/printOcrLanguageCodes.ts --sha256
 )"
 
 echo "Downloading tessdata_best language files to $TESSDATA_DIR..."
 echo "Pinned tessdata_best ref: $TESSDATA_BEST_REF"
 
-for lang in $LANGS; do
+while read -r lang expected_sha256 source_path; do
   FILE="$TESSDATA_DIR/${lang}.traineddata"
-  expected_sha256="$(printf '%s\n' "$HASHES" | awk -v lang="$lang" '$1 == lang {print $2}')"
   if [ -z "$expected_sha256" ]; then
     echo "Error: no pinned SHA-256 digest registered for $lang" >&2
     exit 1
@@ -39,7 +34,7 @@ for lang in $LANGS; do
       rm -f "$TMP_FILE"
     }
     if ! curl --fail --location --show-error --silent --retry 3 --retry-delay 2 --output "$TMP_FILE" \
-      "$TESSDATA_BASE_URL/${lang}.traineddata"; then
+      "$TESSDATA_BASE_URL/${source_path}.traineddata"; then
       cleanup_download_tmp
       exit 1
     fi
@@ -63,7 +58,7 @@ for lang in $LANGS; do
     mv "$TMP_FILE" "$FILE"
     echo "  $lang: done ($(du -h "$FILE" | cut -f1))"
   fi
-done
+done <<< "$MODELS"
 
 echo ""
 echo "Done! Language files:"

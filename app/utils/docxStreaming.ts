@@ -81,27 +81,46 @@ function assertZip32Value(value: number, label: string) {
     }
 }
 
+const ZIP_METHOD_STORED = 0;
+/** Raw DEFLATE (RFC 1951), the output of CompressionStream('deflate-raw'). */
+const ZIP_METHOD_DEFLATE = 8;
+
+/** General-purpose flag bit 3: CRC and sizes follow the entry data in a data descriptor. */
+const ZIP_DATA_DESCRIPTOR_FLAG = 0x08;
+
+/**
+ * How an entry is stored. Its sizes default to the uncompressed size, which is
+ * right for STORED entries; a DEFLATE entry passes its compressed size too.
+ */
+interface IZipEntryLayout {
+    readonly method?: number;
+    readonly compressedSize?: number;
+    readonly usesDataDescriptor?: boolean;
+}
+
 export function makeLocalHeader(
     fileName: Uint8Array,
     crc: number,
     size: number,
-    usesDataDescriptor = false,
+    layout: IZipEntryLayout = {},
 ) {
     if (fileName.byteLength > ZIP_MAX_FILE_NAME_BYTES) {
         throw new RangeError('DOCX ZIP file name exceeds the ZIP safety limit');
     }
+    const compressedSize = layout.compressedSize ?? size;
     assertZip32Value(crc, 'CRC');
+    assertZip32Value(compressedSize, 'entry size');
     assertZip32Value(size, 'entry size');
     const header = new Uint8Array(30 + fileName.byteLength);
     const view = new DataView(header.buffer);
     view.setUint32(0, 0x04034B50, true);
     view.setUint16(4, 20, true);
-    view.setUint16(6, usesDataDescriptor ? 0x08 : 0, true);
-    view.setUint16(8, 0, true);
+    view.setUint16(6, layout.usesDataDescriptor ? ZIP_DATA_DESCRIPTOR_FLAG : 0, true);
+    view.setUint16(8, layout.method ?? ZIP_METHOD_STORED, true);
     view.setUint16(10, 0, true);
     view.setUint16(12, 0, true);
     view.setUint32(14, crc, true);
-    view.setUint32(18, size, true);
+    view.setUint32(18, compressedSize, true);
     view.setUint32(22, size, true);
     view.setUint16(26, fileName.byteLength, true);
     view.setUint16(28, 0, true);
@@ -109,28 +128,33 @@ export function makeLocalHeader(
     return header;
 }
 
-function makeDataDescriptor(crc: number, size: number) {
+function makeDataDescriptor(crc: number, compressedSize: number, size: number) {
     assertZip32Value(crc, 'CRC');
+    assertZip32Value(compressedSize, 'entry size');
     assertZip32Value(size, 'entry size');
     const descriptor = new Uint8Array(16);
     const view = new DataView(descriptor.buffer);
     view.setUint32(0, 0x08074B50, true);
     view.setUint32(4, crc, true);
-    view.setUint32(8, size, true);
+    view.setUint32(8, compressedSize, true);
     view.setUint32(12, size, true);
     return descriptor;
 }
 
+/** The central record carries the method and general-purpose flags of the entry's local header. */
 export function makeCentralHeader(
     fileName: Uint8Array,
     crc: number,
     size: number,
     offset: number,
+    layout: IZipEntryLayout = {},
 ) {
     if (fileName.byteLength > ZIP_MAX_FILE_NAME_BYTES) {
         throw new RangeError('DOCX ZIP file name exceeds the ZIP safety limit');
     }
+    const compressedSize = layout.compressedSize ?? size;
     assertZip32Value(crc, 'CRC');
+    assertZip32Value(compressedSize, 'entry size');
     assertZip32Value(size, 'entry size');
     assertZip32Value(offset, 'entry offset');
     const header = new Uint8Array(46 + fileName.byteLength);
@@ -138,12 +162,12 @@ export function makeCentralHeader(
     view.setUint32(0, 0x02014B50, true);
     view.setUint16(4, 20, true);
     view.setUint16(6, 20, true);
-    view.setUint16(8, 0, true);
-    view.setUint16(10, 0, true);
+    view.setUint16(8, layout.usesDataDescriptor ? ZIP_DATA_DESCRIPTOR_FLAG : 0, true);
+    view.setUint16(10, layout.method ?? ZIP_METHOD_STORED, true);
     view.setUint16(12, 0, true);
     view.setUint16(14, 0, true);
     view.setUint32(16, crc, true);
-    view.setUint32(20, size, true);
+    view.setUint32(20, compressedSize, true);
     view.setUint32(24, size, true);
     view.setUint16(28, fileName.byteLength, true);
     view.setUint16(30, 0, true);
@@ -368,7 +392,7 @@ const RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
 const DOCUMENT_RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
 
-interface ICentralDirectoryEntry {
+interface ICentralDirectoryEntry extends IZipEntryLayout {
     name: Uint8Array;
     crc: number;
     size: number;
@@ -380,9 +404,50 @@ interface IStreamingEntry {
     data?: Uint8Array;
 }
 
+function concatBytes(parts: readonly Uint8Array[], byteLength: number) {
+    const output = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const part of parts) {
+        output.set(part, offset);
+        offset += part.byteLength;
+    }
+    return output;
+}
+
 /**
- * Stream an uncompressed DOCX ZIP. The document entry uses a data descriptor,
- * because its CRC and size are only known after all text pages have arrived.
+ * Raw DEFLATE as bytes go in: the platform compressor's output is collected
+ * while it is produced, so the document is never held whole.
+ */
+function createDeflateEncoder() {
+    const compressor = new CompressionStream('deflate-raw');
+    const writer = compressor.writable.getWriter();
+    const reader = compressor.readable.getReader();
+    const compressed: Uint8Array[] = [];
+    const reading = (async () => {
+        let result = await reader.read();
+        while (!result.done) {
+            compressed.push(result.value);
+            result = await reader.read();
+        }
+    })();
+    // finish() still awaits and rethrows a read failure; this only stops it being reported as unhandled.
+    reading.catch(() => undefined);
+    return {
+        write: (bytes: Uint8Array<ArrayBuffer>) => writer.write(bytes),
+        async finish() {
+            await writer.close();
+            await reading;
+        },
+        async abort(reason: unknown) {
+            await writer.abort(reason).catch(() => undefined);
+        },
+        takeCompressed: () => compressed.splice(0),
+    };
+}
+
+/**
+ * Stream a DOCX ZIP. The document entry is DEFLATE-compressed as it streams and
+ * uses a data descriptor, because its CRC and sizes are known only after the last page.
  */
 export async function* createDocxFromTextChunks(
     pages: TDocxTextPageSource,
@@ -405,12 +470,7 @@ export async function* createDocxFromTextChunks(
             pendingByteLength = 0;
             return chunk ?? null;
         }
-        const chunk = new Uint8Array(pendingByteLength);
-        let offset = 0;
-        for (const pendingChunk of pendingChunks) {
-            chunk.set(pendingChunk, offset);
-            offset += pendingChunk.byteLength;
-        }
+        const chunk = concatBytes(pendingChunks, pendingByteLength);
         pendingChunks = [];
         pendingByteLength = 0;
         return chunk;
@@ -457,6 +517,7 @@ export async function* createDocxFromTextChunks(
             crc: crc32(data),
             size: data.byteLength,
             offset: entryOffset,
+            usesDataDescriptor: false,
         });
     };
 
@@ -474,16 +535,45 @@ export async function* createDocxFromTextChunks(
     const documentName = encodeUtf8('word/document.xml');
     const documentOffset = archiveOffset;
     throwIfAborted(signal);
-    yield* emit(makeLocalHeader(documentName, 0, 0, true));
+    yield* emit(makeLocalHeader(documentName, 0, 0, {
+        method: ZIP_METHOD_DEFLATE,
+        usesDataDescriptor: true,
+    }));
 
+    const deflate = createDeflateEncoder();
     let documentCrc = 0xFFFFFFFF;
     let documentSize = 0;
+    let documentCompressedSize = 0;
+    // Uncompressed bytes wait here until a transport chunk's worth is ready to deflate.
+    let uncompressedParts: Uint8Array[] = [];
+    let uncompressedByteLength = 0;
+    const emitCompressed = async function* (): AsyncGenerator<Uint8Array> {
+        for (const compressed of deflate.takeCompressed()) {
+            documentCompressedSize += compressed.byteLength;
+            assertZip32Value(documentCompressedSize, 'document.xml compressed size');
+            yield* emit(compressed);
+        }
+    };
+    const deflatePending = async function* (): AsyncGenerator<Uint8Array> {
+        if (uncompressedByteLength === 0) {
+            return;
+        }
+        const input = concatBytes(uncompressedParts, uncompressedByteLength);
+        uncompressedParts = [];
+        uncompressedByteLength = 0;
+        await deflate.write(input);
+        yield* emitCompressed();
+    };
     const emitDocumentBytes = async function* (bytes: Uint8Array): AsyncGenerator<Uint8Array> {
         throwIfAborted(signal);
         documentCrc = updateCrc32(documentCrc, bytes);
         documentSize += bytes.byteLength;
         assertZip32Value(documentSize, 'document.xml entry size');
-        yield* emit(bytes);
+        uncompressedParts.push(bytes);
+        uncompressedByteLength += bytes.byteLength;
+        if (uncompressedByteLength >= DOCX_STREAM_CHUNK_BYTES) {
+            yield* deflatePending();
+        }
     };
     const emitDocumentText = async function* (text: string): AsyncGenerator<Uint8Array> {
         throwIfAborted(signal);
@@ -510,30 +600,45 @@ export async function* createDocxFromTextChunks(
         yield* emitDocumentText('</w:p>');
     };
 
-    throwIfAborted(signal);
-    yield* emitDocumentText(DOCUMENT_XML_PREFIX);
-    const body = new DocxBodyWriter(direction);
-    for await (const page of pages) {
+    // An abort, an error or an early return before finish() must release the compressor.
+    let deflateFinished = false;
+    try {
         throwIfAborted(signal);
-        if (typeof page !== 'string' && (typeof page !== 'object' || page === null || typeof page.text !== 'string')) {
-            throw new TypeError('DOCX text pages must yield text');
-        }
-        for (const part of body.page(page)) {
+        yield* emitDocumentText(DOCUMENT_XML_PREFIX);
+        const body = new DocxBodyWriter(direction);
+        for await (const page of pages) {
             throwIfAborted(signal);
-            if (part.kind === 'markup') yield* emitDocumentText(part.xml);
-            else yield* emitParagraph(part.text, part.rtl);
+            if (typeof page !== 'string' && (typeof page !== 'object' || page === null || typeof page.text !== 'string')) {
+                throw new TypeError('DOCX text pages must yield text');
+            }
+            for (const part of body.page(page)) {
+                throwIfAborted(signal);
+                if (part.kind === 'markup') yield* emitDocumentText(part.xml);
+                else yield* emitParagraph(part.text, part.rtl);
+            }
+        }
+
+        throwIfAborted(signal);
+        yield* emitDocumentText(body.end());
+        yield* deflatePending();
+        await deflate.finish();
+        deflateFinished = true;
+    } finally {
+        if (!deflateFinished) {
+            await deflate.abort(signal?.reason);
         }
     }
-
-    throwIfAborted(signal);
-    yield* emitDocumentText(body.end());
+    yield* emitCompressed();
     const finalDocumentCrc = (documentCrc ^ 0xFFFFFFFF) >>> 0;
-    yield* emit(makeDataDescriptor(finalDocumentCrc, documentSize));
+    yield* emit(makeDataDescriptor(finalDocumentCrc, documentCompressedSize, documentSize));
     centralDirectory.push({
         name: documentName,
         crc: finalDocumentCrc,
         size: documentSize,
         offset: documentOffset,
+        method: ZIP_METHOD_DEFLATE,
+        compressedSize: documentCompressedSize,
+        usesDataDescriptor: true,
     });
 
     yield* emitKnownEntry({
@@ -545,7 +650,7 @@ export async function* createDocxFromTextChunks(
     let centralSize = 0;
     for (const entry of centralDirectory) {
         throwIfAborted(signal);
-        const header = makeCentralHeader(entry.name, entry.crc, entry.size, entry.offset);
+        const header = makeCentralHeader(entry.name, entry.crc, entry.size, entry.offset, entry);
         centralSize += header.byteLength;
         assertZip32Value(centralSize, 'central directory size');
         yield* emit(header);

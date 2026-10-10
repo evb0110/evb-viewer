@@ -136,14 +136,34 @@ describe('managed scratch temp cleanup', () => {
         await expect(readdir(mocks.appTempDir)).resolves.toEqual(['aaa-unrelated']);
     });
 
-    it('keeps a managed scope whose native child may still be alive', async () => {
+    it('keeps nested managed scratch until its native owner is gone and the sweep can reclaim it', async () => {
         const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
         let retainedPath = '';
-        await expect(usingManagedScratchScope('pdfExport-', mocks.appTempDir, async (scratchPath) => {
+        let pagePath = '';
+        await expect(usingManagedScratchScope('pdfExport-scope-', mocks.appTempDir, async scratchPath => {
             retainedPath = scratchPath;
-            throw markUnprovenNativeTermination(new Error('native child timed out'), 'kill was not confirmed');
+            return usingManagedScratchScope('pdfExport-', scratchPath, async renderPath => {
+                pagePath = join(renderPath, 'page.jpg');
+                await writeFile(pagePath, 'rendered page');
+                throw markUnprovenNativeTermination(new Error('native child timed out'), 'kill was not confirmed');
+            });
         })).rejects.toThrow('native child timed out');
-        expect(existsSync(retainedPath)).toBe(true);
+        await expect(readFile(pagePath, 'utf8')).resolves.toBe('rendered page');
+        await expect(sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0)).resolves.toBe(0);
+        const markerPath = join(retainedPath, '.evb-managed-scratch.json');
+        const marker = JSON.parse(await readFile(markerPath, 'utf8')) as {
+            pid: number;
+            prefix: string
+        };
+        expect(marker.prefix).toBe('pdfExport-scope-');
+        expect(marker.pid).toBe(process.pid);
+        await writeFile(markerPath, JSON.stringify({
+            ...marker,
+            pid: 2_147_483_647,
+        }));
+        await expect(sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0)).resolves.toBe(1);
+        expect(existsSync(pagePath)).toBe(false);
+        expect(existsSync(retainedPath)).toBe(false);
     });
 
     it('removes a managed scope after success and failure', async () => {

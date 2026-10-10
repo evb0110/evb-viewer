@@ -1,3 +1,8 @@
+import { isRecord } from '@contracts/runtimeGuards';
+import type {
+    IAgentCommandResponse,
+    IAgentWorkspaceSnapshotResponse,
+} from '@contracts/agent';
 import {
     AGENT_ASSISTANT_EVENT_SCHEMA,
     AGENT_ASSISTANT_INSTALL_RESULT_SCHEMA,
@@ -9,12 +14,10 @@ import {
     AGENT_ASSISTANT_STATE_SCHEMA,
     AGENT_COMMAND_CANCEL_REQUEST_SCHEMA,
     AGENT_COMMAND_REQUEST_SCHEMA,
-    AGENT_COMMAND_RESPONSE_SCHEMA,
     AGENT_MCP_INTEGRATION_STATUS_SCHEMA,
     AGENT_MCP_INTEGRATION_UPDATE_RESULT_SCHEMA,
     AGENT_RENDERER_ACK_SCHEMA,
     AGENT_WORKSPACE_SNAPSHOT_REQUEST_SCHEMA,
-    AGENT_WORKSPACE_SNAPSHOT_RESPONSE_SCHEMA,
 } from '@contracts/agent';
 import {
     definePlatformFeature,
@@ -60,8 +63,10 @@ const optionalAssistantRequestArgs = v.pipe(
 );
 const assistantLoginArgs = v.message(v.strictTuple([AGENT_ASSISTANT_LOGIN_REQUEST_SCHEMA]), 'invalid assistant login request');
 const assistantMessageArgs = v.strictTuple([AGENT_ASSISTANT_SEND_MESSAGE_REQUEST_SCHEMA]);
-const workspaceSnapshotResponseArgs = v.strictTuple([AGENT_WORKSPACE_SNAPSHOT_RESPONSE_SCHEMA]);
-const commandResponseArgs = v.strictTuple([AGENT_COMMAND_RESPONSE_SCHEMA]);
+// Response envelopes reach the bridge as plain objects so a malformed one can still reject its pending request by id.
+// The bridge parses each with the shared response schema, and the static type stays on the renderer-facing args.
+const workspaceSnapshotResponseArgs = v.strictTuple([v.custom<IAgentWorkspaceSnapshotResponse>(isRecord)]);
+const commandResponseArgs = v.strictTuple([v.custom<IAgentCommandResponse>(isRecord)]);
 const rendererAckResult = AGENT_RENDERER_ACK_SCHEMA;
 
 export const AGENT_PLATFORM_FEATURE = definePlatformFeature({

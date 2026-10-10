@@ -9,7 +9,7 @@ use std::{
     fs::{self, remove_file, write, File},
     io::{Seek, SeekFrom, Write},
     path::Path,
-    process::{Command, Output, Stdio},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -1405,20 +1405,6 @@ fn save_ocr_page_with_form(path: &Path, contents: Vec<Vec<u8>>, form_content: &[
     document.save(path).unwrap();
 }
 
-fn run_visibility_session(input: &Path, requests: &[u8]) -> Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["ocr-text-visibility", "--input"])
-        .arg(input)
-        .args(["--pages-stdin", "--with-evb-ocr-text"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(requests).unwrap();
-    child.wait_with_output().unwrap()
-}
-
 fn run_ocr_text_visibility(input: &Path) -> serde_json::Value {
     let pages = path("ocr-visibility-pages", "txt");
     fs::write(&pages, "1\n").unwrap();
@@ -1435,16 +1421,6 @@ fn run_ocr_text_visibility(input: &Path) -> serde_json::Value {
         result.status.success(),
         "{}",
         String::from_utf8_lossy(&result.stderr)
-    );
-    let session = run_visibility_session(input, b"[1]\n[1]\n");
-    assert!(
-        session.status.success(),
-        "{}",
-        String::from_utf8_lossy(&session.stderr)
-    );
-    assert_eq!(
-        session.stdout,
-        [&result.stdout[..], b"\n", &result.stdout[..], b"\n"].concat()
     );
     let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(report["format"], "evb-pdf-ocr-text-visibility");

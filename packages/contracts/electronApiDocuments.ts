@@ -675,18 +675,6 @@ export interface IDocumentsFileCapability {
         requestId?: TRequestId,
         revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<TPlatformPdfOptimizeResult>;
-    savePdfNoteTextUpdates?: (
-        path: TDocumentRef,
-        updates: IPdfNoteTextUpdate[],
-        modifiedAt: TPdfDateString,
-        options?: IDocumentMutationRevisionOptions,
-    ) => Promise<TPlatformPdfNativeNoteTextSaveResult>;
-    savePdfNoteChanges?: (
-        path: TDocumentRef,
-        changes: IPdfNativeNoteChanges,
-        modifiedAt: TPdfDateString,
-        options?: IDocumentMutationRevisionOptions,
-    ) => Promise<TPlatformPdfNativeNoteTextSaveResult>;
     applyPdfNativeMutationsToWorkingCopy?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
@@ -830,8 +818,6 @@ export interface IDocumentsPdfPersistenceCapability extends Pick<
     | 'repairPdf'
     | 'optimizePdfForInteraction'
     | 'optimizePdfAsCopy'
-    | 'savePdfNoteTextUpdates'
-    | 'savePdfNoteChanges'
     | 'applyPdfNativeMutationsToWorkingCopy'
     | 'commitStagedPdfNativeMutations'
     | 'cloneStagedPdfNativeMutationToWorkingCopy'

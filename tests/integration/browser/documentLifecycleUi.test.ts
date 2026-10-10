@@ -133,6 +133,24 @@ function keepFileChooserInterceptionEnabled(page: Page) {
     page.on('filechooser', () => {});
 }
 
+// Headless pages ignore Page.setWebLifecycleState: they stay visible and keep
+// running. A window is frozen instead by pausing its script, which returns
+// only once the page has paused. Until the returned resume runs, none of its
+// timers, channel messages, storage events or IndexedDB callbacks run, while
+// its context keeps its locks, as for a frozen tab.
+async function freezeWindow(context: BrowserContext, page: Page) {
+    const session = await context.newCDPSession(page);
+    await session.send('Debugger.enable');
+    const paused = new Promise<void>(resolvePaused => session.once('Debugger.paused', () => resolvePaused()));
+    const pausedEvaluation = session.send('Runtime.evaluate', {expression: 'debugger;'}).catch(() => undefined);
+    await paused;
+    return async () => {
+        await session.send('Debugger.resume');
+        await pausedEvaluation;
+        await session.detach();
+    };
+}
+
 async function stopServer() {
     const server = devServer;
     devServer = null;
@@ -1829,11 +1847,12 @@ describe('browser document lifecycle UI', () => {
             }
             const grantedId = await reportInputFailure('granted-control');
             await expect.poll(() => envelopes.some(body => body.includes(grantedId))).toBe(true);
-            const secondLifecycle = await context.newCDPSession(second);
-            await secondLifecycle.send('Page.setWebLifecycleState', {state: 'frozen'});
+            // The withdrawal happens while the second window cannot run, so it
+            // must reach that window when it resumes, before its next report.
+            const resumeSecond = await freezeWindow(context, second);
             await consent.uncheck();
             await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'denied');
-            await secondLifecycle.send('Page.setWebLifecycleState', {state: 'active'});
+            await resumeSecond();
             await author.fill('After withdrawal');
             await second.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName === 'After withdrawal');
             const withdrawnId = await reportInputFailure('withdrawn-control');
@@ -2319,6 +2338,190 @@ describe('browser document lifecycle UI', () => {
                 name: 'Save',
                 exact: true,
             }).isEnabled()).toBe(true);
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
+    // T2 (#1284): a frozen or throttled window is alive while it holds its
+    // lease lock. A second window must not take its recovery record, or the
+    // owner fences itself on resume and its later notes have no recovery copy.
+    it('leaves a frozen window its recovery and recovers its later notes after it closes', async () => {
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Frozen owner recovery', {
+            x: 72,
+            y: 720,
+            font,
+            size: 18,
+        });
+        const source = Buffer.from(await pdf.save());
+        const firstNote = 'Note before the freeze';
+        const secondNote = 'Note after the resume';
+        const consoleProblems: string[][] = [];
+        const browser = await chromium.launch({headless: true});
+        try {
+            const context = await browser.newContext({viewport: {
+                width: 1_280,
+                height: 800,
+            }});
+            await context.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            async function openWindow(prepare?: (page: Page) => Promise<unknown>) {
+                const page = await context.newPage();
+                consoleProblems.push(collectConsoleProblems(page));
+                await prepare?.(page);
+                await page.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+                return page;
+            }
+            async function addNote(page: Page, text: string, position: {
+                x: number;
+                y: number
+            }) {
+                await page.getByRole('button', {
+                    name: 'Place a sticky note on the page.',
+                    exact: true,
+                }).click();
+                await page.locator('.page_container[data-page="1"]').first().click({position});
+                await page.getByRole('textbox', {
+                    name: 'Write annotation note',
+                    exact: true,
+                }).fill(text);
+                await page.getByRole('button', {
+                    name: 'Minimize note',
+                    exact: true,
+                }).click();
+            }
+            function noteTexts(document: PDFDocument) {
+                const annots = document.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+                return new Set(Array.from({length: annots?.size() ?? 0}, (_, index) =>
+                    annots!.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())
+                    .filter((text): text is string => text !== undefined));
+            }
+            // Each recovery record's owner and the notes in its recovery bytes.
+            async function readRecoveries(page: Page) {
+                const records = await page.evaluate(async () => {
+                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                        const request = indexedDB.open('evb-viewer-browser-documents');
+                        request.onsuccess = () => resolveDb(request.result);
+                        request.onerror = () => rejectDb(request.error);
+                    });
+                    try {
+                        const rows = await new Promise<Array<{
+                            ownerId: string;
+                            checkpoint: {tabs: Array<{
+                                isDirty: boolean;
+                                workingCopyRef: string | null
+                            }>}
+                        }>>((resolveRows, rejectRows) => {
+                            const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
+                            request.onsuccess = () => resolveRows(request.result);
+                            request.onerror = () => rejectRows(request.error);
+                        });
+                        return rows.map(row => ({
+                            ownerId: row.ownerId,
+                            ref: row.checkpoint.tabs.find(tab => tab.isDirty)?.workingCopyRef ?? null,
+                        }));
+                    } finally {
+                        db.close();
+                    }
+                });
+                return Promise.all(records.map(async record => ({
+                    ownerId: record.ownerId,
+                    notes: record.ref
+                        ? noteTexts(await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, record.ref))))
+                        : new Set<string>(),
+                })));
+            }
+            function readLiveLeaseOwners(page: Page) {
+                return page.evaluate(async () => ((await navigator.locks.query()).held ?? []).flatMap(({name}) => (
+                    name?.startsWith('evb-viewer:browser-lease-owner:')
+                        ? [name.slice('evb-viewer:browser-lease-owner:'.length)]
+                        : []
+                )));
+            }
+
+            const owner = await openWindow();
+            keepFileChooserInterceptionEnabled(owner);
+            const chooser = owner.waitForEvent('filechooser');
+            await owner.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'frozen-owner.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            await owner.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await addNote(owner, firstNote, {
+                x: 200,
+                y: 200,
+            });
+            await expect.poll(async () => (await readRecoveries(owner)).map(record => [...record.notes]), {timeout: 15_000})
+                .toEqual([[firstNote]]);
+            const [ownerRecord] = await readRecoveries(owner);
+            const ownerId = ownerRecord!.ownerId;
+            await expect.poll(() => readLiveLeaseOwners(owner), {timeout: 15_000}).toContain(ownerId);
+
+            const resumeOwner = await freezeWindow(context, owner);
+
+            // The second window starts as if the owner had been silent for a
+            // minute: its clock runs 60 s ahead, past the 30 s after which a
+            // silent owner's heartbeat no longer protects its record.
+            const second = await openWindow(page => page.addInitScript((aheadMs) => {
+                const now = Date.now.bind(Date);
+                Date.now = () => now() + aheadMs;
+            }, 60_000));
+            expect(await readLiveLeaseOwners(second)).toContain(ownerId);
+            expect((await readRecoveries(second)).map(record => record.ownerId)).toEqual([ownerId]);
+            expect(await second.locator('.page_container').count()).toBe(0);
+
+            await resumeOwner();
+            await addNote(owner, secondNote, {
+                x: 300,
+                y: 400,
+            });
+            await expect.poll(async () => (await readRecoveries(second)).map(record => [
+                record.ownerId,
+                [...record.notes].sort(),
+            ]), {timeout: 15_000}).toEqual([[
+                ownerId,
+                [
+                    secondNote,
+                    firstNote,
+                ].sort(),
+            ]]);
+
+            // Closing the window releases its lock, the browser's proof that
+            // the owner is gone; its record is recoverable at once.
+            await owner.close();
+            await expect.poll(() => readLiveLeaseOwners(second), {timeout: 15_000}).not.toContain(ownerId);
+            const recovered = await openWindow();
+            await recovered.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await expect.poll(
+                () => recovered.locator('.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind="note"]').count(),
+                {timeout: 15_000},
+            ).toBe(2);
+            const download = recovered.waitForEvent('download');
+            await recovered.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await recovered.getByRole('menuitem', {name: /^Save As/u}).click();
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            expect(noteTexts(saved)).toEqual(new Set([
+                firstNote,
+                secondNote,
+            ]));
+            expect(consoleProblems.flat()).toEqual([]);
         } finally {
             await browser.close();
         }

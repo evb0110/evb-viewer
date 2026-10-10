@@ -46,7 +46,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: (value: unknown) => value}));
-vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
+vi.mock('@electron/features/agent/public', () => ({createAgentService: mocks.createAgentService}));
 vi.mock('@electron/features/documents/documentsMainBindings', () => ({
     DOCUMENTS_DIRECT_ARG_DECODERS: {},
     documentsMainBindings: {},

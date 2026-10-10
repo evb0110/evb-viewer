@@ -1,4 +1,4 @@
-import type {TAgentService} from '@electron/features/agent/createAgentService';
+import type {TAgentService} from '@electron/features/agent/public';
 import type {scanCleanupMainBindings} from '@electron/features/scan-cleanup/scanCleanupMainBindings';
 import {
     DOCUMENTS_DIRECT_ARG_DECODERS,

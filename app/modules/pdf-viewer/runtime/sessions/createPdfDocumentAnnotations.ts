@@ -17,7 +17,6 @@ import type {
 import type {
     IAnnotationEditorState,
     IAnnotationMarkerRect,
-    TMarkupSubtype,
 } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -101,7 +100,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         }));
     }
     const application = shallowRef(createAnnotationApplication('no-document'));
-    const canonicalMarkupSubtypeHints = new Map<string, TMarkupSubtype>();
     const textBoxDrafts = new Map<string, string>();
     const textBoxDraftGenerations = new Map<string, number>();
 
@@ -249,7 +247,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     function reset(documentKey: string) {
         cancelWriterParse();
         storeRevision = null;
-        canonicalMarkupSubtypeHints.clear();
         textBoxDrafts.clear();
         textBoxDraftGenerations.clear();
         application.value = createAnnotationApplication(documentKey);
@@ -331,7 +328,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         application,
         history,
         documentIdentity,
-        canonicalMarkupSubtypeHints,
         textBoxDrafts,
         textBoxDraftGenerations,
         setTextBoxDraft,

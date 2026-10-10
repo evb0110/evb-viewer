@@ -1,5 +1,3 @@
-import {readFileSync} from 'node:fs';
-import {join} from 'node:path';
 import {delay} from 'es-toolkit/promise';
 import {
     describe,
@@ -12,11 +10,6 @@ import {
     runElectronE2ETeardown,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
-
-const SESSION_HELPER_SOURCE = readFileSync(
-    join(process.cwd(), 'tests', 'e2e', 'electron', 'helpers', 'startElectronE2ESession.ts'),
-    'utf8',
-);
 
 describe('Electron E2E deadline policy', () => {
     it('aborts a timed-out task, awaits its cleanup, and reports both failures', async () => {
@@ -65,9 +58,21 @@ describe('Electron E2E deadline policy', () => {
         expect(aborted).toBe(false);
     });
 
-    it('never discards a session stop failure or races a task it cannot cancel', () => {
-        expect(SESSION_HELPER_SOURCE).not.toMatch(/stopSingleSession\([^)]*\)\s*\.catch\(/u);
-        expect(SESSION_HELPER_SOURCE).not.toContain('Promise.race(');
+    it('reports the deadline without awaiting a task that ignores its abort signal', async () => {
+        let cleanupFinished = false;
+
+        const failure = await runWithElectronE2EDeadline(
+            'Waiting for a stuck renderer',
+            30,
+            () => new Promise<never>(() => undefined),
+            {onTimeout: async () => {
+                cleanupFinished = true;
+            }},
+        ).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(ElectronE2ETimeoutError);
+        expect(cleanupFinished).toBe(true);
+        expect((failure as Error).message).toContain('Waiting for a stuck renderer timed out after');
     });
 });
 

@@ -30,8 +30,9 @@
         />
         <!-- The tab's only Start page. It is not part of the workspace chunk,
         so it paints while the workspace loads; every action on it goes through
-        the tab's controller to the mounted workspace. -->
-        <div v-if="isStartMounted" v-show="isStartVisible" class="workspace-host__start">
+        the tab's controller to the mounted workspace. The host owns its lifetime,
+        so returning to Start restores its state without mounting it again. -->
+        <div v-show="isStartVisible" class="workspace-host__start">
             <PdfEmptyState
                 :recent-files="recentFiles"
                 :recent-files-resolved="recentFilesResolved"
@@ -138,22 +139,6 @@ const isStartVisible = computed(() => {
         && !toolbar?.isDjvuMode
         && !workspaceRestoreTracker.has(tabId);
 });
-// An open started from Start keeps Start mounted but hidden until the open
-// settles, so a failed open returns to the same Combine queue, error and Retry.
-const isStartMounted = ref(false);
-watch([
-    isStartVisible,
-    isOpening,
-], ([
-    visible,
-    opening,
-]) => {
-    isStartMounted.value = visible || (opening && isStartMounted.value);
-}, {
-    immediate: true,
-    flush: 'sync',
-});
-
 function isRecentOpenReady(file: IRecentFile) {
     return snapshot.value.activeTransaction?.target?.originalPath !== file.originalPath;
 }

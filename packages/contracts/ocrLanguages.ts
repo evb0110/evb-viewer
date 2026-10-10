@@ -190,16 +190,18 @@ export type TOcrLanguageCode = (typeof AVAILABLE_OCR_LANGUAGES)[number]['code'];
 /**
  * The models that read a Latin-script page printed before about 1800 beside
  * its language's own: `ita_old` reads the long s (ſ) and grave accents, `fra`
- * reads æ and œ. A run consults them only on a page its own model read with
- * the long-s signature.
+ * reads æ and œ. `lat_dictionary` keeps the Latin word list beside the
+ * script recognizer. A run consults them only on a page its own model read
+ * with the long-s signature.
  */
 export const EARLY_PRINT_MODEL_CODES = [
     'ita_old',
     'fra',
+    'lat_dictionary',
 ] as const;
 
 /**
- * A tessdata_best model file: each language's own model, plus `ita_old`. OCR
+ * A tessdata_best model file: each language's recognizer and early-print data. OCR
  * no longer reads with `spa_old`; it stays pinned because the published
  * development tessdata archive carries it.
  */
@@ -213,6 +215,12 @@ export const AVAILABLE_OCR_LANGUAGE_CODES: ReadonlySet<string> = new Set<string>
 
 export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguageCode {
     return typeof value === 'string' && AVAILABLE_OCR_LANGUAGE_CODES.has(value);
+}
+
+/** Keep language selections and local filenames stable when their upstream model differs. */
+export function getOcrModelSourcePath(code: string) {
+    if (code === 'lat') return 'script/Latin';
+    return code === 'lat_dictionary' ? 'lat' : code;
 }
 
 /** SHA-256 digests for the exact tessdata_best commit used by runtime downloads. */
@@ -234,7 +242,8 @@ export const OCR_LANGUAGE_MODEL_SHA256 = {
     ita: '8df9c89176fb93f56bf4b2d4ede04c01c1f31d4b7697fbd76cc336df700f3f38',
     ita_old: '6bba512704bc5417462435f7c98f6b2be86457d544bbb09c7f9ab5caef955b5d',
     kmr: '6017f6284e6771419f85a72218a2e84c5c6c19a4ed0ef27286cd637981293b76',
-    lat: '60054dd32ac03ebd9b4f87d0665bd491a7ffe0d3ee99ceb91aefaf348b65e94f',
+    lat: 'cf7216998bf7f363f18e3def04cc6b28ae954d2a5a3bdad09f743c9d3538ef35',
+    lat_dictionary: '60054dd32ac03ebd9b4f87d0665bd491a7ffe0d3ee99ceb91aefaf348b65e94f',
     nld: '92e7a1ad4bf8082e268de57c7823316ec024935702c6ed2a1e473b3a071aa733',
     nor: '451d52ba1559aa1aecf163ccbfdeced2b9605fbd49480f5e8a53ace29b9eb0e7',
     pol: 'e80cc4cefbdface06e9223f43f089556b9dcf104020fbc0a200f6863c57d4405',

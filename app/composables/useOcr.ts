@@ -1,4 +1,4 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import { uniq } from 'es-toolkit/array';
 import { createRequestId } from '@contracts/shared';
 import type {

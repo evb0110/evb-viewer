@@ -227,7 +227,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
 
     const annotationProjection = shallowRef<IAnnotationCommentSummary[]>([]);
     const {
-        canonicalMarkupSubtypeHints,
         textBoxDrafts,
         textBoxDraftGenerations,
     } = documentAnnotations;
@@ -349,7 +348,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         selectionMarkupStyle,
     } = createPdfAnnotationEditorCompatibility({
         annotationSettings: options.annotationSettings,
-        canonicalMarkupSubtypeHints,
         commitPendingFreeTextDraftsForSave: () => commitPendingEditorDraftsForSave(),
     });
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
@@ -1026,8 +1024,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         documentSession,
         flushAnnotationMutationsForSave: annotationMutationService.flushForSave,
         commitPendingEditorDraftsForSave: annotations.editor.commitPendingFreeTextDraftsForSave,
-        getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
-        getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
         getAllShapes: shapeComposable.getAllShapes,
         getDeletedEmbeddedShapeAnnotationIds: shapeComposable.getDeletedEmbeddedAnnotationIds,
         getDeletedEmbeddedShapeStableKeys: shapeComposable.getDeletedEmbeddedShapeStableKeys,

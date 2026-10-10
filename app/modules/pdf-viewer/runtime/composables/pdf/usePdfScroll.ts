@@ -167,11 +167,7 @@ function resolveMarkerScrollLeft(options: {
 export const usePdfScroll = (options: IUsePdfScrollOptions) => {
     const currentPageProjection = shallowRef<{projection: Readonly<Ref<number>>} | null>(null);
     const currentPage = computed(() => currentPageProjection.value?.projection.value ?? 1);
-    const visibleRange = ref({
-        start: 1,
-        end: 1,
-    });
-    const pageLayoutMetrics = ref<TPageLayoutMetrics | null>(null);
+    const pageLayoutMetrics = shallowRef<TPageLayoutMetrics | null>(null);
     let viewportVisibilityCache: IViewportVisibilityCacheEntry | null = null;
     const viewportWritePort = options.viewportWritePort;
     let viewportIntentSequence = 0;
@@ -243,16 +239,9 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             : requirePageNumber(Math.max(1, currentPage.value));
     }
 
-    function setPageLayoutMetrics(
-        metrics: TPageLayoutMetrics | null,
-        container?: HTMLElement | null,
-        totalPages = 0,
-    ) {
+    function setPageLayoutMetrics(metrics: TPageLayoutMetrics | null) {
         pageLayoutMetrics.value = metrics;
         viewportVisibilityCache = null;
-        if (metrics && container && totalPages > 0) {
-            updateVisibleRange(container, totalPages);
-        }
     }
 
     function isViewportVisibilityCacheValid(
@@ -310,33 +299,8 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
     function getVisiblePageRange(
         container: HTMLElement | null,
         totalPages: number,
-    ): {
-        start: number;
-        end: number
-    } {
-        if (totalPages === 0) {
-            return {
-                start: 1,
-                end: 1,
-            };
-        }
-
-        if (!container) {
-            return {
-                start: clamp(visibleRange.value.start, 1, totalPages),
-                end: clamp(visibleRange.value.end, 1, totalPages),
-            };
-        }
-
-        const visibility = getViewportVisibility(container, totalPages);
-        if (visibility.range) {
-            return visibility.range;
-        }
-
-        return {
-            start: clamp(visibleRange.value.start, 1, totalPages),
-            end: clamp(visibleRange.value.end, 1, totalPages),
-        };
+    ) {
+        return getViewportVisibility(container, totalPages).range;
     }
 
     function resolveMostVisiblePage(
@@ -473,10 +437,6 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         );
     }
 
-    function updateVisibleRange(container: HTMLElement | null, totalPages: number) {
-        visibleRange.value = getVisiblePageRange(container, totalPages);
-    }
-
     function updateCurrentPage(
         container: HTMLElement | null,
         totalPages: number,
@@ -495,14 +455,12 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
 
     return {
         currentPage,
-        visibleRange,
         getVisiblePageRange,
         getMostVisiblePage,
         getViewportVisibility,
         setPageLayoutMetrics,
         getPageLayoutMetrics: () => pageLayoutMetrics.value,
         scrollToPage,
-        updateVisibleRange,
         updateCurrentPage,
         bindCurrentPageProjection,
         viewportWritePort,

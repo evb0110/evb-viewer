@@ -223,7 +223,8 @@ useDirectOpenAutomationDispatcherShell();
 // User-initiated surfaces load on first open; split policy: warmupDesktopViewerChunks.ts.
 const AgentAssistantPanel = defineAsyncComponent(() =>
     import('@app/modules/agent-panel/public/component-exports/agentAssistantPanel').then(module => module.AgentAssistantPanel));
-const CombinePdfPage = defineAsyncComponent(() => import('@app/components/combine/CombinePdfPage.vue'));
+const CombinePdfPage = defineAsyncComponent(() =>
+    import('@app/modules/combine/public').then(module => module.CombinePdfPage));
 const editorPanesManager = useEditorPanesManager({isTabEmpty: tabId => isTabEmpty(tabId)});
 const {
     panes,

@@ -1,12 +1,12 @@
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import { randomUUID } from 'node:crypto';
 import {
     copyFile,
-    mkdtemp,
-    rm,
     stat,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -118,49 +118,49 @@ async function tryEmbedBookmarksWithNativePageOps(
     }
 
     const cancelGroup = `djvu-bookmarks:${randomUUID()}`;
-    let tempDir: string | null = null;
     try {
-        tempDir = await mkdtemp(join(tmpdir(), 'djvu-bookmarks-'));
-        const workingPath = join(tempDir, 'input.pdf');
-        const mutationsPath = join(tempDir, 'bookmarks.json');
-        const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
-            signal,
-            cancelGroup,
-        });
-        throwIfAborted(signal);
-        await copyFile(inputPdfPath, workingPath);
-        await writeFile(
-            mutationsPath,
-            JSON.stringify(createNativeBookmarkMutation(totalPages, bookmarks)),
-            'utf8',
-        );
-        await runNativeToolCommand(binaryPath, [
-            'save-mutations',
-            '--input',
-            workingPath,
-            '--output',
-            workingPath,
-            '--mutations-file',
-            mutationsPath,
-            '--qpdf',
-            getPdfNativeToolPaths().qpdf,
-            '--modified-at',
-            createNativeModifiedAt(),
-            '--append',
-        ], {
-            timeoutMs: NATIVE_DJVU_BOOKMARK_TIMEOUT_MS,
-            commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
-            ...createNativeCommandCancellationOptions({
+        return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+            const workingPath = join(tempDir, 'input.pdf');
+            const mutationsPath = join(tempDir, 'bookmarks.json');
+            const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
                 signal,
                 cancelGroup,
-            }),
+            });
+            throwIfAborted(signal);
+            await copyFile(inputPdfPath, workingPath);
+            await writeFile(
+                mutationsPath,
+                JSON.stringify(createNativeBookmarkMutation(totalPages, bookmarks)),
+                'utf8',
+            );
+            await runNativeToolCommand(binaryPath, [
+                'save-mutations',
+                '--input',
+                workingPath,
+                '--output',
+                workingPath,
+                '--mutations-file',
+                mutationsPath,
+                '--qpdf',
+                getPdfNativeToolPaths().qpdf,
+                '--modified-at',
+                createNativeModifiedAt(),
+                '--append',
+            ], {
+                timeoutMs: NATIVE_DJVU_BOOKMARK_TIMEOUT_MS,
+                commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
+                ...createNativeCommandCancellationOptions({
+                    signal,
+                    cancelGroup,
+                }),
+            });
+            throwIfAborted(signal);
+            await copyFile(workingPath, outputPdfPath);
+            const outputStats = await stat(outputPdfPath);
+            return outputStats.size;
         });
-        throwIfAborted(signal);
-        await copyFile(workingPath, outputPdfPath);
-        const outputStats = await stat(outputPdfPath);
-        return outputStats.size;
     } catch (error) {
-        if (isAbortError(error)) {
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || isAbortError(error)) {
             throw error;
         }
         if (isPdfCombineCapabilityError(error)) {
@@ -171,13 +171,6 @@ async function tryEmbedBookmarksWithNativePageOps(
             `Native DjVu bookmark embedding failed: ${getErrorMessage(error)}`,
             error,
         );
-    } finally {
-        if (tempDir !== null) {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
-        }
     }
 }
 

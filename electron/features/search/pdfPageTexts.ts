@@ -1,5 +1,6 @@
 import {stat} from 'node:fs/promises';
 import { dirname } from 'path';
+import { range } from 'es-toolkit/math';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -7,10 +8,11 @@ import { normalizeSearchablePageText } from '@pdf-core/pdfSearchCore';
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import {
-    createPdfPageTextVisibilitySession,
+    inspectPdfPageTextVisibility,
     type TOcrPdfTextVisibilityAnalysis,
 } from '@electron/pdf/inspectPdfPageTextVisibility';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     resolveUnpackedWorkerPath,
@@ -25,6 +27,10 @@ import * as v from 'valibot';
 
 const PDF_TEXT_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-text'].fileName;
 const POPPLER_TEXT_PAGE_WINDOW_SIZE = 256;
+// One native visibility load inspects the pages of this many windows. Loading
+// a large scan takes most of a second and up to twice its size in memory, and
+// the report of 2,048 densely recognized pages stays within its byte limit.
+const VISIBILITY_WINDOWS_PER_LOAD = 8;
 const log = createLogger('search-page-text');
 
 const PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA = v.object({
@@ -168,9 +174,6 @@ async function readOcrLayersInRecognitionOrder(
     signal?: AbortSignal,
 ) {
     const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
-    if (inspection.status === 'degraded') {
-        log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
-    }
     const ocrLayerTexts = new Map<number, IPageText>();
     const foreignLayerPages: number[] = [];
     for (const pageNumber of textPageNumbers) {
@@ -226,46 +229,66 @@ async function* streamPdfPageTextRanges(
             throw new Error('PDF source changed during text extraction');
         }
     };
-    const visibility = createPdfPageTextVisibilitySession({
-        pdfPath,
-        pdfPageOpsBinary: resolvePageOpsBinary(),
-        qpdfBinary: getPdfNativeToolPaths().qpdf,
-        signal,
-    });
-    try {
-        for (const range of ranges) {
-            const lastPage = range.lastPage ?? await readPdfPageCount(pdfPath, signal);
-            for (
-                let firstPage = range.firstPage ?? 1;
-                firstPage <= lastPage;
-                firstPage += POPPLER_TEXT_PAGE_WINDOW_SIZE
-            ) {
-                signal?.throwIfAborted();
-                await assertSource();
-                const batchRange = {
-                    firstPage,
-                    lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
-                };
-                const pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
-                if (pages === null) {
-                    await assertSource();
-                    yield* streamPdfjsPageTexts(pdfPath, batchRange, signal);
-                    continue;
-                }
-                const inspection = await visibility.inspect(pages.filter(page => page.text.length > 0).map(page => page.pageNumber));
-                const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, signal);
-                await assertSource();
-                for (const page of orderedPages) {
-                    signal?.throwIfAborted();
-                    yield page;
-                }
-                if (pages.length < batchRange.lastPage - firstPage + 1) {
-                    return;
-                }
+    const windows: Array<Required<IPdfPageRange>> = [];
+    for (const pageRange of ranges) {
+        const lastPage = pageRange.lastPage ?? await readPdfPageCount(pdfPath, signal);
+        for (const firstPage of range(pageRange.firstPage ?? 1, lastPage + 1, POPPLER_TEXT_PAGE_WINDOW_SIZE)) {
+            windows.push({
+                firstPage,
+                lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
+            });
+        }
+    }
+    let inspection: TOcrPdfTextVisibilityAnalysis = {
+        status: 'available',
+        visibility: new Map(),
+    };
+    let inspectedWindows = 0;
+    for (const [
+        index,
+        window,
+    ] of windows.entries()) {
+        signal?.throwIfAborted();
+        await assertSource();
+        const pages = await readPopplerPageTexts(pdfPath, window, signal);
+        if (pages === null) {
+            await assertSource();
+            yield* streamPdfjsPageTexts(pdfPath, window, signal);
+            continue;
+        }
+        const textPageNumbers = pages.filter(page => page.text.length > 0).map(page => page.pageNumber);
+        if (textPageNumbers.length > 0 && index >= inspectedWindows) {
+            // One load inspects this window's text and every page of the next
+            // windows. It runs to completion between pdftotext windows: a
+            // visibility reader kept open across them held a native command
+            // slot while its extraction waited for one, and eight such readers
+            // deadlocked extraction.
+            inspectedWindows = index + VISIBILITY_WINDOWS_PER_LOAD;
+            inspection = await inspectPdfPageTextVisibility({
+                pdfPath,
+                pageNumbers: [
+                    ...textPageNumbers,
+                    ...windows.slice(index + 1, inspectedWindows).flatMap(later => range(later.firstPage, later.lastPage + 1)),
+                ],
+                pdfPageOpsBinary: resolvePageOpsBinary(),
+                qpdfBinary: getPdfNativeToolPaths().qpdf,
+                tempDir: getAppTempDir(),
+                ...(signal === undefined ? {} : {signal}),
+                withEvbOcrText: true,
+            });
+            if (inspection.status === 'degraded') {
+                log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
             }
         }
-    } finally {
-        await visibility.close();
+        const orderedPages = await readOcrLayersInRecognitionOrder(pdfPath, pages, inspection, signal);
+        await assertSource();
+        for (const page of orderedPages) {
+            signal?.throwIfAborted();
+            yield page;
+        }
+        if (pages.length < window.lastPage - window.firstPage + 1) {
+            return;
+        }
     }
 }
 

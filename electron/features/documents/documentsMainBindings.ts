@@ -170,8 +170,6 @@ import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handl
 import {
     handleNativePdfMutationsApplyToWorkingCopy,
     handleCommitStagedPdfNativeMutations,
-    handleNativeNoteChangesSave,
-    handleNativeNoteTextSave,
 } from '@electron/features/documents/main/nativePdfMutationSaveHandlers';
 import {
     handleCloneStagedPdfNativeMutationToWorkingCopy,
@@ -519,10 +517,6 @@ export const documentsMainBindings = {
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }, workingPath, optimizeOptions, requestId, revisionOptions),
-    savePdfNoteTextUpdates: (context, workingPath, updates, modifiedAt, revisionOptions) =>
-        handleNativeNoteTextSave(context, workingPath, updates, modifiedAt, revisionOptions),
-    savePdfNoteChanges: (context, workingPath, changes, modifiedAt, revisionOptions) =>
-        handleNativeNoteChangesSave(context, workingPath, changes, modifiedAt, revisionOptions),
     applyPdfNativeMutationsToWorkingCopy: (
         context,
         workingPath,

@@ -3,13 +3,9 @@ import type {
     ComputedRef,
     ShallowRef,
 } from 'vue';
-import type {
-    IShapeAnnotation,
-    TMarkupSubtype,
-} from '@app/types/annotations';
+import type {IShapeAnnotation} from '@app/types/annotations';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import { buildNativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import type {
@@ -51,8 +47,6 @@ interface IUsePdfViewerSaveTransactionOptions {
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
     commitPendingEditorDraftsForSave?: () => void;
     getPdfDocument?: () => IPdfDocument | null;
-    getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
-    getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
@@ -331,8 +325,6 @@ export const usePdfViewerSaveTransaction = (
             deletedEmbeddedShapeStableKeys: request.dirtyState?.shapeStateDirty
                 ? options.getDeletedEmbeddedShapeStableKeys?.() ?? []
                 : [],
-            markupSubtypeOverrides: request.markupSubtypeOverrides ?? options.getMarkupSubtypeOverrides?.(),
-            markupSubtypeHints: request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? [],
             ...(nativeTextBoxes !== undefined ? {nativeTextBoxes} : {}),
         });
         const annotationSavePlan = decision.annotationPlan;

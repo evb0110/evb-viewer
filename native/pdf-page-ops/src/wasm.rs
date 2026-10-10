@@ -21,41 +21,12 @@ use crate::{
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
-const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
-const REQUEST_VERSION: u32 = 2;
-
-const OP_DELETE_PAGES: u32 = 1;
-const OP_EXTRACT_PAGES: u32 = 2;
-const OP_REORDER_PAGES: u32 = 3;
-const OP_INSERT_PAGES: u32 = 4;
-const OP_ROTATE: u32 = 5;
-const OP_CROP: u32 = 6;
-const OP_REMOVE_CROP: u32 = 7;
-const OP_GET_PAGE_GEOMETRY: u32 = 8;
-// Parsing must stay above the decrypt operation reserved by ticket #171. The
-// request frame is version 2 because decrypt carries a trailing password; op 10
-// simply sends a zero-length password.
-const OP_DECRYPT: u32 = 9;
-const OP_PARSE_ANNOTATIONS: u32 = 10;
-const OP_SAVE_MUTATIONS: u32 = 11;
-const OP_READ_CATALOG: u32 = 12;
-const OP_CONFORMANCE: u32 = 13;
-const OP_MERGE_PAGES: u32 = 14;
-// Print layout carries its selected pages in the page list and
-// "<view mode> <orientation>" as UTF-8 in the insertion data.
-const OP_PRINT_LAYOUT: u32 = 15;
-const REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
+use crate::wasm_abi::*;
 
 const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
 const MAX_DOCUMENT_LIST_PAGES: usize = 500;
-
-const RESPONSE_MUTATION: u32 = 1;
-const RESPONSE_GEOMETRY: u32 = 2;
-const RESPONSE_ANNOTATION_PARSE: u32 = 3;
-const RESPONSE_NATIVE_MUTATIONS: u32 = 4;
-const RESPONSE_JSON: u32 = 5;
-const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = 8;
-const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = 20;
+const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
+const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_WASM_MUTATION_MODIFIED_AT: &str = "D:19700101000000Z";
 
@@ -177,9 +148,9 @@ fn clear_last_result() {
 }
 
 fn run_request(request: &[u8]) -> Result<Vec<u8>> {
-    if request.len() >= 8
-        && &request[..4] == REQUEST_MAGIC
-        && u32::from_le_bytes(request[4..8].try_into().unwrap()) == REQUEST_VERSION_DOCUMENT_LIST
+    if request.len() >= DOCUMENT_LIST_HEADER.version + U32_BYTES
+        && &request[DOCUMENT_LIST_HEADER.magic..DOCUMENT_LIST_HEADER.version] == REQUEST_MAGIC
+        && read_u32_at(request, DOCUMENT_LIST_HEADER.version)? == REQUEST_VERSION_DOCUMENT_LIST
     {
         return run_document_list_request(request);
     }
@@ -252,19 +223,24 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
 }
 
 fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
-    let mut offset = 0;
-    if take_bytes(request, &mut offset, 4)? != REQUEST_MAGIC {
+    let mut offset = DOCUMENT_LIST_HEADER.magic;
+    if take_bytes(request, &mut offset, REQUEST_MAGIC.len())? != REQUEST_MAGIC {
         return Err("Invalid page-op WASM document-list magic".into());
     }
-    let version = read_u32_le(request, &mut offset)?;
+    let version = read_u32_at(request, DOCUMENT_LIST_HEADER.version)?;
     if version != REQUEST_VERSION_DOCUMENT_LIST {
         return Err("Unsupported page-op WASM document-list version".into());
     }
-    let operation = read_u32_le(request, &mut offset)?;
-    let count = read_usize_le(request, &mut offset, "document count")?;
-    if count == 0 || count > 500 {
+    let operation = read_u32_at(request, DOCUMENT_LIST_HEADER.operation)?;
+    let count = read_usize_at(
+        request,
+        DOCUMENT_LIST_HEADER.document_count,
+        "document count",
+    )?;
+    if count == 0 || count > MAX_DOCUMENTS {
         return Err("Invalid page-op WASM document count".into());
     }
+    let mut offset = DOCUMENT_LIST_HEADER.bytes;
     let mut documents = Vec::with_capacity(count);
     for _ in 0..count {
         let len = read_usize_le(request, &mut offset, "document length")?;
@@ -379,15 +355,18 @@ fn offset_wasm_bookmark(
 fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {
     let output_len = bytes
         .len()
-        .checked_add(8)
+        .checked_add(BYTES_HEADER.bytes)
         .ok_or_else(page_op_output_limit)?;
     if output_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
         return Err(page_op_output_limit());
     }
     let length = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
     let mut output = Vec::with_capacity(output_len);
-    write_u32_le(&mut output, RESPONSE_JSON);
-    write_u32_le(&mut output, length);
+    output.resize(BYTES_HEADER.bytes, 0);
+    output[BYTES_HEADER.kind..BYTES_HEADER.kind + U32_BYTES]
+        .copy_from_slice(&RESPONSE_JSON.to_le_bytes());
+    output[BYTES_HEADER.data_length..BYTES_HEADER.data_length + U32_BYTES]
+        .copy_from_slice(&length.to_le_bytes());
     output.extend_from_slice(&bytes);
     Ok(output)
 }
@@ -526,43 +505,55 @@ fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<
         .map_err(|_| page_op_output_limit())?;
     output.resize(data_len as usize + NATIVE_MUTATION_RESPONSE_HEADER_BYTES, 0);
     output.copy_within(0..data_len as usize, NATIVE_MUTATION_RESPONSE_HEADER_BYTES);
-    output[0..4].copy_from_slice(&RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
-    output[4..8].copy_from_slice(&result.page_count.to_le_bytes());
-    output[8..12].copy_from_slice(&data_len.to_le_bytes());
-    output[12..16].copy_from_slice(&identity_bindings_len.to_le_bytes());
+    output[NATIVE_MUTATION_HEADER.kind..NATIVE_MUTATION_HEADER.kind + U32_BYTES]
+        .copy_from_slice(&RESPONSE_NATIVE_MUTATIONS.to_le_bytes());
+    output[NATIVE_MUTATION_HEADER.page_count..NATIVE_MUTATION_HEADER.page_count + U32_BYTES]
+        .copy_from_slice(&result.page_count.to_le_bytes());
+    output[NATIVE_MUTATION_HEADER.data_length..NATIVE_MUTATION_HEADER.data_length + U32_BYTES]
+        .copy_from_slice(&data_len.to_le_bytes());
+    output[NATIVE_MUTATION_HEADER.identity_bindings_length
+        ..NATIVE_MUTATION_HEADER.identity_bindings_length + U32_BYTES]
+        .copy_from_slice(&identity_bindings_len.to_le_bytes());
     // The append path performs semantic postcondition validation before this
     // response is returned. Keep the proof explicit in the wire frame so the
     // browser consumer can fail closed if a future writer changes that rule.
-    output[16..20].copy_from_slice(&1_u32.to_le_bytes());
+    output[NATIVE_MUTATION_HEADER.postconditions_verified
+        ..NATIVE_MUTATION_HEADER.postconditions_verified + U32_BYTES]
+        .copy_from_slice(&NATIVE_MUTATION_POSTCONDITIONS_VERIFIED.to_le_bytes());
     output.extend_from_slice(&identity_bindings);
     Ok(output)
 }
 
 fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
-    let mut offset = 0usize;
+    let mut offset = REQUEST_HEADER.magic;
     let magic = take_bytes(request, &mut offset, REQUEST_MAGIC.len())?;
     if magic != REQUEST_MAGIC {
         return Err("Invalid page-op WASM request magic".into());
     }
-    let version = read_u32_le(request, &mut offset)?;
+    let version = read_u32_at(request, REQUEST_HEADER.version)?;
     if version != REQUEST_VERSION {
         return Err(format!("Unsupported page-op WASM request version: {version}").into());
     }
 
-    let operation = read_u32_le(request, &mut offset)?;
-    let page_count = read_usize_le(request, &mut offset, "page_count")?;
-    let page_number = read_u32_le(request, &mut offset)?;
-    let after_page = read_u32_le(request, &mut offset)?;
-    let angle = i64::from(read_u32_le(request, &mut offset)?);
+    let operation = read_u32_at(request, REQUEST_HEADER.operation)?;
+    let page_count = read_usize_at(request, REQUEST_HEADER.page_count, "page_count")?;
+    let page_number = read_u32_at(request, REQUEST_HEADER.page_number)?;
+    let after_page = read_u32_at(request, REQUEST_HEADER.after_page)?;
+    let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
     let margins = CropMargins {
-        top: read_f64_le(request, &mut offset)?,
-        bottom: read_f64_le(request, &mut offset)?,
-        left: read_f64_le(request, &mut offset)?,
-        right: read_f64_le(request, &mut offset)?,
+        top: read_f64_at(request, REQUEST_HEADER.top)?,
+        bottom: read_f64_at(request, REQUEST_HEADER.bottom)?,
+        left: read_f64_at(request, REQUEST_HEADER.left)?,
+        right: read_f64_at(request, REQUEST_HEADER.right)?,
     };
-    let data_len = read_usize_le(request, &mut offset, "data_len")?;
-    let insertion_data_len = read_usize_le(request, &mut offset, "insertion_data_len")?;
-    let password_len = read_usize_le(request, &mut offset, "password_len")?;
+    let data_len = read_usize_at(request, REQUEST_HEADER.data_length, "data_len")?;
+    let insertion_data_len = read_usize_at(
+        request,
+        REQUEST_HEADER.insertion_data_length,
+        "insertion_data_len",
+    )?;
+    let password_len = read_usize_at(request, REQUEST_HEADER.password_length, "password_len")?;
+    let mut offset = REQUEST_HEADER.bytes;
     if password_len > MAX_WASM_PASSWORD_BYTES {
         return Err(format!(
             "Page-op WASM password exceeds the {MAX_WASM_PASSWORD_BYTES}-byte ceiling"
@@ -571,7 +562,7 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     }
 
     let page_bytes_len = page_count
-        .checked_mul(std::mem::size_of::<u32>())
+        .checked_mul(U32_BYTES)
         .ok_or("Invalid page-op WASM page count")?;
     let required_remaining = page_bytes_len
         .checked_add(data_len)
@@ -655,34 +646,26 @@ fn encode_mutation_with_limit(
     result
         .data
         .copy_within(0..raw_len, PAGE_OP_WASM_MUTATION_HEADER_BYTES);
-    result.data[0..4].copy_from_slice(&RESPONSE_MUTATION.to_le_bytes());
-    result.data[4..8].copy_from_slice(&result.page_count.to_le_bytes());
-    result.data[8..12].copy_from_slice(&data_len.to_le_bytes());
+    result.data[MUTATION_HEADER.kind..MUTATION_HEADER.kind + U32_BYTES]
+        .copy_from_slice(&RESPONSE_MUTATION.to_le_bytes());
+    result.data[MUTATION_HEADER.page_count..MUTATION_HEADER.page_count + U32_BYTES]
+        .copy_from_slice(&result.page_count.to_le_bytes());
+    result.data[MUTATION_HEADER.data_length..MUTATION_HEADER.data_length + U32_BYTES]
+        .copy_from_slice(&data_len.to_le_bytes());
     Ok(result.data)
 }
 
 fn encode_geometry(geometry: PageGeometry) -> Result<Vec<u8>> {
-    let mut output = Vec::with_capacity(84);
-    write_u32_le(&mut output, RESPONSE_GEOMETRY);
-    write_u32_le(&mut output, u32::try_from(geometry.rotation)?);
-    write_rect(&mut output, geometry.media_box);
-    match geometry.crop_box {
-        Some(crop_box) => {
-            write_u32_le(&mut output, 1);
-            write_rect(&mut output, crop_box);
-        }
-        None => {
-            write_u32_le(&mut output, 0);
-            write_rect(
-                &mut output,
-                PdfRect {
-                    x1: 0.0,
-                    y1: 0.0,
-                    x2: 0.0,
-                    y2: 0.0,
-                },
-            );
-        }
+    let mut output = vec![0; GEOMETRY_HEADER.bytes];
+    output[GEOMETRY_HEADER.kind..GEOMETRY_HEADER.kind + U32_BYTES]
+        .copy_from_slice(&RESPONSE_GEOMETRY.to_le_bytes());
+    output[GEOMETRY_HEADER.rotation..GEOMETRY_HEADER.rotation + U32_BYTES]
+        .copy_from_slice(&u32::try_from(geometry.rotation)?.to_le_bytes());
+    write_rect(&mut output, GEOMETRY_HEADER.media_box, geometry.media_box);
+    if let Some(crop_box) = geometry.crop_box {
+        output[GEOMETRY_HEADER.has_crop_box..GEOMETRY_HEADER.has_crop_box + U32_BYTES]
+            .copy_from_slice(&1_u32.to_le_bytes());
+        write_rect(&mut output, GEOMETRY_HEADER.crop_box, crop_box);
     }
     Ok(output)
 }
@@ -696,17 +679,35 @@ fn encode_annotation_parse(bytes: Vec<u8>) -> Result<Vec<u8>> {
         return Err(page_op_output_limit());
     }
     let mut output = Vec::with_capacity(framed_len);
-    write_u32_le(&mut output, RESPONSE_ANNOTATION_PARSE);
-    write_u32_le(&mut output, data_len);
+    output.resize(BYTES_HEADER.bytes, 0);
+    output[BYTES_HEADER.kind..BYTES_HEADER.kind + U32_BYTES]
+        .copy_from_slice(&RESPONSE_ANNOTATION_PARSE.to_le_bytes());
+    output[BYTES_HEADER.data_length..BYTES_HEADER.data_length + U32_BYTES]
+        .copy_from_slice(&data_len.to_le_bytes());
     output.extend_from_slice(&bytes);
     Ok(output)
 }
 
-fn write_rect(output: &mut Vec<u8>, rect: PdfRect) {
-    write_f64_le(output, rect.x1);
-    write_f64_le(output, rect.y1);
-    write_f64_le(output, rect.width());
-    write_f64_le(output, rect.height());
+fn write_rect(output: &mut [u8], offset: usize, rect: PdfRect) {
+    let output = &mut output[offset..offset + BOX_LAYOUT.bytes];
+    output[BOX_LAYOUT.x..BOX_LAYOUT.x + F64_BYTES].copy_from_slice(&rect.x1.to_le_bytes());
+    output[BOX_LAYOUT.y..BOX_LAYOUT.y + F64_BYTES].copy_from_slice(&rect.y1.to_le_bytes());
+    output[BOX_LAYOUT.width..BOX_LAYOUT.width + F64_BYTES]
+        .copy_from_slice(&rect.width().to_le_bytes());
+    output[BOX_LAYOUT.height..BOX_LAYOUT.height + F64_BYTES]
+        .copy_from_slice(&rect.height().to_le_bytes());
+}
+
+fn read_u32_at(request: &[u8], mut offset: usize) -> Result<u32> {
+    read_u32_le(request, &mut offset)
+}
+
+fn read_usize_at(request: &[u8], mut offset: usize, label: &str) -> Result<usize> {
+    read_usize_le(request, &mut offset, label)
+}
+
+fn read_f64_at(request: &[u8], mut offset: usize) -> Result<f64> {
+    read_f64_le(request, &mut offset)
 }
 
 fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usize> {
@@ -715,12 +716,12 @@ fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usiz
 }
 
 fn read_u32_le(request: &[u8], offset: &mut usize) -> Result<u32> {
-    let bytes = take_bytes(request, offset, 4)?;
+    let bytes = take_bytes(request, offset, U32_BYTES)?;
     Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 fn read_f64_le(request: &[u8], offset: &mut usize) -> Result<f64> {
-    let bytes = take_bytes(request, offset, 8)?;
+    let bytes = take_bytes(request, offset, F64_BYTES)?;
     Ok(f64::from_le_bytes([
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
     ]))
@@ -737,10 +738,12 @@ fn take_bytes<'a>(request: &'a [u8], offset: &mut usize, len: usize) -> Result<&
     Ok(bytes)
 }
 
+#[cfg(test)]
 fn write_u32_le(output: &mut Vec<u8>, value: u32) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
+#[cfg(test)]
 fn write_f64_le(output: &mut Vec<u8>, value: f64) {
     output.extend_from_slice(&value.to_le_bytes());
 }
