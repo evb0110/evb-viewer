@@ -1660,3 +1660,117 @@ fn keeps_page_content_that_only_mentions_the_ocr_marker() {
         let _ = fs::remove_file(file);
     }
 }
+
+#[test]
+fn overlay_links_target_output_pages_without_copying_source_page_trees() {
+    for action in [false, true] {
+        let source = path("link-source", "pdf");
+        let input = path("link-input", "pdf");
+        let output = path("link-output", "pdf");
+        let instructions = path("link-instructions", "json");
+        let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+        let source_pages = document.get_pages().into_values().collect::<Vec<_>>();
+        for index in 0..2 {
+            let destination = vec![source_pages[1 - index].into(), "Fit".into()];
+            let mut link = dictionary! {
+                "Type" => "Annot", "Subtype" => "Link", "P" => source_pages[index],
+                "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+            };
+            if action {
+                link.set("A", dictionary! {"S" => "GoTo", "D" => destination});
+            } else {
+                link.set("Dest", destination);
+            }
+            let link_id = document.add_object(link);
+            document
+                .get_dictionary_mut(source_pages[index])
+                .unwrap()
+                .set("Annots", vec![Object::Reference(link_id)]);
+        }
+        document.save(&source).unwrap();
+        save_empty_pages(&input, 2);
+        write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]},{"sourcePageIndex":1,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        for index in 0..2 {
+            let annots = saved
+                .get_dictionary(pages[index])
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap();
+            let link = saved
+                .get_dictionary(annots[0].as_reference().unwrap())
+                .unwrap();
+            let destination = if action {
+                link.get(b"A")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"D")
+                    .unwrap()
+            } else {
+                link.get(b"Dest").unwrap()
+            };
+            assert_eq!(
+                destination.as_array().unwrap()[0].as_reference().unwrap(),
+                pages[1 - index]
+            );
+        }
+        assert_eq!(
+            saved
+                .objects
+                .values()
+                .filter(|object| object.as_dict().is_ok_and(|dictionary| dictionary
+                    .get(b"Type")
+                    .and_then(Object::as_name)
+                    .is_ok_and(|name| name == b"Page")))
+                .count(),
+            2
+        );
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() {
+    let source = path("unmapped-link-source", "pdf");
+    let input = path("unmapped-link-input", "pdf");
+    let output = path("unmapped-link-output", "pdf");
+    let instructions = path("unmapped-link-instructions", "json");
+    let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+    let pages = document.get_pages().into_values().collect::<Vec<_>>();
+    let link_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "P" => pages[0],
+        "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+        "Dest" => vec![pages[1].into(), "Fit".into()],
+    });
+    document
+        .get_dictionary_mut(pages[0])
+        .unwrap()
+        .set("Annots", vec![Object::Reference(link_id)]);
+    document.save(&source).unwrap();
+    save_empty_pages(&input, 1);
+    write(&output, b"existing output").unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("unmapped source page"));
+    assert_eq!(fs::read(&output).unwrap(), b"existing output");
+    for file in [source, input, output, instructions] {
+        let _ = remove_file(file);
+    }
+}

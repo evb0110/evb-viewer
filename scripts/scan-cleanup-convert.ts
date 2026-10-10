@@ -96,7 +96,6 @@ import {
     type IScanCleanupDetectionRunResult,
 } from '@scripts/scanCleanupDetectionCache';
 
-const PAGE_OPS_FALLBACK = '__scan_cleanup_cli_page_ops_fallback__';
 const IMAGE_COMBINE_FALLBACK = '__scan_cleanup_cli_image_combine_fallback__';
 const CLI_PAGE_RASTER_CACHE_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 
@@ -661,38 +660,6 @@ async function runImageCombineFallback(
     }
 }
 
-async function runPageOpsFallback(
-    args: string[],
-    qpdfBinary: string,
-    options: IScanCleanupRunCommandOptions,
-) {
-    if (args[0] !== 'split-pages') throw new Error(`Unsupported CLI page-ops operation: ${args[0] ?? ''}`);
-    const inputPath = args[args.indexOf('--input') + 1];
-    const outputPath = args[args.indexOf('--output') + 1];
-    const instructionsPath = args[args.indexOf('--instructions-file') + 1];
-    if (!inputPath || !outputPath || !instructionsPath) throw new Error('Invalid CLI page-ops fallback arguments');
-    const instructions = JSON.parse(await readFile(instructionsPath, 'utf8')) as {pages?: Array<{sourcePageIndex?: number}>;};
-    const pages = instructions.pages ?? [];
-    if (pages.length === 0) throw new Error('CLI page-ops fallback received no pages');
-    const qpdfArgs = [
-        '--empty',
-        '--coalesce-contents',
-        '--pages',
-        ...pages.flatMap(page => [
-            inputPath,
-            String((page.sourcePageIndex ?? 0) + 1),
-        ]),
-        '--',
-        outputPath,
-    ];
-    await runCliNativeToolCommand(qpdfBinary, qpdfArgs, options);
-    return {
-        exitCode: 0,
-        stdout: '',
-        stderr: '',
-    } satisfies IScanCleanupProcessResult;
-}
-
 function getProgressKey(progress: TScanCleanupProgress) {
     return `${progress.stage}:${String(progress.completedUnits)}:${String(progress.totalUnits)}`;
 }
@@ -772,17 +739,16 @@ export function buildScanCleanupCliDetectionRequestFields(
     };
 }
 
-async function main() {
+export async function main() {
     const argumentsValue = parseArguments(process.argv.slice(2));
     const sourceStats = await stat(argumentsValue.sourcePdfPath);
     const qpdfBinary = resolveTool('qpdf', 'qpdf');
     const pdftoppmBinary = resolveTool('pdftoppm', 'poppler');
     const pdfimagesBinary = resolveTool('pdfimages', 'poppler');
     const scanCleanupBinary = resolveTool('evb-scan-cleanup', 'scan-cleanup', 'EVB_SCAN_CLEANUP_PATH');
-    // Page geometry always comes from the native page-ops tool; only the
-    // assembler has a CLI fallback outside parity mode.
+    // Page geometry and annotation overlays share the native page-ops owner.
+    // Image assembly retains its CLI fallback outside parity mode.
     const nativePageOpsBinary = resolveTool('evb-pdf-page-ops', 'pdf-page-ops', 'EVB_PDF_PAGE_OPS_PATH');
-    const pageOpsBinary = argumentsValue.parity ? nativePageOpsBinary : PAGE_OPS_FALLBACK;
     const imageCombineBinary = argumentsValue.parity
         ? resolveTool('evb-pdf-image-combine', 'pdf-image-combine', 'EVB_PDF_IMAGE_COMBINE_PATH')
         : IMAGE_COMBINE_FALLBACK;
@@ -811,11 +777,6 @@ async function main() {
                 magickBinary,
                 nativeOptions(options, log),
             );
-        }
-        if (command === PAGE_OPS_FALLBACK) {
-            return args[0] === 'page-sizes'
-                ? runCliNativeToolCommand(nativePageOpsBinary, args, nativeOptions(options, log))
-                : runPageOpsFallback(args, qpdfBinary, nativeOptions(options, log));
         }
         if (
             argumentsValue.diagnosticEvidenceDirectory !== undefined
@@ -1079,7 +1040,7 @@ async function main() {
             pdfimagesBinary,
             scanCleanupBinary,
             pdfImageCombineBinary: imageCombineBinary,
-            pdfPageOpsBinary: pageOpsBinary,
+            pdfPageOpsBinary: nativePageOpsBinary,
             provenanceStampSupport: true,
             tempDir: temporaryRoot,
         };
