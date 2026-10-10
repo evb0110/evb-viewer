@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import {parseAgentAnnotationRef} from '@contracts/agent';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
@@ -31,16 +32,6 @@ interface ICreateDocumentAgentAnnotationNoteActionsOptions {
     updateAnnotationNoteText: (stableKey: string, text: string) => void;
     markAnnotationDirty: () => void;
     updateTextMarkupColorWithHistory: (comment: IAnnotationCommentSummary, color: string) => boolean;
-}
-
-function parseAgentAnnotationRef(input: Record<string, unknown>) {
-    const stableKey = getAgentStringInput(input, 'stableKey');
-    const annotationId = getAgentStringInput(input, 'annotationId');
-    const id = getAgentStringInput(input, 'id');
-    if (stableKey === null && annotationId === null && id === null) {
-        throw new Error('Annotation comment was not found. Use evb://document/{tabId}/annotations to get stable keys.');
-    }
-    return input;
 }
 
 function parseAgentUpdateNoteInput(input: Record<string, unknown>): IAgentUpdateNoteInput {

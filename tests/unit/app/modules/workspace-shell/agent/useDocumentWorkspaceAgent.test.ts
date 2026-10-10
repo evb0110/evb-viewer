@@ -244,6 +244,93 @@ function createAgentOptions(
 }
 
 describe('createDocumentWorkspaceAgent', () => {
+    it.each([
+        [
+            'annotation.open_note',
+            {},
+        ],
+        [
+            'annotation.focus',
+            {},
+        ],
+        [
+            'annotation.delete',
+            {},
+        ],
+        [
+            'annotation.update_note',
+            {text: ''},
+        ],
+        [
+            'annotation.update_text_markup_color',
+            {color: '#ffd54f'},
+        ],
+    ])('requires a non-blank annotation reference before previewing %s', async (id, extra) => {
+        const agent = createDocumentWorkspaceAgent(createAgentOptions());
+        for (const ref of [
+            {},
+            {stableKey: ''},
+            {
+                stableKey: ' \t\n',
+                annotationId: '\u00a0',
+                id: '\u2003\ufeff',
+            },
+        ]) {
+            await expect(agent.runAgentAction(id, {
+                ...ref,
+                ...extra,
+            }, {dryRun: true}))
+                .rejects.toThrow(/requires at least one non-blank/u);
+        }
+    });
+
+    it.each([
+        'stableKey',
+        'annotationId',
+        'id',
+    ] as const)('resolves a padded %s in annotation navigation and note updates', async (key) => {
+        const comment = createAnnotationComment({
+            text: 'Original note',
+            hasNote: true,
+        });
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
+            annotationComments: ref([comment]),
+            pdfViewerRef: ref(createAgentViewerPort()),
+        }));
+        const input = {
+            stableKey: ' ',
+            annotationId: '',
+            id: '\t',
+            [key]: ` ${comment[key]} `,
+        };
+        for (const action of [
+            'annotation.open_note',
+            'annotation.focus',
+        ]) {
+            await expect(agent.runAgentAction(action, input)).resolves.toMatchObject({
+                ok: true,
+                comment: {stableKey: comment.stableKey},
+            });
+        }
+        await expect(agent.runAgentAction('annotation.update_note', {
+            ...input,
+            text: '',
+        }))
+            .resolves.toMatchObject({
+                updated: true,
+                comment: {
+                    stableKey: comment.stableKey,
+                    text: '',
+                },
+            });
+    });
+
+    it('keeps annotation existence checks in the renderer after reference validation', async () => {
+        const agent = createDocumentWorkspaceAgent(createAgentOptions());
+        await expect(agent.runAgentAction('annotation.open_note', {stableKey: 'missing-annotation'}))
+            .rejects.toThrow('Annotation comment was not found.');
+    });
+
     it('keeps explicit note placement actions armed across repeated calls', async () => {
         const annotationTool = ref<TAnnotationTool>('select');
         const handleQuickNoteAction = vi.fn(async () => {

@@ -1,4 +1,5 @@
 import * as v from 'valibot';
+import {AGENT_ANNOTATION_REF_SCHEMA} from '@contracts/agent';
 import {
     ANNOTATION_TOOLS,
     DRAWABLE_SHAPE_TOOLS,
@@ -87,23 +88,29 @@ export const OPEN_SIDEBAR_TAB_INPUT_SCHEMA = v.strictObject({tab: v.picklist([
     'thumbnails',
     'search',
 ])});
-export const ANNOTATION_REF_INPUT_SCHEMA = v.strictObject({
+const annotationRefInputProperties = {
     stableKey: v.optional(v.pipe(v.string(), v.description('Stable annotation key from evb://document/{tabId}/annotations or /notes.'))),
     annotationId: v.optional(v.string()),
     id: v.optional(v.string()),
-});
-export const ANNOTATION_UPDATE_NOTE_INPUT_SCHEMA = v.strictObject({
-    stableKey: v.optional(v.pipe(v.string(), v.description('Stable annotation key from evb://document/{tabId}/annotations or /notes.'))),
-    annotationId: v.optional(v.string()),
-    id: v.optional(v.string()),
-    text: v.pipe(v.string(), v.description('New note text. Use an empty string to clear the note.')),
-});
-export const ANNOTATION_COLOR_INPUT_SCHEMA = v.strictObject({
-    stableKey: v.optional(v.pipe(v.string(), v.description('Stable annotation key from evb://document/{tabId}/annotations or /notes.'))),
-    annotationId: v.optional(v.string()),
-    id: v.optional(v.string()),
-    color: v.pipe(v.string(), v.description('CSS color to apply to a text markup annotation, for example #ffd54f.')),
-});
+};
+export const ANNOTATION_REF_INPUT_SCHEMA = v.intersect([
+    v.strictObject(annotationRefInputProperties),
+    AGENT_ANNOTATION_REF_SCHEMA,
+]);
+export const ANNOTATION_UPDATE_NOTE_INPUT_SCHEMA = v.intersect([
+    v.strictObject({
+        ...annotationRefInputProperties,
+        text: v.pipe(v.string(), v.description('New note text. Use an empty string to clear the note.')),
+    }),
+    AGENT_ANNOTATION_REF_SCHEMA,
+]);
+export const ANNOTATION_COLOR_INPUT_SCHEMA = v.intersect([
+    v.strictObject({
+        ...annotationRefInputProperties,
+        color: v.pipe(v.string(), v.description('CSS color to apply to a text markup annotation, for example #ffd54f.')),
+    }),
+    AGENT_ANNOTATION_REF_SCHEMA,
+]);
 export const ANNOTATION_TOOL_INPUT_SCHEMA = v.strictObject({tool: v.picklist(ANNOTATION_TOOLS)});
 export const ANNOTATION_TEXT_MARKUP_INPUT_SCHEMA = v.strictObject({
     page: v.optional(v.pipe(v.number(), v.description('One-based PDF page number containing the text. Defaults to the current page.'))),

@@ -10,6 +10,7 @@ import {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type { IAgentOcrRunOptions } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import {parseAgentOcrRunOptions} from '@contracts/agentOcr';
+import {parseAgentAnnotationRef} from '@contracts/agent';
 import {
     getAgentPageNumberInput,
     normalizeAgentPageNumber,
@@ -35,16 +36,6 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
             throw new Error('ui.open_sidebar_tab requires input.tab: annotations, bookmarks, thumbnails, or search.');
         }
         return nextTab;
-    }
-
-    function parseAgentAnnotationRef(input: Record<string, unknown>) {
-        const stableKey = getAgentStringInput(input, 'stableKey');
-        const annotationId = getAgentStringInput(input, 'annotationId');
-        const id = getAgentStringInput(input, 'id');
-        if (stableKey === null && annotationId === null && id === null) {
-            throw new Error('Annotation comment was not found. Use evb://document/{tabId}/annotations to get stable keys.');
-        }
-        return input;
     }
 
     function parseAgentAnnotationToolInput(input: Record<string, unknown>) {
