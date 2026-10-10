@@ -1175,7 +1175,8 @@ fn clone_object_graph(
     target: &mut Document,
     object: &Object,
     copied: &mut HashMap<ObjectId, ObjectId>,
-    pages: &HashMap<ObjectId, ObjectId>,
+    pages: &[OverlayPage<'_>],
+    transform: &impl Fn(&mut Document, &mut Dictionary) -> Result<()>,
     depth: usize,
 ) -> Result<Object> {
     if depth > MAX_OBJECT_GRAPH_DEPTH {
@@ -1183,24 +1184,41 @@ fn clone_object_graph(
     }
     match object {
         Object::Reference(source_id) => {
-            if let Some(target_id) = copied.get(source_id).or_else(|| pages.get(source_id)) {
-                return Ok(Object::Reference(*target_id));
+            if let Some(target_id) = copied.get(source_id).copied().or_else(|| {
+                pages
+                    .iter()
+                    .find(|page| page.0 == *source_id)
+                    .map(|page| page.1)
+            }) {
+                return Ok(Object::Reference(target_id));
             }
             let target_id = target.new_object_id();
             copied.insert(*source_id, target_id);
-            let source_object = source
-                .objects
-                .get(source_id)
-                .ok_or_else(|| format!("overlay-text source object {source_id:?} is missing"))?;
-            let cloned =
-                clone_object_graph(source, target, source_object, copied, pages, depth + 1)?;
+            let mut cloned = clone_object_graph(
+                source,
+                target,
+                source.objects.get(source_id).ok_or_else(|| {
+                    format!("overlay-text source object {source_id:?} is missing")
+                })?,
+                copied,
+                pages,
+                transform,
+                depth + 1,
+            )?;
+            if let Ok(annotation) = cloned.as_dict_mut() {
+                if annotation.has(b"Subtype") && annotation.has(b"Rect") {
+                    transform(target, annotation)?;
+                }
+            }
             target.objects.insert(target_id, cloned);
             Ok(Object::Reference(target_id))
         }
         Object::Array(items) => Ok(Object::Array(
             items
                 .iter()
-                .map(|item| clone_object_graph(source, target, item, copied, pages, depth + 1))
+                .map(|item| {
+                    clone_object_graph(source, target, item, copied, pages, transform, depth + 1)
+                })
                 .collect::<Result<Vec<_>>>()?,
         )),
         Object::Dictionary(_) | Object::Stream(_) => {
@@ -1226,14 +1244,16 @@ fn clone_object_graph(
             } else {
                 b"Dest"
             };
-            if let Ok(destination) = dictionary.get(key) {
-                let page = resolved_array(source, destination).and_then(|array| array.first());
-                if page.is_none_or(|page| page.as_reference().is_err()) {
-                    return Err("overlay-text cannot resolve an internal destination".into());
-                }
-            }
+            let destination = dictionary.remove(key);
             for (_, value) in dictionary.iter_mut() {
-                *value = clone_object_graph(source, target, value, copied, pages, depth + 1)?;
+                *value =
+                    clone_object_graph(source, target, value, copied, pages, transform, depth + 1)?;
+            }
+            if let Some(destination) = destination {
+                dictionary.set(
+                    key,
+                    crate::split_pages::remap_internal_destination(source, &destination, pages)?,
+                );
             }
             Ok(cloned)
         }
@@ -1742,7 +1762,8 @@ pub(crate) fn append_text_layer(
             target,
             source_font,
             &mut staged_copied,
-            &HashMap::new(),
+            &[],
+            &|_, _| Ok(()),
             0,
         ) {
             Ok(cloned) => cloned,
@@ -1811,7 +1832,7 @@ fn append_source_annotations(
     target_page_id: ObjectId,
     source_page_id: ObjectId,
     instruction: &TextLayerInstruction,
-    page_mappings: &HashMap<ObjectId, ObjectId>,
+    pages: &[OverlayPage<'_>],
 ) -> Result<()> {
     let source_page = source.get_dictionary(source_page_id)?;
     let Ok(annots) = source_page.get(b"Annots") else {
@@ -1825,6 +1846,18 @@ fn append_source_annotations(
             None => resolve_page_view(target, target_page_id),
         })
         .transpose()?;
+    let rotation = resolve_page_rotation(target, target_page_id)?;
+    let transform = |target: &mut Document, annotation: &mut Dictionary| {
+        crate::split_pages::transform_annotation_geometry(
+            target,
+            annotation,
+            instruction.matrix,
+            None,
+            rotation,
+        )?;
+        annotation.set("P", target_page_id);
+        Ok(())
+    };
     let mut copied = HashMap::from([(source_page_id, target_page_id)]);
     let mut output = Vec::new();
     for (annotation, geometry) in annotations.iter().filter_map(|annotation| {
@@ -1865,40 +1898,15 @@ fn append_source_annotations(
             target,
             annotation,
             &mut copied,
-            page_mappings,
+            pages,
+            &transform,
             0,
         )?);
-        // Direct annotations have no object ID to find in the copied graph.
         if let Some(Object::Dictionary(annotation)) = output.last_mut() {
-            crate::split_pages::transform_annotation_geometry(
-                target,
-                annotation,
-                instruction.matrix,
-                None,
-                resolve_page_rotation(target, target_page_id)?,
-            )?;
-            annotation.set("P", target_page_id);
+            transform(target, annotation)?;
         }
     }
-    for target_id in copied.values().copied().filter(|id| *id != target_page_id) {
-        let object = target.get_object(target_id)?;
-        if let Ok(annotation) = object.as_dict() {
-            if annotation.get(b"Subtype").is_ok() && annotation.get(b"Rect").is_ok() {
-                let mut annotation = annotation.clone();
-                crate::split_pages::transform_annotation_geometry(
-                    target,
-                    &mut annotation,
-                    instruction.matrix,
-                    None,
-                    resolve_page_rotation(target, target_page_id)?,
-                )?;
-                annotation.set("P", target_page_id);
-                target.set_object(target_id, annotation);
-            }
-        }
-    }
-    let page = target.get_dictionary(target_page_id)?;
-    let mut existing = match page.get(b"Annots") {
+    let mut existing = match target.get_dictionary(target_page_id)?.get(b"Annots") {
         Ok(annots) => target.dereference(annots)?.1.as_array()?.clone(),
         Err(_) => Vec::new(),
     };
@@ -1909,29 +1917,7 @@ fn append_source_annotations(
     Ok(())
 }
 
-fn overlay_pages<'a>(
-    source: &Document,
-    target: &Document,
-    instructions: &'a TextLayerFile,
-) -> Result<Vec<(ObjectId, ObjectId, &'a TextLayerInstruction)>> {
-    let source_resolver = PageTreeResolver::new(source)?;
-    let target_resolver = PageTreeResolver::new(target)?;
-    instructions
-        .pages
-        .iter()
-        .map(|instruction| {
-            let source_number =
-                overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
-            let target_number =
-                overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
-            Ok((
-                source_resolver.page_id(source, source_number)?,
-                target_resolver.page_id(target, target_number)?,
-                instruction,
-            ))
-        })
-        .collect()
-}
+pub(crate) type OverlayPage<'a> = (ObjectId, ObjectId, &'a TextLayerInstruction, PdfRect);
 
 fn append_overlay_pages(
     target: &mut Document,
@@ -1939,18 +1925,30 @@ fn append_overlay_pages(
     instructions: &TextLayerFile,
     base: Option<&Document>,
 ) -> Result<()> {
-    let pages = overlay_pages(source, base.unwrap_or(target), instructions)?;
-    let mut page_mappings = HashMap::new();
-    for (source_id, target_id, _) in &pages {
-        page_mappings.entry(*source_id).or_insert(*target_id);
-    }
+    let source_resolver = PageTreeResolver::new(source)?;
+    let target_resolver = PageTreeResolver::new(base.unwrap_or(target))?;
+    let pages: Vec<OverlayPage<'_>> = instructions
+        .pages
+        .iter()
+        .map(|instruction| {
+            let source_number =
+                overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
+            let target_number =
+                overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
+            let target_page = target_resolver.page_id(base.unwrap_or(target), target_number)?;
+            Ok((
+                source_resolver.page_id(source, source_number)?,
+                target_page,
+                instruction,
+                resolve_page_view(base.unwrap_or(target), target_page)?,
+            ))
+        })
+        .collect::<Result<_>>()?;
     let mut copied = HashMap::new();
-    for (source_page_id, target_page_id, instruction) in pages {
-        if let Some(base) = base {
-            // The new-document object map already owns materialization.
-            if !target.has_object(target_page_id) {
-                prepare_overlay_page(base, target, target_page_id)?;
-            }
+    for &(source_page_id, target_page_id, instruction, _) in &pages {
+        // The new-document object map already owns materialization.
+        if let Some(base) = base.filter(|_| !target.has_object(target_page_id)) {
+            prepare_overlay_page(base, target, target_page_id)?;
         }
         append_source_annotations(
             target,
@@ -1958,7 +1956,7 @@ fn append_overlay_pages(
             target_page_id,
             source_page_id,
             instruction,
-            &page_mappings,
+            &pages,
         )?;
         let skipped = append_text_layer(
             target,

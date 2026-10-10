@@ -2302,3 +2302,244 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
         remove_file(file).unwrap();
     }
 }
+
+#[test]
+fn overlay_destinations_choose_the_source_region_independently_of_link_ownership() {
+    for incremental in [false, true] {
+        let source = path("split-destination-source", "pdf");
+        let input = path("split-destination-input", "pdf");
+        let output = path("split-destination-output", "pdf");
+        let inspected = path("split-destination-inspected", "pdf");
+        let instructions = path("split-destination-plan", "json");
+        let mut doc = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+        let pages = doc.get_pages().into_values().collect::<Vec<_>>();
+        doc.get_dictionary_mut(pages[1])
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 120.into()]);
+        for (index, page) in pages.iter().enumerate() {
+            let destination = vec![
+                Object::Reference(pages[1]),
+                "XYZ".into(),
+                205.into(),
+                120.into(),
+                1.into(),
+            ];
+            let mut link = dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>*page,"Rect"=>vec![30.into(),30.into(),40.into(),40.into()]};
+            if index == 0 {
+                link.set("Dest", destination);
+            } else {
+                link.set("A", dictionary! {"S"=>"GoTo","D"=>vec![Object::Reference(pages[1]),"FitR".into(),205.into(),30.into(),240.into(),60.into()]});
+            }
+            let id = doc.add_object(link);
+            doc.get_dictionary_mut(*page)
+                .unwrap()
+                .set("Annots", vec![Object::Reference(id)]);
+        }
+        doc.save(&source).unwrap();
+        if incremental {
+            write_sparse_source(&input, 3, None, None);
+        } else {
+            let mut target = save_pages(&input, (0..3).map(|_| None), Dictionary::new());
+            for page in target.get_pages().into_values() {
+                target
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("MediaBox", vec![0.into(), 0.into(), 210.into(), 120.into()]);
+            }
+            target.save(&input).unwrap();
+        }
+        write(&instructions, r#"{"pages":[
+          {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},
+          {"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,5,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":200,"height":120}}},
+          {"sourcePageIndex":1,"outputPageIndex":2,"matrix":[1,0,0,1,-195,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":200,"y":0,"width":200,"height":120}}}
+        ]}"#).unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let compact = Command::new(qpdf_path())
+            .arg(&output)
+            .arg(&inspected)
+            .output()
+            .unwrap();
+        assert!(compact.status.success());
+        let saved = Document::load(&inspected).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        for (index, page) in pages.iter().take(2).enumerate() {
+            let id = saved
+                .get_dictionary(*page)
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            let link = saved.get_dictionary(id).unwrap();
+            assert_eq!(link.get(b"P").unwrap().as_reference().unwrap(), *page);
+            let destination = if index == 0 {
+                link.get(b"Dest").unwrap()
+            } else {
+                link.get(b"A")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"D")
+                    .unwrap()
+            }
+            .as_array()
+            .unwrap();
+            assert_eq!(destination[0].as_reference().unwrap(), pages[2]);
+            assert_eq!(destination[2].as_float().unwrap(), 10.);
+            if index == 0 {
+                assert_eq!(destination[1].as_name().unwrap(), b"XYZ");
+                assert_eq!(destination[3].as_float().unwrap(), 120.);
+            } else {
+                assert_eq!(destination[1].as_name().unwrap(), b"FitR");
+                assert_eq!(destination[3].as_float().unwrap(), 30.);
+                assert_eq!(destination[4].as_float().unwrap(), 45.);
+                assert_eq!(destination[5].as_float().unwrap(), 60.);
+            }
+        }
+        assert!(saved
+            .get_dictionary(pages[2])
+            .unwrap()
+            .get(b"Annots")
+            .map_or(true, |annots| annots.as_array().unwrap().is_empty()));
+        for file in [source, input, output, inspected, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_refuses_ambiguous_destinations_before_publishing() {
+    for destination in [
+        vec!["Fit".into()],
+        vec!["XYZ".into(), Object::Null, Object::Null, Object::Null],
+        vec!["FitR".into(), 90.into(), 20.into(), 110.into(), 60.into()],
+    ] {
+        let source = path("ambiguous-destination-source", "pdf");
+        let input = path("ambiguous-destination-input", "pdf");
+        let output = path("ambiguous-destination-output", "pdf");
+        let instructions = path("ambiguous-destination-plan", "json");
+        let mut doc = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = doc.get_pages()[&1];
+        let plan = if destination[0].as_name().unwrap() == b"FitR" {
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":100,"height":120}}},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":100,"y":0,"width":100,"height":120}}}]}"#
+        } else {
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#
+        };
+        let dest = [vec![Object::Reference(page)], destination].concat();
+        let link = doc.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>page,"Rect"=>vec![30.into(),30.into(),40.into(),40.into()],"Dest"=>dest});
+        doc.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link)]);
+        doc.save(&source).unwrap();
+        save_empty_pages(&input, 2);
+        write(&output, b"existing output").unwrap();
+        write(&instructions, plan).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("internal destination"));
+        assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        assert!(atomic_output_siblings(&output).is_empty());
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_transforms_fitted_and_partial_destination_coordinates() {
+    let cases = [
+        (
+            vec!["XYZ".into(), 30.into(), 60.into(), Object::Null],
+            vec!["XYZ".into(), 60.into(), 30.into(), Object::Null],
+        ),
+        (
+            vec!["XYZ".into(), Object::Null, 60.into(), Object::Null],
+            vec!["XYZ".into(), 60.into(), Object::Null, Object::Null],
+        ),
+        (
+            vec!["FitH".into(), 60.into()],
+            vec!["FitV".into(), 60.into()],
+        ),
+        (
+            vec!["FitBH".into(), 60.into()],
+            vec!["FitBV".into(), 60.into()],
+        ),
+        (
+            vec!["FitV".into(), 30.into()],
+            vec!["FitH".into(), 30.into()],
+        ),
+        (
+            vec!["FitBV".into(), 30.into()],
+            vec!["FitBH".into(), 30.into()],
+        ),
+        (
+            vec!["FitR".into(), 10.into(), 20.into(), 40.into(), 60.into()],
+            vec!["FitR".into(), 60.into(), 10.into(), 100.into(), 40.into()],
+        ),
+        (vec!["Fit".into()], vec!["Fit".into()]),
+        (vec!["FitB".into()], vec!["FitB".into()]),
+    ];
+    for (destination, expected) in cases {
+        let source = path("fitted-destination-source", "pdf");
+        let input = path("fitted-destination-input", "pdf");
+        let output = path("fitted-destination-output", "pdf");
+        let instructions = path("fitted-destination-plan", "json");
+        let mut doc = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = doc.get_pages()[&1];
+        let link=doc.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>page,
+            "Rect"=>vec![30.into(),30.into(),40.into(),40.into()],"Dest"=>[vec![Object::Reference(page)],destination].concat()});
+        doc.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link)]);
+        doc.save(&source).unwrap();
+        save_empty_pages(&input, 1);
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[0,1,-1,0,120,0]}]}"#,
+        )
+        .unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let page = saved.get_pages()[&1];
+        let id = saved
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+        let destination = saved
+            .get_dictionary(id)
+            .unwrap()
+            .get(b"Dest")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(destination[0].as_reference().unwrap(), page);
+        assert_eq!(destination.len(), expected.len() + 1);
+        for (actual, expected) in destination.iter().skip(1).zip(expected) {
+            if let Ok(value) = expected.as_float() {
+                assert_eq!(actual.as_float().unwrap(), value);
+            } else {
+                assert_eq!(*actual, expected);
+            }
+        }
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
