@@ -1,0 +1,20 @@
+native/scan-cleanup/src/thin_strokes.rs
+  s_ddde1053323a60::t_c1a9b4dd85a51d 490-494
+  s_ddde1053323a60::t_78f832378929cf 199-200,209,213,216-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "27161797bcae35e5107943f721b85326f49f15e5",
+  "prompts": {},
+  "sessions": {
+    "s_ddde1053323a60": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-6d6a-7762-81c4-096ef6ad50dd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
