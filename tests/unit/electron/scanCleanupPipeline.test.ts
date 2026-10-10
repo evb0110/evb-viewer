@@ -76,7 +76,9 @@ import {
     SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
-import {resolveCompactSourcePreservation} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {
+    assembleWithCompactSourcePages, resolveCompactSourcePreservation,
+} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     createArrayBackedPdfPageSizeStore,
     type IPdfPageSizeStore,
@@ -237,6 +239,19 @@ async function setup() {
 // These conversion controls are rasters; the native read must not write an
 // assembler output or invent positioned source text on their refused pages.
 async function rasterTextVisibilityResult(args: readonly string[]) {
+    if (args[0] === 'parse-annotations') {
+        await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify({
+            format: 'evb-pdf-annotation-parse',
+            schemaVersion: 1,
+            pageCount: 200_000,
+            chunkBytes: 4 * 1024 * 1024,
+        })}\n`);
+        return {
+            exitCode: 0,
+            stderr: '',
+            stdout: '',
+        };
+    }
     if (args[0] !== 'ocr-text-visibility') return null;
     const pages = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8'))
         .trim().split('\n').map(Number);
@@ -649,6 +664,55 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it.each([
+        'Text',
+        'Ink',
+    ])('refuses non-affine cleanup that would drop a %s annotation', async (subtype) => {
+        const fixture = await setup();
+        const raster = join(fixture.dir, 'rasterized.pdf');
+        const staged = join(fixture.dir, 'staged.pdf');
+        await writeFile(raster, 'unpublished raster');
+        const deps = dependencies(vi.fn());
+        deps.runCommand = async (_binary, args) => {
+            await writeFile(args[args.indexOf('--output') + 1]!, [
+                {
+                    format: 'evb-pdf-annotation-parse',
+                    schemaVersion: 1,
+                    pageCount: 2,
+                    chunkBytes: 4 * 1024 * 1024,
+                },
+                {
+                    chunkIndex: 0,
+                    entries: [{
+                        kind: 'foreign',
+                        pageIndex: 0,
+                        objectNumber: 1,
+                        generationNumber: 0,
+                        name: 'source-annotation',
+                        subtype,
+                        reason: 'foreign markup',
+                    }],
+                },
+            ].map(value => JSON.stringify(value)).join('\n') + '\n');
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        };
+        await expect(assembleWithCompactSourcePages(
+            [], pipelinePaths(fixture.dir), fixture.sourcePdfPath, raster, staged,
+            fixture.dir, new AbortController().signal, vi.fn(), deps, undefined,
+            {
+                pages: [],
+                skippedNonAffine: [1],
+                alreadyPreserved: [],
+            },
+        )).rejects.toThrow('Cannot preserve annotations on source page 1 without affine cleanup geometry');
+        await expect(stat(staged)).rejects.toMatchObject({code: 'ENOENT'});
+        expect(await readFile(raster, 'utf8')).toBe('unpublished raster');
+    });
+
     it('observes analysis-release failures after the sidecar has failed', async () => {
         const log = vi.fn();
         await expect(observeScanCleanupAnalysisReleasePromises([Promise.reject(new Error('analysis raster release failed'))], log)).resolves.toBeUndefined();

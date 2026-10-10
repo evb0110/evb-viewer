@@ -317,6 +317,8 @@ export async function renderUnretainedRawRaster(
         signal,
         undefined,
         resolveRasterRenderLimits(pageSize, dpi),
+        pageSize?.renderBox ?? 'cropbox',
+        'exclude',
     );
     return {
         scratchPath,

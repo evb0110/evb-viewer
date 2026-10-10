@@ -152,6 +152,7 @@ describe('scan cleanup raster batch renderer', () => {
         // asked for PPM and the batch publishes a fast lossless PNG.
         expect(runCommand.mock.calls[0]?.[1]).toEqual([
             '-cropbox',
+            '-hide-annotations',
             '-r',
             '150',
             '-f',

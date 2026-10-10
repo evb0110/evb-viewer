@@ -5,7 +5,6 @@ import {
 import type {
     IScanCleanupRasterRenderLimits,
     IScanCleanupRunCommandOptions,
-    TScanCleanupLog,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@evb/scan-cleanup/core/types';
@@ -84,17 +83,21 @@ function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
 async function renderPage(
     runCommand: TRenderCommand,
     format: 'png' | 'ppm',
-    paths: Parameters<TScanCleanupRenderPage>[0],
-    log: TScanCleanupLog,
-    pageNumber: number,
-    sourcePdfPath: string,
-    outputPath: string,
-    dpi: number,
-    popplerEnv?: NodeJS.ProcessEnv,
-    signal?: AbortSignal,
-    crop?: Parameters<TScanCleanupRenderPage>[8],
-    limits?: Parameters<TScanCleanupRenderPage>[9],
-    useMediaBox = false,
+    [
+        paths,
+        log,
+        pageNumber,
+        sourcePdfPath,
+        outputPath,
+        dpi,
+        popplerEnv,
+        signal,
+        crop,
+        limits,
+        renderBox,
+        annotations,
+    ]: Parameters<TScanCleanupRenderPage
+    >,
     onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
     validateCrop(crop);
@@ -103,7 +106,8 @@ async function renderPage(
     // compression, which turns a smooth scanned page into tens of seconds of
     // deflate; a PNG caller gets the same pixels encoded at the fastest level.
     const commandArgs = [
-        ...(useMediaBox ? [] : ['-cropbox']),
+        ...(annotations === 'exclude' ? ['-hide-annotations'] : []),
+        ...(renderBox === 'mediabox' ? [] : ['-cropbox']),
         ...(limits?.scaleToFitPx === undefined ? [] : [
             '-scale-to',
             String(limits.scaleToFitPx),
@@ -182,43 +186,18 @@ export function createScanCleanupRenderers(
             );
         }
     };
-    const createRenderer = (format: 'png' | 'ppm'): TScanCleanupRenderPage => async (
-        paths,
-        log,
-        pageNumber,
-        sourcePdfPath,
-        outputPath,
-        dpi,
-        popplerEnv,
-        signal,
-        crop,
-        limits,
-        renderBox,
-    ) => {
+    const createRenderer = (format: 'png' | 'ppm'): TScanCleanupRenderPage => async (...args) => {
+        const outputPath = args[4];
+        const signal = args[7];
         let terminationProof: Promise<boolean> | undefined;
         const cleanup = () => Promise.all([
             outputPath,
             ...(format === 'png' ? [popplerPpmPath(outputPath)] : []),
         ].map(path => rm(path, {force: true}).catch(() => undefined)));
         try {
-            await renderPage(
-                runCommand,
-                format,
-                paths,
-                log,
-                pageNumber,
-                sourcePdfPath,
-                outputPath,
-                dpi,
-                popplerEnv,
-                signal,
-                crop,
-                limits,
-                renderBox === 'mediabox',
-                proof => { terminationProof = proof; },
-            );
+            await renderPage(runCommand, format, args, proof => { terminationProof = proof; });
             signal?.throwIfAborted();
-            await validateRenderedDimensions(format, outputPath, limits);
+            await validateRenderedDimensions(format, outputPath, args[9]);
             signal?.throwIfAborted();
         } catch (error) {
             if (retainOutputOnFailure(error)) {

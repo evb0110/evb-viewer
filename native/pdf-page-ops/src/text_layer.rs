@@ -1246,7 +1246,7 @@ fn clone_object_graph(
     depth: usize,
 ) -> Result<Object> {
     if depth > MAX_OBJECT_GRAPH_DEPTH {
-        return Err("overlay-text font object graph exceeded the dereference limit".into());
+        return Err("overlay-text object graph exceeded the dereference limit".into());
     }
     match object {
         Object::Reference(source_id) => {
@@ -1257,7 +1257,7 @@ fn clone_object_graph(
             copied.insert(*source_id, target_id);
             let source_object = source.objects.get(source_id).ok_or_else(|| {
                 format!(
-                    "overlay-text source font object {}R{} is missing",
+                    "overlay-text source object {}R{} is missing",
                     source_id.0, source_id.1
                 )
             })?;
@@ -1854,6 +1854,106 @@ pub(crate) fn append_text_layer(
     Ok(None)
 }
 
+/// Carry the source annotation graph with the same geometry as its text and
+/// pixels. A page-local copy keeps split outputs independent; seeding /P avoids
+/// cloning the source page tree through notes, popups and reply links.
+fn append_source_annotations(
+    target: &mut Document,
+    source: &Document,
+    target_page_id: ObjectId,
+    source_page_id: ObjectId,
+    instruction: &TextLayerInstruction,
+) -> Result<()> {
+    let source_page = source.get_dictionary(source_page_id)?;
+    let Ok(annots) = source_page.get(b"Annots") else {
+        return Ok(());
+    };
+    let annotations = source.dereference(annots)?.1.as_array()?;
+    let view = instruction
+        .filter_to_output_page
+        .then(|| resolve_page_view(target, target_page_id))
+        .transpose()?;
+    let mut copied = HashMap::from([(source_page_id, target_page_id)]);
+    let mut output = Vec::new();
+    for annotation in annotations {
+        let (_, object) = source.dereference(annotation)?;
+        let geometry = object.as_dict()?.clone();
+        // Replies and popup windows follow their owner's placement, even when
+        // their own window rectangle lies on the other half of a split.
+        let owner = geometry
+            .get(b"IRT")
+            .or_else(|_| geometry.get(b"Parent"))
+            .ok()
+            .and_then(|owner| resolved_dictionary(source, owner))
+            .unwrap_or(&geometry);
+        let mut owner = owner.clone();
+        crate::split_pages::transform_annotation_geometry(source, &mut owner, instruction.matrix);
+        if let Some(view) = view {
+            if let Some(rect) = read_pdf_rect_from_dict(source, &owner) {
+                let subtype = resolved_name(source, geometry.get(b"Subtype")?);
+                let belongs = if matches!(subtype, Some(b"Text" | b"Popup")) {
+                    let x = (rect.x1 + rect.x2) / 2.0;
+                    let y = (rect.y1 + rect.y2) / 2.0;
+                    x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2
+                } else {
+                    intersect_rect(rect, view).is_some()
+                };
+                if !belongs {
+                    continue;
+                }
+            }
+        }
+        output.push(clone_object_graph(
+            source,
+            target,
+            annotation,
+            &mut copied,
+            0,
+        )?);
+        // Direct annotations have no object ID to find in the copied graph.
+        if let Some(Object::Dictionary(annotation)) = output.last_mut() {
+            crate::split_pages::transform_annotation_geometry(
+                target,
+                annotation,
+                instruction.matrix,
+            );
+            annotation.set("P", target_page_id);
+        }
+    }
+    for target_id in copied.values().copied().filter(|id| *id != target_page_id) {
+        let object = target.get_object(target_id)?;
+        if let Ok(annotation) = object.as_dict() {
+            if annotation.get(b"Subtype").is_ok() && annotation.get(b"Rect").is_ok() {
+                let mut annotation = annotation.clone();
+                crate::split_pages::transform_annotation_geometry(
+                    target,
+                    &mut annotation,
+                    instruction.matrix,
+                );
+                annotation.set("P", target_page_id);
+                target.set_object(target_id, annotation);
+            }
+        }
+    }
+    let page = target.get_dictionary(target_page_id)?;
+    let mut existing = page
+        .get(b"Annots")
+        .ok()
+        .map(|annots| {
+            target
+                .dereference(annots)
+                .and_then(|(_, object)| object.as_array())
+                .cloned()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    existing.extend(output);
+    target
+        .get_dictionary_mut(target_page_id)?
+        .set("Annots", existing);
+    Ok(())
+}
+
 pub(crate) fn overlay_text_layers(
     target: &mut Document,
     source: &Document,
@@ -1873,6 +1973,7 @@ pub(crate) fn overlay_text_layers(
             overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
         let source_page_id = source_resolver.page_id(source, source_page_number)?;
         let target_page_id = target_resolver.page_id(target, output_page_number)?;
+        append_source_annotations(target, source, target_page_id, source_page_id, instruction)?;
         let skipped = append_text_layer(
             target,
             source,
@@ -1933,6 +2034,13 @@ pub(crate) fn prepare_incremental_overlay_page(
         page.set("Resources", Object::Dictionary(resources));
     }
 
+    if let Ok(annotations) = page.get(b"Annots") {
+        page.set(
+            "Annots",
+            base.dereference(annotations)?.1.as_array()?.clone(),
+        );
+    }
+
     // Normalize nested /Contents arrays while the base structure is available.
     // This keeps `Document::add_page_contents` from treating an indirect array
     // as if it were a stream reference in the new revision.
@@ -1976,6 +2084,13 @@ pub(crate) fn overlay_text_layers_incremental(
         {
             prepare_incremental_overlay_page(incremental, target_page_id)?;
         }
+        append_source_annotations(
+            &mut incremental.new_document,
+            source,
+            target_page_id,
+            source_page_id,
+            instruction,
+        )?;
         let skipped = append_text_layer(
             &mut incremental.new_document,
             source,

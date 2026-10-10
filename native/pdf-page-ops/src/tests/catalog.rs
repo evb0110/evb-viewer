@@ -1031,3 +1031,250 @@
             2
         );
     }
+
+    #[test]
+    fn cleanup_overlay_preserves_notes_replies_and_markup_at_affine_positions() {
+        let mut source = create_overlay_source_document();
+        let source_page = *source.get_pages().get(&1).unwrap();
+        let note = source.new_object_id();
+        let popup = source.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "Parent" => note,
+            "P" => source_page, "Rect" => vec![15.into(), 25.into(), 40.into(), 45.into()],
+        });
+        source.set_object(
+            note,
+            dictionary! {
+                "Type" => "Annot", "Subtype" => "Text", "Name" => "Comment",
+                "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()],
+                "Contents" => lopdf::text_string("Cleanup note Ω"),
+                "T" => Object::string_literal("Reader"), "NM" => Object::string_literal("note-id"),
+                "CreationDate" => Object::string_literal("D:20261010120000Z"),
+                "Popup" => popup, "P" => source_page,
+            },
+        );
+        let reply = source.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "IRT" => note, "RT" => "R",
+            "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()],
+            "Contents" => Object::string_literal("Reply"), "P" => source_page,
+        });
+        let quads = source.add_object(vec![
+            10.into(),
+            40.into(),
+            30.into(),
+            40.into(),
+            10.into(),
+            20.into(),
+            30.into(),
+            20.into(),
+        ]);
+        let highlight = source.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => source_page,
+            "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()], "QuadPoints" => quads,
+        });
+        let ink = source.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Ink", "P" => source_page,
+            "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()],
+            "InkList" => vec![Object::Array(vec![10.into(), 20.into(), 30.into(), 40.into()])],
+        });
+        let annots = source.add_object(vec![
+            Object::Reference(note),
+            Object::Reference(reply),
+            Object::Reference(highlight),
+            Object::Reference(ink),
+            Object::Dictionary(dictionary! {
+                "Subtype" => "Square", "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()],
+                "ForeignProperty" => Object::string_literal("Preserved"),
+            }),
+        ]);
+        source
+            .get_dictionary_mut(source_page)
+            .unwrap()
+            .set("Annots", annots);
+        let instructions = TextLayerFile {
+            pages: vec![TextLayerInstruction {
+                source_page_index: 0,
+                output_page_index: 1,
+                matrix: [0.0, 2.0, -3.0, 0.0, 180.0, -10.0],
+                filter_to_output_page: false,
+                normalize_greek_micro_sign: false,
+            }],
+        };
+        for append in [false, true] {
+            let mut target = create_overlay_source_document();
+            let target_page = *target.get_pages().get(&2).unwrap();
+            if append {
+                let mut base_bytes = Vec::new();
+                target.save_to(&mut base_bytes).unwrap();
+                let mut incremental = IncrementalDocument::from_document(
+                    Document::load_mem(&base_bytes).unwrap(),
+                    base_bytes.len() as u64,
+                    base_bytes.last().copied(),
+                );
+                overlay_text_layers_incremental(&mut incremental, &source, &instructions).unwrap();
+                base_bytes.extend(build_incremental_revision(&mut incremental).unwrap());
+                target = Document::load_mem(&base_bytes).unwrap();
+            } else {
+                overlay_text_layers(&mut target, &source, &instructions).unwrap();
+                let mut bytes = Vec::new();
+                target.save_to(&mut bytes).unwrap();
+                target = Document::load_mem(&bytes).unwrap();
+            }
+            let annotations = get_page_annots(&target, target_page).unwrap();
+            assert_eq!(annotations.len(), 5);
+            let dictionaries = annotations
+                .iter()
+                .map(|annotation| target.dereference(annotation).unwrap().1.as_dict().unwrap())
+                .collect::<Vec<_>>();
+            for annotation in &dictionaries {
+                assert_eq!(
+                    annotation.get(b"Rect").unwrap(),
+                    &Object::Array(vec![60.into(), 10.into(), 120.into(), 50.into()])
+                );
+            }
+            let note_id = annotations[0].as_reference().unwrap();
+            let popup_id = dictionaries[0]
+                .get(b"Popup")
+                .unwrap()
+                .as_reference()
+                .unwrap();
+            assert_eq!(
+                lopdf::decode_text_string(dictionaries[0].get(b"Contents").unwrap()).unwrap(),
+                "Cleanup note Ω"
+            );
+            assert_eq!(
+                dictionaries[0].get(b"T").unwrap(),
+                source.get_dictionary(note).unwrap().get(b"T").unwrap()
+            );
+            assert_eq!(
+                dictionaries[0].get(b"NM").unwrap(),
+                source.get_dictionary(note).unwrap().get(b"NM").unwrap()
+            );
+            assert_eq!(
+                dictionaries[0].get(b"P").unwrap(),
+                &Object::Reference(target_page)
+            );
+            assert_eq!(
+                target
+                    .get_dictionary(popup_id)
+                    .unwrap()
+                    .get(b"Parent")
+                    .unwrap(),
+                &Object::Reference(note_id)
+            );
+            assert_eq!(
+                target
+                    .get_dictionary(popup_id)
+                    .unwrap()
+                    .get(b"Rect")
+                    .unwrap(),
+                &Object::Array(vec![45.into(), 20.into(), 105.into(), 70.into()])
+            );
+            assert_eq!(
+                dictionaries[1].get(b"IRT").unwrap(),
+                &Object::Reference(note_id)
+            );
+            assert_eq!(
+                dictionaries[2].get(b"QuadPoints").unwrap(),
+                &Object::Array(vec![
+                    60.into(),
+                    10.into(),
+                    60.into(),
+                    50.into(),
+                    120.into(),
+                    10.into(),
+                    120.into(),
+                    50.into()
+                ])
+            );
+            assert_eq!(
+                dictionaries[3].get(b"InkList").unwrap(),
+                &Object::Array(vec![Object::Array(vec![
+                    120.into(),
+                    10.into(),
+                    60.into(),
+                    50.into()
+                ])])
+            );
+            assert_eq!(
+                dictionaries[4].get(b"ForeignProperty").unwrap(),
+                &Object::string_literal("Preserved")
+            );
+            assert_eq!(
+                target
+                    .objects
+                    .values()
+                    .filter(|object| object
+                        .as_dict()
+                        .ok()
+                        .and_then(|dictionary| dictionary.get(b"Type").ok())
+                        .and_then(|value| value.as_name().ok())
+                        == Some(b"Page"))
+                    .count(),
+                2,
+                "append={append}, pages={:?}",
+                target.get_pages()
+            );
+        }
+        assert_eq!(
+            source.get_dictionary(note).unwrap().get(b"Rect").unwrap(),
+            &Object::Array(vec![10.into(), 20.into(), 30.into(), 40.into()])
+        );
+    }
+
+    #[test]
+    fn cleanup_split_keeps_notes_with_their_owner_and_markup_on_both_halves() {
+        let mut source = create_overlay_source_document();
+        let source_page = *source.get_pages().get(&1).unwrap();
+        source.get_dictionary_mut(source_page).unwrap().remove(b"Contents");
+        let note = source.new_object_id();
+        let popup = source.add_object(dictionary! {
+            "Subtype" => "Popup", "Parent" => note,
+            "Rect" => vec![280.into(), 60.into(), 390.into(), 90.into()],
+        });
+        source.set_object(note, dictionary! {
+            "Subtype" => "Text", "Rect" => vec![195.into(), 45.into(), 205.into(), 55.into()],
+            "Contents" => Object::string_literal("Seam note"), "Popup" => popup,
+        });
+        let reply = source.add_object(dictionary! {
+            "Subtype" => "Text", "IRT" => note,
+            "Rect" => vec![20.into(), 20.into(), 30.into(), 30.into()],
+            "Contents" => Object::string_literal("Seam reply"),
+        });
+        let highlight = source.add_object(dictionary! {
+            "Subtype" => "Highlight", "Rect" => vec![190.into(), 40.into(), 210.into(), 60.into()],
+        });
+        source.get_dictionary_mut(source_page).unwrap().set("Annots", vec![note.into(), popup.into(), reply.into(), highlight.into()]);
+        for append in [false, true] {
+            let mut target = create_overlay_source_document();
+            let first_page = *target.get_pages().get(&1).unwrap();
+            let existing = target.add_object(dictionary! {
+                "Subtype" => "Text", "Rect" => vec![1.into(), 1.into(), 2.into(), 2.into()],
+                "Contents" => Object::string_literal("Existing target note"),
+            });
+            let annots = target.add_object(vec![Object::Reference(existing)]);
+            target.get_dictionary_mut(first_page).unwrap().set("Annots", annots);
+            let instructions = TextLayerFile { pages: (0..2).map(|output_page_index| TextLayerInstruction {
+                source_page_index: 0, output_page_index,
+                matrix: [1.0, 0.0, 0.0, 1.0, -(output_page_index as f64) * 200.0, 0.0],
+                filter_to_output_page: true, normalize_greek_micro_sign: false,
+            }).collect() };
+            if append {
+                let mut bytes = Vec::new();
+                target.save_to(&mut bytes).unwrap();
+                let mut incremental = IncrementalDocument::from_document(Document::load_mem(&bytes).unwrap(), bytes.len() as u64, bytes.last().copied());
+                overlay_text_layers_incremental(&mut incremental, &source, &instructions).unwrap();
+                bytes.extend(build_incremental_revision(&mut incremental).unwrap());
+                target = Document::load_mem(&bytes).unwrap();
+            } else {
+                overlay_text_layers(&mut target, &source, &instructions).unwrap();
+            }
+            let pages = target.get_pages();
+            let left = get_page_annots(&target, pages[&1]).unwrap();
+            let right = get_page_annots(&target, pages[&2]).unwrap();
+            assert_eq!(left.len(), 2);
+            assert_eq!(right.len(), 4);
+            assert_eq!(target.get_dictionary(left[0].as_reference().unwrap()).unwrap().get(b"Contents").unwrap(), &Object::string_literal("Existing target note"));
+            assert_eq!(target.get_dictionary(right[0].as_reference().unwrap()).unwrap().get(b"Contents").unwrap(), &Object::string_literal("Seam note"));
+            assert_eq!(target.get_dictionary(right[2].as_reference().unwrap()).unwrap().get(b"IRT").unwrap(), &right[0]);
+        }
+    }

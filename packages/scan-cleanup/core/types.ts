@@ -389,6 +389,7 @@ export type TScanCleanupRenderPage = (
     },
     limits?: IScanCleanupRasterRenderLimits,
     renderBox?: 'auto' | 'cropbox' | 'mediabox',
+    annotations?: 'include' | 'exclude',
 ) => Promise<void>;
 
 /**

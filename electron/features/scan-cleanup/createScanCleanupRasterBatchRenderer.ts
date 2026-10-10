@@ -168,6 +168,7 @@ export function createScanCleanupRasterBatchRenderer(
             // compression and would dominate detection on scanned pages.
             await runCommand(input.pdftoppmBinary, [
                 '-cropbox',
+                '-hide-annotations',
                 '-r',
                 String(input.dpi),
                 '-f',

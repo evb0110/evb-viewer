@@ -213,8 +213,7 @@ fn collect_content_streams(
 /// Whether an array of this length is the shape PDF defines for its key.
 type AnnotationArrayShape = fn(usize) -> bool;
 
-const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 5] = [
-    (b"Rect", |len| len == 4),
+const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 4] = [
     (b"QuadPoints", |len| len % 8 == 0),
     // Line endpoints, and the leader line of a callout: four numbers, or six
     // when the callout bends once.
@@ -230,29 +229,26 @@ const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 5] = [
 fn transformed_point_array(
     document: &Document,
     values: &[Object],
-    transform: SplitContentTransform,
+    matrix: [f64; 6],
     shape_is_valid: impl Fn(usize) -> bool,
 ) -> Option<Vec<Object>> {
     if values.is_empty() || values.len() % 2 != 0 || !shape_is_valid(values.len()) {
         return None;
     }
     values
-        .iter()
-        .enumerate()
-        .map(|(index, value)| {
-            // A coordinate is allowed to be an indirect object of its own, and
-            // reading only the direct form would refuse the whole annotation.
-            let (_, value) = document.dereference(value).ok()?;
-            let number = f64::from(value.as_float().ok()?);
-            if !number.is_finite() {
-                return None;
+        .chunks_exact(2)
+        .flat_map(|pair| {
+            let point = (|| {
+                let x = f64::from(document.dereference(&pair[0]).ok()?.1.as_float().ok()?);
+                let y = f64::from(document.dereference(&pair[1]).ok()?.1.as_float().ok()?);
+                let tx = matrix[0] * x + matrix[2] * y + matrix[4];
+                let ty = matrix[1] * x + matrix[3] * y + matrix[5];
+                (tx.is_finite() && ty.is_finite()).then_some([number_object(tx), number_object(ty)])
+            })();
+            match point {
+                Some(point) => point.map(Some),
+                None => [None, None],
             }
-            let offset = if index % 2 == 0 {
-                transform.translate_x
-            } else {
-                transform.translate_y
-            };
-            Some(number_object(number * transform.scale + offset))
         })
         .collect()
 }
@@ -263,7 +259,7 @@ fn transformed_point_array(
 fn transformed_ink_list(
     document: &Document,
     strokes: &[Object],
-    transform: SplitContentTransform,
+    matrix: [f64; 6],
 ) -> Option<Vec<Object>> {
     if strokes.is_empty() {
         return None;
@@ -273,7 +269,7 @@ fn transformed_ink_list(
         .map(|stroke| {
             let (_, stroke) = document.dereference(stroke).ok()?;
             let points =
-                transformed_point_array(document, stroke.as_array().ok()?, transform, |_| true)?;
+                transformed_point_array(document, stroke.as_array().ok()?, matrix, |_| true)?;
             Some(Object::Array(points))
         })
         .collect()
@@ -290,6 +286,84 @@ fn annotation_array(
 ) -> Option<Vec<Object>> {
     let (_, resolved) = document.dereference(annotation.get(key).ok()?).ok()?;
     resolved.as_array().ok().cloned()
+}
+
+/// Share the page-ops coordinate writer with raster cleanup's affine overlay.
+/// Rectangles are bounds of all four transformed corners; markup retains its
+/// point order, including rotations and shear.
+pub(crate) fn transform_annotation_geometry(
+    document: &Document,
+    annotation: &mut Dictionary,
+    matrix: [f64; 6],
+) {
+    if let Some(rect) =
+        annotation_array(document, annotation, b"Rect").filter(|rect| rect.len() == 4)
+    {
+        let corners = vec![
+            rect[0].clone(),
+            rect[1].clone(),
+            rect[0].clone(),
+            rect[3].clone(),
+            rect[2].clone(),
+            rect[1].clone(),
+            rect[2].clone(),
+            rect[3].clone(),
+        ];
+        if let Some(points) = transformed_point_array(document, &corners, matrix, |_| true) {
+            let numbers = points
+                .iter()
+                .map(|point| f64::from(point.as_float().unwrap()))
+                .collect::<Vec<_>>();
+            annotation.set(
+                "Rect",
+                vec![
+                    number_object(
+                        numbers
+                            .iter()
+                            .step_by(2)
+                            .copied()
+                            .fold(f64::INFINITY, f64::min),
+                    ),
+                    number_object(
+                        numbers
+                            .iter()
+                            .skip(1)
+                            .step_by(2)
+                            .copied()
+                            .fold(f64::INFINITY, f64::min),
+                    ),
+                    number_object(
+                        numbers
+                            .iter()
+                            .step_by(2)
+                            .copied()
+                            .fold(f64::NEG_INFINITY, f64::max),
+                    ),
+                    number_object(
+                        numbers
+                            .iter()
+                            .skip(1)
+                            .step_by(2)
+                            .copied()
+                            .fold(f64::NEG_INFINITY, f64::max),
+                    ),
+                ],
+            );
+        }
+    }
+    for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
+        if let Some(values) = annotation_array(document, annotation, key) {
+            if let Some(points) = transformed_point_array(document, &values, matrix, shape_is_valid)
+            {
+                annotation.set(key.to_vec(), Object::Array(points));
+            }
+        }
+    }
+    if let Some(strokes) = annotation_array(document, annotation, b"InkList") {
+        if let Some(ink) = transformed_ink_list(document, &strokes, matrix) {
+            annotation.set("InkList", ink);
+        }
+    }
 }
 
 /// The page's annotation list, whether the page holds the array itself or
@@ -334,21 +408,18 @@ fn transform_annotations(
             continue;
         };
         let mut copy = dictionary;
-        for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
-            let Some(values) = annotation_array(document, &copy, key) else {
-                continue;
-            };
-            if let Some(points) =
-                transformed_point_array(document, &values, transform, shape_is_valid)
-            {
-                copy.set(key.to_vec(), Object::Array(points));
-            }
-        }
-        if let Some(strokes) = annotation_array(document, &copy, b"InkList") {
-            if let Some(ink) = transformed_ink_list(document, &strokes, transform) {
-                copy.set(b"InkList".to_vec(), Object::Array(ink));
-            }
-        }
+        transform_annotation_geometry(
+            document,
+            &mut copy,
+            [
+                transform.scale,
+                0.0,
+                0.0,
+                transform.scale,
+                transform.translate_x,
+                transform.translate_y,
+            ],
+        );
         transformed.push(Object::Reference(document.add_object(copy)));
     }
     page.set("Annots", Object::Array(transformed));
@@ -462,20 +533,18 @@ fn transform_annotations_incremental(
             continue;
         };
         let mut copy = dictionary;
-        for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
-            let Some(values) = annotation_array(base, &copy, key) else {
-                continue;
-            };
-            if let Some(points) = transformed_point_array(base, &values, transform, shape_is_valid)
-            {
-                copy.set(key.to_vec(), Object::Array(points));
-            }
-        }
-        if let Some(strokes) = annotation_array(base, &copy, b"InkList") {
-            if let Some(ink) = transformed_ink_list(base, &strokes, transform) {
-                copy.set(b"InkList".to_vec(), Object::Array(ink));
-            }
-        }
+        transform_annotation_geometry(
+            base,
+            &mut copy,
+            [
+                transform.scale,
+                0.0,
+                0.0,
+                transform.scale,
+                transform.translate_x,
+                transform.translate_y,
+            ],
+        );
         transformed.push(Object::Reference(target.add_object(copy)));
     }
     page.set("Annots", Object::Array(transformed));

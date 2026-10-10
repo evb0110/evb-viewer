@@ -279,9 +279,8 @@ export async function runLosslessScanCleanup(
         logRasterHandoff(log, 'lossless analysis', rasterHandoff);
         const pageInputs = await mapScanCleanupRasterPages(rasterPlans, policy.rasterConcurrency, async plan => {
             signal.throwIfAborted();
-            const extension = rasterHandoff.format;
-            const inputPath = join(scratch, `analysis-${plan.pageNumber}.${extension}`);
-            const renderer = extension === 'ppm'
+            const inputPath = join(scratch, `analysis-${plan.pageNumber}.${rasterHandoff.format}`);
+            const renderer = rasterHandoff.format === 'ppm'
                 ? dependencies.renderPagePpm
                 : dependencies.renderPage;
             const pageSize = pageSizeByNumber.get(plan.pageNumber)!;
@@ -299,6 +298,7 @@ export async function runLosslessScanCleanup(
                     undefined,
                     resolveScanCleanupRasterRenderLimits(pageSize, analysisDpi),
                     pageSize.renderBox ?? 'cropbox',
+                    'exclude',
                 );
                 rasterizedCount += 1;
                 rasterizedPageNumbers.add(plan.pageNumber);
