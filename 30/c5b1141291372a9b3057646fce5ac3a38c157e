@@ -1,0 +1,24 @@
+native/pdf-page-ops/tests/text_layer.rs
+  s_ddde1053323a60::t_1c06199cbfdb2d 2249,2268
+  s_ddde1053323a60::t_a9f4fc016883e1 2279
+  s_ddde1053323a60::t_1f42f01f69c15f 2239-2240,2274-2278,2281-2282,2289-2311,2327-2328,2346
+  s_ddde1053323a60::t_6fc97a387c18d5 2241-2245,2284-2287,2312,2317,2325-2326
+native/pdf-page-ops/src/text_box_font.rs
+  s_ddde1053323a60::t_95d4f55e0033cd 591-598,600-605,608,642-645,679
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "30c5b1141291372a9b3057646fce5ac3a38c157e",
+  "prompts": {},
+  "sessions": {
+    "s_ddde1053323a60": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-6d6a-7762-81c4-096ef6ad50dd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
