@@ -5,6 +5,7 @@ pub mod bw;
 mod cache;
 #[doc(hidden)]
 pub mod calibration;
+mod coherent_edges;
 pub mod content;
 pub mod deskew;
 pub mod dewarp;
