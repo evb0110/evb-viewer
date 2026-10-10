@@ -474,7 +474,8 @@ pub(crate) fn pdf_rect_to_marker_rect(
 
 /// Read a note icon's marker. A note on a split seam can overhang its output
 /// page, so move its anchor back inside the page as `text_note_pdf_rect` does
-/// for an edge click. The icon keeps its size and identity, and the strict
+/// for an edge click. Only a note whose centre lies on the page belongs to it,
+/// the rule the split uses to place notes; the strict
 /// `pdf_rect_to_marker_rect` still governs every other annotation.
 pub(crate) fn pdf_rect_to_note_marker_rect(
     rect: PdfRect,
@@ -482,8 +483,12 @@ pub(crate) fn pdf_rect_to_note_marker_rect(
     page_rotation: i64,
 ) -> Result<MarkerRect> {
     let mut marker_rect = pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)?;
-    marker_rect.left = marker_rect.left.min(1.0 - marker_rect.width).max(0.0);
-    marker_rect.top = marker_rect.top.min(1.0 - marker_rect.height).max(0.0);
+    let centre_x = marker_rect.left + marker_rect.width / 2.0;
+    let centre_y = marker_rect.top + marker_rect.height / 2.0;
+    if (0.0..1.0).contains(&centre_x) && (0.0..1.0).contains(&centre_y) {
+        marker_rect.left = marker_rect.left.min(1.0 - marker_rect.width).max(0.0);
+        marker_rect.top = marker_rect.top.min(1.0 - marker_rect.height).max(0.0);
+    }
     validate_marker_rect(marker_rect)?;
     Ok(marker_rect)
 }

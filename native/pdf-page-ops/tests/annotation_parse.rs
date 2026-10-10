@@ -25,13 +25,22 @@ fn parse_annotations_cli_writes_the_streaming_jsonl_sidecar() {
     let mut document = Document::with_version("1.4");
     let pages_id = document.new_object_id();
     let page_id = document.new_object_id();
-    let annotation_id = document.add_object(dictionary! {
-        "Type" => "Annot",
-        "Subtype" => "Text",
-        "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()],
-        "NM" => Object::string_literal("cli-note"),
-        "Contents" => Object::string_literal("CLI note"),
-        "P" => page_id,
+    // A note that overhangs the page but is centred on it belongs to the
+    // page; one centred off the page is not this page's note.
+    let annotations = [
+        ("cli-note", [10, 20, 30, 40]),
+        ("overhanging-note", [85, 20, 105, 40]),
+        ("off-page-note", [300, 20, 320, 40]),
+    ]
+    .map(|(name, rect)| {
+        Object::Reference(document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Rect" => rect.map(Object::from).to_vec(),
+            "NM" => Object::string_literal(name),
+            "Contents" => Object::string_literal("CLI note"),
+            "P" => page_id,
+        }))
     });
     document.set_object(
         page_id,
@@ -39,7 +48,7 @@ fn parse_annotations_cli_writes_the_streaming_jsonl_sidecar() {
             "Type" => "Page",
             "Parent" => pages_id,
             "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
-            "Annots" => vec![Object::Reference(annotation_id)],
+            "Annots" => annotations.to_vec(),
         },
     );
     document.set_object(
@@ -82,8 +91,17 @@ fn parse_annotations_cli_writes_the_streaming_jsonl_sidecar() {
     assert_eq!(header["format"], "evb-pdf-annotation-parse");
     assert_eq!(header["schemaVersion"], 1);
     let chunk = serde_json::from_str::<serde_json::Value>(lines.next().unwrap()).unwrap();
-    assert_eq!(chunk["entries"][0]["kind"], "note");
-    assert_eq!(chunk["entries"][0]["name"], "cli-note");
+    let kind_of = |name: &str| {
+        chunk["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == name)
+            .map(|entry| entry["kind"].clone())
+    };
+    assert_eq!(kind_of("cli-note").unwrap(), "note");
+    assert_eq!(kind_of("overhanging-note").unwrap(), "note");
+    assert_ne!(kind_of("off-page-note").unwrap(), "note");
     assert!(lines.next().is_none());
 
     fs::remove_file(input).unwrap();
