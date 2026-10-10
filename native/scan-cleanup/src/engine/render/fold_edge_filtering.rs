@@ -399,34 +399,18 @@ pub(crate) fn run(input: Input<'_>) -> Output {
                 |page| {
                     let (rails, _) = crate::edge_artifacts::side_edge_rails(binary, Some(page));
                     let components = ComponentMap::from_binary(&rails);
-                    let ownership = [picture_mask, text_mask, text_vicinity_mask]
-                        .into_iter()
-                        .enumerate()
-                        .filter_map(|(kind, mask)| {
-                            mask.map(|mask| (kind, ComponentMap::from_binary(mask)))
-                        })
-                        .collect::<Vec<_>>();
                     components.retain(|component| {
-                        !ownership.iter().any(|(kind, owners)| {
-                            (component.top..=component.bottom).any(|y| {
-                                (component.left..=component.right).any(|x| {
-                                    let label = owners.label_at(x, y);
-                                    if components.label_at(x, y) != component.label || label == 0 {
-                                        return false;
-                                    }
-                                    let owner = &owners.components()[label as usize - 1];
-                                    // A sustained rail cannot borrow text ownership wholly
-                                    // inside its physical edge corridor. Pictures, compact
-                                    // clipped glyphs and text reaching inward stay protected.
-                                    *kind == 0
-                                        || (((component.bottom + 1 - component.top) * 8) as f64)
-                                            < page.height
-                                        || (owner.right as f64 + 1.0 > page.x + page.width / 20.0
-                                            && (owner.left as f64)
-                                                < page.right() - page.width / 20.0)
+                        ![picture_mask, text_mask, text_vicinity_mask]
+                            .into_iter()
+                            .flatten()
+                            .any(|mask| {
+                                (component.top..=component.bottom).any(|y| {
+                                    (component.left..=component.right).any(|x| {
+                                        components.label_at(x, y) == component.label
+                                            && mask.get(x, y)
+                                    })
                                 })
                             })
-                        })
                     })
                 },
             )
