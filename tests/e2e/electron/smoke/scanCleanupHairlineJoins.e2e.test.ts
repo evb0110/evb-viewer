@@ -832,7 +832,7 @@ describe('scan cleanup of soft display capitals', () => {
 });
 
 describe('automatic scan cleanup of a title page with a pencil note', () => {
-    it('prints the note whole when the page is cleaned to black and white', async () => {
+    it('prints the note whole when Auto cleans the page to black and white', async () => {
         const directory = createScratchDirectory('evb-e2e-cleanup-pencil-note-');
         const sourcePath = join(directory, 'pencil-note-scan.pdf');
         const printed = await createPencilNoteScanPdf(sourcePath);
@@ -846,7 +846,7 @@ describe('automatic scan cleanup of a title page with a pencil note', () => {
         const path = pencilNotePath();
         const inkedColumns = path.filter(({
             x, y,
-        }) => [
+        }) => x + dx >= 0 && x + dx < cleaned.width && [
             -2,
             -1,
             0,

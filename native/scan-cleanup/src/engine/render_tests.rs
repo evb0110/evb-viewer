@@ -1022,6 +1022,54 @@ mod tests {
     }
 
     #[test]
+    fn a_render_crop_prints_a_pencil_curve_as_the_page_does() {
+        let (raw, _) = print_and_pencil_curve();
+        let options = CleanupOptions {
+            dpi: 300.0,
+            source_dpi: Some(300.0),
+            requested_render_dpi: Some(300.0),
+            output_mode: OutputMode::Bw,
+            normalize_illumination: false,
+            crop_content: false,
+            layout: crate::LayoutMode::Single,
+            ..CleanupOptions::default()
+        };
+        let full = clean_page(&raw, &options, 0).unwrap().outputs.remove(0);
+        let crop = crate::NormalizedRect {
+            x: 0.4,
+            y: 0.3,
+            width: 0.3,
+            height: 0.4,
+            rotation: OrthogonalRotation::None,
+        };
+        let tile = clean_page(
+            &raw,
+            &CleanupOptions {
+                render_crop: Some(crop),
+                ..options
+            },
+            0,
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let region = tile.metadata.render_region.unwrap();
+        let mut curve = 0usize;
+        for y in 0..tile.image.height() {
+            for x in 0..tile.image.width() {
+                let pixel = tile.image.get(x, y);
+                assert_eq!(
+                    pixel,
+                    full.image.get(region.x as usize + x, region.y as usize + y),
+                    "x={x}, y={y}",
+                );
+                curve += usize::from(pixel < 128);
+            }
+        }
+        assert!(curve > 0, "the crop shows the pencil curve");
+    }
+
+    #[test]
     fn faint_smudge_embossing_edge_shading_and_picture_lines_stay_paper() {
         let (mut raw, binary) = print_and_pencil_curve();
         for x in 200..520 {

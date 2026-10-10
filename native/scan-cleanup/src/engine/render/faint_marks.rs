@@ -11,11 +11,9 @@ use super::*;
 use crate::{background::smooth_for_binarization, bw::LOCAL_MIDPOINT_MIN_DEPTH};
 
 /// A faint stroke's core lies at least this far below its paper. Paper grain,
-/// show-through and the shading along a scan's edge stay shallower.
+/// show-through and the shading along a scan's edge stay shallower; print is
+/// as deep as `RULE_RAW_DEPTH` and left to the threshold.
 const FAINT_STROKE_CORE_DEPTH: u8 = 40;
-/// Print is deeper: a core reaching this fraction of the page's ink depth is
-/// left to the threshold.
-const FAINT_STROKE_MAX_PAGE_DEPTH_FRACTION: f64 = 0.4;
 /// A written stroke or a rule runs at least this far, along its length and
 /// across the page; the letters of a blind stamp and stray fibres are shorter.
 const FAINT_STROKE_MIN_LENGTH_MM: f64 = 6.0;
@@ -158,7 +156,9 @@ pub(super) fn filter_soft_shallow_bleed_components(
                 && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
         }
     });
-    let strokes = coherent_faint_strokes(binary, raw, protected_picture.as_ref(), dpi);
+    // A coherent faint stroke prints as drawn below, not as the cut's fragments.
+    let (strokes, stroke_area) = coherent_faint_strokes(raw, protected_picture.as_ref(), dpi);
+    let retained = retained.subtract(&stroke_area);
     // A local threshold (Wolf, Sauvola) normalizes contrast per window, so
     // heavy show-through can cross it: a bleed rule that crosses a running
     // head then merges with the glyphs into one component that the verdict
@@ -193,39 +193,17 @@ struct FaintGroup {
     wide: usize,
 }
 
-/// The coherent faint strokes on a page whose print is `binary`, each cut at
-/// half its core depth. A pencil stroke's pressure varies, so its pieces are
-/// grouped across gaps of a few pixels.
+/// The coherent faint strokes on a page, each cut at half its core depth, and
+/// the area each one owns. A pencil stroke's pressure varies, so its pieces
+/// are grouped across gaps of a few pixels. Every test is local to the stroke
+/// and the paper within reach of it, so a render crop with its processing
+/// apron decides as the page does.
 fn coherent_faint_strokes(
-    binary: &BinaryImage,
     raw: &GrayImage,
     picture_owner: Option<&BinaryImage>,
     dpi: f64,
-) -> BinaryImage {
+) -> (BinaryImage, BinaryImage) {
     let (width, height) = (raw.width(), raw.height());
-    let none = BinaryImage::new(width, height);
-    let mut ink = [0usize; 256];
-    for y in 0..height {
-        for (x, &value) in raw.row(y).iter().enumerate() {
-            if binary.get(x, y) {
-                ink[usize::from(value)] += 1;
-            }
-        }
-    }
-    let ink_total = ink.iter().sum::<usize>();
-    let mut cumulative = 0usize;
-    let Some(ink_core) = ink.iter().position(|&count| {
-        cumulative += count;
-        cumulative * 10 > ink_total
-    }) else {
-        return none;
-    };
-    let page_paper = paper_reference(raw);
-    let core_ceiling =
-        f64::from(page_paper.saturating_sub(ink_core as u8)) * FAINT_STROKE_MAX_PAGE_DEPTH_FRACTION;
-    if core_ceiling <= f64::from(FAINT_STROKE_CORE_DEPTH) {
-        return none;
-    }
     let px_per_mm = dpi.max(1.0) / 25.4;
     let paper_radius = (px_per_mm * FAINT_STROKE_PAPER_RADIUS_MM).round().max(1.0) as usize;
     let paper = erode_gray(
@@ -268,7 +246,8 @@ fn coherent_faint_strokes(
     let band_x = (width as f64 * FAINT_STROKE_EDGE_BAND_FRACTION) as usize;
     let band_y = (height as f64 * FAINT_STROKE_EDGE_BAND_FRACTION) as usize;
     let min_length = px_per_mm * FAINT_STROKE_MIN_LENGTH_MM;
-    let mut strokes = none;
+    let mut strokes = BinaryImage::new(width, height);
+    let mut area = BinaryImage::new(width, height);
     for component in groups.components() {
         let group = stats[component.label as usize];
         let length = group.boundary as f64 / 2.0;
@@ -306,17 +285,18 @@ fn coherent_faint_strokes(
                 below * 10 >= group.area * 9
             })
             .unwrap_or(0) as i16;
-        if core < i16::from(FAINT_STROKE_CORE_DEPTH) || f64::from(core) >= core_ceiling {
+        if core < i16::from(FAINT_STROKE_CORE_DEPTH) || core >= i16::from(RULE_RAW_DEPTH) {
             continue;
         }
         let cut = (core / 2).max(LOCAL_MIDPOINT_MIN_DEPTH);
         for y in component.top..=component.bottom {
             for x in component.left..=component.right {
-                if in_group(x, y) && depth(x, y) >= cut {
-                    strokes.set(x, y, true);
+                if groups.label_at(x, y) == component.label {
+                    area.set(x, y, true);
+                    strokes.set(x, y, faint.get(x, y) && depth(x, y) >= cut);
                 }
             }
         }
     }
-    strokes
+    (strokes, area)
 }
