@@ -305,7 +305,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const sourceMaxPixels = resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, demand.pageNumber);
             const render = await canvasRenderer.prepareCanvasRender(page, scale, {
                 ...(intent ? {contentIntent: intent} : {}),
-                hiddenAnnotationIds: pageRenderer.canvasHiddenAnnotationIds.value,
+                hiddenAnnotationIds: () => pageRenderer.canvasHiddenAnnotationIds.value,
                 ...(job.renderOptions.maxCanvasPixels === undefined
                     ? {}
                     : {maxCanvasPixels: job.renderOptions.maxCanvasPixels}),
