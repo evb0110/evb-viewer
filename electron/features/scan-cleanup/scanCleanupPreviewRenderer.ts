@@ -802,7 +802,8 @@ export async function scanCleanupPreviewRenderer(
                 pageMetadata: result.pageMetadata,
                 outputs: nativeOutputs,
                 ...artifacts,
-                canonicalRasterBytes,
+                // The retained mask and metadata payload is what the byte budget counts.
+                retainedBytes: canonicalRasterBytes + Buffer.byteLength(JSON.stringify(nativeOutputs)),
                 baseRenderDpi: renderDpi,
             });
             await pruneBaseAnalysisCache(

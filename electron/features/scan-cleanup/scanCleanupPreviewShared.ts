@@ -290,7 +290,8 @@ export interface IBasePreviewAnalysis {
     analysisDirectory: string;
     canonicalRasterPaths: Partial<Record<IScanCleanupPreviewMetadata['half'], string>>;
     baseMetadataPaths: Partial<Record<IScanCleanupPreviewMetadata['half'], string>>;
-    canonicalRasterBytes: number;
+    // Canonical raster bytes plus the serialized `outputs` metadata, measured once when stored.
+    retainedBytes: number;
     baseRenderDpi: number;
 }
 

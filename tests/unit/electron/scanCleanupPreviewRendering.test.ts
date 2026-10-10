@@ -2034,17 +2034,18 @@ describe('scan cleanup preview identity', () => {
 describe('base analysis cache budget', () => {
     it('evicts by retained mask and metadata payload, not only raster bytes', async () => {
         const cache = new Map<string, IBasePreviewAnalysis>();
+        const canonicalRasterBytes = 2 * 1024 * 1024 - 10 * 1024;
+        const outputs = {full: {maskPng: 'x'.repeat(90 * 1024)}};
         for (let index = 0; index < 32; index++) {
             cache.set(String(index), cast<IBasePreviewAnalysis>({
-                canonicalRasterBytes: 2 * 1024 * 1024 - 10 * 1024,
-                outputs: {full: {maskPng: 'x'.repeat(90 * 1024)}},
+                retainedBytes: canonicalRasterBytes + Buffer.byteLength(JSON.stringify(outputs)),
+                outputs,
                 analysisDirectory: `unused-${String(index)}`,
             }));
         }
         await pruneBaseAnalysisCache(cache, new Set(), cast({fileSystem: {rm: async () => undefined}}));
         const retainedBytes = [...cache.values()]
-            .reduce((total, analysis) => total + analysis.canonicalRasterBytes
-                + Buffer.byteLength(JSON.stringify(analysis.outputs)), 0);
+            .reduce((total, analysis) => total + analysis.retainedBytes, 0);
         expect(retainedBytes).toBeLessThanOrEqual(BASE_ANALYSIS_CACHE_BYTE_LIMIT);
         expect(cache.size).toBeLessThan(32);
     });

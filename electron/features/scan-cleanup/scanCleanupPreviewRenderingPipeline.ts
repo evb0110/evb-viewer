@@ -107,18 +107,13 @@ export function removeBaseAnalysisArtifacts(analysis: IBasePreviewAnalysis, depe
         logger.warn(`Failed to drop scan cleanup base analysis artifacts: ${getErrorMessage(error)}`);
     });
 }
-// Retained memory is the canonical rasters plus the native metadata kept in
-// `outputs`, which carries the preserved and rejected stroke masks.
-function retainedBaseAnalysisBytes(analysis: IBasePreviewAnalysis) {
-    return analysis.canonicalRasterBytes + Buffer.byteLength(JSON.stringify(analysis.outputs));
-}
 export async function pruneBaseAnalysisCache(
     cache: Map<string, IBasePreviewAnalysis>,
     pinnedKeys: ReadonlySet<string> = new Set(),
     dependencies: IScanCleanupRenderingDependencies,
 ) {
     let retainedBytes = [...cache.values()]
-        .reduce((total, analysis) => total + retainedBaseAnalysisBytes(analysis), 0);
+        .reduce((total, analysis) => total + analysis.retainedBytes, 0);
     while (
         cache.size > BASE_ANALYSIS_CACHE_PAGE_LIMIT
         || retainedBytes > BASE_ANALYSIS_CACHE_BYTE_LIMIT
@@ -129,7 +124,7 @@ export async function pruneBaseAnalysisCache(
         }
         cache.delete(oldest[0]);
         await removeBaseAnalysisArtifacts(oldest[1], dependencies);
-        retainedBytes -= retainedBaseAnalysisBytes(oldest[1]);
+        retainedBytes -= oldest[1].retainedBytes;
     }
 }
 export function resolveFallbackDetailDpi(
