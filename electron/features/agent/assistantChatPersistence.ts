@@ -6,7 +6,6 @@ import {mkdirSync} from 'fs';
 import {
     appendFile,
     mkdir,
-    open,
     readFile,
     readdir,
     rename,
@@ -44,6 +43,7 @@ import {
     isAssistantTurnActive,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
+import {fsyncFile} from '@electron/utils/fsyncPath';
 import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
 import pruneAssistantChatSnapshotBlobs from '@electron/features/agent/pruneAssistantChatSnapshotBlobs';
 import {pruneAssistantChatArchives} from '@electron/features/agent/pruneAssistantChatArchives';
@@ -217,12 +217,7 @@ async function atomicWriteJsonFile(filePath: string, payload: unknown) {
     await mkdir(dirname(filePath), { recursive: true });
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
     await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    const handle = await open(tempPath, 'r');
-    try {
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
+    await fsyncFile(tempPath);
     await rename(tempPath, filePath);
     await fsyncParentDirectory(filePath);
 }
@@ -924,12 +919,7 @@ export class AssistantChatPersistence {
         const filePath = this.sessionPath(key);
         const storageRecord = await this.snapshotStorage.prepareRecordForStorage(record, key);
         await appendFile(filePath, `${JSON.stringify(storageRecord)}\n`, 'utf8');
-        const handle = await open(filePath, 'r');
-        try {
-            await handle.sync();
-        } finally {
-            await handle.close();
-        }
+        await fsyncFile(filePath);
         return storageRecord;
     }
 

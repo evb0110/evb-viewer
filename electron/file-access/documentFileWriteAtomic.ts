@@ -1,6 +1,4 @@
 import {
-} from 'fs';
-import {
     copyFile,
     link,
     open as openFileHandle,
@@ -12,6 +10,7 @@ import { isErrnoException } from '@contracts/runtimeGuards';
 import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {fsyncFile} from '@electron/utils/fsyncPath';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
@@ -135,13 +134,7 @@ export async function copyFileAtomic(
             }
         }
         if (options.durable !== false) {
-            const handle = await openFileHandle(temporaryPath, 'r');
-            try {
-                await measureCopyPhase(options.onPhase, 'fsync-file', () =>
-                    syncFileHandleForDurability(handle));
-            } finally {
-                await handle.close().catch(() => undefined);
-            }
+            await measureCopyPhase(options.onPhase, 'fsync-file', () => fsyncFile(temporaryPath));
         }
         assertNoSymlinkPathSegments(resolvedTargetPath);
         await measureCopyPhase(options.onPhase, 'rename', async () => {

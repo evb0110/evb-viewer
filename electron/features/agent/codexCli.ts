@@ -9,7 +9,6 @@ import {
     lstat,
     mkdtemp,
     mkdir,
-    open,
     rename,
     rm,
     stat,
@@ -27,6 +26,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import { app } from 'electron';
 import { getErrorMessage } from '@electron/utils/error';
+import { fsyncFile } from '@electron/utils/fsyncPath';
 import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcessLaunch';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -531,12 +531,7 @@ async function performManagedCodexInstall(options: IInstallCodexOptions) {
         if (process.platform !== 'win32') {
             await chmod(stagedPath, 0o700);
         }
-        const stagedHandle = await open(stagedPath, 'r');
-        try {
-            await stagedHandle.sync();
-        } finally {
-            await stagedHandle.close();
-        }
+        await fsyncFile(stagedPath);
 
         backupPath = await stageManagedCodexReplacement(stagedPath, targetPath);
         const versionResult = await runCommand(targetPath, ['--version']);

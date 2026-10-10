@@ -1,4 +1,9 @@
 import { open } from 'node:fs/promises';
+import {
+    closeSync,
+    fsyncSync,
+    openSync,
+} from 'node:fs';
 
 /**
  * Flush a file's contents to disk. Opened read-write because Windows rejects
@@ -11,6 +16,16 @@ export async function fsyncFile(filePath: string) {
         await handle.sync();
     } finally {
         await handle.close();
+    }
+}
+
+/** Synchronous file flush for recovery writes, with the same Windows access. */
+export function fsyncFileSync(filePath: string) {
+    const fd = openSync(filePath, process.platform === 'win32' ? 'r+' : 'r');
+    try {
+        fsyncSync(fd);
+    } finally {
+        closeSync(fd);
     }
 }
 

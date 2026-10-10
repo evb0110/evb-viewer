@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { fsyncFile } from '@electron/utils/fsyncPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {execFile} from 'node:child_process';
 import {
@@ -13,7 +14,6 @@ import {
 import {
     copyFile,
     mkdir,
-    open,
     rename,
     stat,
     unlink,
@@ -272,15 +272,6 @@ async function streamCopyFile(
     );
 }
 
-async function syncFile(path: string) {
-    const handle = await open(path, 'r');
-    try {
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
-}
-
 /**
  * Stage one fixture without silently replacing a failed clone with a green
  * clone-only result. Linux filesystems may reject FICLONE_FORCE, so auto mode
@@ -301,7 +292,7 @@ export async function copyExactPdfFixture(
             maxBytes,
             signal,
         ));
-    const syncFileImpl = options.syncFileImpl ?? syncFile;
+    const syncFileImpl = options.syncFileImpl ?? fsyncFile;
     const mode = options.mode ?? 'auto';
     const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
 
