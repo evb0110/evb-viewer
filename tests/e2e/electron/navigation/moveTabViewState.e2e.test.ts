@@ -29,7 +29,12 @@ import {
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
 
-const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-move-tab-view-state-${Date.now()}`});
+const sessionName = `e2e-move-tab-view-state-${Date.now()}`;
+const replacementDialogPath = join(electronAppTempDirPath(sessionName), 'cancelled-transfer-replacement.pdf');
+const sessions = createElectronE2ESessionFixture({
+    sessionName,
+    extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: replacementDialogPath},
+});
 let outputDirectory: string | null = null;
 
 afterEach(() => {
@@ -375,6 +380,83 @@ describe('Move Tab to New Window view state', () => {
         expect(outcome.sourceTabs).toContain('superseded-slow.pdf');
         expect(outcome.targetTabs).toContain('replacement.pdf');
     }, 180_000);
+
+    it('keeps page one and the source copy when a transfer is cancelled before presentation', async () => {
+        const {page: target} = sessions.getSession();
+        const appTempDirectory = electronAppTempDirPath(sessionName);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'cancelled-tab-transfer-')));
+        const incomingPath = join(outputDirectory, 'cancelled-incoming.pdf');
+        await createTwelvePageFixture(incomingPath);
+        await createTwelvePageFixture(replacementDialogPath);
+        await openPdfInApp(target, incomingPath);
+        const source = await moveTabToNewWindow(target);
+        await goToPageViaToolbar(source, 6);
+        await clickAsUser(source, '.tab-new');
+        await clickAsUser(source, '.tab-list [role="tab"]:first-child');
+
+        // Hold the next opening-geometry answer before A can load its source.
+        // The transfer and replacement still use the real tab menu and picker.
+        await target.evaluate(() => {
+            const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
+            const then = Promise.prototype.then;
+            let release: () => void = () => {};
+            const gate = new Promise<void>(resolve => {release = resolve;});
+            const state = {
+                held: false,
+                restore: () => {
+                    Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                    release();
+                },
+            };
+            Object.defineProperty(Promise.prototype, 'catch', {
+                ...descriptor,
+                value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
+                    return then.call(this, (value: unknown) => {
+                        if (value && typeof value === 'object' && 'pageNumber' in value
+                            && 'width' in value && 'height' in value && 'pageCount' in value) {
+                            state.held = true;
+                            Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                            return gate.then(() => value);
+                        }
+                        return value;
+                    }, onRejected);
+                },
+            });
+            (window as Window & {__cancelledTransferLoad?: typeof state}).__cancelledTransferLoad = state;
+        });
+        const rejected = Promise.withResolvers<undefined>();
+        const onRejection = (message: ConsoleMessage) => {
+            if (message.text().includes('Cross-window transfer failed')) rejected.resolve(undefined);
+        };
+        source.on('console', onRejection);
+        onTestFinished(() => {source.off('console', onRejection);});
+        try {
+            const targetTitle = await target.title();
+            await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
+            await clickFoundAsUser(source, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
+            {description: `Move Tab to Window: ${targetTitle}`});
+            await waitForFunctionInPage(target, () => (window as Window & {__cancelledTransferLoad?: {held: boolean}}).__cancelledTransferLoad?.held === true);
+            await clickAsUser(target, '#editor-global-toolbar-host button[aria-label="More tools"]');
+            await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.trim() === 'Open File'), undefined,
+            {description: 'Open PDF in the incoming tab'});
+            await rejected.promise;
+            await waitForPdfLoaded(target);
+            const result = {
+                replacement: await readView(target),
+                sourceTabs: await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
+                targetTabs: await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
+            };
+            console.log('CANCELLED_TRANSFER_PAGE', JSON.stringify(result));
+            expect(result.sourceTabs).toContain('cancelled-incoming.pdf');
+            expect(result.targetTabs).toContain('cancelled-transfer-replacement.pdf');
+            expect(result.replacement.page).toBe(1);
+        } finally {
+            await target.evaluate(() => (window as Window & {__cancelledTransferLoad?: {restore: () => void}}).__cancelledTransferLoad?.restore());
+        }
+    }, 120_000);
 
     it('preserves page, custom zoom, and open sidebar in the destination', async () => {
         const session = sessions.getSession();

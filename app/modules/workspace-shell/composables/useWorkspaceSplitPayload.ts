@@ -55,7 +55,10 @@ interface IUseWorkspaceSplitPayloadOptions {
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     pdfData: Ref<Uint8Array | null>;
     openFileWithViewerLifecycle: (result: TOpenFileResult, transactionId?: string) => Promise<TDocumentOpenOutcome>;
-    waitForPdfReload: (page: number) => Promise<void>;
+    preparePdfReloadWaiter: (page: number) => {
+        promise: Promise<void>;
+        cancel: () => void
+    };
     loadPdfFromPath: (path: TDocumentRef, options?: { markDirty?: boolean }) => Promise<void>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
@@ -407,38 +410,40 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         if (payload.totalPages && Number.isFinite(payload.totalPages)) {
             options.totalPages.value = Math.max(options.totalPages.value, Math.floor(payload.totalPages));
         }
-        const restorePagePromise = pageToRestore && pageToRestore > 1
-            ? options.waitForPdfReload(pageToRestore).catch((error) => {
-                const restorePageError: unknown = error;
-                BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {
-                    pageToRestore,
-                    error: restorePageError,
-                });
-            })
+        const restorePageWaiter = pageToRestore && pageToRestore > 1
+            ? options.preparePdfReloadWaiter(pageToRestore)
             : null;
+        const restorePagePromise = restorePageWaiter?.promise.catch((error: unknown) => {
+            BrowserLogger.debug('workspace', 'Split payload page restore wait failed', {
+                pageToRestore,
+                error,
+            });
+        });
 
-        const result: TOpenFileResult = {
-            kind: 'pdf',
-            workingPath: payload.snapshotPath,
-            originalPath: payload.originalPath ?? payload.snapshotPath,
-            ...(payload.isGenerated ? {isGenerated: true} : {}),
-            ...(payload.isDirty ? {recoveryDirtyBaseline: true} : {}),
-        };
-        retainDocumentOpenWorkingCopyForRetry(result);
-        const outcome = await options.openFileWithViewerLifecycle(result, transactionId);
-        if (outcome.status !== 'opened') {
-            return outcome;
-        }
-        const isCurrent = captureOpenedTarget?.();
-        if (isCurrent?.() === false) {
-            return {status: 'cancelled'};
-        }
-        options.originalPath.value = payload.originalPath;
+        try {
+            const result: TOpenFileResult = {
+                kind: 'pdf',
+                workingPath: payload.snapshotPath,
+                originalPath: payload.originalPath ?? payload.snapshotPath,
+                ...(payload.isGenerated ? {isGenerated: true} : {}),
+                ...(payload.isDirty ? {recoveryDirtyBaseline: true} : {}),
+            };
+            retainDocumentOpenWorkingCopyForRetry(result);
+            const outcome = await options.openFileWithViewerLifecycle(result, transactionId);
+            if (outcome.status !== 'opened') {
+                return outcome;
+            }
+            const isCurrent = captureOpenedTarget?.();
+            if (isCurrent?.() === false) {
+                return {status: 'cancelled'};
+            }
+            options.originalPath.value = payload.originalPath;
 
-        if (restorePagePromise) {
             await restorePagePromise;
+            return isCurrent?.() === false ? {status: 'cancelled'} : outcome;
+        } finally {
+            restorePageWaiter?.cancel();
         }
-        return isCurrent?.() === false ? {status: 'cancelled'} : outcome;
     }
 
     return {

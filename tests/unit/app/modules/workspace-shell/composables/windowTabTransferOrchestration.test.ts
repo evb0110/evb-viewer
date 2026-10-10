@@ -41,6 +41,7 @@ import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/p
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { cast } from '@tests/helpers/cast';
+import {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 
 const transferAckMock = vi.hoisted(() => vi.fn(async (_ack: {
     transferId: string;
@@ -284,6 +285,8 @@ describe('window tab transfer orchestration helpers', () => {
         'the same file reopened',
         'a new revision',
         'no replacement',
+        'another document before presentation',
+        'the same file reopened before presentation',
     ])(
         'keeps view restoration and acknowledgement on the opened document with %s', async (replacement) => {
             vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
@@ -296,11 +299,35 @@ describe('window tab transfer orchestration helpers', () => {
             };
             const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
             const a = requireDocumentRef('/docs/a.pdf');
-            const b = replacement === 'the same file reopened' ? a : requireDocumentRef('/docs/b.pdf');
+            const beforePresentation = replacement.endsWith('before presentation');
+            const b = replacement.startsWith('the same file reopened') ? a : requireDocumentRef('/docs/b.pdf');
             const originalPath = ref(a);
             const zoom = ref(0.8);
             const aPresented = Promise.withResolvers<undefined>();
-            const finishPageRestore = Promise.withResolvers<undefined>();
+            const page = ref(1);
+            const viewer = ref({scrollToPage: (value: number) => {page.value = value;}});
+            const surface = shallowRef(cast({
+                generation: 0,
+                identity: null,
+                phase: 'idle',
+                presentation: 'pending',
+            }));
+            const viewport = shallowRef(cast({lifecycle: 'empty'}));
+            let reload: Promise<void> | null = null;
+            const preparePdfReloadWaiter = (pageToRestore: number) => {
+                const waiter = createPdfReloadWaiter({
+                    pdfDocument: shallowRef(null),
+                    pdfViewerRef: viewer,
+                    openSurface: cast({
+                        snapshot: surface,
+                        viewportSession: viewport,
+                    }),
+                    resetSearchCache: () => undefined,
+                    pageToRestore,
+                });
+                reload = waiter.promise;
+                return waiter;
+            };
             const document = {
                 fileName: 'a.pdf',
                 originalPath: a,
@@ -317,16 +344,29 @@ describe('window tab transfer orchestration helpers', () => {
             const split = useWorkspaceSplitPayload(cast({
                 originalPath,
                 totalPages: ref(12),
-                currentPage: ref(1),
-                waitForPdfReload: () => finishPageRestore.promise,
+                currentPage: page,
+                preparePdfReloadWaiter,
                 openFileWithViewerLifecycle: async (_result: TOpenFileResult, transactionId?: string) => {
                     const opened = await controller.runOpen({
                         kind: 'open',
                         target: {originalPath: a},
                         transactionId,
                     }, async () => {
-                        controller.commitDocument(document);
-                        controller.markPresented();
+                        if (beforePresentation) {
+                            aPresented.resolve(undefined);
+                        } else {
+                            surface.value = cast({
+                                generation: 1,
+                                identity: {
+                                    documentId: a,
+                                    documentRevision: 'a-ready',
+                                },
+                                phase: 'canvas-committed',
+                                presentation: 'committed',
+                            });
+                            controller.commitDocument(document);
+                            controller.markPresented();
+                        }
                         return true;
                     });
                     aPresented.resolve(undefined);
@@ -417,15 +457,28 @@ describe('window tab transfer orchestration helpers', () => {
                     return true;
                 });
             }
-            finishPageRestore.resolve(undefined);
+            if (beforePresentation) await incoming;
+            surface.value = cast({
+                generation: replacement === 'no replacement' ? 1 : 2,
+                identity: {
+                    documentId: originalPath.value,
+                    documentRevision: replacement === 'no replacement' ? 'a-ready' : 'b-ready',
+                },
+                phase: 'ready',
+                presentation: 'committed',
+                committedViewport: {pageNumber: 1},
+            });
+            viewport.value = cast({lifecycle: 'ready'});
             await incoming;
+            await reload;
+            expect(page.value).toBe(replacement === 'no replacement' ? 6 : 1);
             const superseded = replacement !== 'no replacement';
             expect(zoom.value).toBe(superseded ? 0.8 : 2);
             expect(outcome).toMatchObject({status: superseded ? 'cancelled' : 'opened'});
             expect(controller.snapshot.value.identity.originalPath).toBe(
-                replacement === 'another document' ? b : a,
+                replacement.startsWith('another document') ? b : a,
             );
-            expect(originalPath.value).toBe(replacement === 'another document' ? b : a);
+            expect(originalPath.value).toBe(replacement.startsWith('another document') ? b : a);
             expect(transferAckMock.mock.calls.map(([ack]) => ({
                 transferId: ack.transferId,
                 success: ack.success,
