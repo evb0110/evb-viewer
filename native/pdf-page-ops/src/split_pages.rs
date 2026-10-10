@@ -296,12 +296,9 @@ pub(crate) fn transform_annotation_geometry(
     base: Option<&Document>,
     page_rotation: i64,
 ) -> Result<()> {
-    let old_rect = {
-        let source = AppendedRevision::from_documents(base.unwrap_or(document), document);
-        annotation_array(&source, annotation, b"Rect")
-            .and_then(|rect| parse_rect(&Object::Array(rect)).ok())
-    };
     let source = AppendedRevision::from_documents(base.unwrap_or(document), document);
+    let old_rect = annotation_array(&source, annotation, b"Rect")
+        .and_then(|rect| parse_rect(&Object::Array(rect)).ok());
     if let Some(rect) = old_rect {
         crate::text_box_font::transform_editor_geometry(
             &source,

@@ -1128,10 +1128,10 @@ export class AssistantChatPersistence {
             throw error;
         }
         for (const entry of sessionEntries) {
-            await new Promise<void>(resolve => setImmediate(resolve));
             if (!entry.isFile()) {
                 continue;
             }
+            await new Promise<void>(resolve => setImmediate(resolve));
             const key = decodePersistenceSessionFileName(entry.name);
             if (key === null && !entry.name.endsWith('.jsonl')) {
                 continue;

@@ -301,6 +301,7 @@ fn detect_content_at_analysis_scale(
     };
     let map = ComponentMap::from_binary(&cleaned);
     let rejected_overlap = rejected_strokes.map(|mask| map.mask_counts_by_component(mask));
+    let preserved_overlap = preserved_strokes.map(|mask| map.mask_counts_by_component(mask));
     let distance_to_white = squared_euclidean_distance(&cleaned.invert());
     let mut candidates = Vec::new();
     let (neighborhood_x, neighborhood_y) = calibration.content_neighborhood();
@@ -365,11 +366,9 @@ fn detect_content_at_analysis_scale(
                 && block.picture_mask_overlap_pixels == 0
                 && block.labels.iter().all(|&label| {
                     overlap[label as usize] > 0
-                        && component_mask_overlap(
-                            &map,
-                            &map.components()[label as usize - 1],
-                            preserved_strokes,
-                        ) == 0
+                        && preserved_overlap
+                            .as_ref()
+                            .is_none_or(|counts| counts[label as usize] == 0)
                 })
         }) {
             for &label in &block.labels {
