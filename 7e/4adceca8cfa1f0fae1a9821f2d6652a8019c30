@@ -1,0 +1,30 @@
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_0971ec1f7fee89::t_bd1e8a85d44e6e 242
+app/assets/css/pdf-viewer.scss
+  s_0971ec1f7fee89::t_8a2132abf28091 731-732,738-739
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_0971ec1f7fee89::t_4c273cb34d3db9 326
+  s_0971ec1f7fee89::t_64fc0f5cd41433 18,306-309,311-314,316-317,319,324,340,342,350-351,353,355-360,366,380,401-403,414-421,424-425,428-430
+tests/e2e/electron/documents/recentFiles.e2e.test.ts
+  s_0971ec1f7fee89::t_fb51c6814a8b7a 43,50,1524-1529,1531-1561,1570-1576,1578-1580,1582
+tests/unit/app/modules/pdf-viewer/usePdfViewportViewModel.test.ts
+  s_0971ec1f7fee89::t_8a2132abf28091 123-131
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_0971ec1f7fee89::t_8a2132abf28091 116-133,138,144-145,151-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7e4adceca8cfa1f0fae1a9821f2d6652a8019c30",
+  "prompts": {},
+  "sessions": {
+    "s_0971ec1f7fee89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1239f-3cbd-7a21-9348-5947c95d38fa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
