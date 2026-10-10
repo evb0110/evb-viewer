@@ -15,23 +15,8 @@ import {
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import { cast } from '@tests/helpers/cast';
 
-function rect(left: number, top: number, width: number, height: number): DOMRect {
-    return {
-        bottom: top + height,
-        height,
-        left,
-        right: left + width,
-        top,
-        width,
-        x: left,
-        y: top,
-        toJSON: () => ({}),
-    };
-}
-
 function createHarness(options: {
     currentPage?: number;
-    currentPagePhysicallyVisible?: boolean;
     numPages?: number;
     visibleRange?: {
         start: number;
@@ -50,10 +35,9 @@ function createHarness(options: {
         start: 1,
         end: 2,
     });
-    // The viewer as the user sees it: where it is scrolled, which pages hold
-    // painted pixels, and whether search highlights are drawn.
+    // The viewer as the user sees it: which pages hold painted pixels and
+    // whether search highlights are drawn.
     const view = {
-        scrolledToPage: null as number | null,
         paintedPages: new Set<number>(),
         highlightsDrawn: false,
     };
@@ -70,21 +54,6 @@ function createHarness(options: {
         clientHeight: {value: 700},
         clientWidth: {value: 900},
     });
-    viewerContainer.getBoundingClientRect = () => rect(0, 0, 900, 700);
-    const pageContainer = document.createElement('div');
-    pageContainer.className = 'page_container';
-    pageContainer.dataset.page = String(currentPage);
-    const canvasHost = document.createElement('div');
-    canvasHost.className = 'page_canvas';
-    const canvas = document.createElement('canvas');
-    canvas.width = 600;
-    canvas.height = 800;
-    canvas.getBoundingClientRect = () => options.currentPagePhysicallyVisible === false
-        ? rect(0, 1_440_000, 600, 800)
-        : rect(0, 0, 600, 800);
-    canvasHost.append(canvas);
-    pageContainer.append(canvasHost);
-    viewerContainer.append(pageContainer);
     document.body.append(viewerContainer);
     const restore = usePdfViewerActivationRestore({
         viewerContainer: ref(viewerContainer),
@@ -96,9 +65,6 @@ function createHarness(options: {
         visibleRange,
         viewMode: computed(() => 'facing'),
         getVisiblePageRange: () => options.measuredRange === undefined ? visibleRange.value : options.measuredRange,
-        scrollToPage: (page) => {
-            view.scrolledToPage = page;
-        },
         renderVisiblePages,
         applySearchHighlights: () => {
             view.highlightsDrawn = true;
@@ -115,13 +81,12 @@ function createHarness(options: {
 }
 
 describe('usePdfViewerActivationRestore', () => {
-    it('returns to the current facing row, paints it and redraws search highlights', async () => {
+    it('paints the current facing row and redraws search highlights', async () => {
         const harness = createHarness();
         const runId = harness.restore.nextActivationRestoreRunId();
 
         await harness.restore.renderActiveDocumentAfterActivation(runId);
 
-        expect(harness.view.scrolledToPage).toBe(6);
         expect([...harness.view.paintedPages]).toEqual([
             5,
             6,
@@ -132,7 +97,6 @@ describe('usePdfViewerActivationRestore', () => {
     it('retains deep-page demand while activation has no measured visibility', async () => {
         const harness = createHarness({
             currentPage: 500,
-            currentPagePhysicallyVisible: false,
             measuredRange: null,
             numPages: 1_200,
             visibleRange: {
@@ -148,7 +112,6 @@ describe('usePdfViewerActivationRestore', () => {
             start: 482,
             end: 518,
         });
-        expect(harness.view.scrolledToPage).toBe(500);
         expect([...harness.view.paintedPages]).toEqual([
             499,
             500,

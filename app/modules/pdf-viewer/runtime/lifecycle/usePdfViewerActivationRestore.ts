@@ -14,8 +14,6 @@ import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
 } from '@app/modules/document-viewer/public';
-import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfViewerActivationRestoreOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -27,7 +25,6 @@ interface IUsePdfViewerActivationRestoreOptions {
     visibleRange: Ref<IPageRange>;
     viewMode: ComputedRef<TPdfViewMode>;
     getVisiblePageRange: (container: HTMLElement | null, numPages: number) => IPageRange | null;
-    scrollToPage: (pageNumber: TPageNumber) => void;
     renderVisiblePages: (range: IPageRange, options?: {preserveRenderedPages?: boolean}) => Promise<void>;
     isPageRendered?: ((pageNumber: TPageNumber) => boolean) | undefined;
     applySearchHighlights: () => void;
@@ -38,6 +35,8 @@ interface IUsePdfViewerActivationRestoreOptions {
 /**
  * Activation is a single resume operation. Slot demand/rendering remains with
  * the normal renderer; this adapter neither polls the DOM nor starts recovery.
+ * The place belongs to the viewport session, which restores its committed
+ * semantic anchor when the view becomes active; this adapter never scrolls.
  */
 export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRestoreOptions) => {
     const activationRun = createDocumentViewerActivationRunGuard(() => (
@@ -89,30 +88,8 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
                 }
             },
             reconcile: async () => {
-                const row = currentRow();
-                const container = options.viewerContainer.value;
-                const page = requirePageNumber(options.currentPage.value, Math.max(1, options.numPages.value));
-                const physicallyVisible = isPdfInitialVisualCanvasReady(container, page, page);
-                if (
-                    !physicallyVisible
-                    || page < options.visibleRange.value.start
-                    || page > options.visibleRange.value.end
-                ) {
-                    logPdfRenderTrace('pdf-activation-viewport-reanchor', {
-                        page,
-                        physicallyVisible,
-                        scrollTop: container?.scrollTop ?? null,
-                        visibleRange: options.visibleRange.value,
-                    });
-                    options.scrollToPage(page);
-                }
-                await options.renderVisiblePages(row, {preserveRenderedPages: true});
+                await options.renderVisiblePages(currentRow(), {preserveRenderedPages: true});
                 if (isCurrent()) {
-                    logPdfRenderTrace('pdf-activation-viewport-reanchor-settled', {
-                        page,
-                        physicallyVisible: isPdfInitialVisualCanvasReady(container, page, page),
-                        scrollTop: container?.scrollTop ?? null,
-                    });
                     options.applySearchHighlights();
                 }
             },
