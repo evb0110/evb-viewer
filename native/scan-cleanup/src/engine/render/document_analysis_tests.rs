@@ -399,6 +399,7 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
                 effective_dpi: 150.0,
             },
             mode: ModePreservationOutput {
+                faint_stroke_masks: [None, None],
                 output_mode_recommendation: None,
                 resolved_output_mode: crate::ResolvedOutputMode::Grayscale,
                 chroma_picture_mask: None,

@@ -98,7 +98,7 @@ fn auto_cleans_a_crease_fragment_but_keeps_a_single_serifed_page_number() {
 #[test]
 fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() {
     use evb_scan_cleanup::{engine::render::clean_page, LayoutMode};
-    use scan_primitives::GrayImage;
+    use scan_primitives::{GrayImage, Point};
 
     // Issue #1338's full-size 300 DPI title page, including the scanner blur.
     let blur = |source: &GrayImage| {
@@ -168,17 +168,38 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
             .map(|(x, y)| 224 - page.get(x, y))
             .max()
             .unwrap();
-        let cleaned = clean_page(&page, &options, 0).unwrap();
-        let output = &cleaned.outputs[0].image;
-        let kept_columns = (1150..=1530)
-            .filter(|&x| (895..986).any(|y| output.get(x, y) < 250))
-            .count();
-        assert_eq!(
-            kept_columns, 381,
-            "pencil value {value}: only {kept_columns} of 381 columns survived"
-        );
-        assert!(output.get(306, 640) < 60, "dark print lost its tone");
-        assert_eq!(output.get(1400, 1400), 255, "unmarked paper stayed gray");
+        for crop_content in [false, true] {
+            let options = CleanupOptions {
+                crop_content,
+                ..options.clone()
+            };
+            let cleaned = clean_page(&page, &options, 0).unwrap();
+            let result = &cleaned.outputs[0];
+            let output = &result.image;
+            let transform = result.metadata.forward_transform.unwrap();
+            let kept_columns = (1150..=1530)
+                .filter(|&x| {
+                    (895..986).any(|y| {
+                        let point = transform.apply(Point::new(x as f64, y as f64));
+                        point.x >= 0.0
+                            && point.y >= 0.0
+                            && point.x.round() < output.width() as f64
+                            && point.y.round() < output.height() as f64
+                            && output.get(point.x.round() as usize, point.y.round() as usize) < 250
+                    })
+                })
+                .count();
+            assert_eq!(kept_columns, 381,
+                "pencil value {value}, crop {crop_content}: only {kept_columns} of 381 columns survived");
+            let print = transform.apply(Point::new(306.0, 640.0));
+            assert!(
+                output.get(print.x.round() as usize, print.y.round() as usize) < 60,
+                "dark print lost its tone"
+            );
+            if !crop_content {
+                assert_eq!(output.get(1400, 1400), 255, "unmarked paper stayed gray");
+            }
+        }
 
         // Disconnected reverse-side glyphs at the same depth, mirrored and
         // blurred twice, must not borrow continuity across their paper gaps.
@@ -216,6 +237,137 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
             .filter(|&(x, y)| output.get(x, y) < 250)
             .count();
         assert_eq!(remaining, 0, "verso value {value} left {remaining} pixels");
+        let cropped = clean_page(
+            &control,
+            &CleanupOptions {
+                crop_content: true,
+                ..options.clone()
+            },
+            0,
+        )
+        .unwrap();
+        let content = cropped.outputs[0].metadata.content_box.unwrap();
+        assert!(
+            content.right() < 1400.0 && content.bottom() < 1400.0,
+            "verso value {value} expanded the print crop: {content:?}"
+        );
+    }
+    // review6b: sparse rectilinear glyphs cannot borrow bounding-box extent;
+    // a genuine note cannot republish unrelated verso ink or the physical rail.
+    for (case, note, rail, large) in [
+        ("large-verso", false, false, true),
+        ("note-plus-rail", true, true, false),
+        ("rail-control", false, true, false),
+        ("note-plus-small-verso", true, false, false),
+    ] {
+        let mut page = print.clone();
+        if note {
+            for x in 1150..=1530 {
+                let y = (940.0 + 40.0 * ((x - 1150) as f64 * 18.0 / 380.0).sin()).round() as usize;
+                for row in y - 1..=y + 1 {
+                    page.set(x, row, 190);
+                }
+            }
+        }
+        let mut page = blur(&page);
+        if rail {
+            for y in 40..2360 {
+                for x in 0..5 {
+                    page.set(x, y, 132 + (x * 9) as u8);
+                }
+            }
+        } else {
+            let mut verso = GrayImage::new(1700, 2400, 224);
+            let (width, height, stroke, pitch, count) = if large {
+                (250, 180, 4, 300, 3)
+            } else {
+                (18, 30, 3, 38, 10)
+            };
+            for glyph in 0..count {
+                let left = 150 + glyph * pitch;
+                let top = 1500;
+                for y in top..top + height {
+                    for x in left..left + width {
+                        if x < left + stroke
+                            || y < top + stroke
+                            || (top + height / 2..top + height / 2 + stroke).contains(&y)
+                            || y >= top + height - stroke
+                        {
+                            verso.set(1699 - x, y, 190);
+                        }
+                    }
+                }
+            }
+            let verso = blur(&blur(&verso));
+            for (ink, &back) in page.data_mut().iter_mut().zip(verso.data()) {
+                *ink = (*ink).min(back);
+            }
+        }
+        let result = clean_page(&page, &options, 0).unwrap();
+        let output = &result.outputs[0].image;
+        assert!(
+            output.bilevel().is_some(),
+            "{case} changed Auto to grayscale"
+        );
+        assert_eq!(
+            (1450..1700)
+                .flat_map(|y| (750..1600).map(move |x| (x, y)))
+                .filter(|&(x, y)| output.get(x, y) < 250)
+                .count(),
+            0,
+            "{case} kept show-through"
+        );
+        assert_eq!(
+            (0..5)
+                .map(|x| (0..output.height())
+                    .filter(|&y| output.get(x, y) < 250)
+                    .count())
+                .max()
+                .unwrap(),
+            0,
+            "{case} kept the physical rail"
+        );
+        if note {
+            assert_eq!(
+                (1150..=1530)
+                    .filter(|&x| (895..986).any(|y| output.get(x, y) < 250))
+                    .count(),
+                381,
+                "{case} lost the note"
+            );
+        }
+    }
+    // The original 1915 title leaf has a looping word and a separate digit 5.
+    let real = decode_image(
+        include_bytes!("fixtures/pencil/prym-title-p00005-150dpi.png"),
+        10_000_000,
+        3_000,
+    )
+    .unwrap()
+    .gray;
+    for crop_content in [false, true] {
+        let result = clean_page(
+            &real,
+            &CleanupOptions {
+                dpi: 150.0,
+                crop_content,
+                ..options.clone()
+            },
+            0,
+        )
+        .unwrap();
+        let output = &result.outputs[0].image;
+        let transform = result.outputs[0].metadata.forward_transform.unwrap();
+        let authored = (503..615).filter(|&x| (535..590).any(|y| real.get(x, y) < 200));
+        for x in authored {
+            assert!(
+                (535..590).filter(|&y| real.get(x, y) < 200).any(|y| {
+                    let p = transform.apply(Point::new(x as f64, y as f64));
+                    output.get(p.x.round() as usize, p.y.round() as usize) < 128
+                }),
+                "real pencil column {x} vanished, crop {crop_content}"
+            );
+        }
     }
 }
 

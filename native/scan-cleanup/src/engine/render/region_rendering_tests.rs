@@ -22,6 +22,7 @@ fn blank_single_region_has_pinned_raster_and_blankness() {
         calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
         color_source: None,
         analysis_picture_mask: None,
+        faint_stroke_masks: [None, None],
         source_picture_mask: None,
         halftone_zone_mask: None,
         spatial_tone_mask: None,
@@ -77,6 +78,7 @@ fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
         calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
         color_source: None,
         analysis_picture_mask: None,
+        faint_stroke_masks: [None, None],
         source_picture_mask: None,
         halftone_zone_mask: None,
         spatial_tone_mask: None,
@@ -134,6 +136,7 @@ fn mixed_region_processes_an_explicit_empty_picture_mask() {
         calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
         color_source: None,
         analysis_picture_mask: None,
+        faint_stroke_masks: [None, None],
         source_picture_mask: Some(&empty_picture),
         halftone_zone_mask: None,
         spatial_tone_mask: None,
@@ -188,6 +191,7 @@ fn transform_stage_returns_the_requested_masks_and_invertible_mapping() {
         analysis_working: analysis.clone(),
         analysis_picture_working: Some(picture.clone()),
         manual_picture_crop_authority: Some(manual.clone()),
+        faint_stroke_masks: [Some(manual.clone()), None],
         options: &options,
         half: PageHalf::Full,
         region: Rect::new(0.0, 0.0, 8.0, 6.0),
@@ -203,13 +207,19 @@ fn transform_stage_returns_the_requested_masks_and_invertible_mapping() {
     .expect("identity transform stage should succeed");
 
     assert!(output.deskew.accepted);
-    assert_eq!(output.deskewed_analysis, analysis);
-    assert_eq!(output.deskewed_picture_mask.expect("picture mask"), picture);
+    assert_eq!(output.analysis, analysis);
+    assert_eq!(output.picture_mask.expect("picture mask"), picture);
     assert_eq!(
         output
-            .deskewed_manual_picture_crop_authority
+            .manual_picture_crop_authority
             .expect("manual picture authority"),
         manual
+    );
+    assert_eq!(
+        output.faint_stroke_masks[0]
+            .as_ref()
+            .expect("faint stroke authority"),
+        &manual
     );
     assert!(output.dewarp_model.is_none());
 }
@@ -228,6 +238,7 @@ fn content_stage_maps_manual_content_to_source_and_preserves_diagnostics() {
     let output = detect_region_content(ContentDetectionInput {
         content_analysis: &source,
         content_picture_mask: None,
+        faint_stroke_masks: [None, None],
         manual_picture_crop_authority: None,
         normalized: &source,
         options: &options,

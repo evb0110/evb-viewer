@@ -169,6 +169,10 @@ pub(crate) fn analyze_page(
             .content_picture_mask
             .as_ref()
             .map(|mask| crop_binary(mask, analysis_region));
+        let faint_stroke_masks = prepared
+            .faint_stroke_masks
+            .each_ref()
+            .map(|mask| mask.as_ref().map(|mask| crop_binary(mask, analysis_region)));
         let manual_picture_crop_authority = manual_picture_crop_authority
             .as_ref()
             .map(|mask| crop_binary(mask, analysis_region));
@@ -185,6 +189,7 @@ pub(crate) fn analyze_page(
                 &working,
                 content_picture_mask.as_ref(),
                 manual_picture_crop_authority.as_ref(),
+                faint_stroke_masks.each_ref().map(Option::as_ref),
                 prepared.calibration.effective_dpi,
                 None,
                 Some([0.0; 4]),
@@ -482,6 +487,7 @@ fn prepare_analysis_page_impl(
         whitespace_score,
         text_axis,
         content_picture_mask: analysis.content_picture_mask.clone(),
+        faint_stroke_masks: analysis.faint_stroke_masks.clone(),
         picture_mask: analysis.picture_mask.clone(),
         halftone_zone_mask: analysis.halftone_zone_mask.clone(),
         spatial_tone_mask: analysis.spatial_tone_mask.clone(),
@@ -1271,6 +1277,7 @@ struct ModePreservationInput<'a, 'p> {
 }
 
 struct ModePreservationOutput {
+    faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
     output_mode_recommendation: Option<OutputModeRecommendation>,
     resolved_output_mode: ResolvedOutputMode,
     chroma_picture_mask: Option<Arc<BinaryImage>>,
@@ -1375,6 +1382,7 @@ fn normalize_and_assemble_analysis_artifact(
         effective_dpi,
     } = metadata;
     let ModePreservationOutput {
+        faint_stroke_masks,
         output_mode_recommendation,
         resolved_output_mode,
         chroma_picture_mask,
@@ -1477,6 +1485,7 @@ fn normalize_and_assemble_analysis_artifact(
         text_mask,
         text_vicinity_mask,
         content_picture_mask,
+        faint_stroke_masks,
         source_effectively_blank,
         output_mode_recommendation,
         preserve_confirmed_photo_tones,
@@ -1515,67 +1524,53 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
         semantic_preservation_alpha,
         text_soft_edge_ratio,
     } = input;
-    let mut output_mode_recommendation = picture_mask
-        .as_deref()
-        .filter(|_| render_policy.recommend_output_mode)
-        .map(|picture_mask| {
-            let recommendation = recommend_output_mode_with_tone(
-                PreparedModeEvidence {
-                    analysis: rotated,
-                    flattened: layout_normalized,
-                    analysis_rgb,
-                    picture_mask,
-                    picture_tone_evidence,
-                    text_line_count,
-                    source_effectively_blank,
-                },
-                outside_tone,
-            );
-            let recommendation = veto_contradictory_mixed_ownership(
-                recommendation,
-                options.output_mode == OutputMode::Auto,
-                &protected_text_blocks,
-                independent_picture_evidence,
-            );
-            protect_bilevel_text_fidelity(
-                recommendation,
-                calibration,
-                options.source_dpi(),
+    let mut faint_stroke_masks = [None, None];
+    let mode_recommendation = picture_mask.as_deref().map(|picture_mask| {
+        let (recommendation, faint_strokes) = recommend_output_mode_with_tone(
+            PreparedModeEvidence {
+                analysis: rotated,
+                flattened: layout_normalized,
+                analysis_rgb,
+                picture_mask,
+                picture_tone_evidence,
                 text_line_count,
-                text_soft_edge_ratio,
-            )
-        });
+                source_effectively_blank,
+            },
+            outside_tone,
+        );
+        let recommendation = veto_contradictory_mixed_ownership(
+            recommendation,
+            options.output_mode == OutputMode::Auto,
+            &protected_text_blocks,
+            independent_picture_evidence,
+        );
+        let recommendation = protect_bilevel_text_fidelity(
+            recommendation,
+            calibration,
+            options.source_dpi(),
+            text_line_count,
+            text_soft_edge_ratio,
+        );
+        let [preserved, rejected] = faint_strokes;
+        faint_stroke_masks = [
+            preserved.filter(|_| matches!(options.output_mode, OutputMode::Auto | OutputMode::Bw)),
+            rejected.filter(|_| {
+                options.output_mode == OutputMode::Auto && recommendation.mode == OutputMode::Bw
+            }),
+        ]
+        .map(|mask| mask.map(Arc::new));
+        recommendation
+    });
     // Maps and dense line art often satisfy the generous picture detector
     // over almost the whole page. Restoring that full rectangle also
     // restores its gray paper. Use pixel-refined preservation when the
     // page-global evidence says "large, bimodal, low-midtone line art";
     // genuine continuous photographs keep their full mask so highlights
     // and smooth gradients cannot become contrast stencils.
-    let picture_ownership_diagnostics = output_mode_recommendation
-        .map(|recommendation| recommendation.diagnostics)
-        .or_else(|| {
-            picture_mask.as_deref().map(|picture_mask| {
-                protect_bilevel_text_fidelity(
-                    recommend_output_mode_with_tone(
-                        PreparedModeEvidence {
-                            analysis: rotated,
-                            flattened: layout_normalized,
-                            analysis_rgb,
-                            picture_mask,
-                            picture_tone_evidence,
-                            text_line_count,
-                            source_effectively_blank,
-                        },
-                        outside_tone,
-                    ),
-                    calibration,
-                    options.source_dpi(),
-                    text_line_count,
-                    text_soft_edge_ratio,
-                )
-                .diagnostics
-            })
-        });
+    let picture_ownership_diagnostics =
+        mode_recommendation.map(|recommendation| recommendation.diagnostics);
+    let mut output_mode_recommendation =
+        mode_recommendation.filter(|_| render_policy.recommend_output_mode);
     let resolved_output_mode = if options.output_mode == OutputMode::Auto {
         output_mode_recommendation
             .map(|recommendation| recommendation.mode)
@@ -1735,6 +1730,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
     };
 
     ModePreservationOutput {
+        faint_stroke_masks,
         output_mode_recommendation,
         resolved_output_mode,
         chroma_picture_mask,

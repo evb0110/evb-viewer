@@ -535,8 +535,8 @@ pub(crate) fn text_soft_edge_to_ink_ratio(
 pub(crate) fn recommend_output_mode_with_tone(
     evidence: PreparedModeEvidence<'_>,
     outside_tone: crate::text_tone::OutsideTonalEvidence,
-) -> OutputModeRecommendation {
-    let mut result = recommend_output_mode(evidence);
+) -> (OutputModeRecommendation, [Option<BinaryImage>; 2]) {
+    let (mut result, faint_strokes) = recommend_output_mode(evidence);
     result.diagnostics.outside_tonal_fraction = outside_tone.fraction;
     result.diagnostics.outside_tonal_largest_component_fraction =
         outside_tone.largest_component_fraction;
@@ -551,13 +551,8 @@ pub(crate) fn recommend_output_mode_with_tone(
     result.diagnostics.coherent_outside_tonal_region = outside_tone.coherent();
     result.diagnostics.destructive_mode_tonal_veto = outside_tone.vetoes_destructive_mode();
 
-    // Outside-text tone remains diagnostic evidence for line-art refinement,
-    // but it is not a second mode owner. The old SpatialTone promotion was
-    // unsatisfiable after picture qualification moved before mode selection:
-    // every owner at the lower floor had already selected Mixed/Grayscale,
-    // while the B&W path carried no owner. Keeping this channel out of mode
-    // selection prevents show-through from becoming a UI "Text + pics" label.
-    result
+    // Outside tone is diagnostic only; qualified owners alone decide picture mode.
+    (result, faint_strokes)
 }
 
 /// Preserves protected text's continuous representation when a candidate
@@ -638,62 +633,77 @@ pub(crate) fn qualifies_independent_outside_tone(
     outside_tone.coherent() && outside_tone.fraction <= MAX_INDEPENDENT_OUTSIDE_TONE_FRACTION
 }
 
-/// A shallow connected pen stroke can disappear beneath the local B&W cut
-/// even when dark print dominates the histogram. Measure its connected extent
-/// on flattened paper: separate verso glyphs cannot borrow a word's length,
-/// dark glyph edges remain attached to their cores, and broad shade or a
-/// straight rule is not a curving stroke. Reuse the component census without
-/// joining gaps; frame-attached scanner shade cannot supply its extent.
-fn has_faint_connected_stroke(image: &GrayImage, luminance: LuminanceEvidence) -> bool {
+/// Partition shallow components by the existing continuity proof, on one census.
+fn faint_stroke_masks(image: &GrayImage, luminance: LuminanceEvidence) -> [Option<BinaryImage>; 2] {
     let paper = grayscale_percentile(image, 0.7);
     let maximum_depth = luminance.mode_distance * 0.5;
-    if maximum_depth <= f64::from(BLANK_EDGE_DIFFERENCE) {
-        return false;
-    }
     let marks = BinaryImage::from_fn_parallel(image.width(), image.height(), |x, y| {
         paper.saturating_sub(image.get(x, y)) >= BLANK_EDGE_DIFFERENCE
     });
     let map = ComponentMap::from_binary(&marks);
-    let minimum_span = (image.width().min(image.height()) / 10).max(24);
-    map.components().iter().any(|component| {
-        let width = component.right - component.left + 1;
-        let height = component.bottom - component.top + 1;
-        let span = width.max(height);
-        if span < minimum_span
-            || width.min(height).saturating_mul(8) < span
-            || component.area.saturating_mul(12) > span.saturating_mul(span)
-            || component.left == 0
-            || component.top == 0
-            || component.right + 1 == image.width()
-            || component.bottom + 1 == image.height()
-            || is_leaf_edge_strip(component, image.width(), image.height())
-        {
-            return false;
-        }
+    let shallow = |component: &Component| {
         (component.top..=component.bottom).all(|y| {
             (component.left..=component.right).all(|x| {
                 map.label_at(x, y) != component.label
                     || f64::from(paper.saturating_sub(image.get(x, y))) < maximum_depth
             })
         })
-    })
+    };
+    let widths = map.maximum_values_by_component(
+        &scan_primitives::distance::squared_euclidean_distance(&marks.invert()),
+    );
+    let minimum_curve = (image.width().min(image.height()) / 24).max(24);
+    let preserved = map.retain(|component| {
+        let width = component.right - component.left + 1;
+        let height = component.bottom - component.top + 1;
+        let (span, minor) = (width.max(height), width.min(height));
+        let belongs = |x, y| map.label_at(x, y) == component.label;
+        // Curved contours travel across both axes; rectilinear glyphs have only
+        // a few corners. Stroke diameter stays below a quarter of the minor extent.
+        let curved = (component.top..=component.bottom)
+            .flat_map(|y| (component.left..=component.right).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                x > 0
+                    && y > 0
+                    && x + 1 < image.width()
+                    && y + 1 < image.height()
+                    && belongs(x, y)
+                    && belongs(x - 1, y) != belongs(x + 1, y)
+                    && belongs(x, y - 1) != belongs(x, y + 1)
+            })
+            .count();
+        shallow(component)
+            && span >= 24
+            && minor.saturating_mul(8) >= span
+            && (widths[component.label as usize] as usize).saturating_mul(64)
+                <= minor.saturating_mul(minor)
+            && curved >= minimum_curve
+            && component.left > 0
+            && component.top > 0
+            && component.right + 1 < image.width()
+            && component.bottom + 1 < image.height()
+            && !is_leaf_edge_strip(component, image.width(), image.height())
+    });
+    let rejected = map.retain(shallow).subtract(&preserved);
+    [preserved, rejected].map(|mask| (mask.count_black() > 0).then_some(mask))
 }
 
-/// Chooses a concrete output mode from the renderer's prepared analysis artifacts.
-///
-/// Detect-all receives a direct 150-DPI raster while final rendering can downsample
-/// a source-DPI raster to the same analysis ceiling. Those inputs can differ by a
-/// few pixels and histogram counts. Every destructive B&W gate therefore includes
-/// an explicit hysteresis margin; evidence near a boundary resolves to the more
-/// tonal mode in both paths instead of depending on exact `>=` comparisons.
+/// Auto's mode and preserved/rejected shallow masks share a census and tonal hysteresis.
 pub(crate) fn recommend_output_mode(
     evidence: PreparedModeEvidence<'_>,
-) -> OutputModeRecommendation {
+) -> (OutputModeRecommendation, [Option<BinaryImage>; 2]) {
     let luminance = if evidence.source_effectively_blank {
         luminance_evidence_region(evidence.analysis, blank_interior_bounds(evidence.analysis))
     } else {
         luminance_evidence(evidence.analysis)
     };
+    let flattened_luminance = std::cell::LazyCell::new(|| {
+        if std::ptr::eq(evidence.flattened, evidence.analysis) {
+            luminance
+        } else {
+            luminance_evidence(evidence.flattened)
+        }
+    });
     let (chroma, _) = chroma_evidence_and_mask(
         evidence.analysis,
         evidence.analysis_rgb,
@@ -1023,13 +1033,11 @@ pub(crate) fn recommend_output_mode(
         // darker fore-edge outweighs a few lines of ink and takes the dark Otsu
         // class, so the separation is measured again once the paper is flattened.
         // Midtones stay measured on the raw page, where tone is not yet removed.
-        let flattened_mode_distance = if std::ptr::eq(evidence.flattened, evidence.analysis) {
-            luminance.mode_distance
-        } else {
-            luminance_evidence(evidence.flattened).mode_distance
-        };
         if has_text
-            && luminance.mode_distance.max(flattened_mode_distance) >= MIN_LUMINANCE_MODE_DISTANCE
+            && luminance
+                .mode_distance
+                .max(flattened_luminance.mode_distance)
+                >= MIN_LUMINANCE_MODE_DISTANCE
             && luminance.midtone_fraction <= MAX_BW_MIDTONE_FRACTION
         {
             return (
@@ -1052,26 +1060,13 @@ pub(crate) fn recommend_output_mode(
             OutputModeRule::UncertainFallback,
         )
     })();
-    let (mode, confidence, reason, rule) = if mode == OutputMode::Bw
-        && reason != OutputModeRecommendationReason::Blank
-        && has_faint_connected_stroke(
-            evidence.flattened,
-            if std::ptr::eq(evidence.flattened, evidence.analysis) {
-                luminance
-            } else {
-                luminance_evidence(evidence.flattened)
-            },
-        ) {
-        (
-            OutputMode::Grayscale,
-            0.82,
-            OutputModeRecommendationReason::UncertainTonal,
-            OutputModeRule::UncertainFallback,
-        )
+    let faint_strokes = if mode == OutputMode::Bw && reason != OutputModeRecommendationReason::Blank
+    {
+        faint_stroke_masks(evidence.flattened, *flattened_luminance)
     } else {
-        (mode, confidence, reason, rule)
+        [None, None]
     };
-    OutputModeRecommendation {
+    let recommendation = OutputModeRecommendation {
         mode,
         confidence,
         reason,
@@ -1135,7 +1130,8 @@ pub(crate) fn recommend_output_mode(
             soft_edge_to_ink_ratio: 0.0,
             bilevel_fidelity_veto: false,
         },
-    }
+    };
+    (recommendation, faint_strokes)
 }
 
 /// Returns whether a bounded raw scan contains no meaningful luminance or
@@ -2077,7 +2073,7 @@ mod tests {
             }
         }
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -2226,7 +2222,7 @@ mod tests {
                     gray.set(x, 427, ink);
                 }
             }
-            let recommendation = recommend_output_mode(PreparedModeEvidence {
+            let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
                 flattened: &gray,
@@ -2262,7 +2258,7 @@ mod tests {
             }
         }
 
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -2405,7 +2401,7 @@ mod tests {
     fn a_spurious_line_counter_without_source_edges_does_not_veto_blank_mode() {
         let gray = GrayImage::new(620, 877, 190);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -2762,7 +2758,7 @@ mod tests {
             }
         }
 
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -2806,7 +2802,7 @@ mod tests {
                 owned_picture_mask.set(x, y, true);
             }
         }
-        let recommendation = recommend_output_mode_with_tone(
+        let (recommendation, _) = recommend_output_mode_with_tone(
             PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
@@ -2830,7 +2826,7 @@ mod tests {
         // line on plain text pages, and a promoted page would publish a
         // Mixed manifest that owns no tone at all.
         let empty_picture_mask = BinaryImage::new(gray.width(), gray.height());
-        let unowned = recommend_output_mode_with_tone(
+        let (unowned, _) = recommend_output_mode_with_tone(
             PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
@@ -2857,7 +2853,7 @@ mod tests {
                 subfloor_picture_mask.set(x, y, true);
             }
         }
-        let subfloor_unconfirmed = recommend_output_mode_with_tone(
+        let (subfloor_unconfirmed, _) = recommend_output_mode_with_tone(
             PreparedModeEvidence {
                 source_effectively_blank: is_blank_scan_candidate(&gray, None),
                 analysis: &gray,
@@ -2932,7 +2928,7 @@ mod tests {
                 picture_mask.set(x, y, true);
             }
         }
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, Some(&rgb)),
             analysis: &gray,
             flattened: &gray,
@@ -2976,7 +2972,7 @@ mod tests {
                 picture_mask.set(x, y, true);
             }
         }
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3004,7 +3000,7 @@ mod tests {
         // Revoking the false picture enclosure must not discard the same
         // protected ink's continuous representation when Auto now sees B&W.
         let empty_picture_mask = BinaryImage::new(gray.width(), gray.height());
-        let text_only = recommend_output_mode(PreparedModeEvidence {
+        let (text_only, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3039,7 +3035,7 @@ mod tests {
                 picture_mask.set(x, y, true);
             }
         }
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3123,7 +3119,7 @@ mod tests {
             }
         }
         let dominant_gray = rgb_to_gray(&dominant_plate);
-        let dominant_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (dominant_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(
                 &dominant_gray,
                 Some(&dominant_plate),
@@ -3179,7 +3175,7 @@ mod tests {
             }
         }
         let gray = rgb_to_gray(&rgb);
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, Some(&rgb)),
             analysis: &gray,
             flattened: &gray,
@@ -3233,7 +3229,7 @@ mod tests {
         }
         let gray = rgb_to_gray(&cover);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, Some(&cover)),
             analysis: &gray,
             flattened: &gray,
@@ -3365,7 +3361,7 @@ mod tests {
                 picture_mask.set(x, y, true);
             }
         }
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3401,7 +3397,7 @@ mod tests {
                 }
             }
         }
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3452,7 +3448,7 @@ mod tests {
             "{luminance:?}"
         );
 
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3477,7 +3473,7 @@ mod tests {
                 *value = 155;
             }
         }
-        let low_contrast_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (low_contrast_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&low_contrast, None),
             analysis: &low_contrast,
             flattened: &low_contrast,
@@ -3503,7 +3499,7 @@ mod tests {
             tonal_evidence.midtone_fraction > DENSE_TEXT_MAX_MIDTONE_FRACTION - MIDTONE_HYSTERESIS,
             "{tonal_evidence:?}"
         );
-        let tonal_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (tonal_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&tonal, None),
             analysis: &tonal,
             flattened: &tonal,
@@ -3523,7 +3519,7 @@ mod tests {
     fn one_detected_line_needs_exceptionally_strong_text_evidence() {
         let (gray, _) = text_page([245; 3]);
         let picture_mask = BinaryImage::new(gray.width(), gray.height());
-        let recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3543,7 +3539,7 @@ mod tests {
             "{recommendation:?}"
         );
 
-        let no_line_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (no_line_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&gray, None),
             analysis: &gray,
             flattened: &gray,
@@ -3564,7 +3560,7 @@ mod tests {
                 *value = 215;
             }
         }
-        let faint_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (faint_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&faint, None),
             analysis: &faint,
             flattened: &faint,
@@ -3588,7 +3584,7 @@ mod tests {
                 }
             }
         }
-        let sparse_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (sparse_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&sparse, None),
             analysis: &sparse,
             flattened: &sparse,
@@ -3613,7 +3609,7 @@ mod tests {
                 solid_blob.set(x, y, 35);
             }
         }
-        let blob_recommendation = recommend_output_mode(PreparedModeEvidence {
+        let (blob_recommendation, _) = recommend_output_mode(PreparedModeEvidence {
             source_effectively_blank: is_blank_scan_candidate(&solid_blob, None),
             analysis: &solid_blob,
             flattened: &solid_blob,

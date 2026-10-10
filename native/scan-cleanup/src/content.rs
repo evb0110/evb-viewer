@@ -24,8 +24,7 @@ pub struct ContentResult {
     pub diagnostics: Option<ContentDiagnostics>,
 }
 
-/// Text evidence from a semantic content scan. It carries no crop bounds or
-/// side confidence: those come from the crop scan alone.
+/// Semantic text evidence; the crop scan alone owns bounds and side confidence.
 pub(crate) struct ContentAnalysisEvidence {
     pub text_line_count: usize,
     pub protected_blocks: Vec<ContentBlockEvidence>,
@@ -38,22 +37,12 @@ enum ContentScan {
     Semantic(ContentAnalysisEvidence),
 }
 
-fn crop_content_scan(
-    working: &GrayImage,
-    picture_mask: Option<&BinaryImage>,
-    manual_picture_authority: Option<&BinaryImage>,
-    calibration: PageCalibration,
-) -> (Option<Rect>, ContentDiagnostics) {
-    match detect_content_at_analysis_scale(
-        working,
-        picture_mask,
-        ContentAnalysisPurpose::Crop {
-            manual_picture_authority,
-        },
-        calibration,
-    ) {
-        ContentScan::Crop(bounds, diagnostics) => (bounds, diagnostics),
-        ContentScan::Semantic(_) => unreachable!("a crop scan reports crop bounds"),
+impl ContentScan {
+    fn crop(self) -> (Option<Rect>, ContentDiagnostics) {
+        match self {
+            Self::Crop(bounds, diagnostics) => (bounds, diagnostics),
+            Self::Semantic(_) => unreachable!("a crop scan reports crop bounds"),
+        }
     }
 }
 
@@ -62,6 +51,7 @@ enum ContentAnalysisPurpose<'a> {
     Semantic,
     Crop {
         manual_picture_authority: Option<&'a BinaryImage>,
+        faint_stroke_masks: [Option<&'a BinaryImage>; 2],
     },
 }
 
@@ -91,7 +81,16 @@ pub fn detect_content_and_margins_with_calibration_config(
     let level = build_analysis_level(source, dpi, 150.0);
     let calibration =
         PageCalibration::estimate(&level.image, level.effective_dpi, calibration_config);
-    let (detected, diagnostics) = crop_content_scan(&level.image, None, None, calibration);
+    let (detected, diagnostics) = detect_content_at_analysis_scale(
+        &level.image,
+        None,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority: None,
+            faint_stroke_masks: [None, None],
+        },
+        calibration,
+    )
+    .crop();
     let content = detected.map(|content| {
         Rect::new(
             content.x / level.scale_x,
@@ -118,6 +117,7 @@ pub(crate) fn detect_content_and_margins_calibrated(
         source,
         picture_mask,
         None,
+        [None, None],
         dpi,
         margins_mm,
         margins_pixels,
@@ -129,17 +129,22 @@ pub(crate) fn detect_content_and_margins_calibrated_with_crop_authority(
     source: &GrayImage,
     picture_mask: Option<&BinaryImage>,
     crop_authoritative_picture_mask: Option<&BinaryImage>,
+    faint_stroke_masks: [Option<&BinaryImage>; 2],
     dpi: f64,
     margins_mm: Option<[f64; 4]>,
     margins_pixels: Option<[f64; 4]>,
     calibration: PageCalibration,
 ) -> ContentResult {
-    let (content, diagnostics) = crop_content_scan(
+    let (content, diagnostics) = detect_content_at_analysis_scale(
         source,
         picture_mask,
-        crop_authoritative_picture_mask,
+        ContentAnalysisPurpose::Crop {
+            manual_picture_authority: crop_authoritative_picture_mask,
+            faint_stroke_masks,
+        },
         calibration,
-    );
+    )
+    .crop();
     let mut result = content_with_margins(source, dpi, content, margins_mm, margins_pixels);
     result.diagnostics = Some(diagnostics);
     result
@@ -167,19 +172,17 @@ fn detect_content_at_analysis_scale(
     purpose: ContentAnalysisPurpose<'_>,
     calibration: PageCalibration,
 ) -> ContentScan {
-    if let Some(mask) = picture_mask {
-        assert_eq!(
-            (working.width(), working.height()),
-            (mask.width(), mask.height())
-        );
-    }
-    let manual_picture_authority = match purpose {
-        ContentAnalysisPurpose::Semantic => None,
+    let (manual_picture_authority, [preserved_strokes, rejected_strokes]) = match purpose {
+        ContentAnalysisPurpose::Semantic => (None, [None, None]),
         ContentAnalysisPurpose::Crop {
             manual_picture_authority,
-        } => manual_picture_authority,
+            faint_stroke_masks,
+        } => (manual_picture_authority, faint_stroke_masks),
     };
-    if let Some(mask) = manual_picture_authority {
+    for mask in [picture_mask, manual_picture_authority]
+        .into_iter()
+        .flatten()
+    {
         assert_eq!(
             (working.width(), working.height()),
             (mask.width(), mask.height())
@@ -210,6 +213,7 @@ fn detect_content_at_analysis_scale(
         ContentAnalysisPurpose::Semantic => None,
         ContentAnalysisPurpose::Crop {
             manual_picture_authority,
+            ..
         } => picture_mask.map(|mask| {
             let mut qualification = qualify_picture_mask_for_crop_with_authority(
                 mask,
@@ -296,6 +300,7 @@ fn detect_content_at_analysis_scale(
         cleaned
     };
     let map = ComponentMap::from_binary(&cleaned);
+    let rejected_overlap = rejected_strokes.map(|mask| map.mask_counts_by_component(mask));
     let distance_to_white = squared_euclidean_distance(&cleaned.invert());
     let mut candidates = Vec::new();
     let (neighborhood_x, neighborhood_y) = calibration.content_neighborhood();
@@ -343,15 +348,38 @@ fn detect_content_at_analysis_scale(
         &distance_to_white,
         calibration,
     );
-    let retained = clustered.retained;
-    let candidate_image = map.retain(|component| retained[component.label as usize]);
-    let (mut blocks, component_blocks) = retained_content_blocks(
+    let mut retained = clustered.retained;
+    let (mut blocks, mut component_blocks) = retained_content_blocks(
         &map,
         &candidates,
         &retained,
         analysis_picture_mask,
         calibration,
     );
+    // Only multi-line shallow blocks lose crop authority; compact furniture
+    // and any block intersecting the veto's coherent stroke remain candidates.
+    if let Some(overlap) = rejected_overlap.as_ref() {
+        for block in blocks.iter_mut().filter(|block| {
+            block.component_count >= 3
+                && block.height() as f64 > heading_nominal_glyph_height(calibration) * 2.0
+                && block.picture_mask_overlap_pixels == 0
+                && block.labels.iter().all(|&label| {
+                    overlap[label as usize] > 0
+                        && component_mask_overlap(
+                            &map,
+                            &map.components()[label as usize - 1],
+                            preserved_strokes,
+                        ) == 0
+                })
+        }) {
+            for &label in &block.labels {
+                retained[label as usize] = false;
+                component_blocks[label as usize] = 0;
+            }
+            *block = BlockStats::default();
+        }
+    }
+    let candidate_image = map.retain(|component| retained[component.label as usize]);
     annotate_heading_evidence(&map, &mut blocks, calibration);
     let text = build_text_line_mask(&candidate_image, &blocks, &distance_to_white, calibration);
     annotate_text_evidence(
@@ -394,9 +422,7 @@ fn detect_content_at_analysis_scale(
         garbage,
         calibration,
     );
-    // A side accepted by the trim loop owns its outer bound. Later evidence
-    // may still expand untrimmed sides, but it cannot silently reverse an
-    // accepted decision on the same side.
+    // Accepted trims remain outer limits when later crop evidence expands bounds.
     let trim_authority = AcceptedTrimAuthority::new(bounds, &accepted_trims, rail_reach);
     if let Some(qualification) = early_picture_qualification.as_ref() {
         expand_bounds_for_structured_edge_text(
@@ -440,6 +466,11 @@ fn detect_content_at_analysis_scale(
     }) {
         bounds = union_picture_bounds(bounds, picture_bounds, trim_authority);
     }
+    // The kept-ink census owns this extent. Accepted edge trims still
+    // constrain it; shallow ink never acquires picture ownership.
+    if let Some(stroke_bounds) = preserved_strokes.and_then(binary_bounds) {
+        bounds = union_picture_bounds(bounds, stroke_bounds, trim_authority);
+    }
     if bounds.is_some_and(|bounds| is_edge_sliver(bounds, working.width(), working.height())) {
         bounds = None;
     }
@@ -468,22 +499,12 @@ fn detect_content_at_analysis_scale(
     )
 }
 
-/// A leaf with no page content on it still carries a fold shadow, a scanner
-/// rail and dust, and that is enough to assemble a content box out of nothing:
-/// the crop then follows the shadow and publishes the page as a sliver. A box
-/// may drive a crop only once the leaf shows page evidence. Below both floors
-/// the box is withdrawn, which costs a crop and never a pixel: the full leaf
-/// is emitted instead.
-///
-/// Glyph ink is the strong signal — a page of prose covers well over a percent
-/// of the leaf, a blank verso's shadow specks a fraction of a per mille — so
-/// its floor sits an order of magnitude below the sparsest real text page.
+/// Fold shadows, rails and dust cannot establish a crop without page ink.
+/// Below both floors, emit the full leaf. Text's floor sits an order of
+/// magnitude below the sparsest prose page; line art uses retained block ink.
 const CROP_TEXT_EVIDENCE_MINIMUM_FRACTION: f64 = 0.0005;
-/// Rules, diagrams and other line art never reach the text mask, so retained
-/// block ink answers for them. It also counts the shadow fragments the text
-/// mask ignores, so its floor has to sit above what a blank leaf accumulates
-/// (0.47 per mille on the calibration book's page 3 verso) and below the
-/// sparsest ruled page (28 per mille across the pinned fixtures).
+/// Above blank-leaf shadow fragments (0.47 per mille), below the sparsest
+/// pinned ruled page (28 per mille).
 const CROP_RETAINED_INK_MINIMUM_FRACTION: f64 = 0.002;
 
 fn crop_evidence_supports_bounds(
@@ -1348,16 +1369,12 @@ fn component_mask_overlap(
     component: &Component,
     mask: Option<&BinaryImage>,
 ) -> usize {
-    let Some(mask) = mask else {
-        return 0;
-    };
-    let mut overlap = 0usize;
-    for y in component.top..=component.bottom {
-        for x in component.left..=component.right {
-            overlap += usize::from(map.label_at(x, y) == component.label && mask.get(x, y));
-        }
-    }
-    overlap
+    mask.map_or(0, |mask| {
+        (component.top..=component.bottom)
+            .flat_map(|y| (component.left..=component.right).map(move |x| (x, y)))
+            .filter(|&(x, y)| map.label_at(x, y) == component.label && mask.get(x, y))
+            .count()
+    })
 }
 
 fn annotate_heading_evidence(
@@ -1738,6 +1755,15 @@ struct PixelBounds {
 }
 
 impl PixelBounds {
+    fn union(self, other: Self) -> Self {
+        Self {
+            left: self.left.min(other.left),
+            top: self.top.min(other.top),
+            right: self.right.max(other.right),
+            bottom: self.bottom.max(other.bottom),
+        }
+    }
+
     fn width(self) -> usize {
         self.right - self.left + 1
     }
@@ -1802,12 +1828,7 @@ impl AcceptedTrimAuthority {
                             .y_px
                             .saturating_add(block.bounds.height_px.saturating_sub(1)),
                     };
-                    PixelBounds {
-                        left: bounds.left.min(removed.left),
-                        top: bounds.top.min(removed.top),
-                        right: bounds.right.max(removed.right),
-                        bottom: bounds.bottom.max(removed.bottom),
-                    }
+                    bounds.union(removed)
                 });
             accepted_sides[0] |= trimmed.left > before_trims.left;
             accepted_sides[1] |= trimmed.top > before_trims.top;
@@ -1843,15 +1864,9 @@ fn union_picture_bounds(
     picture_bounds: PixelBounds,
     trim_authority: AcceptedTrimAuthority,
 ) -> Option<PixelBounds> {
-    trim_authority.clamp(Some(match bounds {
-        Some(content_bounds) => PixelBounds {
-            left: content_bounds.left.min(picture_bounds.left),
-            top: content_bounds.top.min(picture_bounds.top),
-            right: content_bounds.right.max(picture_bounds.right),
-            bottom: content_bounds.bottom.max(picture_bounds.bottom),
-        },
-        None => picture_bounds,
-    }))
+    trim_authority.clamp(Some(
+        bounds.map_or(picture_bounds, |bounds| bounds.union(picture_bounds)),
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2280,48 +2295,28 @@ fn bounds_for_active_blocks(blocks: &[BlockStats], active: &[bool]) -> Option<Pi
         .iter()
         .zip(active)
         .filter(|(block, is_active)| **is_active && block.initialized)
-        .fold(None, |bounds: Option<PixelBounds>, (block, _)| {
-            Some(match bounds {
-                None => PixelBounds {
-                    left: block.left,
-                    top: block.top,
-                    right: block.right,
-                    bottom: block.bottom,
-                },
-                Some(bounds) => PixelBounds {
-                    left: bounds.left.min(block.left),
-                    top: bounds.top.min(block.top),
-                    right: bounds.right.max(block.right),
-                    bottom: bounds.bottom.max(block.bottom),
-                },
-            })
+        .map(|(block, _)| PixelBounds {
+            left: block.left,
+            top: block.top,
+            right: block.right,
+            bottom: block.bottom,
         })
+        .reduce(PixelBounds::union)
 }
 
 fn binary_bounds(image: &BinaryImage) -> Option<PixelBounds> {
-    let mut bounds: Option<PixelBounds> = None;
-    for y in 0..image.height() {
-        for x in 0..image.width() {
-            if !image.get(x, y) {
-                continue;
-            }
-            bounds = Some(match bounds {
-                None => PixelBounds {
+    (0..image.height())
+        .flat_map(|y| {
+            (0..image.width()).filter_map(move |x| {
+                image.get(x, y).then_some(PixelBounds {
                     left: x,
                     top: y,
                     right: x,
                     bottom: y,
-                },
-                Some(bounds) => PixelBounds {
-                    left: bounds.left.min(x),
-                    top: bounds.top.min(y),
-                    right: bounds.right.max(x),
-                    bottom: bounds.bottom.max(y),
-                },
-            });
-        }
-    }
-    bounds
+                })
+            })
+        })
+        .reduce(PixelBounds::union)
 }
 
 fn block_is_supported_outlier(
@@ -4387,6 +4382,7 @@ mod tests {
             &image,
             Some(&expanded_picture),
             Some(&manual_authority),
+            [None, None],
             150.0,
             None,
             Some([0.0; 4]),
@@ -4434,6 +4430,7 @@ mod tests {
             &image,
             Some(&expanded_picture),
             Some(&manual_authority),
+            [None, None],
             150.0,
             None,
             Some([0.0; 4]),
