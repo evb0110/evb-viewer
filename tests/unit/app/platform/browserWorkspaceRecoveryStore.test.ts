@@ -25,6 +25,7 @@ import {
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
+import * as liveLeases from '@app/platform/browser/browserDocumentLeaseStore';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requirePaneId} from '@contracts/editorPanes';
@@ -100,14 +101,21 @@ describe('browserWorkspaceRecoveryStore', () => {
 
         const database = recoveryDbFactory.getDatabase(DB_NAME);
         if (!database) throw new Error('Recovery database is unavailable');
-        database.rejectNextTransaction(new Error('Lease release failed'));
-        await expect(recovery.load('window:other')).resolves.toBeNull();
-
-        await expect(recovery.clear('window:1', 1))
-            .resolves.toEqual({
+        const release = vi.spyOn(liveLeases, 'releaseBrowserDocumentLiveLease')
+            .mockRejectedValueOnce(new Error('Lease release failed'));
+        try {
+            await expect(recovery.clear('window:1', 1)).resolves.toEqual({
                 saved: true,
                 generation: 0,
             });
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({status: 'active'});
+            await expect(recovery.clear('window:1', 0)).resolves.toEqual({
+                saved: true,
+                generation: 0,
+            });
+        } finally {
+            release.mockRestore();
+        }
         await expect(loadBrowserWorkspaceRecovery('window:1')).resolves.toBeNull();
         expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
             status: 'dead',
@@ -326,6 +334,39 @@ describe('browserWorkspaceRecoveryStore', () => {
         beforeEach(() => {
             locks = new FakeLockManager();
             vi.stubGlobal('navigator', {locks});
+        });
+
+        it('publishes the new owner lease and sweeps a failed old release after lock handoff', async () => {
+            vi.resetModules();
+            const {browserWindowTabsCapability: tabs} = await import('@app/platform/browserWindowTabs');
+            const {holdLeaseOwnerLock} = await import('@app/platform/browser/browserDocumentLeaseStore');
+            const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+            const recovery = tabs.browserRecovery;
+            if (!recovery) throw new Error('Browser recovery capability is unavailable');
+            const refs = [requireDocumentRef('browser://documents/recovery.pdf')];
+            const sources = [requireDocumentRef('browser://documents/source.pdf')];
+            await recovery.save('window:1', 0, checkpoint, refs, sources);
+            const database = recoveryDbFactory.getDatabase(DB_NAME);
+            if (!database) throw new Error('Recovery database is unavailable');
+            database.rejectNextTransaction(new Error('Lease release failed'));
+            await expect(recovery.load('window:other')).resolves.toBeNull();
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({status: 'active'});
+
+            await holdLeaseOwnerLock('window:other');
+            await recovery.save('window:other', 0, checkpoint, refs, sources);
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:other')).toMatchObject({
+                ownerId: 'window:other',
+                generation: 1,
+                status: 'active',
+                protectedDependencies: [{ref: sources[0]}],
+            });
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
+                status: 'dead',
+                protectedDependencies: [],
+            });
+            await expect(recovery.load('window:1')).resolves.toEqual(expect.objectContaining({checkpoint}));
         });
 
         it('does not take over a journal whose owner still holds its lease lock, however old', async () => {

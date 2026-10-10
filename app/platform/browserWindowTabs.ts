@@ -28,7 +28,6 @@ import {
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import {
-    createBrowserDocumentLiveLease,
     releaseBrowserDocumentLiveLease,
     saveBrowserDocumentLiveLease,
     holdLeaseOwnerLock,
@@ -1003,16 +1002,13 @@ async function releaseRecoveryLiveLease() {
         await releaseBrowserDocumentLiveLease(lease.ownerId, lease.generation);
         recoveryLiveLease = null;
     } catch {
-        // Retain the generation so the next clean checkpoint retries release.
+        // Retain the generation for the next same-owner clean checkpoint.
     }
 }
 
 async function publishRecoveryLiveLease(ownerId: string, refs: TDocumentRef[]) {
     try {
-        const dependencies = refs.map(ref => ({ref}));
-        const lease = recoveryLiveLease
-            ? await saveBrowserDocumentLiveLease(ownerId, recoveryLiveLease.generation, 'active', dependencies)
-            : await createBrowserDocumentLiveLease(ownerId, dependencies);
+        const lease = await saveBrowserDocumentLiveLease(ownerId, recoveryLiveLease?.generation ?? 0, 'active', refs.map(ref => ({ref})));
         recoveryLiveLease = {
             ownerId,
             generation: lease.generation,
@@ -1030,6 +1026,8 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         async load(ownerId) {
             if (recoveryLiveLease && recoveryLiveLease.ownerId !== ownerId) {
                 await releaseRecoveryLiveLease();
+                // A failed release is reclaimed by the orphan sweep after this owner's lock is relinquished.
+                recoveryLiveLease = null;
             }
             return loadBrowserWorkspaceRecovery(ownerId);
         },

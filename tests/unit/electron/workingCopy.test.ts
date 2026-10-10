@@ -71,6 +71,14 @@ function replaceSourceKeepingSizeAndMtime(sourcePath: string, bytes: Buffer, mti
     utimesSync(sourcePath, mtime, mtime);
 }
 
+// The same inode can change underneath an editor with size and mtime restored.
+function rewriteSourceInPlaceKeepingSizeAndMtime(sourcePath: string, bytes: Buffer, mtime: Date) {
+    const inode = statSync(sourcePath, {bigint: true}).ino;
+    writeFileSync(sourcePath, bytes);
+    utimesSync(sourcePath, mtime, mtime);
+    expect(statSync(sourcePath, {bigint: true}).ino).toBe(inode);
+}
+
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
 
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
@@ -313,10 +321,19 @@ describe('workingCopy', () => {
         expect(getWorkingCopyOriginalFileExpectation(outcome.workingPath, 7)?.ctimeNs).toBe(ctimeAfter.toString());
     });
 
-    it('keeps the witnessed original as the save baseline when the source is replaced after its last check', async () => {
+    it.each([
+        [
+            'replaced',
+            replaceSourceKeepingSizeAndMtime,
+        ],
+        [
+            'rewritten in place',
+            rewriteSourceInPlaceKeepingSizeAndMtime,
+        ],
+    ])('keeps the witnessed original as the save baseline when the source is %s after its last check', async (_how, changeSource) => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
-        const originalPath = join(tempRoot, 'replaced-before-registration.pdf');
+        const originalPath = join(tempRoot, 'changed-before-registration.pdf');
         writeFileSync(originalPath, Buffer.alloc(64 * 1024, 41));
         const fixedTime = new Date('2026-09-01T00:00:00Z');
         utimesSync(originalPath, fixedTime, fixedTime);
@@ -325,7 +342,7 @@ describe('workingCopy', () => {
             return {
                 ...original,
                 setWorkingCopyOriginalPath: async (...args: Parameters<typeof original.setWorkingCopyOriginalPath>) => {
-                    replaceSourceKeepingSizeAndMtime(originalPath, Buffer.alloc(64 * 1024, 42), fixedTime);
+                    changeSource(originalPath, Buffer.alloc(64 * 1024, 42), fixedTime);
                     return original.setWorkingCopyOriginalPath(...args);
                 },
             };
@@ -340,7 +357,7 @@ describe('workingCopy', () => {
 
             const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
 
-            // Saving must treat the replacement as an external change, not as
+            // Saving must treat the change as an external change, not as
             // the revision this working copy was made from.
             await expect(captureOriginalPathSaveWitness(workingPath, trustedOriginalPath!, 7)).resolves.toBeNull();
         } finally {

@@ -41,7 +41,10 @@ import type { IAssistantSessionScopeBinding } from '@electron/features/agent/ass
 import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
 import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
 import * as fileFlush from '@electron/utils/fsyncPath';
+import * as chatFiles from 'fs/promises';
 import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
+
+vi.mock('fs/promises', {spy: true});
 
 const tempRoots: string[] = [];
 
@@ -809,7 +812,8 @@ describe('assistant chat session store persistence', () => {
             expect(recovered.flatMap(record => record.session.messages.map(message => message.text)))
                 .toEqual(flushFails ? [] : ['durable message']);
             if (flushFails) {
-                expect(await recovery.recoverSession(store.keyForSession(session))).toBeNull();
+                const recoveredStore = createAssistantChatSessionStore({persistence: recovery});
+                await expect(recoveredStore.loadSession(scope, selection, {create: true})).rejects.toBeInstanceOf(AssistantChatPersistenceError);
                 expect(readFileSync(transcriptPath, 'utf8')).toBe(originalContents);
                 expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to recover'), expect.objectContaining({
                     code: 'write-failed',
@@ -827,6 +831,39 @@ describe('assistant chat session store persistence', () => {
         expect((await recovery.recoverSession(store.keyForSession(session)))?.session.messages.map(message => message.text))
             .toEqual(['durable message']);
         expect(readFileSync(transcriptPath, 'utf8')).toMatch(/\n$/u);
+    });
+
+    it.each([
+        'EACCES',
+        'EBUSY',
+    ])('keeps a healthy transcript recoverable after a %s read failure', async (code) => {
+        const persistence = createPersistence();
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'healthy message',
+        });
+        await store.flushPersistenceForTests();
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        const originalContents = readFileSync(transcriptPath, 'utf8');
+        const onError = vi.fn();
+        const recovery = createPersistence(persistence.rootDir, {onError});
+        const read = vi.spyOn(chatFiles, 'readFile').mockRejectedValue(Object.assign(new Error('Read refused'), {code}));
+        try {
+            expect(await recovery.recoverSessions()).toEqual([]);
+            await expect(recovery.recoverSession(store.keyForSession(session))).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+            expect(readFileSync(transcriptPath, 'utf8')).toBe(originalContents);
+            expect(readdirSync(persistence.archiveDir)).toEqual([]);
+            expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to recover'), expect.objectContaining({
+                code: 'write-failed',
+                retryable: true,
+            }));
+        } finally {
+            read.mockRestore();
+        }
+        expect((await recovery.recoverSessions()).flatMap(record => record.session.messages.map(message => message.text)))
+            .toEqual(['healthy message']);
     });
 
     it('removes a recovery staging file when replacement fails and keeps the destination', () => {
