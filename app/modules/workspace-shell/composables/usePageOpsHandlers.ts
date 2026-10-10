@@ -33,6 +33,7 @@ import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
 import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
 import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import { prepareDocumentViewsForRevisionSwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 
 type TPageSelectionInput = number[] | TPageSelection;
 type TPageRotationDelta = 90 | 180 | 270;
@@ -59,13 +60,6 @@ export interface IPageOperationPresentation {
 interface IPdfViewerForPageOps {
     invalidatePages: (pages: number[]) => void;
     remapPageIdentityDelta?: (delta: IPageIdentityDelta) => void;
-    preparePageMutationRevisionSwap?: (input: {
-        documentRevision: TDocumentRevisionToken;
-        invalidatedPages: readonly number[];
-        pageNumber: number;
-        rotationDelta?: TPageRotationDelta;
-        pageIdentityDelta?: IPageIdentityDelta;
-    }) => boolean | Promise<boolean>;
     beginPageRotationPreview?: (input: {
         invalidatedPages: readonly number[];
         rotationDelta: TPageRotationDelta;
@@ -232,27 +226,12 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 return;
             }
             try {
-                let didPrepare: boolean | undefined;
-                for (const port of views.viewPorts.value.values()) {
-                    const viewer = port.view.pdfViewerRef.value;
-                    try {
-                        const prepared = await viewer?.preparePageMutationRevisionSwap?.({
-                            documentRevision: result.documentRevision.token,
-                            invalidatedPages,
-                            pageNumber: port.view.currentPage.value,
-                            ...(rotationDelta === undefined ? {} : {rotationDelta}),
-                            ...(delta ? {pageIdentityDelta: delta} : {}),
-                        });
-                        if (viewer === pdfViewerRef.value) {
-                            didPrepare = prepared;
-                        }
-                    } catch (error) {
-                        // Another view that fails to prepare reloads as before.
-                        if (viewer === pdfViewerRef.value) {
-                            throw error;
-                        }
-                    }
-                }
+                const didPrepare = await prepareDocumentViewsForRevisionSwap(views, pdfViewerRef.value, {
+                    documentRevision: result.documentRevision.token,
+                    invalidatedPages,
+                    ...(rotationDelta === undefined ? {} : {rotationDelta}),
+                    ...(delta ? {pageIdentityDelta: delta} : {}),
+                });
                 if (!didPrepare && rotationDelta !== undefined) {
                     await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                 }

@@ -1,4 +1,7 @@
-import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {
+    readPdfPageDocumentTeardownSignal,
+    type IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
@@ -106,6 +109,11 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         };
 
         const controller = new AbortController();
+        const documentTeardown = readPdfPageDocumentTeardownSignal(pdfPage);
+        const signal = documentTeardown ? AbortSignal.any([
+            controller.signal,
+            documentTeardown,
+        ]) : controller.signal;
         try {
             activeTextLayerAbortControllers.set(pageNumber, {
                 version,
@@ -120,7 +128,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     scale,
                     userUnit,
                     totalScaleFactor,
-                    controller.signal,
+                    signal,
                     teardownBeforeTextLayerRebuild,
                 ),
                 {
@@ -139,7 +147,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 // canvas is mounted. Its own stage timeout remains authoritative,
                 // but it must not trip the canonical render heartbeat circuit.
                 undefined,
-                controller.signal,
+                signal,
             );
             isTextLayerRendered = true;
         } catch (textLayerError) {

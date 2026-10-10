@@ -18,6 +18,8 @@ import { useFailureToast } from '@app/composables/useFailureToast';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/public';
+import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import { prepareDocumentViewsForRevisionSwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 
 interface IOcrCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
@@ -29,14 +31,12 @@ interface IOcrApplyReloadResult {
     getRestoreError: () => unknown;
 }
 
-interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionDeps {
+interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps, 'pdfViewerRef'> {
     documentAnnotations: TPdfDocumentAnnotations;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
-    pdfViewerRef: Ref<{
-        scrollToPage: (page: number) => void;
-        clearShapes: () => void;
-    } | null>;
+    /** OCR rewrites the document under every view of it. */
+    views: Pick<TDocumentViews, 'viewPorts' | 'commandViewRef'>;
     /** A save, history step, export or page operation holds the document. */
     isBusy: Ref<boolean>;
     clearOcrCache: (path: TDocumentRef) => void;
@@ -54,7 +54,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         documentRevisionInfo,
         documentRevisionToken,
         currentPage,
-        pdfViewerRef,
+        views,
         pdfSrc,
         totalPages,
         pdfDocument,
@@ -93,6 +93,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         runWithDocumentOperationLease,
     } = options;
 
+    const pdfViewerRef = views.commandViewRef(port => port.view.pdfViewerRef, null);
     const documentFiles = getDocumentFilesCapability();
     const {t} = useTypedI18n();
     const toast = useToast();
@@ -259,6 +260,17 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 throw new Error('Failed to refresh the working-copy revision after OCR apply');
             }
             options.documentAnnotations.adoptCurrentRevision();
+            // The searchable PDF keeps every page's geometry: each view keeps
+            // its picture and reading point while the text layers are rebuilt.
+            if (documentRevisionToken.value !== null) {
+                await prepareDocumentViewsForRevisionSwap(views, pdfViewerRef.value, {
+                    documentRevision: documentRevisionToken.value,
+                    invalidatedPages: Array.from({length: totalPages.value}, (_, index) => index + 1),
+                }).catch((error: unknown) => {
+                    // The reload still opens the searchable PDF, only as a fresh open.
+                    BrowserLogger.warn('ocr', 'Could not preserve the viewer surface for the OCR reload', {error});
+                });
+            }
 
             restorePromise = waitForPdfReload(pageToRestore).catch((error: unknown) => {
                 restoreError = error;

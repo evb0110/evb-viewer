@@ -1034,14 +1034,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }) !== null;
     }
 
-    function commitCurrentViewportIfSettled(pageNumber: TPageNumber) {
+    function commitCurrentViewportIfSettled(pageNumber: TPageNumber, anchor?: IPdfSemanticAnchor | null) {
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         if (!container || !snapshot || viewportAuthority.activeIntent.value !== null) {
             return false;
         }
         const page = toPageNumber(clamp(Math.trunc(pageNumber), 1, pageCount()));
-        const expected = resolveScrollForViewport(snapshot, getRequestAnchor(undefined, page));
+        const expected = resolveScrollForViewport(snapshot, anchor ?? getRequestAnchor(undefined, page));
         if (
             Math.abs(container.scrollLeft - expected.left) > 1
             || Math.abs(container.scrollTop - expected.top) > 1
@@ -1276,9 +1276,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         relayout,
         captureRelayoutAnchor,
         captureCurrentSemanticAnchor,
-        applyOpeningViewportAnchor: (pageNumber: TPageNumber) => applyViewportAnchorPreview(
-            getRequestAnchor(undefined, pageNumber),
-        ),
+        applyOpeningViewportAnchor: (pageNumber: TPageNumber, anchor?: IPdfSemanticAnchor | null) => applyViewportAnchorPreview(anchor ?? getRequestAnchor(undefined, pageNumber)),
         commitCurrentViewportPosition,
         commitCurrentViewportIfSettled,
         captureViewportCommitDiagnostics,
