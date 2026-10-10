@@ -377,7 +377,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             await openPdfInApp(session.page, pdfPath);
             await waitForPdfLoaded(session.page);
         } else {
-            const djvu = resolveDjvuFixturePath({corpusFixturePath: null});
+            const djvu = resolveDjvuFixturePath();
             if (!djvu.path) {
                 throw new Error(djvu.reason);
             }
