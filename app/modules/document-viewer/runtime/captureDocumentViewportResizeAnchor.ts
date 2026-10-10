@@ -1,7 +1,6 @@
 const DOCUMENT_PAGE_ANCHOR_SELECTOR = '[data-document-page-number]';
 
 export interface IDocumentViewportResizeAnchor {
-    readonly element: HTMLElement;
     readonly pageNumber: number;
     readonly pageRatioX: number;
     readonly pageRatioY: number;
@@ -9,18 +8,10 @@ export interface IDocumentViewportResizeAnchor {
     readonly viewportRatioY: number;
 }
 
-export interface IDocumentViewportAnchorPosition {
-    readonly left: number;
-    readonly top: number;
-}
-
-export interface IDocumentViewportResizeAnchorOptions {
-    readonly preferredPageNumber?: number | null;
-    readonly viewportPoint?: {
-        x: number;
-        y: number
-    };
-}
+export interface IDocumentViewportResizeAnchorOptions {readonly viewportPoint?: {
+    x: number;
+    y: number
+};}
 
 function clampRatio(value: number) {
     return Math.max(0, Math.min(1, value));
@@ -37,11 +28,7 @@ function distanceFromPoint(rect: DOMRect, x: number, y: number) {
     return Math.hypot(horizontal, vertical);
 }
 
-/**
- * Captures a semantic point inside the page nearest the supplied point or viewport centre.
- * The element is retained so renderer-specific layout work cannot silently
- * substitute a different page while a workspace transition is in progress.
- */
+/** Captures a semantic point inside the page nearest the supplied point or viewport centre. */
 export function captureDocumentViewportResizeAnchor(
     viewport: HTMLElement,
     options?: IDocumentViewportResizeAnchorOptions,
@@ -61,17 +48,12 @@ export function captureDocumentViewportResizeAnchor(
         const rect = element.getBoundingClientRect();
         return pageNumber !== null && rect.width > 0 && rect.height > 0
             ? [{
-                element,
                 pageNumber,
                 rect,
             }]
             : [];
     });
-    const preferredPageNumber = options?.preferredPageNumber;
-    const preferred = typeof preferredPageNumber === 'number'
-        ? candidates.find(candidate => candidate.pageNumber === preferredPageNumber)
-        : undefined;
-    const candidate = preferred ?? candidates.reduce<(typeof candidates)[number] | null>((nearest, current) => (
+    const candidate = candidates.reduce<(typeof candidates)[number] | null>((nearest, current) => (
         nearest === null
         || distanceFromPoint(current.rect, anchorX, anchorY)
             < distanceFromPoint(nearest.rect, anchorX, anchorY)
@@ -82,43 +64,10 @@ export function captureDocumentViewportResizeAnchor(
         return null;
     }
     return Object.freeze({
-        element: candidate.element,
         pageNumber: candidate.pageNumber,
         pageRatioX: clampRatio((anchorX - candidate.rect.left) / candidate.rect.width),
         pageRatioY: clampRatio((anchorY - candidate.rect.top) / candidate.rect.height),
         viewportRatioX,
         viewportRatioY,
     });
-}
-
-/** Resolves the scroll coordinates that keep a captured semantic point fixed. */
-export function resolveDocumentViewportResizeAnchorPosition(
-    viewport: HTMLElement,
-    anchor: IDocumentViewportResizeAnchor,
-): IDocumentViewportAnchorPosition | null {
-    if (!anchor.element.isConnected || !viewport.contains(anchor.element)) {
-        return null;
-    }
-    const viewportRect = viewport.getBoundingClientRect();
-    const pageRect = anchor.element.getBoundingClientRect();
-    if (
-        viewport.clientWidth <= 0
-        || viewport.clientHeight <= 0
-        || pageRect.width <= 0
-        || pageRect.height <= 0
-    ) {
-        return null;
-    }
-    return {
-        left: viewport.scrollLeft
-            + pageRect.left
-            + (pageRect.width * anchor.pageRatioX)
-            - viewportRect.left - viewport.clientLeft
-            - (viewport.clientWidth * anchor.viewportRatioX),
-        top: viewport.scrollTop
-            + pageRect.top
-            + (pageRect.height * anchor.pageRatioY)
-            - viewportRect.top - viewport.clientTop
-            - (viewport.clientHeight * anchor.viewportRatioY),
-    };
 }
