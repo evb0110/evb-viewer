@@ -530,7 +530,7 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
     })
 }
 
-use crate::split_pages::PdfMatrix as TextMatrix;
+use crate::split_pages::{transform_annotation_geometry, PdfMatrix as TextMatrix};
 
 #[derive(Clone)]
 struct TextFilterState {
@@ -1849,14 +1849,10 @@ fn append_source_annotations(
         })
         .transpose()?;
     let rotation = resolve_page_rotation(target, target_page_id)?;
+    let source_view = resolve_page_view(source, source_page_id)?;
+    let source_rotation = resolve_page_rotation(source, source_page_id)?;
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
-        crate::split_pages::transform_annotation_geometry(
-            target,
-            annotation,
-            instruction.matrix,
-            None,
-            rotation,
-        )?;
+        transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
         annotation.set("P", target_page_id);
         Ok(())
     };
@@ -1886,9 +1882,10 @@ fn append_source_annotations(
             }
             if read_pdf_rect_from_dict(source, owner).is_some_and(|rect| {
                 let rect = TextMatrix::from_values(matrix).bounds(rect);
-                if matches!(subtype, Some(b"Text" | b"Popup")) {
-                    let x = (rect.x1 + rect.x2) / 2.0;
-                    let y = (rect.y1 + rect.y2) / 2.0;
+                if matches!(subtype, Some(b"Text" | b"Popup"))
+                    || is_free_text_note_marker(source, owner, source_view, source_rotation)
+                {
+                    let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
                     !(x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2)
                 } else {
                     intersect_rect(rect, view).is_none()

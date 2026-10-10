@@ -2073,6 +2073,177 @@ fn red_pixels(pdf: &Path) -> Vec<(f64, f64)> {
 }
 
 #[test]
+fn overlay_legacy_point_note_thread_lands_on_one_split_half() {
+    for incremental in [false, true] {
+        let source = path("legacy-seam-note", "pdf");
+        let input = path("legacy-seam-target", "pdf");
+        let output = path("legacy-seam-output", "pdf");
+        let inspected = path("legacy-seam-inspected", "pdf");
+        let instructions = path("legacy-seam", "json");
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page_id = document.get_pages()[&1];
+        let blank_appearance = document.add_object(Stream::new(
+            dictionary! { "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()] },
+            Vec::new(),
+        ));
+        // ADR 0003 legacy marker: a FreeText with a blank appearance, a
+        // tiny rect centred on the seam, and a Popup child.
+        let root = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => vec![99.99_f32.into(), 49.99_f32.into(), 100.01_f32.into(), 50.01_f32.into()],
+            "Contents" => Object::string_literal("Legacy root"),
+            "AP" => dictionary! { "N" => blank_appearance },
+        });
+        let popup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+            "Rect" => vec![140.into(), 45.into(), 190.into(), 100.into()],
+            "Contents" => Object::string_literal("Legacy popup"),
+        });
+        document
+            .get_dictionary_mut(root)
+            .unwrap()
+            .set("Popup", popup);
+        let reply = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+            "Rect" => vec![150.into(), 30.into(), 160.into(), 40.into()],
+            "Contents" => Object::string_literal("Legacy reply"),
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![root, popup, reply]
+                .into_iter()
+                .map(Object::Reference)
+                .collect::<Vec<_>>(),
+        );
+        document.save(&source).unwrap();
+        if incremental {
+            assert!(write_sparse_source(&input, 2, None, None) > 512 * 1024 * 1024);
+        } else {
+            let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+            for id in target.get_pages().values() {
+                target
+                    .get_dictionary_mut(*id)
+                    .unwrap()
+                    .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+            }
+            target.save(&input).unwrap();
+        }
+        let pages = (0..2_i64)
+            .map(|index| {
+                serde_json::json!({
+                    "sourcePageIndex":0,"outputPageIndex":index,
+                    "matrix":[1,0,0,1,-100 * index,0],"filterToOutputPage":true,
+                    "sourceRegion":{
+                        "rect":{"x":index*100,"y":0,"width":100,"height":120},
+                        "matrix":[1,0,0,-1,0,120],
+                    },
+                })
+            })
+            .collect::<Vec<_>>();
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":pages})).unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let compact = Command::new(qpdf_path())
+            .arg(&output)
+            .arg(&inspected)
+            .output()
+            .unwrap();
+        assert!(
+            compact.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compact.stderr)
+        );
+        let saved = Document::load(&inspected).unwrap();
+        // Contents per half, in /Annots order. Duplicates stay visible.
+        let halves = saved
+            .get_pages()
+            .values()
+            .map(|page| {
+                saved
+                    .get_dictionary(*page)
+                    .unwrap()
+                    .get(b"Annots")
+                    .map_or_else(|_| Vec::new(), |annots| annots.as_array().unwrap().clone())
+                    .iter()
+                    .map(|object| {
+                        let id = object.as_reference().unwrap();
+                        let annotation = saved.get_dictionary(id).unwrap();
+                        assert_eq!(annotation.get(b"P").unwrap().as_reference().unwrap(), *page);
+                        (
+                            id,
+                            String::from_utf8(
+                                annotation
+                                    .get(b"Contents")
+                                    .unwrap()
+                                    .as_str()
+                                    .unwrap()
+                                    .to_vec(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert!(halves[0].is_empty());
+        assert_eq!(
+            halves[1]
+                .iter()
+                .map(|(_, text)| text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Legacy root", "Legacy popup", "Legacy reply"]
+        );
+        let right = &halves[1];
+        let right_root = right[0].0;
+        let right_popup = right[1].0;
+        assert_eq!(
+            saved
+                .get_dictionary(right_root)
+                .unwrap()
+                .get(b"Popup")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            right_popup
+        );
+        assert_eq!(
+            saved
+                .get_dictionary(right[2].0)
+                .unwrap()
+                .get(b"IRT")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            right_root
+        );
+        // The root must exist once: a copy left in the other half would be a
+        // second annotation with the same text.
+        assert_eq!(
+            saved
+                .objects
+                .values()
+                .filter(|object| object.as_dict().is_ok_and(|dictionary| dictionary
+                    .get(b"Contents")
+                    .and_then(Object::as_str)
+                    .is_ok_and(|text| text == b"Legacy root")))
+                .count(),
+            1
+        );
+        for file in [source, input, output, inspected, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
 fn overlay_composes_appearance_placement_in_rewrite_and_incremental_outputs() {
     for (incremental, flags, form_matrix, transform) in [
         (
