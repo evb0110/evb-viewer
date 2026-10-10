@@ -928,13 +928,18 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationProjectionReady,
         nextTick,
     });
-    const scheduleSetAnnotationTool = (_tool: TAnnotationTool, _reason: string) => {};
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
-        await documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath);
-        if (transition.isCurrent()) {
-            annotationProjectionReady.value = true;
+        // A failed or throwing parse still releases the raster, which then paints
+        // the store's current contents rather than waiting for a projection that
+        // will not come.
+        try {
+            await documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath);
+        } finally {
+            if (transition.isCurrent()) {
+                annotationProjectionReady.value = true;
+            }
         }
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
@@ -960,10 +965,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             // geometry, so refresh it once, but do not hold the new page raster
             // behind a document-wide annotation index pass.
             void feedStoreFromWriterParse(transition);
-            return;
-        }
-        if (transition.phase === 'restore') {
-            scheduleSetAnnotationTool(options.annotationTool.value, 'restore annotation tool after tab activation');
             return;
         }
         if (transition.phase === 'settled') {
@@ -1121,7 +1122,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         handleSourceChanged,
         appAnnotationHistory,
         canvasHiddenAnnotationIds,
-        scheduleSetAnnotationTool,
         ...saveTransaction,
         finalizeImagePlacement: async (payload: IPdfPlacedImageFinalizePayload) => {
             const application = annotationApplication.value;
