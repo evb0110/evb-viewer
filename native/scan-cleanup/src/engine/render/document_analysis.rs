@@ -488,6 +488,7 @@ fn prepare_analysis_page_impl(
         text_axis,
         content_picture_mask: analysis.content_picture_mask.clone(),
         faint_stroke_masks: analysis.faint_stroke_masks.clone(),
+        faint_core: analysis.faint_core.clone(),
         picture_mask: analysis.picture_mask.clone(),
         halftone_zone_mask: analysis.halftone_zone_mask.clone(),
         spatial_tone_mask: analysis.spatial_tone_mask.clone(),
@@ -1463,6 +1464,9 @@ fn normalize_and_assemble_analysis_artifact(
     };
     timings.quality_normalization_ms +=
         quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
+    let faint_core = faint_stroke_masks[0]
+        .as_deref()
+        .map(|mask| Arc::new(crate::faint_core::printed_core(mask, &normalized)));
     let artifact = Arc::new(AnalysisArtifact {
         normalized,
         layout_normalized,
@@ -1486,6 +1490,7 @@ fn normalize_and_assemble_analysis_artifact(
         text_vicinity_mask,
         content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         source_effectively_blank,
         output_mode_recommendation,
         preserve_confirmed_photo_tones,

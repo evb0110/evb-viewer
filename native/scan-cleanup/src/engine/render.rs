@@ -1195,6 +1195,7 @@ struct PreparedPage<'a> {
     rotated_color: Option<RgbImage>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
+    faint_core: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1228,6 +1229,7 @@ struct PreparedAnalysis {
     text_axis: Option<TextAxisHint>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
+    faint_core: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1269,6 +1271,7 @@ struct AnalysisArtifact {
     text_vicinity_mask: Option<Arc<BinaryImage>>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
+    faint_core: Option<Arc<BinaryImage>>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
@@ -2337,6 +2340,7 @@ fn prepare_page<'a>(
         canonical_routing_dpi,
         content_picture_mask: analysis_content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         picture_mask: analysis_picture_mask,
         halftone_zone_mask: analysis_halftone_zone_mask,
         spatial_tone_mask: analysis_spatial_tone_mask,
@@ -2420,6 +2424,7 @@ fn prepare_page<'a>(
         rotated_color,
         content_picture_mask: analysis_content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         picture_mask: picture_mask.take(),
         halftone_zone_mask: analysis_halftone_zone_mask,
         spatial_tone_mask: analysis_spatial_tone_mask,
@@ -2466,6 +2471,7 @@ fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
         &artifact.content_picture_mask,
         &artifact.faint_stroke_masks[0],
         &artifact.faint_stroke_masks[1],
+        &artifact.faint_core,
     ]
     .into_iter()
     .flatten()

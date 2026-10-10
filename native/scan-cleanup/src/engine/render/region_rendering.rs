@@ -1,7 +1,7 @@
 use super::*;
 use crate::auto_dewarp::AutoDewarpResult;
 use crate::content::ContentResult;
-use crate::{faint_core, DewarpOptions};
+use crate::DewarpOptions;
 use source_gray::render_source_gray;
 
 pub(crate) struct DetailPageInput<'a> {
@@ -378,6 +378,7 @@ pub(crate) fn render_page(
         rotated_color,
         content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         picture_mask,
         halftone_zone_mask,
         spatial_tone_mask,
@@ -505,11 +506,11 @@ pub(crate) fn render_page(
         None
     };
     let mut outputs = Vec::with_capacity(regions.len());
-    let cores = faint_core::printed_core(faint_stroke_masks[0].as_deref(), analysis_gray);
-    let [preserved, rejected] = [cores.as_ref(), faint_stroke_masks[1].as_deref()].map(|mask| {
-        mask.map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
-            .transpose()
-    });
+    let [preserved, rejected] =
+        [faint_core.as_deref(), faint_stroke_masks[1].as_deref()].map(|mask| {
+            mask.map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
+                .transpose()
+        });
     let encoded_faint_strokes = [preserved?, rejected?];
     for (((region, half), canonical_routing_input), canonical_leaf_source) in regions
         .into_iter()
@@ -531,6 +532,7 @@ pub(crate) fn render_page(
             color_source: rotated_color.as_ref(),
             analysis_picture_mask: content_picture_mask.as_deref(),
             faint_stroke_masks: faint_stroke_masks.each_ref().map(|mask| mask.as_deref()),
+            faint_core: faint_core.as_deref(),
             source_picture_mask: picture_mask.as_deref(),
             halftone_zone_mask: halftone_zone_mask.as_deref(),
             spatial_tone_mask: spatial_tone_mask.as_deref(),
@@ -1718,6 +1720,8 @@ pub(crate) struct Input<'a, 'p> {
     pub color_source: Option<&'a RgbImage>,
     pub analysis_picture_mask: Option<&'a BinaryImage>,
     pub faint_stroke_masks: [Option<&'a BinaryImage>; 2],
+    /// The page's printed faint-mark core, computed once per page.
+    pub faint_core: Option<&'a BinaryImage>,
     pub source_picture_mask: Option<&'a BinaryImage>,
     pub halftone_zone_mask: Option<&'a BinaryImage>,
     pub spatial_tone_mask: Option<&'a BinaryImage>,
@@ -3398,6 +3402,7 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         color_source,
         analysis_picture_mask,
         faint_stroke_masks,
+        faint_core,
         source_picture_mask,
         halftone_zone_mask,
         spatial_tone_mask,
@@ -3424,7 +3429,6 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         render_policy,
         timings,
     } = input;
-    let faint = faint_core::printed_core(faint_stroke_masks[0], analysis_normalized);
     render_policy.check_canceled()?;
     let working_width = region.width.round().max(1.0) as usize;
     let working_height = region.height.round().max(1.0) as usize;
@@ -3592,7 +3596,7 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
     render_policy.check_canceled()?;
     let output = process_region_output(OutputProcessingInput {
         content_present: content.content.is_some(),
-        faint_strokes: faint.as_ref().map(|mask| {
+        faint_strokes: faint_core.map(|mask| {
             render_auxiliary_mask(
                 mask,
                 normalized,

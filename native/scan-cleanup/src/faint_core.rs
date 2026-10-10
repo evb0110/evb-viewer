@@ -33,12 +33,11 @@ pub(crate) fn split(
     [preserved, rejected].map(|mask| (mask.count_black() > 0).then_some(mask))
 }
 
-/// Keeps, within each component of an optional `strokes` mask on a page's
+/// Keeps, within each component of a page's `strokes` footprint on that page's
 /// gray, the pixels whose depth below the page's paper reaches a third of that
 /// component's deepest pixel, and joins the core pieces of each component
 /// through the footprint.
-pub(crate) fn printed_core(strokes: Option<&BinaryImage>, gray: &GrayImage) -> Option<BinaryImage> {
-    let strokes = strokes?;
+pub(crate) fn printed_core(strokes: &BinaryImage, gray: &GrayImage) -> BinaryImage {
     let paper = grayscale_percentile(gray, 0.7);
     let width = gray.width();
     let depths: Vec<u32> = (0..gray.height())
@@ -51,27 +50,61 @@ pub(crate) fn printed_core(strokes: Option<&BinaryImage>, gray: &GrayImage) -> O
             && f64::from(depths[y * width + x])
                 >= CORE_DEPTH_FRACTION * f64::from(deepest[map.label_at(x, y) as usize])
     });
-    Some(join_core_pieces(strokes, &core, &depths))
+    join_split_cores(strokes, &map, core, &depths)
 }
 
-/// Adds the footprint pixels that connect the pieces of `core` lying in one
-/// footprint component. Footprint pixels are nodes with 8-connectivity, and an
-/// edge is as deep as its shallower end. Kruskal's algorithm builds the maximum
-/// spanning forest of the footprint, so the path between any two pixels in it
-/// is the darkest path between them, one pixel wide. Repeatedly removing the
-/// non-core leaves keeps only the paths between core pixels: a footprint
-/// component whose core is connected loses nothing else, and a split core is
-/// rejoined through its darkest connection.
-fn join_core_pieces(footprint: &BinaryImage, core: &BinaryImage, depths: &[u32]) -> BinaryImage {
+/// Joins the core pieces of the footprint components whose core is split. A
+/// component whose core is one piece needs no join: the core lies in one
+/// 8-connected piece, every core edge outweighs every edge that touches a
+/// shallower pixel, so the maximum spanning forest keeps only core pixels. The
+/// join is built per split component, over that component's pixels alone.
+fn join_split_cores(
+    footprint: &BinaryImage,
+    map: &ComponentMap,
+    mut core: BinaryImage,
+    depths: &[u32],
+) -> BinaryImage {
     let width = footprint.width();
+    let core_map = ComponentMap::from_binary(&core);
+    let mut pieces = vec![0u32; map.components().len() + 1];
+    for piece in core_map.components() {
+        // The piece's top row always holds one of its pixels.
+        let x = (piece.left..=piece.right)
+            .find(|&x| core_map.label_at(x, piece.top) == piece.label)
+            .expect("a component's top row holds one of its pixels");
+        pieces[map.label_at(x, piece.top) as usize] += 1;
+    }
     let mut pixels = Vec::new();
     for y in 0..footprint.height() {
         for x in 0..width {
-            if footprint.get(x, y) {
+            if footprint.get(x, y) && pieces[map.label_at(x, y) as usize] > 1 {
                 pixels.push(y * width + x);
             }
         }
     }
+    if pixels.is_empty() {
+        return core;
+    }
+    let pruned = prune_non_core_branches(&pixels, width, &core, depths);
+    for (node, &pixel) in pixels.iter().enumerate() {
+        if !pruned[node] {
+            core.set(pixel % width, pixel / width, true);
+        }
+    }
+    core
+}
+
+/// Kruskal's algorithm builds the maximum spanning forest of the footprint
+/// `pixels` (raster-ordered, 8-connected per component), where an edge is as
+/// deep as its shallower end. Repeatedly removing the non-core leaves keeps
+/// only the paths between core pixels, so the surviving nodes are the darkest
+/// connections that rejoin each split core. Returns the pruned flag per node.
+fn prune_non_core_branches(
+    pixels: &[usize],
+    width: usize,
+    core: &BinaryImage,
+    depths: &[u32],
+) -> Vec<bool> {
     let is_core = |node: usize| core.get(pixels[node] % width, pixels[node] / width);
     let mut edges = Vec::new();
     for (node, &pixel) in pixels.iter().enumerate() {
@@ -80,7 +113,7 @@ fn join_core_pieces(footprint: &BinaryImage, core: &BinaryImage, depths: &[u32])
             let (Some(nx), Some(ny)) = (x.checked_add_signed(dx), y.checked_add_signed(dy)) else {
                 continue;
             };
-            if nx >= width || ny >= footprint.height() {
+            if nx >= width || ny >= core.height() {
                 continue;
             }
             let neighbour = ny * width + nx;
@@ -124,13 +157,7 @@ fn join_core_pieces(footprint: &BinaryImage, core: &BinaryImage, depths: &[u32])
             }
         }
     }
-    let mut printed = core.clone();
-    for (node, &pixel) in pixels.iter().enumerate() {
-        if !pruned[node] {
-            printed.set(pixel % width, pixel / width, true);
-        }
-    }
-    printed
+    pruned
 }
 
 fn find(parents: &mut [u32], node: u32) -> u32 {
@@ -215,7 +242,7 @@ mod tests {
         let preserved = preserved.expect("the pencil line is a preserved faint stroke");
         assert!((80..84).all(|x| (20..24).all(|y| !preserved.get(x, y))));
 
-        let printed = printed_core(Some(&preserved), &image).expect("the line prints");
+        let printed = printed_core(&preserved, &image);
         let black: Vec<(usize, usize)> = (0..120)
             .flat_map(|y| (0..120).map(move |x| (x, y)))
             .filter(|&(x, y)| printed.get(x, y))
@@ -232,7 +259,7 @@ mod tests {
         let preserved = preserved.expect("the pencil line is a preserved faint stroke");
         assert_eq!(component_count(&preserved), 1);
 
-        let printed = printed_core(Some(&preserved), &image).expect("the line prints");
+        let printed = printed_core(&preserved, &image);
         assert_eq!(component_count(&printed), 1, "the middle must stay joined");
         assert!(printed.count_black() < preserved.count_black());
         assert!(printed.get(20, 20) && printed.get(90, 90));
