@@ -1,7 +1,10 @@
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
-    mkdtemp,
+    createManagedScratchTempDir,
+    removeManagedScratchTempDir,
+} from '@electron/utils/managedScratchTemp';
+import {
     open,
-    rm,
     stat,
     writeFile,
 } from 'fs/promises';
@@ -9,8 +12,6 @@ import {
     extname,
     join,
 } from 'path';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
 import { createRequire } from 'node:module';
 import { readTiffFrameDimensions } from '@pdf-core/iterateDecodedTiffFrames';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
@@ -565,7 +566,8 @@ export async function stageNativeCombineInputs(
         };
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), `pdf-combine-normalized-${randomUUID()}-`));
+    const scratchRoot = getAppTempDir();
+    const tempDir = await createManagedScratchTempDir('pdfExport-scope-', scratchRoot);
     const stagedPaths: string[] = [];
     try {
         for (let index = 0; index < inputPaths.length; index += 1) {
@@ -583,20 +585,14 @@ export async function stageNativeCombineInputs(
             stagedPaths.push(normalizedPath);
         }
     } catch (error) {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         throw error;
     }
 
     return {
         inputPaths: stagedPaths,
         cleanup: async () => {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
+            await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         },
     };
 }

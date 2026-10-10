@@ -9,16 +9,21 @@ import {
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'path';
-import { Readable } from 'node:stream';
+import {
+    Readable,
+    Writable,
+} from 'node:stream';
 import type * as NodeFs from 'fs';
 import type * as NodeFsPromises from 'node:fs/promises';
 import type * as NodeOs from 'node:os';
+import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 
 const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
 
 const mocks = vi.hoisted(() => ({
     closeSync: vi.fn(),
     createReadStream: vi.fn(),
+    createWriteStream: vi.fn(),
     existsSync: vi.fn(),
     fetch: vi.fn(),
     getOcrRuntimePolicy: vi.fn(),
@@ -54,7 +59,7 @@ vi.mock('fs', async importOriginal => {
         ...actual,
         closeSync: (...args: unknown[]) => mocks.closeSync(...args),
         createReadStream: (...args: unknown[]) => mocks.createReadStream(...args),
-        createWriteStream: vi.fn(),
+        createWriteStream: (...args: unknown[]) => mocks.createWriteStream(...args),
         existsSync: (path: string) => mocks.existsSync(path),
         openSync: (...args: unknown[]) => mocks.openSync(...args),
         readSync: (...args: unknown[]) => mocks.readSync(...args),
@@ -72,6 +77,32 @@ vi.mock('fs/promises', () => ({
 }));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/features/ocr/main/ocrRuntimePolicy', () => ({getOcrRuntimePolicy: () => mocks.getOcrRuntimePolicy()}));
+
+// A response body that sends one chunk per interval and, after `stallAfter`
+// chunks, stops sending without ending.
+function pacedBody(bytes: Buffer, {
+    chunks, intervalMs, stallAfter = chunks,
+}: {
+    chunks: number;
+    intervalMs: number;
+    stallAfter?: number;
+}) {
+    const chunkSize = Math.ceil(bytes.length / chunks);
+    let sent = 0;
+    return new ReadableStream<Uint8Array>({pull: controller => new Promise<void>((delivered) => {
+        if (sent === stallAfter) {
+            return;
+        }
+        setTimeout(() => {
+            controller.enqueue(bytes.subarray(sent * chunkSize, (sent + 1) * chunkSize));
+            sent++;
+            if (sent === chunks) {
+                controller.close();
+            }
+            delivered();
+        }, intervalMs);
+    })});
+}
 
 describe('ensureRuntimeTessdataSeeded', () => {
     beforeEach(() => {
@@ -124,6 +155,9 @@ describe('ensureRuntimeTessdataSeeded', () => {
                     ? Readable.from([readFileSync(join(tessdataFixtureRoot, 'rus.traineddata'))])
                     : undefined
         ));
+        mocks.createWriteStream.mockImplementation(() => new Writable({write(_chunk, _encoding, callback) {
+            callback();
+        }}));
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.rename.mockImplementation(async (_source: string, destination: string) => {
             mocks.installedPaths.add(destination);
@@ -132,6 +166,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
@@ -371,12 +406,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
             path === '/repo/resources/tesseract'
             || path.includes('.traineddata.download-')
         ));
-        mocks.fetch.mockResolvedValue({
-            arrayBuffer: async () => Buffer.from('downloaded model bytes'),
-            body: null,
-            ok: true,
-            status: 200,
-        });
+        mocks.fetch.mockImplementation(async () => new Response('downloaded model bytes'));
         mocks.createReadStream.mockReturnValue(Readable.from([
             Buffer.from('downloaded '),
             Buffer.from('model bytes'),
@@ -424,12 +454,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
             path === '/repo/resources/tesseract'
             || path.includes('.traineddata.download-')
         ));
-        mocks.fetch.mockResolvedValue({
-            arrayBuffer: async () => Buffer.from('downloaded model bytes'),
-            body: null,
-            ok: true,
-            status: 200,
-        });
+        mocks.fetch.mockImplementation(async () => new Response('downloaded model bytes'));
         let resolveSecondRead: (() => void) | undefined;
         const secondReadStarted = new Promise<void>((resolve) => {
             resolveSecondRead = resolve;
@@ -523,6 +548,95 @@ describe('ensureRuntimeTessdataSeeded', () => {
             'raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/eng.traineddata',
         );
     });
+
+    describe('on a slow connection', () => {
+        const modelPath = '/repo/resources/tesseract/tessdata/eng.traineddata';
+        const modelBytes = readFileSync(join(tessdataFixtureRoot, 'eng.traineddata'));
+        let written: Buffer[];
+        let getTimes: number[];
+
+        beforeEach(() => {
+            vi.useFakeTimers({toFake: [
+                'setTimeout',
+                'clearTimeout',
+                'Date',
+            ]});
+            mocks.fileUrl = '/repo/electron/features/ocr/languageModels.ts';
+            mocks.app.isPackaged = false;
+            vi.spyOn(process, 'cwd').mockReturnValue('/repo');
+            mocks.existsSync.mockImplementation((path: string) => (
+                path === '/repo/resources/tesseract'
+                || path.includes('.traineddata.download-')
+                || mocks.installedPaths.has(path)
+            ));
+            written = [];
+            mocks.createWriteStream.mockImplementation(() => new Writable({write(chunk: Buffer, _encoding, callback) {
+                written.push(chunk);
+                callback();
+            }}));
+            mocks.createReadStream.mockImplementation(() => Readable.from([Buffer.concat(written)]));
+            getTimes = [];
+        });
+
+        function serveModel(body: () => ReadableStream<Uint8Array>) {
+            mocks.fetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+                if (init?.method === 'HEAD') {
+                    return new Response(null, {status: 200});
+                }
+                getTimes.push(Date.now());
+                written = [];
+                return new Response(body());
+            });
+        }
+
+        it('publishes a model that arrives steadily for ten minutes', async () => {
+            serveModel(() => pacedBody(modelBytes, {
+                chunks: 10,
+                intervalMs: 60_000,
+            }));
+            const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+            const startedAt = Date.now();
+            const download = ensureTessdataLanguages(['eng']);
+
+            await vi.runAllTimersAsync();
+            await download;
+
+            expect(Date.now() - startedAt).toBe(600_000);
+            expect(getTimes).toHaveLength(1);
+            expect(Buffer.concat(written).equals(modelBytes)).toBe(true);
+            expect(mocks.rename).toHaveBeenCalledWith(expect.stringContaining('.traineddata.download-'), modelPath);
+        });
+
+        it('retries an attempt 90 seconds after its body stops arriving', async () => {
+            serveModel(() => pacedBody(modelBytes, {
+                chunks: 10,
+                intervalMs: 60_000,
+                stallAfter: 3,
+            }));
+            const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
+            const startedAt = Date.now();
+            const outcome = ensureTessdataLanguages(['eng']).catch((error: unknown) => error);
+
+            await vi.advanceTimersByTimeAsync(180_000 + 89_999);
+            expect(getTimes).toHaveLength(1);
+            await vi.runAllTimersAsync();
+
+            expect(await outcome).toMatchObject({
+                code: 'DOWNLOAD_TIMEOUT',
+                retryable: true,
+            });
+            // Each attempt receives its last chunk at 180 s and stalls 90 s
+            // later; retries wait 1.5 s, then 3 s.
+            expect(getTimes.map(time => time - startedAt)).toEqual([
+                0,
+                271_500,
+                544_500,
+            ]);
+            expect(Date.now() - startedAt).toBe(814_500);
+            expect(mocks.rename).not.toHaveBeenCalled();
+            expect(mocks.rm).toHaveBeenCalledWith(expect.stringContaining('.traineddata.download-'), {force: true});
+        });
+    });
 });
 
 // The download contract is the verified file a consumer can use, including
@@ -564,32 +678,57 @@ describe('verified model download publication', () => {
         });
     });
 
-    async function expectVerifiedModel() {
-        const installed = await files.readFile(join(runtimeRoot, 'tessdata', 'eng.traineddata'));
+    async function expectVerifiedModel(code: 'eng' | 'lat' = 'eng') {
+        const installed = await files.readFile(join(runtimeRoot, 'tessdata', `${code}.traineddata`));
         expect(installed.equals(modelBytes)).toBe(true);
         expect(createHash('sha256').update(installed).digest('hex')).toBe(
-            '8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba',
+            OCR_LANGUAGE_MODEL_SHA256[code],
         );
-        expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual(['eng.traineddata']);
+        expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual([`${code}.traineddata`]);
     }
 
-    it('publishes a pinned model after a transient response, then uses it offline', async () => {
-        let failed = false;
-        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    it.each([
+        {
+            code: 'eng',
+            source: 'eng',
+        },
+        {
+            code: 'lat',
+            source: 'script/Latin',
+        },
+    ] as const)('publishes pinned $code from $source, then uses it offline', async ({
+        code, source,
+    }) => {
+        modelBytes = await files.readFile(join(tessdataFixtureRoot, `${code}.traineddata`));
+        if (code === 'lat') {
+            await files.mkdir(join(runtimeRoot, 'tessdata'));
+            await files.copyFile(
+                join(tessdataFixtureRoot, 'lat_dictionary.traineddata'),
+                join(runtimeRoot, 'tessdata', 'lat.traineddata'),
+            );
+        }
+        let transientFailurePending = code === 'eng';
+        vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+            if (url !== `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/${source}.traineddata`) {
+                return new Response(null, {status: 404});
+            }
             if (init.method === 'HEAD') return new Response(null, {status: 200});
-            if (!failed) {
-                failed = true;
+            if (transientFailurePending) {
+                transientFailurePending = false;
                 return new Response(null, {status: 503});
             }
-            return new Response(new Uint8Array(modelBytes));
+            return new Response(new ReadableStream<Uint8Array>({start(controller) {
+                controller.enqueue(modelBytes);
+                controller.close();
+            }}));
         });
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
-        await ensureTessdataLanguages(['eng']);
-        await expectVerifiedModel();
+        await ensureTessdataLanguages([code]);
+        await expectVerifiedModel(code);
         vi.stubGlobal('fetch', () => { throw new Error('offline'); });
-        await ensureTessdataLanguages(['eng']);
-        await expectVerifiedModel();
+        await ensureTessdataLanguages([code]);
+        await expectVerifiedModel(code);
     });
 
     it('keeps a shared download usable when one consumer cancels', async () => {

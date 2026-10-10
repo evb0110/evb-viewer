@@ -267,7 +267,7 @@ import type {
 import {
     getSettingsAssistantStatusModel,
     type TSettingsAssistantCopy,
-} from '@app/modules/workspace-shell/agent/getSettingsAssistantStatusModel';
+} from '@app/modules/workspace-shell/public/settingsAssistant';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const {

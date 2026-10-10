@@ -202,8 +202,6 @@ describe('saved markup author history', () => {
             canonicalComments: comments,
             changedComments: comments,
             annotationWorkDirty: true,
-            markupSubtypeOverrides: undefined,
-            markupSubtypeHints: [],
         });
         const hint = normalizePdfNativeMutationSet({markup}, 'mutations').markup!.hints[0]!;
         expect(hint.author).toBe(created.author);

@@ -38,10 +38,27 @@ class MockProcess extends EventEmitter {
 }
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => '/tmp'}));
+
 vi.mock('fs/promises', () => ({
-    mkdtemp: vi.fn(async () => '/tmp/pdf-image-combine-test'),
+    mkdir: async () => undefined,
+    lstat: async () => ({
+        isDirectory: () => true,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+    }),
+    mkdtemp: vi.fn(async () => '/tmp/pdfExport-scope-image-combine-test'),
     open: mocks.open,
-    readFile: mocks.readFile,
+    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-managed-scratch.json')
+        ? Promise.resolve(JSON.stringify({
+            createdAt: 0,
+            pid: process.pid,
+            prefix: 'pdfExport-scope-',
+        }))
+        : Reflect.apply(mocks.readFile, undefined, [
+            path,
+            ...args,
+        ]),
     rm: mocks.rm,
     writeFile: mocks.writeFile,
 }));
@@ -120,8 +137,8 @@ describe('native PDF image combiner output validation', () => {
             .rejects.toThrow('Native image PDF combine fallback is not allowed in tests');
 
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('produced invalid PDF output'));
-        expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(/^[\\/]tmp[\\/]pdf-image-combine-test[\\/].+\.pdf$/u), { force: true });
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(/^[\\/]tmp[\\/]pdfExport-scope-image-combine-test[\\/].+\.pdf$/u), { force: true });
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -175,7 +192,7 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.spawn).toHaveBeenCalledWith('/native/evb-pdf-image-combine', expect.any(Array), expect.objectContaining({detached: true}));
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
         expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/input.jpg');
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -201,7 +218,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -226,7 +243,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('child identity was not usable');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -252,7 +269,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -275,7 +292,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -303,7 +320,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('within 3000ms');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -312,7 +329,7 @@ describe('native PDF image combiner output validation', () => {
         await vi.advanceTimersByTimeAsync(0);
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.rm).toHaveBeenCalledTimes(1);
-        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });
@@ -338,7 +355,7 @@ describe('native PDF image combiner output validation', () => {
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toContain('termination was not proven');
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
-        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
+        expect(mocks.rm).not.toHaveBeenCalledWith('/tmp/pdfExport-scope-image-combine-test', {
             recursive: true,
             force: true,
         });

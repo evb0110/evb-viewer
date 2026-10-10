@@ -779,13 +779,15 @@ fn evb_ocr_layer_lines(bytes: &[u8]) -> Option<Vec<OcrLayerLine>> {
     (!lines.is_empty()).then_some(lines)
 }
 
-/// One admitted document serves all extraction windows, released at request EOF.
-pub(crate) fn inspect_ocr_text_visibility(
+/// Reports, per requested page, the evidence OCR page selection and text
+/// extraction need about existing text, read with the scan the writer
+/// replaces text through, from one load of the document.
+pub(crate) fn write_ocr_text_visibility(
     input_path: &Path,
-    requests: impl Iterator<Item = Result<Vec<u32>>>,
+    page_numbers: &[u32],
     with_evb_ocr_text: bool,
     qpdf_path: Option<&Path>,
-    mut emit: impl FnMut(&OcrTextVisibilityReport) -> Result<()>,
+    output: &mut impl Write,
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
@@ -794,44 +796,44 @@ pub(crate) fn inspect_ocr_text_visibility(
         "Encrypted PDFs are not supported by native page ops",
     )?;
     let resolver = PageTreeResolver::new(&incremental.previous_document)?;
-    let mut report = OcrTextVisibilityReport {
-        format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
-        schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
-        pages: Vec::new(),
-    };
-    for request in requests {
-        report.pages.clear();
-        let mut text_bytes = 0;
-        for page_number in request? {
-            let page_id = resolver.page_id(&incremental.previous_document, page_number)?;
-            let mut inspection = PageTextInspection {
-                input_path,
-                qpdf_path,
-                visited: HashSet::new(),
-                decoded_bytes: 0,
-                painted: false,
-                uncertain: None,
-            };
-            let page = inspect_page_text_visibility(
-                &mut incremental,
-                &mut inspection,
-                page_number,
-                page_id,
-                with_evb_ocr_text,
-            )?;
-            text_bytes += page.evb_ocr_lines.as_ref().map_or(0, |lines| {
-                lines.iter().map(|line| line.text.len() + 64).sum()
-            });
-            if text_bytes > MAX_AGGREGATE_TEXT_BYTES {
-                return Err(domain_error(
-                    NativeErrorCode::TooLarge,
-                    "Visibility window text exceeds its byte ceiling",
-                ));
-            }
-            report.pages.push(page);
+    let mut pages = Vec::with_capacity(page_numbers.len());
+    let mut text_bytes = 0;
+    for &page_number in page_numbers {
+        let page_id = resolver.page_id(&incremental.previous_document, page_number)?;
+        let mut inspection = PageTextInspection {
+            input_path,
+            qpdf_path,
+            visited: HashSet::new(),
+            decoded_bytes: 0,
+            painted: false,
+            uncertain: None,
+        };
+        let page = inspect_page_text_visibility(
+            &mut incremental,
+            &mut inspection,
+            page_number,
+            page_id,
+            with_evb_ocr_text,
+        )?;
+        text_bytes += page.evb_ocr_lines.as_ref().map_or(0, |lines| {
+            lines.iter().map(|line| line.text.len() + 64).sum()
+        });
+        if text_bytes > MAX_AGGREGATE_TEXT_BYTES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "Visibility report text exceeds its byte ceiling",
+            ));
         }
-        emit(&report)?;
+        pages.push(page);
     }
+    serde_json::to_writer(
+        output,
+        &OcrTextVisibilityReport {
+            format: OCR_TEXT_VISIBILITY_FORMAT.to_string(),
+            schema_version: OCR_TEXT_VISIBILITY_SCHEMA_VERSION,
+            pages,
+        },
+    )?;
     Ok(())
 }
 

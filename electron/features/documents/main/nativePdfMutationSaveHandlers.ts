@@ -1,11 +1,12 @@
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
-    mkdtemp,
     readFile,
     rm,
     stat,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import { performance } from 'perf_hooks';
 import {
     basename,
@@ -27,9 +28,6 @@ import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeAnnotationIdentityBindings,
-    normalizePdfNativeMutationSet,
-    normalizePdfNativeNoteChanges,
-    normalizePdfNativeNoteTextUpdates,
     type TPdfNativeMutationSetNativeToolPayload,
 } from '@pdf-core';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -45,10 +43,7 @@ import {publishImmutableFileAtomic} from '@electron/file-access/documentFileWrit
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {
     enqueueWorkingCopyMutation,
     type IWorkingCopyMutationOperation,
@@ -76,10 +71,10 @@ const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
 const log = createLogger('native-note-text-save');
 
 interface INativeNoteCommandOptions {
-    command: 'update-note-text' | 'save-note-changes' | 'save-mutations';
+    command: 'save-mutations';
     payloadFileName: string;
-    payloadFlag: '--updates-file' | '--changes-file' | '--mutations-file';
-    payload: unknown;
+    payloadFlag: '--mutations-file';
+    payload: IPdfNativeMutationSet;
     commandLabel: string;
     identityBindingsFileName?: string;
 }
@@ -215,10 +210,6 @@ function normalizeModifiedAt(modifiedAt: unknown): ReturnType<typeof normalizePd
     }
 }
 
-function normalizeNativeMutationSet(rawMutations: unknown): IPdfNativeMutationSet {
-    return normalizePdfNativeMutationSet(rawMutations, 'native PDF mutations', {errorKind: 'error'});
-}
-
 function needsNativeIdentityBindingsReport(mutations: IPdfNativeMutationSet) {
     return collectExpectedNativeIdentityIds(mutations).length > 0;
 }
@@ -285,9 +276,7 @@ async function prepareNativeNoteMutation(options: {
     sourcePath: string;
     tempPath: string;
 }) {
-    const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(
-        options.command.payload as IPdfNativeMutationSet,
-    );
+    const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(options.command.payload);
     await measureNativeNotePhase(
         options.phaseTimings,
         'clone-working-to-temp',
@@ -309,17 +298,7 @@ async function prepareNativeNoteMutation(options: {
                 );
                 await measureNativeNotePhase(options.phaseTimings, 'write-payload', async () => {
                     const nativePayload = await materializeNativeBinarySidecars(options.context, chunk);
-                    const commandPayload = options.command.command === 'update-note-text'
-                        ? {updates: (chunk as IPdfNativeMutationSet).updates ?? []}
-                        : options.command.command === 'save-note-changes'
-                            ? {
-                                ...(chunk.updates ? {updates: chunk.updates} : {}),
-                                ...(chunk.geometryUpdates ? {geometryUpdates: chunk.geometryUpdates} : {}),
-                                ...(chunk.freeTextNotes ? {freeTextNotes: chunk.freeTextNotes} : {}),
-                                ...(chunk.deletes ? {deletes: chunk.deletes} : {}),
-                            }
-                            : nativePayload;
-                    await writeFile(payloadFilePath, JSON.stringify(commandPayload));
+                    await writeFile(payloadFilePath, JSON.stringify(nativePayload));
                 });
                 const identityBindingsFileName = options.command.identityBindingsFileName
                     ? chunkIndex === 0
@@ -387,129 +366,6 @@ async function syncNativeOutputToRequestingWorkingCopy(
     }
 }
 
-async function runNativeNoteCommand(
-    context: IDocumentsSenderIdContext,
-    workingPath: unknown,
-    rawModifiedAt: unknown,
-    revisionOptions: IDocumentMutationRevisionOptions | undefined,
-    options: INativeNoteCommandOptions,
-): Promise<IPdfNativeNoteTextSaveResult> {
-    const execution = resolveNativeNoteCommandExecution(context, workingPath, rawModifiedAt, revisionOptions);
-    if (!execution) {
-        return createNotAppliedResult();
-    }
-    const {
-        senderId,
-        normalizedWorkingPath,
-        modifiedAt,
-        expectedDocumentRevisionToken,
-        binaryPath,
-    } = execution;
-    return enqueueWorkingCopyMutation(normalizedWorkingPath, async (mutationOperation) => {
-        const {
-            phaseTimings,
-            operationStart,
-        } = await enterQueuedNativeNoteCommand(
-            normalizedWorkingPath,
-            senderId,
-            expectedDocumentRevisionToken,
-        );
-        const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-
-        const tempPath = makeSiblingTempPath(originalPath);
-        const tempDir = await mkdtemp(join(tmpdir(), 'pdf-note-text-'));
-        const payloadFilePath = join(tempDir, options.payloadFileName);
-        let committedValidation: IPdfNativeNoteTextSaveResult['validation'] = null;
-        let committedIdentityBindings: IPdfNativeNoteTextSaveResult['identityBindings'];
-        let committed = false;
-        try {
-            const prepared = await prepareNativeNoteMutation({
-                binaryPath,
-                command: options,
-                context,
-                modifiedAt,
-                mutationOperation,
-                payloadFilePath,
-                phaseTimings,
-                sourcePath: normalizedWorkingPath,
-                tempPath,
-            });
-            const {
-                validation,
-                identityBindings,
-            } = prepared;
-            committedIdentityBindings = identityBindings;
-            const transition = await transitionOriginalAndWorkingCopyRevision({
-                workingCopyPath: normalizedWorkingPath,
-                originalPath,
-                reason: 'native-mutation',
-                senderId,
-                signal: mutationOperation.signal,
-                captureOriginalWitness: () => measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
-                    captureOriginalPathSaveWitness(normalizedWorkingPath, originalPath, senderId, mutationOperation.signal)),
-                publishOriginal: assertDestinationCurrent => measureNativeNotePhase(
-                    phaseTimings,
-                    'atomic-replace-original',
-                    () => atomicReplace(tempPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                ),
-                afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
-                    normalizedWorkingPath,
-                    senderId,
-                ),
-                afterOriginalRestore: () => syncNativeOutputToRequestingWorkingCopy(
-                    normalizedWorkingPath,
-                    senderId,
-                ),
-                onPhase: (phase, durationMs) => phaseTimings.push({
-                    phase,
-                    durationMs,
-                }),
-            });
-            const originalCommitted = transition !== null;
-            if (!originalCommitted) {
-                return createNotAppliedResult();
-            }
-            committed = true;
-            committedValidation = validation;
-            log.debug('Native note save phase timings', {
-                command: options.command,
-                totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
-                phases: phaseTimings,
-            });
-            return {
-                applied: true,
-                validation,
-                ...(identityBindings === undefined ? {} : {identityBindings}),
-            };
-        } catch (error) {
-            log.debug('Native note text update failed', {
-                command: options.command,
-                totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
-                phases: phaseTimings,
-                error: getErrorMessage(error),
-            });
-            if (committed) {
-                return {
-                    applied: true,
-                    validation: committedValidation,
-                    syncError: getErrorMessage(error),
-                    ...(committedIdentityBindings === undefined ? {} : {identityBindings: committedIdentityBindings}),
-                };
-            }
-            return createNotAppliedResult(error);
-        } finally {
-            await cleanupTempPath(tempPath);
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
-        }
-    }, {
-        kind: `native-pdf-mutation-original:${options.command}`,
-        ownerWebContentsId: senderId,
-    });
-}
-
 async function runNativeWorkingCopyCommand(
     context: IDocumentsSenderIdContext,
     workingPath: unknown,
@@ -544,51 +400,55 @@ async function runNativeWorkingCopyCommand(
         // Keep this staging path recognizable as a PDF even though it is also a
         // sibling temporary file used for atomic promotion.
         const tempPath = `${makeSiblingTempPath(normalizedWorkingPath)}.pdf`;
-        const tempDir = await mkdtemp(join(tmpdir(), 'pdf-working-copy-mutation-'));
-        const payloadFilePath = join(tempDir, options.payloadFileName);
         let staged = false;
         try {
-            const prepared = await prepareNativeNoteMutation({
-                binaryPath,
-                command: options,
-                context,
-                modifiedAt,
-                mutationOperation,
-                payloadFilePath,
-                phaseTimings,
-                sourcePath: normalizedWorkingPath,
-                tempPath,
-            });
-            const {
-                validation,
-                identityBindings,
-            } = prepared;
+            return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+                const payloadFilePath = join(tempDir, options.payloadFileName);
+                const prepared = await prepareNativeNoteMutation({
+                    binaryPath,
+                    command: options,
+                    context,
+                    modifiedAt,
+                    mutationOperation,
+                    payloadFilePath,
+                    phaseTimings,
+                    sourcePath: normalizedWorkingPath,
+                    tempPath,
+                });
+                const {
+                    validation,
+                    identityBindings,
+                } = prepared;
 
-            const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
-                qpdfCheck: false,
-                tailCheck: true,
-                semanticCheck: true,
-                semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
-                fsynced: true,
-            }, {cleanupOnRelease: true});
-            staged = true;
-            const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
-            const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
-            logTimings('Native working-copy mutation phase timings', {
-                command: options.command,
-                endedAtEpochMs: Date.now(),
-                startedAtEpochMs: operationStartedAtEpochMs,
-                totalMs,
-                phases: phaseTimings,
+                const stagedOutput = await createOpaqueNativePdfStagedArtifact(context, tempPath, {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: true,
+                    semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
+                    fsynced: true,
+                }, {cleanupOnRelease: true});
+                staged = true;
+                const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
+                const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
+                logTimings('Native working-copy mutation phase timings', {
+                    command: options.command,
+                    endedAtEpochMs: Date.now(),
+                    startedAtEpochMs: operationStartedAtEpochMs,
+                    totalMs,
+                    phases: phaseTimings,
+                });
+                return {
+                    applied: true,
+                    validation,
+                    nativeMutationPostconditionsVerified: true,
+                    stagedOutput,
+                    ...(identityBindings === undefined ? {} : {identityBindings}),
+                };
             });
-            return {
-                applied: true,
-                validation,
-                nativeMutationPostconditionsVerified: true,
-                stagedOutput,
-                ...(identityBindings === undefined ? {} : {identityBindings}),
-            };
         } catch (error) {
+            if (!staged && getUnprovenNativeTerminationDetail(error) === undefined) {
+                await cleanupTempPath(tempPath);
+            }
             log.warn('Native working-copy mutation failed', {
                 command: options.command,
                 endedAtEpochMs: Date.now(),
@@ -598,12 +458,6 @@ async function runNativeWorkingCopyCommand(
                 error: getErrorMessage(error),
             });
             return createNotAppliedResult(error);
-        } finally {
-            if (!staged) await cleanupTempPath(tempPath);
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
         }
     }, {
         kind: `native-pdf-mutation-working-copy:${options.command}`,
@@ -724,49 +578,13 @@ export async function handleCommitStagedPdfNativeMutations(
     return result;
 }
 
-export async function handleNativeNoteTextSave(
-    context: IDocumentsSenderIdContext,
-    workingPath: unknown,
-    rawUpdates: unknown,
-    rawModifiedAt: unknown,
-    revisionOptions?: IDocumentMutationRevisionOptions,
-): Promise<IPdfNativeNoteTextSaveResult> {
-    const updates = normalizePdfNativeNoteTextUpdates(rawUpdates, 'note text update list', {errorKind: 'error'});
-    return runNativeNoteCommand(context, workingPath, rawModifiedAt, revisionOptions, {
-        command: 'update-note-text',
-        payloadFileName: 'updates.json',
-        payloadFlag: '--updates-file',
-        payload: {updates},
-        commandLabel: 'evb-pdf-page-ops(update-note-text)',
-    });
-}
-
-export async function handleNativeNoteChangesSave(
-    context: IDocumentsSenderIdContext,
-    workingPath: unknown,
-    rawChanges: unknown,
-    rawModifiedAt: unknown,
-    revisionOptions?: IDocumentMutationRevisionOptions,
-): Promise<IPdfNativeNoteTextSaveResult> {
-    const changes = normalizePdfNativeNoteChanges(rawChanges, 'native note changes', {errorKind: 'error'});
-    return runNativeNoteCommand(context, workingPath, rawModifiedAt, revisionOptions, {
-        command: 'save-note-changes',
-        payloadFileName: 'changes.json',
-        payloadFlag: '--changes-file',
-        payload: changes,
-        commandLabel: 'evb-pdf-page-ops(save-note-changes)',
-    });
-}
-
-
 export async function handleNativePdfMutationsApplyToWorkingCopy(
     context: IDocumentsSenderIdContext,
     workingPath: unknown,
-    rawMutations: unknown,
+    mutations: IPdfNativeMutationSet,
     rawModifiedAt: unknown,
     revisionOptions: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
-    const mutations = normalizeNativeMutationSet(rawMutations);
     return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, revisionOptions, {
         command: 'save-mutations',
         payloadFileName: 'mutations.json',

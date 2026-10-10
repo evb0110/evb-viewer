@@ -815,49 +815,15 @@ export function createDocumentPersistence(
         const applyPdfNativeMutationsToWorkingCopy = documentFiles.applyPdfNativeMutationsToWorkingCopy;
         const commitStagedPdfNativeMutations = documentFiles.commitStagedPdfNativeMutations;
         const replaceWorkingCopyFromStagedPdfNativeMutation = documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation;
-        const canUseGenericNativeMutations = typeof applyPdfNativeMutationsToWorkingCopy === 'function'
-            && typeof commitStagedPdfNativeMutations === 'function';
         const canReplaceWorkingCopyFromStagedMutation = typeof replaceWorkingCopyFromStagedPdfNativeMutation === 'function';
-        if (opts.saveMode === 'save_as_rewrite' && !canUseGenericNativeMutations) {
-            return null;
-        }
-        if (opts.workingCopyOnly && !canReplaceWorkingCopyFromStagedMutation) {
-            return null;
-        }
-        const canUseLegacyNativeNoteText = (
-            !hasPageLabels
-            && !hasBookmarks
-            && !hasShapes
-            && !hasMarkup
-            && !hasPlacedImages
-            && freeTextNotes.length === 0
-            && textBoxes.length === 0
-            && freeTextEditors.length === 0
-            && deletes.length === 0
-            && updates.length > 0
-            && geometryUpdates.length === 0
-            && placedImageGeometryUpdates.length === 0
-            && typeof documentFiles.savePdfNoteTextUpdates === 'function'
-        );
-        const canUseLegacyNativeNoteChanges = (
-            !hasPageLabels
-            && !hasBookmarks
-            && !hasShapes
-            && !hasMarkup
-            && !hasPlacedImages
-            && expectedNativeIdentityIds.length === 0
-            && (geometryUpdates.length > 0 || freeTextNotes.length > 0 || deletes.length > 0)
-            && textBoxes.length === 0
-            && freeTextEditors.length === 0
-            && typeof documentFiles.savePdfNoteChanges === 'function'
-        );
-        if (!canUseGenericNativeMutations && !canUseLegacyNativeNoteText && !canUseLegacyNativeNoteChanges) {
+        if (
+            typeof applyPdfNativeMutationsToWorkingCopy !== 'function'
+            || typeof commitStagedPdfNativeMutations !== 'function'
+        ) {
             BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', () => ({
                 reason: 'native-document-capability-unavailable',
                 hasGenericApply: typeof applyPdfNativeMutationsToWorkingCopy === 'function',
                 hasGenericCommit: typeof commitStagedPdfNativeMutations === 'function',
-                hasLegacyNoteText: typeof documentFiles.savePdfNoteTextUpdates === 'function',
-                hasLegacyNoteChanges: typeof documentFiles.savePdfNoteChanges === 'function',
                 updateCount: updates.length,
                 geometryUpdateCount: geometryUpdates.length,
                 placedImageGeometryUpdateCount: placedImageGeometryUpdates.length,
@@ -866,6 +832,9 @@ export function createDocumentPersistence(
                 freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
             }));
+            return null;
+        }
+        if (opts.workingCopyOnly && !canReplaceWorkingCopyFromStagedMutation) {
             return null;
         }
 
@@ -922,171 +891,148 @@ export function createDocumentPersistence(
                 phaseTimings,
                 'native-ipc',
                 async () => {
-                    if (
-                        canUseGenericNativeMutations
-                        && typeof applyPdfNativeMutationsToWorkingCopy === 'function'
-                        && typeof commitStagedPdfNativeMutations === 'function'
-                    ) {
-                        const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
-                        if (!revisionOptions) {
-                            throw new Error(
-                                'Native staged PDF mutation requires the document revision',
+                    const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
+                    if (!revisionOptions) {
+                        throw new Error(
+                            'Native staged PDF mutation requires the document revision',
+                        );
+                    }
+                    const applied = await measurePdfPersistPhase(
+                        phaseTimings,
+                        'native-apply',
+                        () => applyPdfNativeMutationsToWorkingCopy(
+                            workingPath,
+                            mutations,
+                            opts.modifiedAt,
+                            revisionOptions,
+                        ),
+                    );
+                    if (!applied.applied || !applied.validation?.isValid) {
+                        return applied;
+                    }
+                    const stagedOutput = applied.stagedOutput;
+                    if (!stagedOutput) {
+                        throw new Error('Native mutation did not return an immutable staged output');
+                    }
+                    const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
+                    const assertBeforeExpose = opts.assertBeforeExpose;
+                    let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
+                    try {
+                        appliedIdentityBindings = validateNativeIdentityBindings(
+                            applied.identityBindings,
+                            expectedNativeIdentityIds,
+                            'Native staged identity bindings',
+                        );
+                        // The native writer validates the projected mutation set against
+                        // the staged appended revision before it returns. Reopening a large
+                        // staged PDF in renderer PDF.js repeats those checks and can add
+                        // seconds of visible save latency. Older/native-adjacent callers
+                        // without the explicit proof retain the renderer verification.
+                        if (
+                            verifyPathBeforeExpose
+                            && applied.nativeMutationPostconditionsVerified !== true
+                        ) {
+                            await measurePdfPersistPhase(
+                                phaseTimings,
+                                'native-verify-staged-path',
+                                () => verifyPathBeforeExpose(
+                                    stagedOutput.path,
+                                    stagedOutput.size,
+                                ),
                             );
                         }
-                        const applied = await measurePdfPersistPhase(
+                        if (assertBeforeExpose) {
+                            await measurePdfPersistPhase(
+                                phaseTimings,
+                                'native-assert-current',
+                                async () => assertBeforeExpose(),
+                            );
+                        }
+                        await measurePdfPersistPhase(
                             phaseTimings,
-                            'native-apply',
-                            () => applyPdfNativeMutationsToWorkingCopy(
+                            'native-publish-automation',
+                            () => publishStagedPdfNativeMutationForAutomation(stagedOutput),
+                        );
+                        await assertBeforeExpose?.();
+                    } catch (error) {
+                        await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
+                        throw error;
+                    }
+                    if (opts.saveMode === 'save_as_rewrite') {
+                        try {
+                            stagedSaveAsResult = await saveWorkingCopyAs(undefined, {
+                                saveMode: opts.saveMode,
+                                expectedWorkingPath: workingPath,
+                                expectedDocumentRevisionToken,
+                                stagedOutput,
+                                ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
+                            });
+                            if (stagedSaveAsResult.success) {
+                                stagedSaveAsResult = {
+                                    ...stagedSaveAsResult,
+                                    materializedIdentityBindings: appliedIdentityBindings,
+                                };
+                            }
+                            return applied;
+                        } finally {
+                            await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
+                        }
+                    }
+                    if (opts.workingCopyOnly) {
+                        const replaced = await measurePdfPersistPhase(
+                            phaseTimings,
+                            'native-replace-working-copy',
+                            () => replaceWorkingCopyFromStagedPdfNativeMutation!(
                                 workingPath,
-                                mutations,
-                                opts.modifiedAt,
+                                stagedOutput,
                                 revisionOptions,
                             ),
                         );
-                        if (!applied.applied || !applied.validation?.isValid) {
-                            return applied;
-                        }
-                        const stagedOutput = applied.stagedOutput;
-                        if (!stagedOutput) {
-                            throw new Error('Native mutation did not return an immutable staged output');
-                        }
-                        const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
-                        const assertBeforeExpose = opts.assertBeforeExpose;
-                        let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
-                        try {
-                            appliedIdentityBindings = validateNativeIdentityBindings(
-                                applied.identityBindings,
-                                expectedNativeIdentityIds,
-                                'Native staged identity bindings',
-                            );
-                            // The native writer validates the projected mutation set against
-                            // the staged appended revision before it returns. Reopening a large
-                            // staged PDF in renderer PDF.js repeats those checks and can add
-                            // seconds of visible save latency. Older/native-adjacent callers
-                            // without the explicit proof retain the renderer verification.
-                            if (
-                                verifyPathBeforeExpose
-                                && applied.nativeMutationPostconditionsVerified !== true
-                            ) {
-                                await measurePdfPersistPhase(
-                                    phaseTimings,
-                                    'native-verify-staged-path',
-                                    () => verifyPathBeforeExpose(
-                                        stagedOutput.path,
-                                        stagedOutput.size,
-                                    ),
-                                );
+                        const workingCopyResult: IPdfNativeSaveResult = replaced
+                            ? {
+                                applied: true,
+                                validation: {
+                                    isValid: true,
+                                    tool: 'native' as const,
+                                    errors: [],
+                                    warnings: [],
+                                },
+                                nativeMutationPostconditionsVerified: true,
+                                ...(appliedIdentityBindings.length > 0
+                                    ? {identityBindings: appliedIdentityBindings}
+                                    : {}),
                             }
-                            if (assertBeforeExpose) {
-                                await measurePdfPersistPhase(
-                                    phaseTimings,
-                                    'native-assert-current',
-                                    async () => assertBeforeExpose(),
-                                );
-                            }
-                            await measurePdfPersistPhase(
-                                phaseTimings,
-                                'native-publish-automation',
-                                () => publishStagedPdfNativeMutationForAutomation(stagedOutput),
-                            );
-                            await assertBeforeExpose?.();
-                        } catch (error) {
-                            await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
-                            throw error;
-                        }
-                        if (opts.saveMode === 'save_as_rewrite') {
-                            try {
-                                stagedSaveAsResult = await saveWorkingCopyAs(undefined, {
-                                    saveMode: opts.saveMode,
-                                    expectedWorkingPath: workingPath,
-                                    expectedDocumentRevisionToken,
-                                    stagedOutput,
-                                    ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
-                                });
-                                if (stagedSaveAsResult.success) {
-                                    stagedSaveAsResult = {
-                                        ...stagedSaveAsResult,
-                                        materializedIdentityBindings: appliedIdentityBindings,
-                                    };
-                                }
-                                return applied;
-                            } finally {
-                                await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
-                            }
-                        }
-                        if (opts.workingCopyOnly) {
-                            const replaced = await measurePdfPersistPhase(
-                                phaseTimings,
-                                'native-replace-working-copy',
-                                () => replaceWorkingCopyFromStagedPdfNativeMutation!(
-                                    workingPath,
-                                    stagedOutput,
-                                    revisionOptions,
-                                ),
-                            );
-                            const workingCopyResult: IPdfNativeSaveResult = replaced
-                                ? {
-                                    applied: true,
-                                    validation: {
-                                        isValid: true,
-                                        tool: 'native' as const,
-                                        errors: [],
-                                        warnings: [],
-                                    },
-                                    nativeMutationPostconditionsVerified: true,
-                                    ...(appliedIdentityBindings.length > 0
-                                        ? {identityBindings: appliedIdentityBindings}
-                                        : {}),
-                                }
-                                : {
-                                    applied: false,
-                                    validation: null,
-                                };
-                            return workingCopyResult;
-                        }
-                        const committed = await measurePdfPersistPhase(
-                            phaseTimings,
-                            'native-commit',
-                            () => commitStagedPdfNativeMutations(
-                                workingPath,
-                                stagedOutput,
-                                createNativeStagedCommitOptions(
-                                    expectedDocumentRevisionToken,
-                                    mutations,
-                                    appliedIdentityBindings,
-                                ),
+                            : {
+                                applied: false,
+                                validation: null,
+                            };
+                        return workingCopyResult;
+                    }
+                    const committed = await measurePdfPersistPhase(
+                        phaseTimings,
+                        'native-commit',
+                        () => commitStagedPdfNativeMutations(
+                            workingPath,
+                            stagedOutput,
+                            createNativeStagedCommitOptions(
+                                expectedDocumentRevisionToken,
+                                mutations,
+                                appliedIdentityBindings,
                             ),
-                        );
-                        if (!committed.applied || !committed.validation?.isValid) {
-                            return committed;
-                        }
-                        const committedIdentityBindings = validateNativeIdentityBindings(
-                            committed.identityBindings,
-                            expectedNativeIdentityIds,
-                            'Native committed identity bindings',
-                        );
-                        if (!haveSameNativeIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
-                            throw new Error('Native identity bindings changed between staging and commit');
-                        }
+                        ),
+                    );
+                    if (!committed.applied || !committed.validation?.isValid) {
                         return committed;
                     }
-                    if (canUseLegacyNativeNoteChanges && typeof documentFiles.savePdfNoteChanges === 'function') {
-                        return documentFiles.savePdfNoteChanges(workingPath, {
-                            ...(updates.length > 0 ? {updates} : {}),
-                            ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
-                            ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-                            ...(deletes.length > 0 ? {deletes} : {}),
-                        }, opts.modifiedAt, createDocumentMutationRevisionOptions(expectedDocumentRevisionToken));
+                    const committedIdentityBindings = validateNativeIdentityBindings(
+                        committed.identityBindings,
+                        expectedNativeIdentityIds,
+                        'Native committed identity bindings',
+                    );
+                    if (!haveSameNativeIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
+                        throw new Error('Native identity bindings changed between staging and commit');
                     }
-                    if (canUseLegacyNativeNoteText && typeof documentFiles.savePdfNoteTextUpdates === 'function') {
-                        return documentFiles.savePdfNoteTextUpdates(
-                            workingPath,
-                            updates,
-                            opts.modifiedAt,
-                            createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
-                        );
-                    }
-                    throw new Error('No native PDF mutation strategy is available for this document');
+                    return committed;
                 },
             );
             if (stagedSaveAsResult) {

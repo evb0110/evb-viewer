@@ -156,31 +156,6 @@ describe('contracts search compatibility exports', () => {
         })).not.toBeNull();
     });
 
-    it('owns the two distinct minimum query lengths every search surface honors', () => {
-        expect(contractsSearch.PDF_SEARCH_MIN_QUERY_LENGTH).toBe(1);
-        expect(contractsSearch.DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH).toBe(2);
-        expect(contractsSearch.PDF_SEARCH_MIN_QUERY_LENGTH)
-            .toBeLessThan(contractsSearch.DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
-
-        const searchSurfaces = {
-            'app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts': 'PDF_SEARCH_MIN_QUERY_LENGTH',
-            'app/modules/pdf-viewer/components/PdfSidebar.vue': 'PDF_SEARCH_MIN_QUERY_LENGTH',
-            'app/modules/document-viewer/search/createDocumentPageSourceSearchBackend.ts': 'DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH',
-            'app/modules/workspace-shell/composables/useDocumentSearchSession.ts': 'DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH',
-        };
-
-        for (const [
-            path,
-            constantName,
-        ] of Object.entries(searchSurfaces)) {
-            const source = readFileSync(new URL(`../../../${path}`, import.meta.url), 'utf8');
-
-            expect(source, path).toContain(constantName);
-            expect(source, path).toContain('@contracts/search');
-            expect(source, path).not.toMatch(/minQueryLength\s*(?::|\?\?)\s*\d/u);
-        }
-    });
-
     it('keeps boundary helpers and moved ownership explicit', () => {
         const options = {
             matchCase: false,

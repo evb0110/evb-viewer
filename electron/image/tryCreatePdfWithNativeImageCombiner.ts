@@ -1,12 +1,15 @@
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
-    mkdtemp,
+    createManagedScratchTempDir,
+    removeManagedScratchTempDir,
+} from '@electron/utils/managedScratchTemp';
+import {
     open,
     readFile,
     rm,
     writeFile,
 } from 'fs/promises';
 import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
 import {
     dirname,
     extname,
@@ -328,11 +331,11 @@ async function withNativePdfImageCombineTempFiles<T>(
     rotationDegrees: readonly number[] | undefined,
     operation: (files: INativePdfImageCombineTempFiles) => Promise<T>,
 ) {
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-image-combine-'));
-    const cleanupTempDir = createIdempotentCleanup(() => rm(tempDir, {
-        recursive: true,
-        force: true,
-    }));
+    const scratchRoot = getAppTempDir();
+    const tempDir = await createManagedScratchTempDir('pdfExport-scope-', scratchRoot);
+    const cleanupTempDir = createIdempotentCleanup(() => removeManagedScratchTempDir(
+        tempDir, 'pdfExport-scope-', scratchRoot,
+    ).then(() => undefined));
     let retainedCleanupProof: Promise<boolean> | null = null;
     const retainCleanupUntilTerminationProof: TNativePdfImageCombineRetainCleanup = (
         proof,

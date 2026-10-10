@@ -16,12 +16,21 @@ function decodeLease(value: unknown): IBrowserDocumentLiveLease | null {
     return result.success ? result.output : null;
 }
 
+const LEASE_OWNER_LOCK_PREFIX = 'evb-viewer:browser-lease-owner:';
+
 function leaseOwnerLockName(ownerId: string) {
-    return `evb-viewer:browser-lease-owner:${ownerId}`;
+    return `${LEASE_OWNER_LOCK_PREFIX}${ownerId}`;
 }
 
 interface ILockManager {
-    request(name: string, options: {mode: 'exclusive'}, callback: () => Promise<never>): Promise<unknown>;
+    request<T>(
+        name: string,
+        options: {
+            mode: 'exclusive';
+            ifAvailable?: boolean
+        },
+        callback: (lock: unknown) => Promise<T>,
+    ): Promise<T>;
     query(): Promise<{held?: Array<{name?: unknown}>}>;
 }
 
@@ -129,6 +138,41 @@ export async function setBrowserDocumentLiveLeaseSuspended(
     return saveBrowserDocumentLiveLease(ownerId, generation, suspended ? 'suspended' : 'active', protectedDependencies);
 }
 
+// The owners whose context is alive, or null where the browser has no lock
+// manager to tell.
+export async function loadLiveLeaseOwnerIds() {
+    const locks = resolveLockManager();
+    if (!locks) {
+        return null;
+    }
+    return new Set(((await locks.query()).held ?? []).flatMap(({name}) => (
+        typeof name === 'string' && name.startsWith(LEASE_OWNER_LOCK_PREFIX)
+            ? [name.slice(LEASE_OWNER_LOCK_PREFIX.length)]
+            : []
+    )));
+}
+
+type TLeaseOwnerLock = 'acquired' | 'held' | 'unsupported';
+
+// Runs `use` with what the browser can prove about an owner's liveness:
+// 'acquired' means this context holds the owner's lock until `use` settles,
+// which no live owner allows; 'held' means another context holds it, as a
+// frozen or throttled owner does; 'unsupported' means it cannot tell.
+export async function withLeaseOwnerLock<T>(ownerId: string, use: (lock: TLeaseOwnerLock) => Promise<T>) {
+    const locks = resolveLockManager();
+    if (!locks) {
+        return use('unsupported');
+    }
+    return locks.request(
+        leaseOwnerLockName(ownerId),
+        {
+            mode: 'exclusive',
+            ifAvailable: true,
+        },
+        lock => use(lock ? 'acquired' : 'held'),
+    );
+}
+
 // A live lease protects its refs until its owner marks it dead. A window that
 // crashes never gets to do that, so without reclamation one lost tab pins its
 // working copy, its source and every chunk in IndexedDB for the lifetime of the
@@ -140,15 +184,10 @@ export async function setBrowserDocumentLiveLeaseSuspended(
 // whose lock nobody holds therefore has no owner left to speak for it, and its
 // refs are released in the same sweep.
 export async function reclaimOrphanedBrowserDocumentLiveLeases() {
-    const locks = resolveLockManager();
-    if (!locks) {
+    const liveOwnerIds = await loadLiveLeaseOwnerIds();
+    if (!liveOwnerIds) {
         return;
     }
-    const heldNames = new Set(
-        ((await locks.query()).held ?? [])
-            .map(lock => lock.name)
-            .filter((name): name is string => typeof name === 'string'),
-    );
     await runObjectStoreTransaction<null>(
         BROWSER_LIVE_LEASES_STORE,
         'readwrite',
@@ -161,7 +200,7 @@ export async function reclaimOrphanedBrowserDocumentLiveLeases() {
                         return lease ? [lease] : [];
                     });
                 for (const lease of leases) {
-                    if (lease.status === 'dead' || heldNames.has(leaseOwnerLockName(lease.ownerId))) {
+                    if (lease.status === 'dead' || liveOwnerIds.has(lease.ownerId)) {
                         continue;
                     }
                     store.put({

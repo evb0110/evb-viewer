@@ -56,7 +56,7 @@ const MAX_SIDECAR_BYTES: usize = 256 * 1024 * 1024;
 const MAX_COLLECTION_ITEMS: usize = 100_000;
 const MAX_AGGREGATE_TEXT_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
-const PAGE_OP_WASM_MUTATION_HEADER_BYTES: usize = 12;
+const PAGE_OP_WASM_MUTATION_HEADER_BYTES: usize = wasm_abi::MUTATION_HEADER.bytes;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 const PAGE_OP_WASM_MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -158,6 +158,8 @@ mod tests {
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 mod wasm;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+mod wasm_abi;
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 #[no_mangle]

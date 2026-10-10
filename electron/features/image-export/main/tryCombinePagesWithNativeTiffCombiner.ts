@@ -1,10 +1,13 @@
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    createManagedScratchTempDir,
+    removeManagedScratchTempDir,
+} from '@electron/utils/managedScratchTemp';
 import { existsSync } from 'fs';
 import {
-    mkdtemp,
     rm,
     writeFile,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -49,17 +52,15 @@ export async function tryCombinePagesWithNativeTiffCombiner(
         return false;
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'tiff-combine-native-'));
+    const scratchRoot = getAppTempDir();
+    const tempDir = await createManagedScratchTempDir('pdfExport-scope-', scratchRoot);
     const inputsPath = join(tempDir, 'inputs.txt');
     const tempOutputPath = makeSiblingTempPath(outputPath);
     let replacedOutput = false;
     let terminationProof: Promise<boolean> | undefined;
     let terminationUnproven = false;
     const cleanup = async () => {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         if (!replacedOutput) {
             await rm(tempOutputPath, { force: true }).catch(() => undefined);
         }

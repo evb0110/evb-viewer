@@ -3348,11 +3348,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
                     const search = async (query: string, count: number) => {
                         const input = await session.page.waitForSelector(`${sidebar} .document-search-bar input`, {visible: true});
-                        await clickAsUser(session.page, input!);
-                        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-                        await session.page.keyboard.down(modifier);
-                        await session.page.keyboard.press('KeyA');
-                        await session.page.keyboard.up(modifier);
+                        await clickAsUser(session.page, input!, {count: 3});
                         await session.page.keyboard.type(query);
                         await session.page.keyboard.press('Enter');
                         await waitForFunctionInPage(session.page, (root: string, expected: number) => (
@@ -3655,10 +3651,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await openDocumentSidebarTab(session.page, 'Search');
         const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
         const search = async (query: string) => {
-            await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
-            await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
-            await session.page.keyboard.press('A');
-            await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await clickAsUser(session.page, `${sidebar} .document-search-bar input`, {count: 3});
             await session.page.keyboard.type(query);
             await session.page.keyboard.press('Enter');
             await waitForFunctionInPage(session.page, (root: string, query: string) => {
@@ -3855,10 +3848,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, null, 2));
         expect(errorText).toContain('Check your regular expression');
         expect(errorText).not.toContain('Search unavailable');
-        await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
-        await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
-        await session.page.keyboard.press('A');
-        await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await clickAsUser(session.page, `${sidebar} .document-search-bar input`, {count: 3});
         await session.page.keyboard.type('Page 3 sample text');
         await session.page.keyboard.press('Enter');
         await waitForFunctionInPage(session.page, (root: string) => document.querySelector(`${root} .document-search-result`)?.textContent?.includes('Page 3 sample text'), {timeout: 15_000}, sidebar);
@@ -3890,10 +3880,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await openDocumentSidebarTab(session.page, 'Search');
         const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
         async function search(query: string) {
-            await clickAsUser(session.page, `${sidebar} .document-search-bar input`);
-            await session.page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
-            await session.page.keyboard.press('A');
-            await session.page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+            await clickAsUser(session.page, `${sidebar} .document-search-bar input`, {count: 3});
             await session.page.keyboard.type(query);
             await session.page.keyboard.press('Enter');
             await waitForFunctionInPage(session.page, (root: string, query: string) => {

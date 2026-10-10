@@ -48,7 +48,7 @@ import {
 import {
     type IDocumentSourceActivation,
     useDocumentSourceSession,
-} from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
+} from '@app/modules/workspace-shell/public/useDocumentSourceSession';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { useFailureToast } from '@app/composables/useFailureToast';

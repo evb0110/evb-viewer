@@ -73,10 +73,19 @@ window as an A2 violation.
 
 ## The monitor and the bug-report shortcut
 
-A dev-only Nuxt plugin installs the monitor, which runs the checker on each
-settled state (throttled), keeps a content-free ring buffer of recent actions
-and violations, and logs one structured `console.warn` per violation and one
+The Nuxt plugin `app/plugins/viewerInvariantMonitor.client.ts` installs the
+monitor in a dev build, and in a production build only when the session is an
+automation session (`isAutomationSession()`, which checks for the preload's
+automation file-open bridge). The monitor runs the checker on each settled
+state (throttled), keeps a content-free ring buffer of recent actions and
+violations, and logs one structured `console.warn` per violation and one
 `console.info` per unresolved observation.
+
+The shell automation hooks, `installAppShellE2EHooks` and `window.__evbTestApi`,
+are compiled into every build but installed only in an automation session.
+Ordinary production sessions therefore neither load the monitor nor expose the
+test API. E2E checks invariants in the production renderer through this path,
+so keep the automation gate when changing the plugin.
 
 An action records the control's authored identity only: test id, role, element
 id, tag name. No free-text attribute is read, because a tab's `aria-label` is
@@ -102,10 +111,11 @@ picture of the window and therefore shows whatever is on screen.
 
 A bundle is a diagnostic snapshot, not a replayable checkpoint.
 
-Production exclusion works like the dev-only agent widget: the plugin reaches
-its implementation through an `import.meta.dev` ternary, so rollup drops the
-module. Verify with `pnpm exec nuxi build` and a grep of
-`nuxt-output/public/_nuxt` for `checkViewerInvariants`.
+Production exclusion is a runtime gate, not a build-time one. The plugin loads
+the monitor module with a dynamic `import()` that runs only after the dev or
+automation check passes, so the production build emits the monitor as a
+separate chunk that an ordinary packaged session never requests. Do not replace
+the gate with an `import.meta.dev` check; that would remove the path E2E uses.
 
 ## Tests
 

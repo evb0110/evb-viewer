@@ -2,20 +2,7 @@ import * as v from 'valibot';
 
 export const PDF_OCR_TEXT_VISIBILITY_FORMAT = 'evb-pdf-ocr-text-visibility';
 export const PDF_OCR_TEXT_VISIBILITY_SCHEMA_VERSION = 3;
-export const PDF_OCR_TEXT_VISIBILITY_WINDOW_PAGE_LIMIT = 256;
-export const PDF_OCR_TEXT_VISIBILITY_REQUEST_MAX_BYTES = 4096;
 export const PDF_OCR_TEXT_VISIBILITY_REPORT_MAX_BYTES = 64 * 1024 * 1024;
-
-/** One stdin line of the extraction-owned visibility session. */
-const PDF_OCR_TEXT_VISIBILITY_REQUEST_SCHEMA = v.pipe(
-    v.array(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
-    v.minLength(1),
-    v.maxLength(PDF_OCR_TEXT_VISIBILITY_WINDOW_PAGE_LIMIT),
-);
-
-export function decodePdfOcrTextVisibilityRequest(value: unknown) {
-    return v.parse(PDF_OCR_TEXT_VISIBILITY_REQUEST_SCHEMA, value);
-}
 
 /**
  * One line of an EVB OCR layer in the layer's text space, y up: its text

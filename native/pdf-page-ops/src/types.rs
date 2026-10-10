@@ -710,8 +710,7 @@ pub(crate) enum Operation {
         instructions_file: PathBuf,
     },
     OcrTextVisibility {
-        /// None selects bounded newline-delimited page requests on stdin.
-        pages_file: Option<PathBuf>,
+        pages_file: PathBuf,
         /// Also report the text of each page's EVB OCR layer.
         with_evb_ocr_text: bool,
     },
@@ -721,18 +720,6 @@ pub(crate) enum Operation {
     },
     RemoveCrop {
         pages_file: PathBuf,
-    },
-    UpdateNoteText {
-        updates_file: PathBuf,
-        modified_at: String,
-        append: bool,
-        append_in_place: bool,
-    },
-    SaveNoteChanges {
-        changes_file: PathBuf,
-        modified_at: String,
-        append: bool,
-        append_in_place: bool,
     },
     SaveMutations {
         mutations_file: PathBuf,
@@ -890,33 +877,6 @@ pub(crate) struct Config {
     /// Absent for the queries that print their JSON result on stdout.
     pub(crate) output_path: Option<PathBuf>,
     pub(crate) qpdf_path: Option<PathBuf>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct NoteTextUpdatesFile {
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) updates: Vec<NoteTextUpdate>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct NoteChangesFile {
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) updates: Vec<NoteTextUpdate>,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) geometry_updates: Vec<NoteGeometryUpdate>,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) notes: Vec<TextNote>,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) free_text_notes: Vec<FreeTextNote>,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) deletes: Vec<AnnotationDelete>,
 }
 
 #[derive(Default, Deserialize)]

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateElectronBuilderResources } from '@scripts/generateElectronBuilderResources';
+import { generateFirstUnsupportedAnnotationCharacter } from '@scripts/generateFirstUnsupportedAnnotationCharacter';
 import { generateReleaseTargetManifest } from '@scripts/generateReleaseTargetManifest';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,6 +21,7 @@ export async function generateBuildArtifacts({
         ? []
         : [
             generateElectronBuilderResources({projectRoot: targetRoot}),
+            generateFirstUnsupportedAnnotationCharacter({projectRoot: targetRoot}),
             generateReleaseTargetManifest({projectRoot: targetRoot}),
         ]]);
     return changed.some(Boolean);

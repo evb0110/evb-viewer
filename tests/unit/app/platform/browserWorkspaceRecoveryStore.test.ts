@@ -13,7 +13,10 @@ import {
     saveBrowserWorkspaceRecovery,
     touchBrowserWorkspaceRecovery,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
-import { FakeIndexedDbFactory } from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {
+    FakeIndexedDbFactory,
+    FakeLockManager,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {
     DB_NAME,
     WORKSPACE_RECOVERY_STORE,
@@ -58,6 +61,9 @@ describe('browserWorkspaceRecoveryStore', () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
         vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        // Node provides Web Locks; these cases are a browser without them,
+        // where the owner's heartbeat age decides a claim.
+        vi.stubGlobal('navigator', {});
     });
 
     it('publishes and clears only committed recovery checkpoints', async () => {
@@ -289,5 +295,95 @@ describe('browserWorkspaceRecoveryStore', () => {
             leaseRevision: 42,
             updatedAt: 42,
         }));
+    });
+
+    describe('with Web Locks', () => {
+        let locks: FakeLockManager;
+
+        beforeEach(() => {
+            locks = new FakeLockManager();
+            vi.stubGlobal('navigator', {locks});
+        });
+
+        it('does not take over a journal whose owner still holds its lease lock, however old', async () => {
+            const now = vi.spyOn(Date, 'now').mockReturnValue(0);
+            try {
+                await saveBrowserWorkspaceRecovery(
+                    'window:frozen',
+                    0,
+                    checkpoint,
+                    [requireDocumentRef('browser://documents/recovery.pdf')],
+                );
+                locks.holdElsewhere('evb-viewer:browser-lease-owner:window:frozen');
+
+                now.mockReturnValue(10 * 60_000);
+                await expect(claimBrowserWorkspaceRecoveryOwner(
+                    'window:frozen',
+                    'window:new',
+                    1,
+                    1,
+                )).resolves.toEqual({
+                    claimed: false,
+                    generation: 1,
+                });
+                await expect(loadBrowserWorkspaceRecovery('window:frozen')).resolves.toEqual(expect.objectContaining({
+                    ownerId: 'window:frozen',
+                    generation: 1,
+                    leaseRevision: 1,
+                    checkpoint,
+                }));
+                await expect(loadBrowserWorkspaceRecovery('window:new')).resolves.toBeNull();
+            } finally {
+                now.mockRestore();
+            }
+        });
+
+        it('takes over a fresh journal once its owner context has released the lock', async () => {
+            await saveBrowserWorkspaceRecovery(
+                'window:closed',
+                0,
+                checkpoint,
+                [requireDocumentRef('browser://documents/recovery.pdf')],
+            );
+
+            await expect(claimBrowserWorkspaceRecoveryOwner(
+                'window:closed',
+                'window:new',
+                1,
+                1,
+            )).resolves.toEqual({
+                claimed: true,
+                generation: 2,
+            });
+            await expect(loadBrowserWorkspaceRecovery('window:closed')).resolves.toBeNull();
+            await expect(loadBrowserWorkspaceRecovery('window:new')).resolves.toEqual(expect.objectContaining({
+                ownerId: 'window:new',
+                generation: 2,
+                checkpoint,
+                snapshotRefs: ['browser://documents/recovery.pdf'],
+            }));
+        });
+
+        it('gives a released journal to exactly one of two racing claimants', async () => {
+            await saveBrowserWorkspaceRecovery(
+                'window:closed',
+                0,
+                checkpoint,
+                [requireDocumentRef('browser://documents/recovery.pdf')],
+            );
+
+            const outcomes = await Promise.all([
+                claimBrowserWorkspaceRecoveryOwner('window:closed', 'window:b', 1, 1),
+                claimBrowserWorkspaceRecoveryOwner('window:closed', 'window:c', 1, 1),
+            ]);
+
+            expect(outcomes.filter(outcome => outcome.claimed)).toHaveLength(1);
+            const records = await loadBrowserWorkspaceRecoveries();
+            expect(records).toHaveLength(1);
+            expect([
+                'window:b',
+                'window:c',
+            ]).toContain(records[0]?.ownerId);
+        });
     });
 });

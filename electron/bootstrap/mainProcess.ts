@@ -59,12 +59,12 @@ import {
     shutdownDjvuConversions,
     pruneStaleDjvuArtifactJobs,
 } from '@electron/features/djvu/public';
-import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
-import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
 import {
     preserveAssistantStateForShutdownIfLoaded,
     shutdownAgentAssistantIfLoaded,
-} from '@electron/features/agent/lazyAgentAssistant';
+    shutdownLocalMcpServer,
+    syncAgentMcpServerWithSettings,
+} from '@electron/features/agent/public';
 import {
     recoverOcrJobManager,
     shutdownOcrJobManager,

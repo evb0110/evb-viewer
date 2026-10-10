@@ -148,7 +148,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import { useFailureToast } from '@app/composables/useFailureToast';
-import CombinePdfFileList from '@app/components/combine/CombinePdfFileList.vue';
+import CombinePdfFileList from '@app/modules/combine/components/CombinePdfFileList.vue';
 import type { ICombineFile } from '@app/modules/combine/combineFile';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
 import {useCombinePdfOperation} from '@app/modules/combine/useCombinePdfOperation';

@@ -7,6 +7,7 @@ import {
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {inflateRawSync} from 'node:zlib';
 import {
     GlobalFonts,
     createCanvas,
@@ -113,8 +114,33 @@ async function createSkewedTwoColumnScanPdf(path: string) {
 }
 
 /** The body of the uncompressed DOCX EVB Viewer writes. */
+/** The saved DOCX's word/document.xml, read through the ZIP central directory. */
 function readDocxDocument(path: string) {
-    return readFileSync(path).toString('utf8');
+    const zip = readFileSync(path);
+    const endOfCentralDirectory = zip.lastIndexOf(Buffer.from([
+        0x50,
+        0x4B,
+        0x05,
+        0x06,
+    ]));
+    let offset = zip.readUInt32LE(endOfCentralDirectory + 16);
+    const entryCount = zip.readUInt16LE(endOfCentralDirectory + 10);
+    for (let entry = 0; entry < entryCount; entry += 1) {
+        const method = zip.readUInt16LE(offset + 10);
+        const compressedSize = zip.readUInt32LE(offset + 20);
+        const nameLength = zip.readUInt16LE(offset + 28);
+        const extraLength = zip.readUInt16LE(offset + 30);
+        const commentLength = zip.readUInt16LE(offset + 32);
+        const localHeader = zip.readUInt32LE(offset + 42);
+        const name = zip.toString('utf8', offset + 46, offset + 46 + nameLength);
+        if (name === 'word/document.xml') {
+            const dataStart = localHeader + 30 + zip.readUInt16LE(localHeader + 26) + zip.readUInt16LE(localHeader + 28);
+            const data = zip.subarray(dataStart, dataStart + compressedSize);
+            return (method === 8 ? inflateRawSync(data) : data).toString('utf8');
+        }
+        offset += 46 + nameLength + extraLength + commentLength;
+    }
+    throw new Error('word/document.xml is missing from the saved DOCX');
 }
 
 /** Paragraph texts of a DOCX body. */

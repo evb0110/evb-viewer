@@ -2,18 +2,17 @@ import {
     BrowserWindow,
     type IpcMainInvokeEvent,
 } from 'electron';
-import type {
-    IAgentCommandRequest,
-    IAgentCommandResponse,
-    IAgentCommandExecutionScope,
-    IAgentRendererAck,
-    IAgentWorkspaceSnapshot,
-    IAgentWorkspaceSnapshotRequest,
-    IAgentWorkspaceSnapshotResponse,
-    TAgentCommand,
-    TAgentRendererAckReason,
+import {
+    AGENT_COMMAND_RESPONSE_SCHEMA,
+    AGENT_WORKSPACE_SNAPSHOT_RESPONSE_SCHEMA,
+    type IAgentCommandRequest,
+    type IAgentCommandExecutionScope,
+    type IAgentRendererAck,
+    type IAgentWorkspaceSnapshot,
+    type IAgentWorkspaceSnapshotRequest,
+    type TAgentCommand,
+    type TAgentRendererAckReason,
 } from '@contracts/agent';
-import { isAgentWorkspaceSnapshot } from '@contracts/isAgentWorkspaceSnapshot';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     createRequestId,
@@ -27,6 +26,7 @@ import {
 } from '@electron/features/agent/main/agentRendererEvents';
 import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import * as v from 'valibot';
 
 export const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 10_000;
 export const LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS = 180_000;
@@ -322,33 +322,11 @@ function normalizeResponseError(response: { error?: string | undefined }) {
     return message && message.length > 0 ? message : 'Agent renderer request failed.';
 }
 
-function isValidSnapshotResponse(response: unknown): response is IAgentWorkspaceSnapshotResponse {
-    return isRecord(response)
-        && parseRequestId(response.requestId) !== null
-        && typeof response.ok === 'boolean'
-        && (response.windowId === undefined || typeof response.windowId === 'number')
-        && (response.revision === undefined || (
-            typeof response.revision === 'number'
-            && Number.isInteger(response.revision)
-            && response.revision >= 0
-        ))
-        && (response.unchanged === undefined || typeof response.unchanged === 'boolean')
-        && (response.snapshot === undefined || isAgentWorkspaceSnapshot(response.snapshot))
-        && (response.error === undefined || typeof response.error === 'string');
-}
-
-function isValidCommandResponse(response: unknown): response is IAgentCommandResponse {
-    return isRecord(response)
-        && parseRequestId(response.requestId) !== null
-        && typeof response.ok === 'boolean'
-        && (response.windowId === undefined || typeof response.windowId === 'number')
-        && (response.error === undefined || typeof response.error === 'string')
-        && (response.result === undefined || isRecord(response.result));
-}
-
-function rejectPendingInvalidSnapshotResponse(
+function rejectPendingInvalidResponse<TResponse>(
+    pendingMap: Map<TRequestId, IPendingRequest<TResponse>>,
     event: TAgentResponseSender,
     rawResponse: unknown,
+    message: string,
 ) {
     if (!isRecord(rawResponse)) {
         return;
@@ -360,7 +338,7 @@ function rejectPendingInvalidSnapshotResponse(
     }
     const senderWindowId = getResponseSenderWindowId(event);
     const rejectedAck = getRejectedAckForUnexpectedResponse(
-        pendingSnapshotRequests,
+        pendingMap,
         requestId,
         senderWindowId,
     );
@@ -368,11 +346,7 @@ function rejectPendingInvalidSnapshotResponse(
         return;
     }
 
-    rejectPendingRequest(
-        pendingSnapshotRequests,
-        requestId,
-        new Error('Agent workspace snapshot response did not match the expected contract.'),
-    );
+    rejectPendingRequest(pendingMap, requestId, new Error(message));
 }
 
 export function requestAgentWorkspaceSnapshot(
@@ -474,67 +448,74 @@ export function submitAgentWorkspaceSnapshotResponse(
     event: TAgentResponseSender,
     rawResponse: unknown,
 ) {
-    if (!isValidSnapshotResponse(rawResponse)) {
-        rejectPendingInvalidSnapshotResponse(event, rawResponse);
+    const parsed = v.safeParse(AGENT_WORKSPACE_SNAPSHOT_RESPONSE_SCHEMA, rawResponse);
+    if (!parsed.success) {
+        rejectPendingInvalidResponse(
+            pendingSnapshotRequests,
+            event,
+            rawResponse,
+            'Agent workspace snapshot response did not match the expected contract.',
+        );
         return rejectRendererAck('invalid-payload');
     }
+    const response = parsed.output;
 
     const senderWindowId = getResponseSenderWindowId(event);
     const rejectedAck = getRejectedAckForUnexpectedResponse(
         pendingSnapshotRequests,
-        rawResponse.requestId,
+        response.requestId,
         senderWindowId,
     );
     if (rejectedAck !== null) {
         return rejectedAck;
     }
-    const pending = pendingSnapshotRequests.get(rawResponse.requestId);
+    const pending = pendingSnapshotRequests.get(response.requestId);
     if (!pending) {
         return rejectRendererAck('unknown-request');
     }
 
-    if (!rawResponse.ok) {
+    if (!response.ok) {
         rejectPendingRequest(
             pendingSnapshotRequests,
-            rawResponse.requestId,
-            new Error(normalizeResponseError(rawResponse)),
+            response.requestId,
+            new Error(normalizeResponseError(response)),
         );
         return acceptRendererAck();
     }
 
-    if (rawResponse.unchanged === true) {
+    if (response.unchanged === true) {
         const cachedSnapshot = snapshotCacheByWindowId.get(pending.windowId);
         if (!cachedSnapshot) {
             rejectPendingRequest(
                 pendingSnapshotRequests,
-                rawResponse.requestId,
+                response.requestId,
                 new Error('Agent workspace snapshot response was unchanged but no cached snapshot is available.'),
             );
             return acceptRendererAck();
         }
         if (
-            rawResponse.revision !== undefined
-            && rawResponse.revision !== cachedSnapshot.revision
+            response.revision !== undefined
+            && response.revision !== cachedSnapshot.revision
         ) {
             rejectPendingRequest(
                 pendingSnapshotRequests,
-                rawResponse.requestId,
+                response.requestId,
                 new Error('Agent workspace snapshot response revision did not match the cached snapshot.'),
             );
             return acceptRendererAck();
         }
         resolvePendingRequest(
             pendingSnapshotRequests,
-            rawResponse.requestId,
+            response.requestId,
             cachedSnapshot.snapshot,
         );
         return acceptRendererAck();
     }
 
-    if (!rawResponse.snapshot) {
+    if (!response.snapshot) {
         rejectPendingRequest(
             pendingSnapshotRequests,
-            rawResponse.requestId,
+            response.requestId,
             new Error('Agent workspace snapshot response did not include a snapshot.'),
         );
         return acceptRendererAck();
@@ -547,21 +528,21 @@ export function submitAgentWorkspaceSnapshotResponse(
     if (!responseWindow || responseWindow.isDestroyed()) {
         rejectPendingRequest(
             pendingSnapshotRequests,
-            rawResponse.requestId,
+            response.requestId,
             new Error('Agent workspace snapshot response came from a destroyed renderer.'),
         );
         return rejectRendererAck('unexpected-sender');
     }
     snapshotCacheByWindowId.set(pending.windowId, {
         generation,
-        revision: rawResponse.revision ?? previousRevision + 1,
-        snapshot: rawResponse.snapshot,
+        revision: response.revision ?? previousRevision + 1,
+        snapshot: response.snapshot,
     });
     ensureWorkspaceSnapshotLifecycle(responseWindow, generation);
     resolvePendingRequest(
         pendingSnapshotRequests,
-        rawResponse.requestId,
-        rawResponse.snapshot,
+        response.requestId,
+        response.snapshot,
     );
     return acceptRendererAck();
 }
@@ -570,33 +551,41 @@ export function submitAgentCommandResponse(
     event: TAgentResponseSender,
     rawResponse: unknown,
 ) {
-    if (!isValidCommandResponse(rawResponse)) {
+    const parsed = v.safeParse(AGENT_COMMAND_RESPONSE_SCHEMA, rawResponse);
+    if (!parsed.success) {
+        rejectPendingInvalidResponse(
+            pendingCommandRequests,
+            event,
+            rawResponse,
+            'Agent command response did not match the expected contract.',
+        );
         return rejectRendererAck('invalid-payload');
     }
+    const response = parsed.output;
 
     const senderWindowId = getResponseSenderWindowId(event);
     const rejectedAck = getRejectedAckForUnexpectedResponse(
         pendingCommandRequests,
-        rawResponse.requestId,
+        response.requestId,
         senderWindowId,
     );
     if (rejectedAck !== null) {
         return rejectedAck;
     }
 
-    if (!rawResponse.ok) {
+    if (!response.ok) {
         rejectPendingRequest(
             pendingCommandRequests,
-            rawResponse.requestId,
-            new Error(normalizeResponseError(rawResponse)),
+            response.requestId,
+            new Error(normalizeResponseError(response)),
         );
         return acceptRendererAck();
     }
 
     resolvePendingRequest(
         pendingCommandRequests,
-        rawResponse.requestId,
-        rawResponse.result ?? {},
+        response.requestId,
+        response.result ?? {},
     );
     return acceptRendererAck();
 }

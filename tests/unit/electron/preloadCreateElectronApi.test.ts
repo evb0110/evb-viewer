@@ -90,8 +90,6 @@ const documentsClientMock = vi.hoisted(() => ({
     repairPdf: vi.fn(async () => ({valid: true})),
     optimizePdfForInteraction: vi.fn(async () => ({valid: true})),
     optimizePdfAsCopy: vi.fn(async () => ({success: true})),
-    savePdfNoteTextUpdates: vi.fn(async () => ({success: true})),
-    savePdfNoteChanges: vi.fn(async () => ({success: true})),
     applyPdfNativeMutationsToWorkingCopy: vi.fn(async () => ({success: true})),
     commitStagedPdfNativeMutations: vi.fn(async () => ({success: true})),
     cleanupFile: vi.fn(async () => undefined),

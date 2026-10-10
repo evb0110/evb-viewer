@@ -1,11 +1,9 @@
 import {
     copyFile,
-    mkdtemp,
     readdir,
     rm,
     stat,
 } from 'fs/promises';
-import { tmpdir } from 'os';
 import {
     extname,
     join,
@@ -38,7 +36,8 @@ import {
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { TRequestId } from '@contracts/shared';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 
 const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = 25;
 const PDF_OPTIMIZE_RENDER_TIMEOUT_MS = 15 * 60 * 1000;
@@ -407,7 +406,6 @@ async function optimizeRasterCopy(
     preset: IPdfRasterOptimizePreset,
     context: IOptimizeProgressContext,
 ) {
-    const tempDir = await mkdtemp(join(tmpdir(), 'pdf-optimize-'));
     const chunkPaths: string[] = [];
     let processedPages = 0;
     context.pages = {
@@ -416,13 +414,9 @@ async function optimizeRasterCopy(
         assembled: 0,
     };
     emitProgress(context, 'rendering', 0, pageCount);
-    let retainNativeCleanup = false;
-
-    try {
+    return usingManagedScratchScope('pdfExport-scope-', getAppTempDir(), async tempDir => {
         for (const range of createPageRanges(pageCount)) {
-            const actualRenderDir = await mkdtemp(join(tempDir, 'render-pages-'));
-            let retainRenderCleanup = false;
-            try {
+            await usingManagedScratchScope('pdfExport-', tempDir, async actualRenderDir => {
                 const pagesBeforeRange = processedPages;
                 const stopWatching = watchRenderedPageCount(actualRenderDir, count => emitProgress(
                     context,
@@ -455,38 +449,13 @@ async function optimizeRasterCopy(
                     context,
                 );
                 chunkPaths.push(chunkPath);
-            } catch (error) {
-                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-                    retainRenderCleanup = true;
-                    retainNativeCleanup = true;
-                }
-                throw error;
-            } finally {
-                if (!retainRenderCleanup) {
-                    await rm(actualRenderDir, {
-                        recursive: true,
-                        force: true,
-                    }).catch(() => undefined);
-                }
-            }
+            });
         }
 
         emitProgress(context, 'optimizing', pageCount, pageCount);
         await mergePdfChunks(chunkPaths, tempOutputPath, context);
-        return await finalizeOptimizedPdf(tempOutputPath, outputPath, context, pageCount);
-    } catch (error) {
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-            retainNativeCleanup = true;
-        }
-        throw error;
-    } finally {
-        if (!retainNativeCleanup) {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            }).catch(() => undefined);
-        }
-    }
+        return finalizeOptimizedPdf(tempOutputPath, outputPath, context, pageCount);
+    });
 }
 
 export async function optimizePdfToFile(

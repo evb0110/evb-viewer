@@ -115,7 +115,9 @@ recent runs.
 ## Viewer-core integration
 
 Viewer core means `app/modules/pdf-viewer`, `app/modules/document-viewer`,
-`app/modules/workspace-shell`, and the annotation session and layers. One
-viewer-core change is active at a time. Integration is exclusive from fetch
-through push: fetch, rebase, run the affected real-app lane on the rebased
+`app/modules/workspace-shell`, and the annotation session and layers. Up to
+three agents may change viewer core at once, each on a disjoint file set that
+one integrating agent assigns (AGENTS.md, Concurrency); without such an
+integrator, one viewer-core change is active at a time. Integration is
+exclusive from fetch through push: fetch, rebase, run the affected real-app lane on the rebased
 candidate, push. If `main` moves in between, rebase and revalidate.
