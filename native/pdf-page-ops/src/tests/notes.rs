@@ -2015,6 +2015,135 @@ fn combined_note_geometry_and_text_box_save_preserves_entity_modified_at() {
 }
 
 #[test]
+fn refuses_foreign_freetext_targets_before_rewrite_or_append() {
+    let mut accepted = Vec::new();
+    for (page_rotation, annotation_rotation, with_da) in
+        [(90, 0, true), (270, 0, true), (0, 45, true), (0, 0, false)]
+    {
+        for by_reference in [true, false] {
+            for append in [false, true] {
+                for moved in [false, true] {
+                    let (mut document, page_id) = create_test_document();
+                    let page = document.get_dictionary_mut(page_id).unwrap();
+                    page.set("MediaBox", vec![0.into(), 0.into(), 600.into(), 800.into()]);
+                    page.set("Rotate", page_rotation);
+                    let appearance = document.add_object(Stream::new(
+                        dictionary! {"Type" => "XObject", "Subtype" => "Form",
+                        "BBox" => vec![0.into(), 0.into(), 300.into(), 40.into()]},
+                        b"BT /Helv 12 Tf (Project 8 foreign annotation) Tj ET".to_vec(),
+                    ));
+                    let mut annotation = dictionary! {
+                        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+                        "NM" => Object::string_literal("foreign-text"),
+                        "Rect" => vec![100.into(), 400.into(), 400.into(), 440.into()],
+                        "Rotate" => annotation_rotation,
+                        "Contents" => Object::string_literal("Project 8 foreign annotation"),
+                        "AP" => dictionary! {"N" => appearance},
+                    };
+                    if with_da {
+                        annotation.set("DA", Object::string_literal("/Helv 12 Tf 0 0 0 rg"));
+                    }
+                    let id = document.add_object(annotation);
+                    document
+                        .get_dictionary_mut(page_id)
+                        .unwrap()
+                        .set("Annots", vec![Object::Reference(id)]);
+                    let destination_page = if moved {
+                        let pages_id = document
+                            .get_dictionary(page_id)
+                            .unwrap()
+                            .get(b"Parent")
+                            .unwrap()
+                            .as_reference()
+                            .unwrap();
+                        let second_page = document.add_object(dictionary! {
+                            "Type" => "Page", "Parent" => pages_id,
+                            "MediaBox" => vec![0.into(), 0.into(), 600.into(), 800.into()],
+                            "Rotate" => page_rotation,
+                        });
+                        document.get_dictionary_mut(pages_id).unwrap().set(
+                            "Kids",
+                            vec![Object::Reference(page_id), Object::Reference(second_page)],
+                        );
+                        document
+                            .get_dictionary_mut(pages_id)
+                            .unwrap()
+                            .set("Count", 2);
+                        1
+                    } else {
+                        0
+                    };
+                    let paths = RemovePdfFilesOnDrop([
+                        temp_pdf_path("refuse-foreign-input"),
+                        temp_pdf_path("refuse-foreign-output"),
+                        temp_pdf_path("refuse-foreign-mutations").with_extension("json"),
+                    ]);
+                    let mut original = Vec::new();
+                    document.save_to(&mut original).unwrap();
+                    write(&paths.0[0], &original).unwrap();
+                    write(&paths.0[1], &original).unwrap();
+                    let marker_rect = match page_rotation {
+                        90 => {
+                            serde_json::json!({"left": 0.5, "top": 1.0/6.0, "width": 0.05, "height": 0.5})
+                        }
+                        270 => {
+                            serde_json::json!({"left": 0.45, "top": 1.0/3.0, "width": 0.05, "height": 0.5})
+                        }
+                        _ => {
+                            serde_json::json!({"left": 1.0/6.0, "top": 0.45, "width": 0.5, "height": 0.05})
+                        }
+                    };
+                    write(&paths.0[2], serde_json::to_vec(&serde_json::json!({
+                    "geometryUpdates": [{
+                        "objectNumber": id.0, "generationNumber": id.1, "pageIndex": destination_page,
+                        "markerRect": marker_rect,
+                    }],
+                    "textBoxes": [{
+                        "pageIndex": destination_page, "stableKey": "foreign-text",
+                        "annotationId": by_reference.then(|| format_pdfjs_annotation_ref(id)),
+                        "text": "must not replace the appearance",
+                        "rect": [100.0, 400.0, 400.0, 440.0], "rotation": 0, "fontSize": 12.0,
+                        "color": [0, 0, 0],
+                    }],
+                })).unwrap()).unwrap();
+                    let result = mutate_pdf(Config {
+                        operation: Operation::SaveMutations {
+                            mutations_file: paths.0[2].clone(),
+                            modified_at: "D:20261010000000Z".to_string(),
+                            append,
+                            append_in_place: false,
+                            identity_bindings_file: None,
+                        },
+                        input_path: paths.0[0].clone(),
+                        output_path: Some(paths.0[1].clone()),
+                        qpdf_path: None,
+                    });
+                    match result {
+                        Ok(_) => accepted.push((
+                            page_rotation,
+                            annotation_rotation,
+                            with_da,
+                            by_reference,
+                            append,
+                            moved,
+                        )),
+                        Err(error) => {
+                            assert!(error.to_string().contains("is read-only"), "{error}");
+                            assert_eq!(read(&paths.0[0]).unwrap(), original);
+                            assert_eq!(read(&paths.0[1]).unwrap(), original);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "foreign targets were rewritten: {accepted:?}"
+    );
+}
+
+#[test]
 fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     let (mut document, page_id) = create_test_document();
     let old_appearance = document.add_object(Stream::new(
@@ -2200,6 +2329,7 @@ fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
         "Subtype" => "FreeText",
         "Rect" => vec![20.into(), 30.into(), 180.into(), 80.into()],
         "Contents" => Object::string_literal("original imported text"),
+        "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"),
     });
     document
         .get_dictionary_mut(page_id)
