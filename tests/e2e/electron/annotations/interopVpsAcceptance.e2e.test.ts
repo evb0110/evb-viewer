@@ -5,8 +5,11 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    writeFileSync,
 } from 'node:fs';
-import {randomUUID} from 'node:crypto';
+import {
+    createHash, randomUUID,
+} from 'node:crypto';
 import {
     join,
     resolve,
@@ -18,6 +21,12 @@ import {
     it,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
+import {
+    createCanvas, loadImage,
+} from '@napi-rs/canvas';
+import {
+    degrees, PDFDocument, PDFString, StandardFonts,
+} from 'pdf-lib';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
 import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -32,7 +41,9 @@ import {
     createStickyNoteWithPointer,
     selectAllFocusedAnnotationText,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf, readPdfTextAnnotationRecords,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     callWorkspaceCommand,
     waitForAutomationEvent,
@@ -243,6 +254,185 @@ async function saveDecryptedOutput(page: Page, path: string) {
 }
 
 describe('Electron E2E - VPS interoperability acceptance', () => {
+    it('preserves a rotated foreign FreeText appearance while saving an unrelated note', async () => {
+        const {page} = sessionFixture.getSession();
+        const artifactDirectory = resolve('.devkit/artifacts', `foreign-freetext-${Date.now()}`);
+        mkdirSync(artifactDirectory, {recursive: true});
+        const fixturePath = join(artifactDirectory, 'document.pdf');
+        const pdf = await PDFDocument.create();
+        const pdfPage = pdf.addPage([
+            600,
+            800,
+        ]);
+        pdfPage.setRotation(degrees(90));
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const appearance = pdf.context.register(pdf.context.stream(
+            'BT /Helv 12 Tf 0 0 0 rg 1 0 0 1 10 16 Tm (Project 8 foreign annotation) Tj ET\n',
+            {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    300,
+                    40,
+                ],
+                Resources: {Font: {Helv: font.ref}},
+            },
+        ));
+        pdfPage.node.set(pdf.context.obj('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Rect: [
+                100,
+                400,
+                400,
+                440,
+            ],
+            NM: PDFString.of('foreign-text'),
+            Contents: PDFString.of('Project 8 foreign annotation'),
+            DA: PDFString.of('/Helv 12 Tf 0 0 0 rg'),
+            AP: {N: appearance},
+            P: pdfPage.ref,
+        }))]));
+        writeFileSync(fixturePath, await pdf.save());
+        function appearanceHash(label: string) {
+            const prefix = join(artifactDirectory, label);
+            execFileSync(getPdfNativeToolPaths().pdftoppm, [
+                '-r',
+                '72',
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-singlefile',
+                '-x',
+                '400',
+                '-y',
+                '100',
+                '-W',
+                '40',
+                '-H',
+                '300',
+                '-png',
+                fixturePath,
+                prefix,
+            ], {stdio: 'pipe'});
+            return createHash('sha256').update(readFileSync(`${prefix}.png`)).digest('hex');
+        }
+        const originalHash = appearanceHash('original-appearance');
+        await openPdfInApp(page, fixturePath);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Select');
+        const readyPage = '.editor-pane.is-active .page_container--rendered[data-page="1"][data-page-layer-readiness="ready"] '
+            + '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"]';
+        await page.waitForSelector(readyPage);
+        const textBoxSelector = '.editor-pane.is-active [data-annotation-kind="text-box"]';
+        async function waitForPaintedAppearance() {
+            await page.waitForFunction(() => {
+                if (document.querySelector('.editor-pane.is-active [data-annotation-kind="text-box"]')) return true;
+                const container = document.querySelector('.editor-pane.is-active .page_container[data-page="1"]');
+                if (!container) return false;
+                const pageRect = container.getBoundingClientRect();
+                return Array.from(container.querySelectorAll('canvas')).some(canvas => {
+                    const rect = canvas.getBoundingClientRect();
+                    if (!rect.width || !rect.height) return false;
+                    const left = Math.max(rect.left, pageRect.left + pageRect.width / 2);
+                    const top = Math.max(rect.top, pageRect.top + pageRect.height / 6);
+                    const right = Math.min(rect.right, pageRect.left + pageRect.width * 0.55);
+                    const bottom = Math.min(rect.bottom, pageRect.top + pageRect.height * 2 / 3);
+                    if (right <= left || bottom <= top) return false;
+                    const pixels = canvas.getContext('2d')?.getImageData(
+                        (left - rect.left) * canvas.width / rect.width,
+                        (top - rect.top) * canvas.height / rect.height,
+                        (right - left) * canvas.width / rect.width,
+                        (bottom - top) * canvas.height / rect.height,
+                    ).data;
+                    return pixels?.some((value, index) => index % 4 !== 3 && value < 200);
+                });
+            });
+        }
+        await waitForPaintedAppearance();
+        const initialTextBoxes = (await page.$$(textBoxSelector)).length;
+        const clip = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 6,
+                width: rect.width / 20,
+                height: rect.height / 2,
+            };
+        });
+        const screenshotPath = join(artifactDirectory, 'opened-appearance.png');
+        await page.screenshot({
+            path: screenshotPath,
+            clip,
+        });
+        const image = await loadImage(screenshotPath);
+        const canvas = createCanvas(image.width, image.height);
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, image.width, image.height).data;
+        const ink: Array<{
+            x: number;
+            y: number
+        }> = [];
+        for (let y = 0; y < image.height; y += 1) {
+            for (let x = 0; x < image.width; x += 1) {
+                const offset = (y * image.width + x) * 4;
+                if (pixels[offset]! < 200 && pixels[offset + 1]! < 200 && pixels[offset + 2]! < 200) ink.push({
+                    x,
+                    y,
+                });
+            }
+        }
+        const inkWidth = Math.max(...ink.map(point => point.x)) - Math.min(...ink.map(point => point.x)) + 1;
+        const inkHeight = Math.max(...ink.map(point => point.y)) - Math.min(...ink.map(point => point.y)) + 1;
+        // The app's input surface covers the static PDF.js element. Aim at
+        // the painted rectangle through that surface with trusted input.
+        await page.mouse.click(clip.x + clip.width / 2, clip.y + clip.height / 2, {count: 2});
+        const editableTextBoxes = (await page.$$(`${textBoxSelector} [contenteditable="true"]`)).length;
+        await page.keyboard.press('Escape');
+        const noteText = 'Unrelated note beside the foreign appearance';
+        await createStickyNoteWithPointer(page, noteText, {
+            x: 0.2,
+            y: 0.8,
+        }, 1);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixturePath);
+        const savedHash = appearanceHash('saved-appearance');
+        const savedNotes = await readPdfTextAnnotationRecords(fixturePath);
+        await openPdfInApp(page, copyFreshFixture(fixturePath, 'foreign-text-reopen'));
+        await waitForViewerInteractive(page);
+        await page.waitForSelector(readyPage);
+        await page.waitForFunction((text: string) => Array.from(document.querySelectorAll(
+            '.editor-pane.is-active .notes-list .note-item',
+        )).some(item => item.textContent?.includes(text)), {}, noteText);
+        await page.screenshot({path: join(artifactDirectory, 'reopened.png')});
+        const reopened = await collectAnnotationOwnershipDebugState(page);
+        writeFileSync(join(artifactDirectory, 'observations.json'), JSON.stringify({
+            originalHash,
+            savedHash,
+            initialTextBoxes,
+            editableTextBoxes,
+            inkWidth,
+            inkHeight,
+            savedNotes,
+            reopened,
+        }, null, 2));
+        console.log(`FOREIGN_FREETEXT_EVIDENCE ${artifactDirectory}`);
+        expect(initialTextBoxes, 'foreign text has no canonical text-box editor').toBe(0);
+        expect(editableTextBoxes, 'double-clicking foreign text cannot edit it').toBe(0);
+        expect(ink.length, 'the foreign appearance renders in the app').toBeGreaterThan(100);
+        expect(inkHeight, 'the appearance remains one rotated line').toBeGreaterThan(inkWidth * 8);
+        expect(savedHash, 'saving a note leaves the foreign appearance pixels unchanged').toBe(originalHash);
+        expect(savedNotes).toContainEqual(expect.objectContaining({
+            subtype: '/Text',
+            contents: noteText,
+        }));
+        expect(reopened.canonicalEntities.some(entity => entity.kind === 'text-box')).toBe(false);
+        expect(reopened.workspaceState.annotationComments).toContainEqual(expect.objectContaining({text: noteText}));
+    }, ACCEPTANCE_TIMEOUT_MS);
+
     it('keeps text on one rotated line through page rotation, save, and editing', async () => {
         const {page} = sessionFixture.getSession();
         const fixturePath = await createMultiPageTextFixturePdf(`rotated-text-box-${Date.now()}.pdf`, 2);
