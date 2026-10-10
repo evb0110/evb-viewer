@@ -14,10 +14,8 @@ import {
     lstat,
     stat,
 } from 'fs/promises';
-import {
-    readOriginalFileContentFingerprint,
-    usingFileReadSnapshot,
-} from '@electron/file-access/readFileChunk';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {readFileChunk} from '@electron/file-access/readFileChunk';
 import { createKeyedSerialQueue } from '@electron/utils/createKeyedSerialQueue';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
@@ -113,6 +111,7 @@ const currentWorkingCopyByOriginalPath = new Map<string, {
 }>();
 let nextWorkingCopyRegistrationId = 0;
 const RETIRED_WORKING_COPY_TTL_MS = 10 * 60 * 1000;
+const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
 interface IWindowsDirectoryLookup {
@@ -343,13 +342,24 @@ async function createOriginalFileContentFingerprint(
         if (!Number.isSafeInteger(Number(before.size)) || !expectationMatchesStat(expectation, before)) {
             return undefined;
         }
-        const fingerprint = await usingFileReadSnapshot(originalPath, handle =>
-            readOriginalFileContentFingerprint(handle, Number(before.size), signal));
+        const hash = createOriginalFileContentFingerprintHash(Number(before.size));
+        const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES)));
+        let offset = 0;
+        while (offset < Number(before.size)) {
+            signal?.throwIfAborted();
+            const length = Math.min(buffer.byteLength, Number(before.size) - offset);
+            const bytesRead = await readFileChunk(originalPath, buffer.subarray(0, length), offset);
+            if (bytesRead <= 0) {
+                return undefined;
+            }
+            hash.update(buffer.subarray(0, bytesRead));
+            offset += bytesRead;
+        }
         const after = await lstat(originalPath, {bigint: true});
         signal?.throwIfAborted();
         return expectationMatchesStat(expectation, after)
             && expectationMatchesStat(createOriginalFileExpectationFromStat(before), after)
-            ? fingerprint
+            ? `sha256-full-v1:${hash.digest('hex')}`
             : undefined;
     } catch {
         return undefined;
@@ -637,7 +647,9 @@ export async function setWorkingCopyOriginalPath(
         delete entry.originalFileExpectationAbortController;
         return;
     }
-    // Reuse the copy's hash only for the same witnessed source revision.
+    // An eager copy that read the original verbatim hashed it as it went. That
+    // hash stands for this baseline only when the identity the copy held is
+    // the baseline's, the same check the scan makes before and after reading.
     const copied = options.copiedSourceFingerprint;
     if (expectation && copied && expectationMatchesStat(expectation, copied.sourceStat)) {
         entry.originalFileExpectation = {

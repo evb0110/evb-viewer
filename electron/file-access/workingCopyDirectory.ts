@@ -26,7 +26,7 @@ import {
     normalizePathForLookup,
     type ICopiedSourceFingerprint,
 } from '@electron/file-access/workingCopyStore';
-import {readOriginalFileContentFingerprint} from '@electron/file-access/readFileChunk';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {createLogger} from '@electron/utils/createLogger';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
@@ -255,39 +255,61 @@ export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string
     }
 }
 
-/** `fingerprintSource` hashes the fresh copy before any working-copy edits. */
+/** `fingerprintSource` hashes the source bytes as they are read, for a registration of that source. */
 interface ICopyFromStableSourceOptions {fingerprintSource?: boolean;}
 
-/** Copy through the OS, then verify the source revision before publishing. */
+/**
+ * Copies one source revision into a new target. The source handle prevents a
+ * replacement from changing the bytes mid-stream, while the identity checks
+ * reject publishing an older handle after the source path was replaced.
+ *
+ * With `fingerprintSource`, returns the content fingerprint of the bytes read
+ * when the source's identity, ctime included, held from open to the end.
+ */
 export async function copyFileFromStableSource(
     sourcePath: string,
     targetPath: string,
     options: ICopyFromStableSourceOptions = {},
 ): Promise<ICopiedSourceFingerprint | null> {
-    const sourceStat = await stat(sourcePath, {bigint: true});
-    if (!sourceStat.isFile()) {
-        throw new Error('Working-copy source is not a regular file');
-    }
-    let targetCreated = false;
+    const sourceHandle = await open(sourcePath, 'r');
+    let targetHandle: Awaited<ReturnType<typeof open>> | undefined;
     let copied = false;
     try {
-        await copyFile(sourcePath, targetPath, fsConstants.COPYFILE_EXCL);
-        targetCreated = true;
-        let contentFingerprint: string | undefined;
-        if (options.fingerprintSource && Number.isSafeInteger(Number(sourceStat.size))) {
-            const handle = await open(targetPath, 'r');
-            try {
-                contentFingerprint = await readOriginalFileContentFingerprint(handle, Number(sourceStat.size));
-                if (contentFingerprint === undefined) {
-                    throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
-                }
-            } finally {
-                await handle.close();
+        const sourceStat = await sourceHandle.stat({bigint: true});
+        if (!sourceStat.isFile()) {
+            throw new Error('Working-copy source is not a regular file');
+        }
+        const hash = options.fingerprintSource && Number.isSafeInteger(Number(sourceStat.size))
+            ? createOriginalFileContentFingerprintHash(Number(sourceStat.size))
+            : null;
+        targetHandle = await open(targetPath, 'wx');
+        const buffer = Buffer.allocUnsafe(1024 * 1024);
+        let offset = 0n;
+        while (offset < sourceStat.size) {
+            const length = Number(
+                sourceStat.size - offset > BigInt(buffer.byteLength)
+                    ? BigInt(buffer.byteLength)
+                    : sourceStat.size - offset,
+            );
+            const result = await sourceHandle.read(buffer, 0, length, offset);
+            if (result.bytesRead !== length) {
+                throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
+            }
+            hash?.update(buffer.subarray(0, length));
+            await targetHandle.write(buffer, 0, length, Number(offset));
+            offset += BigInt(length);
+            if (offset < sourceStat.size) {
+                await new Promise<void>(resolveCopyYield => setImmediate(resolveCopyYield));
             }
         }
+        const currentHandleStat = await sourceHandle.stat({bigint: true});
         const currentPathStat = await stat(sourcePath, {bigint: true});
         if (
-            currentPathStat.dev !== sourceStat.dev
+            currentHandleStat.dev !== sourceStat.dev
+            || currentHandleStat.ino !== sourceStat.ino
+            || currentHandleStat.size !== sourceStat.size
+            || currentHandleStat.mtimeNs !== sourceStat.mtimeNs
+            || currentPathStat.dev !== sourceStat.dev
             || currentPathStat.ino !== sourceStat.ino
             || currentPathStat.size !== sourceStat.size
             || currentPathStat.mtimeNs !== sourceStat.mtimeNs
@@ -295,14 +317,18 @@ export async function copyFileFromStableSource(
             throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
         }
         copied = true;
-        return contentFingerprint && currentPathStat.ctimeNs === sourceStat.ctimeNs
+        return hash
+            && currentHandleStat.ctimeNs === sourceStat.ctimeNs
+            && currentPathStat.ctimeNs === sourceStat.ctimeNs
             ? {
-                contentFingerprint,
-                sourceStat: currentPathStat,
+                contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+                sourceStat: currentHandleStat,
             }
             : null;
     } finally {
-        if (targetCreated && !copied) {
+        await targetHandle?.close().catch(() => undefined);
+        await sourceHandle.close().catch(() => undefined);
+        if (targetHandle && !copied) {
             await rm(targetPath, {force: true}).catch(() => undefined);
         }
     }

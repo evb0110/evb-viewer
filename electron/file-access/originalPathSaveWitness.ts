@@ -16,16 +16,14 @@ import {
     deserializeSnapshot,
     readPersistedWorkingCopyManifest,
 } from '@electron/file-access/readWorkingCopyManifest';
-import {
-    readFileChunk,
-    readOriginalFileContentFingerprint,
-    usingFileReadSnapshot,
-} from '@electron/file-access/readFileChunk';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {readFileChunk} from '@electron/file-access/readFileChunk';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {createLogger} from '@electron/utils/createLogger';
 
 const log = createLogger('original-path-save-witness');
 const SAVE_WITNESS_SAMPLE_BYTES = 64 * 1024;
+const SAVE_WITNESS_HASH_CHUNK_BYTES = 1024 * 1024;
 
 interface IOriginalPathSaveSnapshot {
     contentFingerprint?: string;
@@ -145,17 +143,43 @@ async function sampleFilePath(originalPath: string, size: bigint) {
     return hash.digest('hex');
 }
 
+async function hashFilePath(
+    originalPath: string,
+    size: bigint,
+    hash: ReturnType<typeof createHash>,
+    signal?: AbortSignal,
+) {
+    const numericSize = Number(size);
+    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
+        throw new OriginalPathSaveConflictError();
+    }
+    const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(numericSize, SAVE_WITNESS_HASH_CHUNK_BYTES)));
+    let offset = 0;
+    while (offset < numericSize) {
+        signal?.throwIfAborted();
+        const length = Math.min(buffer.byteLength, numericSize - offset);
+        let readOffset = 0;
+        while (readOffset < length) {
+            const bytesRead = await readFileChunk(originalPath, buffer.subarray(readOffset, length), offset + readOffset);
+            if (bytesRead <= 0) {
+                throw new OriginalPathSaveConflictError();
+            }
+            hash.update(buffer.subarray(readOffset, readOffset + bytesRead));
+            readOffset += bytesRead;
+        }
+        signal?.throwIfAborted();
+        offset += length;
+    }
+    return hash.digest('hex');
+}
+
 async function hashContentFingerprintFilePath(originalPath: string, size: bigint, signal?: AbortSignal) {
     const numericSize = Number(size);
     if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
         throw new OriginalPathSaveConflictError();
     }
-    const fingerprint = await usingFileReadSnapshot(originalPath, handle =>
-        readOriginalFileContentFingerprint(handle, numericSize, signal));
-    if (fingerprint === undefined) {
-        throw new OriginalPathSaveConflictError();
-    }
-    return fingerprint;
+    const hash = createOriginalFileContentFingerprintHash(numericSize);
+    return `sha256-full-v1:${await hashFilePath(originalPath, size, hash, signal)}`;
 }
 
 async function matchesBaselineOnWitnessPath(

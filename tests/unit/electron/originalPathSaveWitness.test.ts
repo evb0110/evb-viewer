@@ -55,17 +55,14 @@ vi.mock('node:fs/promises', async importOriginal => {
 vi.mock('@electron/file-access/readFileChunk', async importOriginal => {
     const original = await importOriginal<typeof ReadFileChunk>();
     const fs = await import('node:fs/promises');
-    return {
-        ...original,
-        readFileChunk: async (...args: Parameters<typeof original.readFileChunk>) => {
-            const bytesRead = await original.readFileChunk(...args);
-            if (args[0] === mocks.mutateDuringWitnessPath && ++mocks.witnessReads === 2) {
-                await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
-                await fs.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
-            }
-            return bytesRead;
-        },
-    };
+    return {readFileChunk: async (...args: Parameters<typeof original.readFileChunk>) => {
+        const bytesRead = await original.readFileChunk(...args);
+        if (args[0] === mocks.mutateDuringWitnessPath && ++mocks.witnessReads === 2) {
+            await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+            await fs.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+        }
+        return bytesRead;
+    }};
 });
 
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
