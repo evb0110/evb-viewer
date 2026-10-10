@@ -24,6 +24,7 @@ import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     mkdir,
+    mkdtemp,
     readFile,
     rm,
     stat,
@@ -1015,8 +1016,8 @@ async function buildPlacementAnchorSummary(args, detection) {
     // Same document revision as the CLI's anchor identity (scan-cleanup-convert.ts).
     const sourceStats = await stat(args.source);
     const documentRevision = `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`;
-    const rootDir = join(args.out, 'placement-anchor-store');
-    await mkdir(rootDir, {recursive: true});
+    await mkdir(args.out, {recursive: true});
+    const rootDir = await mkdtemp(join(args.out, 'placement-anchor-store-'));
     const store = await createFileBackedScanCleanupDetectionResultStore({
         rootDir,
         pageCount: detection.results.length,
