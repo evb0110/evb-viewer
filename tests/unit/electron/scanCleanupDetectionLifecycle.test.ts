@@ -49,6 +49,7 @@ import {
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {mainJobBroker} from '@electron/resources/jobBroker';
+import {atomicReplace} from '@electron/utils/atomicReplace';
 
 
 
@@ -1222,6 +1223,19 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
     deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
         await writeFile(outputPath, pngWithDimensions(pageNumber, 1));
     });
+    // The producer prefetches staged pages in the background, so `prime()`
+    // resolves once only the first page is published. The sidecar waits for
+    // each input it reads to be published, as the lease protocol requires.
+    const publishedRasters = new Map<string, PromiseWithResolvers<undefined>>();
+    const rasterPublished = (path: string) => {
+        const published = publishedRasters.get(path) ?? Promise.withResolvers<undefined>();
+        publishedRasters.set(path, published);
+        return published;
+    };
+    deps.publishRaster = async (scratchPath, path, options) => {
+        await atomicReplace(scratchPath, path, options);
+        rasterPublished(path).resolve(undefined);
+    };
     const manifests: Array<Array<{
         pageNumber: number;
         inputPath: string;
@@ -1238,6 +1252,7 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
             sourcePageIndex: number;
         }>};
         const pages = await Promise.all(manifest.pages.map(async page => {
+            await rasterPublished(page.inputPath).promise;
             const raster = await readFile(page.inputPath);
             return {
                 pageNumber: page.sourcePageIndex + 1,
