@@ -1,0 +1,26 @@
+native/scan-cleanup/tests/mode_select_real.rs
+  s_03af048a414c3d::t_c73a0ca45625d8 51-71,78-84,86-97
+  s_03af048a414c3d::t_985f895dcfdfad 8-50
+  s_03af048a414c3d::t_b93319d1689b8d 85
+  s_03af048a414c3d::t_06912c49a9b3ae 72-77
+native/scan-cleanup/src/mode_select.rs
+  s_03af048a414c3d::t_3a2408f2c8d0b4 824,835,840
+  s_03af048a414c3d::t_1da9c68e589301 826,831-832
+  s_03af048a414c3d::t_b39764cf77171a 1393-1395,1401-1402
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7356175c2da8fdf22682d0b2834b4eb37cd9d5da",
+  "prompts": {},
+  "sessions": {
+    "s_03af048a414c3d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123aa-2c5f-76f3-a77c-b6f78329bc62",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
