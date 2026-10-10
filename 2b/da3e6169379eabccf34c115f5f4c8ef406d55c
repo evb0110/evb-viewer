@@ -1,0 +1,21 @@
+native/pdf-page-ops/src/postconditions.rs
+  s_ddde1053323a60::t_af6233e5dc54b0 256-258
+native/pdf-page-ops/tests/text_layer.rs
+  s_ddde1053323a60::t_e3c46db1e8a2f3 2463-2471,2508
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2bda3e6169379eabccf34c115f5f4c8ef406d55c",
+  "prompts": {},
+  "sessions": {
+    "s_ddde1053323a60": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-6d6a-7762-81c4-096ef6ad50dd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
