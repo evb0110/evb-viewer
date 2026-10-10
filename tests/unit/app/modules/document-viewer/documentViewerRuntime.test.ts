@@ -1131,7 +1131,6 @@ describe('document viewer chassis authority', () => {
                 destination: 'chapter',
             },
             readiness: 'metrics' as const,
-            postArrival: 'search-highlight' as const,
             searchNavigationId: 17,
         };
 

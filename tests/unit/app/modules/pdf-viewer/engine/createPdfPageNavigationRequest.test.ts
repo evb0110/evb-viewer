@@ -35,7 +35,6 @@ describe('createPdfPageNavigationRequest', () => {
             source: 'search',
             alignment: 'rect-center',
             readiness: 'text-layer',
-            postArrival: 'search-highlight',
             target: {
                 kind: 'text-anchor',
                 page: 6,
@@ -58,7 +57,6 @@ describe('createPdfPageNavigationRequest', () => {
             source: 'annotation',
             alignment: 'rect-center',
             readiness: 'annotation-editor',
-            postArrival: 'annotation-pulse',
             target: {
                 kind: 'rect',
                 page: 3,

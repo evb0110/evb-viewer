@@ -171,7 +171,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 },
                 alignment: 'rect-center',
                 readiness: 'text-layer',
-                postArrival: 'search-highlight',
                 source: 'search',
                 supersession: 'latest-wins',
             })).toBe(true);
