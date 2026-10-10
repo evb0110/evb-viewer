@@ -1,0 +1,23 @@
+tests/unit/scripts/scanCleanupDetectionCache.test.ts
+  s_ddde1053323a60::t_e6abba4469f156 16,86-92,98-124,129-140,146-155,244,304
+  s_ddde1053323a60::t_f94b21461a42d8 93-97,125-128,141-145
+scripts/scan-cleanup-convert.ts
+  s_ddde1053323a60::t_f94b21461a42d8 239-241
+  s_ddde1053323a60::t_58918b4d2c7a5a 31-41,243-244,706-707,718-719,721-723,729-732,740,755-761,768-769,982-983,991,1008-1029,1094-1095
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "60c544b4670b421b98f7b45eba0beaf4318ab506",
+  "prompts": {},
+  "sessions": {
+    "s_ddde1053323a60": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-6d6a-7762-81c4-096ef6ad50dd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
