@@ -22,24 +22,11 @@ function leaseOwnerLockName(ownerId: string) {
     return `${LEASE_OWNER_LOCK_PREFIX}${ownerId}`;
 }
 
-interface ILockManager {
-    request<T>(
-        name: string,
-        options: {
-            mode: 'exclusive';
-            ifAvailable?: boolean;
-            signal?: AbortSignal
-        },
-        callback: (lock: unknown) => Promise<T>,
-    ): Promise<T>;
-    query(): Promise<{held?: Array<{name?: unknown}>}>;
-}
-
 function resolveLockManager() {
     if (typeof navigator === 'undefined') {
         return null;
     }
-    const locks = (navigator as Navigator & {locks?: ILockManager}).locks;
+    const locks = navigator.locks;
     return typeof locks?.request === 'function' && typeof locks.query === 'function'
         ? locks
         : null;
@@ -49,7 +36,7 @@ function resolveLockManager() {
 let ownerLock: {
     ownerId: string;
     held: boolean;
-    granted: Promise<void>;
+    granted: Promise<boolean>;
     release: AbortController;
 } | null = null;
 
@@ -59,11 +46,11 @@ let ownerLock: {
 // tab looks identical to a dead one. A context holds the lock of the one owner
 // id it speaks for until it takes another id, and then releases it or withdraws
 // its request, so a lock always belongs to the context that owns its id. The
-// result settles once the lock is granted, or fails if the id is given up first.
-export function holdLeaseOwnerLock(ownerId: string) {
+// result is false on contention with ifAvailable, or fails on withdrawal.
+export function holdLeaseOwnerLock(ownerId: string, ifAvailable = false) {
     const locks = resolveLockManager();
     if (!locks) {
-        return Promise.resolve();
+        return Promise.resolve(true);
     }
     if (ownerLock?.ownerId === ownerId) {
         return ownerLock.granted;
@@ -74,20 +61,20 @@ export function holdLeaseOwnerLock(ownerId: string) {
     const lock = {
         ownerId,
         held: false,
-        granted: Promise.resolve(),
+        granted: Promise.resolve(false),
         release,
     };
-    lock.granted = new Promise<void>((resolveGranted, rejectGranted) => {
+    lock.granted = new Promise<boolean>((resolveGranted, rejectGranted) => {
         locks.request(
             leaseOwnerLockName(ownerId),
             {
                 mode: 'exclusive',
-                signal: release.signal,
+                ...(ifAvailable ? {ifAvailable: true} : {signal: release.signal}),
             },
-            () => {
-                lock.held = true;
-                resolveGranted();
-                return released;
+            async grantedLock => {
+                lock.held = Boolean(grantedLock) && !release.signal.aborted;
+                resolveGranted(lock.held);
+                if (lock.held) await released;
             },
         ).catch(rejectGranted);
     });
@@ -115,7 +102,9 @@ export async function saveBrowserDocumentLiveLease(
     if (ownerLock && ownerLock.ownerId !== ownerId) {
         throw new Error(`This browser context does not own lease owner ${ownerId}.`);
     }
-    await holdLeaseOwnerLock(ownerId);
+    if (!await holdLeaseOwnerLock(ownerId)) {
+        throw new Error(`This browser context does not hold lease owner ${ownerId}.`);
+    }
     // A context that holds the owner's lock replaces any lease its id has when
     // it creates one: no other live context can have written it, so it is its
     // own or a previous page's, as after a reload. Without a lock manager only
