@@ -53,12 +53,15 @@ pub(crate) enum CanvasWarning {
     },
 }
 
+/// The background plate's resolution in placement units, capped at a physical
+/// resolution.
 pub(crate) fn layered_background_dpi(options: &CleanupOptions, confirmed_picture: bool) -> f64 {
     let max_dpi = if confirmed_picture { 300.0 } else { 200.0 };
     options
         .source_background_dpi()
         .min(options.dpi)
         .min(max_dpi)
+        / options.placement_scale
 }
 
 pub(crate) fn background_canvas_dimensions(
@@ -770,13 +773,19 @@ pub(crate) fn canvas_fit_for(
     canvas: &DocumentCanvas,
 ) -> CanvasFit {
     let configured_margins = if let Some(margins) = options.margins_pixels {
-        margins.map(|pixels| (pixels * canvas.dpi() / options.dpi).round().max(0.0) as usize)
+        margins.map(|pixels| {
+            (pixels * canvas.dpi() / options.placement_dpi())
+                .round()
+                .max(0.0) as usize
+        })
     } else {
         options
             .margins_mm
             .map(crate::MarginsMm::values)
             .unwrap_or([0.0; 4])
-            .map(|millimeters| (millimeters * canvas.dpi() / 25.4).round() as usize)
+            .map(|millimeters| {
+                (millimeters * canvas.dpi() * options.placement_scale / 25.4).round() as usize
+            })
     };
     let margins_unavailable = configured_margins.iter().any(|margin| *margin > 0)
         && (!content_detected || !options.crop_content);
@@ -813,8 +822,8 @@ pub(crate) fn canvas_fit_for(
         .saturating_sub(margin_top)
         .saturating_sub(margin_bottom)
         .max(1);
-    let paper_width_points = paper_width.max(1.0) / options.dpi * 72.0;
-    let paper_height_points = paper_height.max(1.0) / options.dpi * 72.0;
+    let paper_width_points = paper_width.max(1.0) / options.placement_dpi() * 72.0;
+    let paper_height_points = paper_height.max(1.0) / options.placement_dpi() * 72.0;
     let paper_scale =
         (canvas.width_points / paper_width_points).min(canvas.height_points / paper_height_points);
     // Paper rounded onto the canvas grid, against the grid itself: a page
@@ -825,7 +834,7 @@ pub(crate) fn canvas_fit_for(
         > canvas.width_px as f64 + CANVAS_GRID_TOLERANCE_PX
         || paper_height_points / canvas.height_points * canvas.height_px as f64
             > canvas.height_px as f64 + CANVAS_GRID_TOLERANCE_PX;
-    let pixel_scale = paper_scale * canvas.dpi() / options.dpi;
+    let pixel_scale = paper_scale * canvas.dpi() / options.placement_dpi();
     let scaled_width = width as f64 * pixel_scale;
     let scaled_height = height as f64 * pixel_scale;
     let overflow = scaled_width > inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
@@ -1533,7 +1542,7 @@ pub(crate) fn matched_canvas_for_options(
     document_canvas: DocumentCanvas,
     options: &CleanupOptions,
 ) -> Result<DocumentCanvas, NativeError> {
-    let canvas = document_canvas.at_dpi(options.dpi);
+    let canvas = document_canvas.at_dpi(options.placement_dpi());
     validate_canvas_for_options(canvas.width_px, canvas.height_px, options)?;
     Ok(canvas)
 }
