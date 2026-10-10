@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf,
+    resolveDjvuFixturePath,
+} from '@tests/e2e/electron/helpers/fixtures';
 import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -18,6 +21,7 @@ import {
     clickVisibleToolbarButton,
     goToPageViaToolbar,
     getToolbarCurrentPage,
+    openDjvuInApp,
     openPdfInApp,
     setupScrollToPage,
     setTabMemoryPolicyForE2E,
@@ -56,6 +60,7 @@ interface IWorkspaceHostPressure {
 interface IReadingPoint {
     page: number;
     offsetPx: number;
+    offsetXPx: number;
     scrollTop: number;
 }
 
@@ -67,14 +72,19 @@ function readReadingPointFromPage(): IReadingPoint | null {
     if (!viewport) {
         return null;
     }
-    const centreY = viewport.getBoundingClientRect().top + viewport.clientHeight / 2;
+    const viewportRect = viewport.getBoundingClientRect();
+    const centreY = viewportRect.top + viewport.clientHeight / 2;
+    const centreX = viewportRect.left + viewport.clientWidth / 2;
     let reading: IReadingPoint | null = null;
-    for (const container of viewport.querySelectorAll<HTMLElement>('.page_container[data-page]')) {
-        const top = container.getBoundingClientRect().top;
-        if (top <= centreY && (reading === null || centreY - top < reading.offsetPx)) {
+    for (const container of viewport.querySelectorAll<HTMLElement>(
+        '.page_container[data-page], .document-source-viewer__page[data-page-number]',
+    )) {
+        const rect = container.getBoundingClientRect();
+        if (rect.top <= centreY && rect.bottom > centreY && rect.left <= centreX && rect.right > centreX) {
             reading = {
-                page: Number(container.dataset.page),
-                offsetPx: centreY - top,
+                page: Number(container.dataset.page ?? container.dataset.pageNumber),
+                offsetPx: centreY - rect.top,
+                offsetXPx: centreX - rect.left,
                 scrollTop: viewport.scrollTop,
             };
         }
@@ -86,9 +96,14 @@ async function readSettledReadingPoint(session: IElectronE2ESession) {
     await waitForViewportQuiet(session.page);
     const reading = await session.page.evaluate(readReadingPointFromPage);
     expect(reading, 'No page under the viewport centre').not.toBeNull();
-    await session.page.waitForFunction((page: number) => document.querySelector(
-        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="${page}"] canvas`,
-    ) !== null, {timeout: 30_000}, reading!.page);
+    await session.page.waitForFunction((page: number) => {
+        const host = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+        const image = host?.querySelector<HTMLImageElement>(
+            `.document-source-viewer__page[data-page-number="${page}"] img[data-document-page-visual="committed"]`,
+        );
+        return Boolean(host?.querySelector(`.page_container--rendered[data-page="${page}"] canvas`)
+            || image?.complete && image.naturalWidth > 0);
+    }, {timeout: 30_000}, reading!.page);
     await waitForViewportQuiet(session.page);
     return (await session.page.evaluate(readReadingPointFromPage))!;
 }
@@ -324,19 +339,50 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
 
     it.each([
         {
+            format: 'PDF',
+            policy: 'conservative',
             zoom: 'Fit Width',
             zoomInSteps: 0,
         },
         {
+            format: 'PDF',
+            policy: 'conservative',
             zoom: 'a custom zoom',
             zoomInSteps: 2,
         },
-    ])('keeps the reading point at $zoom when switching tabs away and back', async ({zoomInSteps}) => {
+        ...([
+            'PDF',
+            'DjVu',
+        ] as const).flatMap(format => [
+            {
+                format,
+                policy: 'aggressive',
+                zoom: 'Fit Width',
+                zoomInSteps: 0,
+            },
+            {
+                format,
+                policy: 'aggressive',
+                zoom: 'a custom zoom',
+                zoomInSteps: 2,
+            },
+        ] as const),
+    ] as const)('keeps the $format reading point at $zoom under $policy tab policy', async ({
+        format, policy, zoomInSteps,
+    }) => {
         const session = sessionFixture.getSession();
-        await setTabMemoryPolicyForE2E(session.page, 'conservative');
-        const pdfPath = await createMultiPageTextFixturePdf(`tab-reading-point-${Date.now()}.pdf`, 30);
-        await openPdfInApp(session.page, pdfPath);
-        await waitForPdfLoaded(session.page);
+        await setTabMemoryPolicyForE2E(session.page, policy);
+        if (format === 'PDF') {
+            const pdfPath = await createMultiPageTextFixturePdf(`tab-reading-point-${Date.now()}.pdf`, 30);
+            await openPdfInApp(session.page, pdfPath);
+            await waitForPdfLoaded(session.page);
+        } else {
+            const djvu = resolveDjvuFixturePath({corpusFixturePath: null});
+            if (!djvu.path) {
+                throw new Error(djvu.reason);
+            }
+            await openDjvuInApp(session.page, djvu.path, 120_000);
+        }
         const documentTabId = await session.page.$eval(
             '.tab-list .tab.is-active[data-tab-id]',
             element => (element as HTMLElement).dataset.tabId!,
@@ -346,6 +392,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             await waitForViewportQuiet(session.page);
         }
         await goToPageViaToolbar(session.page, 12);
+        const pageTop = await readSettledReadingPoint(session);
         // The reader then scrolls into the page, so the place is not a page top.
         const viewportRect = await session.page.$eval(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]',
@@ -354,14 +401,23 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await session.page.mouse.move(viewportRect.x + viewportRect.width / 2, viewportRect.y + viewportRect.height / 2);
         await session.page.mouse.wheel({deltaY: 230});
         const before = await readSettledReadingPoint(session);
+        expect(Math.round(before.scrollTop - pageTop.scrollTop)).toBe(230);
         const documentHost = await session.page.$(`.workspace-host[data-workspace-tab-id="${documentTabId}"]`);
 
         await createNewTab(session);
+        if (policy === 'aggressive') {
+            await session.page.waitForFunction((tabId: string) => document.querySelector(
+                `.workspace-host[data-workspace-tab-id="${tabId}"]`,
+            ) === null, {timeout: 10_000}, documentTabId);
+            expect(await documentHost!.evaluate(host => host.isConnected)).toBe(false);
+        }
         await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${documentTabId}"]`);
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 12});
         const after = await readSettledReadingPoint(session);
 
-        // A reclaimed tab reopens at its page; this switch keeps its viewer.
-        expect(await documentHost!.evaluate(host => host.isConnected), 'The hidden PDF tab was reclaimed').toBe(true);
+        if (policy === 'conservative') {
+            expect(await documentHost!.evaluate(host => host.isConnected), 'The warm PDF tab was reclaimed').toBe(true);
+        }
         // T1 and R3: the tab shows the same document point where it was left.
         const detail = JSON.stringify({
             before,
@@ -369,6 +425,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         });
         expect(after.page, detail).toBe(before.page);
         expect(Math.abs(after.offsetPx - before.offsetPx), detail).toBeLessThanOrEqual(1);
+        expect(Math.abs(after.offsetXPx - before.offsetXPx), detail).toBeLessThanOrEqual(1);
     }, 120_000);
 
     it('keeps every visible split-pane document rendered while releasing hidden resources', async () => {

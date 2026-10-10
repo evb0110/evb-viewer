@@ -179,7 +179,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                         documentId: String(path ?? id),
                         documentRevision: `open-intent:${id}`,
                         provisional: true,
-                    }, request.kind === 'restore' ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)) : 1,
+                    }, request.kind === 'restore' ? view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1 : 1,
                     shape ?? null, request.kind === 'open' && !request.carriesView ? {
                         seed: view => seedOpeningPreflight(session, view),
                         shown: !hadDocument,
@@ -227,13 +227,9 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         return presented;
     }
 
-    // A view of a document that is already open (a split's second view, or a
-    // view that remounted in another pane) has no open transaction of its own.
-    // Its surface starts at the page its view state names, as an open would.
-    // A tab that owns a document it has not loaded here (a restored session,
-    // a cold tab, a transferred tab) opens it when shown, at the page it was
-    // left on. This restore is the open's only transaction: a nested one
-    // would supersede it, and releasing it would reopen the surface at page 1.
+    // A remounted view starts from its retained place through the same opening
+    // initializer. An unloaded document restores in one transaction; nesting
+    // another would supersede it and reopen its surface at page 1.
     function presentWhenShown() {
         const current = snapshot.value;
         const path = current.identity.originalPath;
@@ -242,11 +238,11 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         }
         if (hasDocument.value) {
             if (options.openSurface.snapshot.value.phase === 'idle') {
-                options.openSurface.begin({
+                beginOpenSurfaceWithPageShape(options.openSurface, {
                     documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
                     documentRevision: `open-intent:view:${view.tabId}`,
                     provisional: true,
-                }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
+                }, view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1, null);
             }
         } else if (path && !(current.dirty && current.recoveryWorkingCopyPath)) {
             void runOpen({

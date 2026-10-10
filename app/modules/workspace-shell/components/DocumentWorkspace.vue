@@ -251,8 +251,6 @@ const context = createDocumentViewContext({
 const {
     document: documentContext,
     documentView,
-    initialViewState,
-    preserveInitialStateForFirstSource,
 } = context;
 const {
     scanCleanup,
@@ -332,10 +330,7 @@ const {
     runEdit: runPdfEditAction,
 } = context.djvuProjection;
 const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
-const presentation = useWorkspacePresentation(documentContext, context, {
-    initialPage: initialViewState?.currentPage,
-    preserveInitialPage: preserveInitialStateForFirstSource,
-});
+const presentation = useWorkspacePresentation(documentContext, context);
 const {
     showsPdfSidebar,
     toolbarHasPdf,

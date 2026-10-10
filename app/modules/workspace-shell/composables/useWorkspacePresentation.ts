@@ -5,16 +5,11 @@ import type { TDocumentContext } from '@app/modules/workspace-shell/documentCont
 import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
-import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { useDocumentWorkspaceRestoreState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceRestoreState';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
 import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-
-interface IWorkspacePresentationOptions {
-    initialPage: number | undefined;
-    preserveInitialPage: boolean;
-}
 
 /**
  * What the workspace shows while a document opens, restores or converts:
@@ -24,7 +19,6 @@ interface IWorkspacePresentationOptions {
 export const useWorkspacePresentation = (
     document: TDocumentContext,
     viewContext: TDocumentViewContext,
-    options: IWorkspacePresentationOptions,
 ) => {
     const {
         file,
@@ -87,16 +81,13 @@ export const useWorkspacePresentation = (
         toolbarHasPdf.value && capabilities.value?.sidebar === true && !toolbarDocumentBusy.value
     ));
 
-    useDocumentWorkspacePageSessionRestore({
-        activeViewerAdapter: document.driver.activeDocumentDriver,
-        currentPage: view.currentPage,
-        documentViewerRef: view.documentViewerRef,
-        initialPage: options.initialPage,
-        preserveInitialPage: options.preserveInitialPage,
-        isLoading: view.isLoading,
-        // The view reopening its own page is a restore, not the reader's navigation.
-        onRestore: page => viewContext.navigation.handleGoToPage(page, {navigationSource: 'restore'}),
-        totalPages: view.totalPages,
+    watch(document.driver.activeDocumentDriver, (adapter) => {
+        if (!adapter) {
+            logPdfRenderTrace('workspace-page-session-adapter-reset', {currentPageBefore: view.currentPage.value});
+            view.currentPage.value = 1;
+            view.totalPages.value = 0;
+            view.isLoading.value = false;
+        }
     });
     const {
         scheduleStartupOpenVisualReady,

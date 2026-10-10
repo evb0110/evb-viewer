@@ -1,4 +1,5 @@
 import type { ShallowRef } from 'vue';
+import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import { isEqual } from 'es-toolkit/predicate';
 import {
     createDefaultWorkspaceToolbarSnapshot,
@@ -17,6 +18,7 @@ export interface IWorkspaceDocumentView {
     readonly tabId: string;
     readonly toolbarSnapshot: Readonly<ShallowRef<IWorkspaceToolbarSnapshot>>;
     readonly viewState: Readonly<ShallowRef<ITabViewSessionState>>;
+    readonly readingAnchor: Readonly<ShallowRef<IPdfSemanticAnchor | null>>;
     readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
     publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
     applyViewState(state: ITabViewSessionState): void;
@@ -47,6 +49,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
 }): IWorkspaceDocumentViewRecord {
     const toolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
     const viewState = shallowRef(options.seed?.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
+    const readingAnchor = shallowRef<IPdfSemanticAnchor | null>(null);
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     let retired = false;
@@ -62,6 +65,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
         tabId,
         toolbarSnapshot,
         viewState,
+        readingAnchor,
         mountedWorkspace,
         publishToolbarSnapshot(next) {
             if (!isEqual(toolbarSnapshot.value, next)) {
@@ -95,12 +99,14 @@ export function createWorkspaceDocumentView(tabId: string, options: {
             if (mountedWorkspace.value !== workspace) {
                 return false;
             }
+            readingAnchor.value = workspace.captureReadingAnchor?.() ?? null;
             mountedWorkspace.value = null;
             return true;
         },
         settleMountWaiters,
         retire() {
             retired = true;
+            readingAnchor.value = null;
             mountedWorkspace.value = null;
             settleMountWaiters(null);
         },
