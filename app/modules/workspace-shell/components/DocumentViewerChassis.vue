@@ -22,7 +22,6 @@
         :data-viewport-visual-page="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber : ''"
         :data-viewport-visual-presentation="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.presentation : ''"
         :data-chassis-current-page="chassisAuthority.currentPage.value"
-        :data-chassis-resize-anchor-page="retainedResizeAnchor?.pageNumber ?? ''"
         :data-chassis-resizing="props.isResizing === true"
         :aria-busy="isOpening ? 'true' : undefined"
         :class="{'document-viewer-chassis--fling-backdrop': hasViewportFlingBackdrop}"
@@ -82,13 +81,10 @@ import {
     resolveDocumentOpenSurfaceViewportPolicy,
     createDocumentOpeningPageFrame,
     observeDocumentViewportWheelInteraction,
-    captureDocumentViewportResizeAnchor,
-    resolveDocumentViewportResizeAnchorPosition,
 } from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
     TDocumentPageSourceKind,
-    IDocumentViewportResizeAnchor,
     IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
@@ -140,13 +136,6 @@ const viewportId = computed(() => viewportIds[rendererKind.value]);
 const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
 const openingFrameLayoutRevision = ref(0);
 let openingFrameResizeObserver: ResizeObserver | null = null;
-const retainedResizeAnchor = shallowRef<IDocumentViewportResizeAnchor | null>(null);
-let retainedResizeAnchorFence: {
-    generation: number;
-    interactionEpoch: number;
-} | null = null;
-const RESIZE_ANCHOR_QUIET_MS = 120;
-let resizeAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentViewerChassis requires the host-owned document open surface session');
@@ -156,106 +145,7 @@ const chassisAuthority = createDocumentViewerRuntime(
     props.currentPage ?? 1,
     documentOpenSurface,
 );
-function applyRetainedResizeAnchor(reason: string) {
-    const viewport = chassisAuthority.viewportElement.value;
-    const anchor = retainedResizeAnchor.value;
-    const fence = retainedResizeAnchorFence;
-    const session = chassisAuthority.openSurface.viewportSession.value;
-    if (
-        !viewport
-        || !anchor
-    ) {
-        return false;
-    }
-    if (
-        !fence
-        || session.lifecycle !== 'ready'
-        || session.requestedPage !== session.committedPage
-        || fence.generation !== session.generation
-        || session.committedPage !== anchor.pageNumber
-        || fence.interactionEpoch !== chassisAuthority.viewportWritePort.getInteractionEpoch()
-    ) {
-        releaseRetainedResizeAnchor();
-        return false;
-    }
-    const position = resolveDocumentViewportResizeAnchorPosition(viewport, anchor);
-    if (!position) {
-        return false;
-    }
-    if (
-        Math.abs(position.left - viewport.scrollLeft) < 0.5
-        && Math.abs(position.top - viewport.scrollTop) < 0.5
-    ) {
-        return true;
-    }
-    const intent = chassisAuthority.viewportWritePort.beginIntent(
-        `chassis-resize-anchor:${anchor.pageNumber}:${reason}`,
-    );
-    return chassisAuthority.viewportWritePort.apply(viewport, {
-        intent,
-        reason: 'chassis-resize-anchor',
-        left: position.left,
-        top: position.top,
-    });
-}
-
-function releaseRetainedResizeAnchor() {
-    if (resizeAnchorReleaseTimer !== null) {
-        clearTimeout(resizeAnchorReleaseTimer);
-        resizeAnchorReleaseTimer = null;
-    }
-    if (retainedResizeAnchor.value) {
-        openingFrameResizeObserver?.unobserve(retainedResizeAnchor.value.element);
-    }
-    retainedResizeAnchor.value = null;
-    retainedResizeAnchorFence = null;
-}
-
-function retainCurrentResizeAnchor() {
-    // PDF.js owns semantic resize projection together with its virtual page
-    // geometry. A second DOM anchor here races that projection and can restore
-    // a different page between preview and raster commit.
-    if (rendererKind.value === 'pdfjs') {
-        return;
-    }
-    const viewport = chassisAuthority.viewportElement.value;
-    if (!viewport) {
-        return;
-    }
-    const session = chassisAuthority.openSurface.viewportSession.value;
-    releaseRetainedResizeAnchor();
-    retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport, {preferredPageNumber: session.committedPage ?? session.requestedPage});
-    retainedResizeAnchorFence = retainedResizeAnchor.value ? {
-        generation: session.generation,
-        interactionEpoch: chassisAuthority.viewportWritePort.getInteractionEpoch(),
-    } : null;
-    if (retainedResizeAnchor.value) {
-        openingFrameResizeObserver?.observe(retainedResizeAnchor.value.element);
-    }
-}
-
-function scheduleResizeAnchorRelease() {
-    if (!retainedResizeAnchor.value || props.isResizing === true) {
-        return;
-    }
-    if (resizeAnchorReleaseTimer !== null) {
-        clearTimeout(resizeAnchorReleaseTimer);
-    }
-    resizeAnchorReleaseTimer = setTimeout(() => {
-        resizeAnchorReleaseTimer = null;
-        applyRetainedResizeAnchor('quiet-settle');
-        releaseRetainedResizeAnchor();
-    }, RESIZE_ANCHOR_QUIET_MS);
-}
-
-function releaseResizeAnchorForViewportInteraction() {
-    if (retainedResizeAnchor.value && props.isResizing !== true) {
-        releaseRetainedResizeAnchor();
-    }
-}
-
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
-    releaseResizeAnchorForViewportInteraction();
     // Physical scrolling must fence pending authored restores before the
     // browser mutates scrollTop. The inertial tail of a gesture that a newer
     // command superseded is not physical input and reaches no renderer.
@@ -276,7 +166,6 @@ function handleViewportWheel(interaction: IDocumentWheelInteraction) {
 }
 
 function handleViewportInteraction(type: 'mousedown', event: Event) {
-    releaseResizeAnchorForViewportInteraction();
     chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined);
     chassisAuthority.dispatchViewportEvent(type, event);
 }
@@ -339,16 +228,11 @@ watch(
         }
         openingFrameResizeObserver = new ResizeObserver(() => {
             openingFrameLayoutRevision.value += 1;
-            applyRetainedResizeAnchor('resize-observer');
-            scheduleResizeAnchorRelease();
         });
         openingFrameResizeObserver.observe(viewport);
         const layoutHost = viewport.closest<HTMLElement>('.workspace-viewer-host');
         if (layoutHost) {
             openingFrameResizeObserver.observe(layoutHost);
-        }
-        if (retainedResizeAnchor.value) {
-            openingFrameResizeObserver.observe(retainedResizeAnchor.value.element);
         }
     },
     {
@@ -363,42 +247,9 @@ const unsubscribeWheelScrollSequenceChange = getHostCapability().onWheelScrollSe
 });
 onBeforeUnmount(() => {
     unsubscribeWheelScrollSequenceChange();
-    releaseRetainedResizeAnchor();
     openingFrameResizeObserver?.disconnect();
     openingFrameResizeObserver = null;
 });
-watch(
-    () => props.isResizing === true,
-    (isResizing, wasResizing) => {
-        if (isResizing && !wasResizing) {
-            retainCurrentResizeAnchor();
-            return;
-        }
-        if (!isResizing && wasResizing && retainedResizeAnchor.value) {
-            applyRetainedResizeAnchor('resize-end-sync');
-            // Split removal changes the viewport and page track in Vue's next
-            // patch. Reapply in that same microtask so the browser never paints
-            // the track at its reset scroll origin before ResizeObserver runs.
-            void nextTick(() => {
-                if (!retainedResizeAnchor.value || props.isResizing === true) {
-                    return;
-                }
-                applyRetainedResizeAnchor('resize-end-post-layout');
-                scheduleResizeAnchorRelease();
-            });
-        }
-    },
-    {flush: 'sync'},
-);
-watch(
-    () => chassisAuthority.openSurface.viewportSession.value.lifecycle,
-    (lifecycle) => {
-        if (lifecycle !== 'ready' && retainedResizeAnchor.value) {
-            releaseRetainedResizeAnchor();
-        }
-    },
-    {flush: 'sync'},
-);
 const isOpening = computed(() => isDocumentOpenEmptySurfaceTransition(chassisAuthority.openSurface.snapshot.value));
 
 watch(

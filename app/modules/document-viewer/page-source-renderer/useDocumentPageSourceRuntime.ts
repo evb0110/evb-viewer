@@ -917,6 +917,16 @@ export const useDocumentPageSourceRuntime = (options: {
             || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
+        // Widening the window clamps the offset and reports that scroll before
+        // ResizeObserver reports the resize. Measure the resize first, so the
+        // layout lifecycle keeps the reader's point rather than the clamped one.
+        if (
+            viewerContainer.value.clientWidth !== containerWidth.value
+            || viewerContainer.value.clientHeight !== containerHeight.value
+        ) {
+            measureViewport();
+            return;
+        }
         const nextScrollTop = viewerContainer.value.scrollTop;
         const scrollDelta = nextScrollTop - viewportScrollTop.value;
         if (Math.abs(scrollDelta) > 1) {

@@ -302,11 +302,19 @@ export const useDocumentViewportLayoutLifecycle = (
             && pendingRestore.epoch === epoch
             ? pendingRestore
             : null;
+        // The reader's point was last placed in a viewport of another size: a
+        // window or pane resize since keeps that point at the new centre. The
+        // live offset cannot say where it was, because widening clamps it first.
+        const resizedSinceRetained = retainedAnchor?.viewportBox !== undefined
+            && (
+                retainedAnchor.viewportBox.offsetWidth !== container.offsetWidth
+                || retainedAnchor.viewportBox.offsetHeight !== container.offsetHeight
+            );
         const anchor = activePointerAnchor
             ?? retainedRestore?.anchor
             ?? layoutTransactionAnchor
             ?? dragAnchor
-            ?? (isResizeTransitionActive.value ? retainedAnchor : null)
+            ?? (isResizeTransitionActive.value || resizedSinceRetained ? retainedAnchor : null)
             ?? captureAnchor(container, previousLayouts);
         // Project the semantic point before the DOM adopts the new geometry.
         // A large scale decrease can otherwise let the browser clamp the old
