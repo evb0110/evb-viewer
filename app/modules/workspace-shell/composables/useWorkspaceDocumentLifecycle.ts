@@ -3,7 +3,6 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
     IWorkspaceOpenFailure,
     IWorkspaceToolbarSnapshot,
@@ -17,7 +16,6 @@ import {
     type IWorkspaceDocumentView,
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import {
     didOpenDocument,
     type TDocumentOpenOutcome,
@@ -39,11 +37,7 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     documentView: IWorkspaceDocumentView;
     openSurface: IDocumentOpenSurfaceSession;
     isShown: () => boolean;
-    fileName: TReadableRef<string | null>;
-    originalPath: TReadableRef<TDocumentRef | null>;
     isDjvuMode: TReadableRef<boolean>;
-    djvuSourcePath: TReadableRef<TDocumentRef | null>;
-    documentRevisionInfo: TReadableRef<IDocumentRevisionInfo | null>;
     isDirty: TReadableRef<boolean>;
     openBatchProgress: TReadableRef<{
         processed: number;
@@ -70,8 +64,8 @@ interface IUseWorkspaceDocumentLifecycleOptions {
 /**
  * Connects one DocumentWorkspace to its document controller and its tab's view. Every open
  * runs as a controller transaction that ends when the viewer presents the
- * document or reports why it could not; the workspace writes identity, dirty
- * state and view state through controller methods.
+ * document or reports why it could not; the workspace writes dirty state
+ * and view state through controller methods.
  */
 export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLifecycleOptions) => {
     const session = options.documentSession;
@@ -90,15 +84,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     let checkingOpenSource = false;
     const recent = useRecentFiles();
 
-    watch(() => {
-        const djvuSource = options.isDjvuMode.value ? options.djvuSourcePath.value : null;
-        return {
-            fileName: djvuSource ? getDocumentRefBaseName(djvuSource) ?? options.fileName.value : options.fileName.value,
-            originalPath: djvuSource ?? options.originalPath.value,
-            isDjvu: options.isDjvuMode.value,
-            revisionInfo: options.documentRevisionInfo.value,
-        };
-    }, document => session.commitDocument(document));
     watch(options.isDirty, dirty => session.setDirty(dirty));
     watch(options.toolbarSnapshot, toolbar => view.publishToolbarSnapshot(toolbar), {immediate: true});
     watch(options.openBatchProgress, (progress) => {

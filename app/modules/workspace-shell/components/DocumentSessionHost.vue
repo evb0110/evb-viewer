@@ -8,6 +8,7 @@ import {
     useDocumentContextRegistry,
 } from '@app/modules/workspace-shell/documentContext';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
 defineOptions({ name: 'DocumentSessionHost' });
 
@@ -16,7 +17,20 @@ defineOptions({ name: 'DocumentSessionHost' });
 const { documentController } = defineProps<{documentController: IWorkspaceDocumentController}>();
 
 const registry = useDocumentContextRegistry();
-registry.set(documentController, createDocumentContext({controller: documentController}));
+const context = createDocumentContext({controller: documentController});
+registry.set(documentController, context);
+const {file} = context;
+// Keep the assigned identity until the hosted file changes, then publish it
+// for every view from this one document lifetime.
+watch(() => {
+    const djvuSource = file.isDjvuMode.value ? file.djvuSourcePath.value : null;
+    return {
+        fileName: djvuSource ? getDocumentRefBaseName(djvuSource) ?? file.fileName.value : file.fileName.value,
+        originalPath: djvuSource ?? file.originalPath.value,
+        isDjvu: file.isDjvuMode.value,
+        revisionInfo: file.documentRevisionInfo.value,
+    };
+}, document => documentController.commitDocument(document));
 onBeforeUnmount(() => {
     registry.delete(documentController);
 });
