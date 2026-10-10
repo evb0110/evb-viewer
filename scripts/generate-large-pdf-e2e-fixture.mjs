@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import {execFileSync} from 'node:child_process';
+
 import {
     mkdir,
     open,
@@ -100,6 +102,15 @@ export async function generateLargePdfE2eFixture({
     const absoluteOutputPath = resolve(outputPath);
     await mkdir(dirname(absoluteOutputPath), { recursive: true });
     await writeFile(absoluteOutputPath, basePdf);
+    if (process.platform === 'win32') {
+        // NTFS needs the sparse attribute before extending and writing the
+        // distant trailer; otherwise Windows fills the entire hole on disk.
+        execFileSync('fsutil.exe', [
+            'sparse',
+            'setflag',
+            absoluteOutputPath,
+        ], {stdio: 'pipe'});
+    }
     const handle = await open(absoluteOutputPath, 'r+');
     try {
         await handle.truncate(targetBytes);

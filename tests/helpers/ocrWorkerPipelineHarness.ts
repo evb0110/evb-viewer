@@ -160,7 +160,8 @@ process.exit(0);
                 languages: ['eng'],
             })),
             options: {
-                renderDpi: 150,
+                // Checkpoint semantics do not need a high-resolution blank raster.
+                renderDpi: 72,
                 supersessionPolicy: 'replace-all',
                 replaceAllAcknowledged: true,
             },

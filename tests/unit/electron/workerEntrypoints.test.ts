@@ -1,4 +1,5 @@
 import {
+    beforeAll,
     describe,
     expect,
     it,
@@ -27,20 +28,64 @@ vi.mock('worker_threads', () => ({
     },
     workerData: mocks.workerData,
 }));
-vi.mock('@electron/image/pdfCombineShared', () => ({createCombinedPdf: vi.fn(async () => {
-    throw new Error('malformed combine input');
-})}));
+const entrypoints = [
+    [
+        () => import('@electron/features/djvu/main/pdfWorker'),
+        'Invalid DjVu PDF worker payload',
+    ],
+    [
+        () => import('@electron/features/documents/main/pdfConformanceWorker'),
+        'Invalid PDF conformance worker payload',
+    ],
+    [
+        () => import('@electron/features/image-export/main/tiffCombineWorker'),
+        'Invalid TIFF combine worker payload',
+    ],
+    [
+        () => import('@electron/features/page-ops/main/cropWorker'),
+        'Invalid crop worker payload',
+    ],
+    [
+        () => import('@electron/image/pdfCombineWorker'),
+        'No input files were provided',
+    ],
+] as const;
+
+const startupMessages: unknown[][] = [];
+const cancellationListeners: boolean[] = [];
+
+beforeAll(async () => {
+    // Cold module loading is setup. Keep each entrypoint's result separately
+    // so an error from one worker cannot stand in for the other four.
+    for (const [load] of entrypoints) {
+        mocks.postMessage.mockClear();
+        mocks.on.mockClear();
+        await load();
+        startupMessages.push(mocks.postMessage.mock.calls.map(call => call[0]));
+        cancellationListeners.push(mocks.on.mock.calls.some(([
+            event,
+            listener,
+        ]) => (
+            event === 'message' && typeof listener === 'function'
+        )));
+    }
+});
 
 describe('Node worker entrypoints', () => {
-    it('boots every entrypoint and reports malformed startup payloads without escaping', async () => {
-        await import('@electron/features/djvu/main/pdfWorker');
-        await import('@electron/features/documents/main/pdfConformanceWorker');
-        await import('@electron/features/image-export/main/tiffCombineWorker');
-        await import('@electron/features/page-ops/main/cropWorker');
-        await import('@electron/image/pdfCombineWorker');
-
-        expect(mocks.postMessage).toHaveBeenCalled();
-        expect(mocks.postMessage.mock.calls.some(call => call[0]?.type === 'result' && call[0]?.ok === false)).toBe(true);
-        expect(mocks.on).toHaveBeenCalledWith('message', expect.any(Function));
+    it('boots every entrypoint and reports malformed startup payloads without escaping', () => {
+        expect(startupMessages).toEqual(entrypoints.map(([
+            , error,
+        ]) => [expect.objectContaining({
+            type: 'result',
+            ok: false,
+            error,
+        })]));
+        expect(cancellationListeners).toEqual([
+            true,
+            true,
+            true,
+            true,
+            false,
+        ]);
     });
 });

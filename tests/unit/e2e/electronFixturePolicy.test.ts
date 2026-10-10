@@ -1,4 +1,5 @@
 import {
+    beforeAll,
     describe,
     expect,
     it,
@@ -407,6 +408,19 @@ describe('Electron E2E fixture policy', () => {
         }
 
         expect(offenders).toEqual([]);
+    });
+
+    beforeAll(() => {
+        // The resolver assertions use real generated PDFs. Provision the sparse
+        // inputs outside the timed bodies, including a cold generator process.
+        resolveNativeLargePdfFixtureAvailability();
+        const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
+        delete process.env.EVB_E2E_LARGE_PDF_FIXTURE;
+        try {
+            resolveLargePdfFixtureAvailability();
+        } finally {
+            restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
+        }
     });
 
     it('provisions its own oversized fixture instead of borrowing the annotation-save one', async () => {

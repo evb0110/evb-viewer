@@ -1,4 +1,6 @@
 import {
+    appendFileSync,
+    cpSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -16,6 +18,8 @@ import {
     spawnSync,
 } from 'node:child_process';
 import {
+    afterAll,
+    beforeAll,
     describe,
     expect,
     it,
@@ -83,8 +87,28 @@ function spawnedArg(arg: string) {
     return process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg;
 }
 
+let projectFixtureTemplate: string | undefined;
+
+beforeAll(() => {
+    // Build one clean, tagged repository; each test gets a separate copy.
+    projectFixtureTemplate = createProjectFixture();
+});
+
+afterAll(() => {
+    if (projectFixtureTemplate) {
+        rmSync(projectFixtureTemplate, {
+            recursive: true,
+            force: true,
+        });
+    }
+});
+
 function createProjectFixture() {
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-fixture-'));
+    if (projectFixtureTemplate) {
+        cpSync(projectFixtureTemplate, projectRoot, {recursive: true});
+        return projectRoot;
+    }
 
     mkdirSync(path.join(projectRoot, '.vercel'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'app'), {recursive: true});
@@ -165,16 +189,8 @@ function createProjectFixture() {
         'init',
         '--quiet',
     ], {cwd: projectRoot});
-    execFileSync('git', [
-        'config',
-        'user.email',
-        'deploy-test@example.test',
-    ], {cwd: projectRoot});
-    execFileSync('git', [
-        'config',
-        'user.name',
-        'Deploy Test',
-    ], {cwd: projectRoot});
+    appendFileSync(path.join(projectRoot, '.git', 'config'),
+        '\n[user]\n\temail = deploy-test@example.test\n\tname = Deploy Test\n');
     execFileSync('git', [
         'add',
         '--all',

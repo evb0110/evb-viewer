@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process';
+import type * as TChildProcess from 'node:child_process';
 import {once} from 'node:events';
 import {
     existsSync,
@@ -8,6 +9,8 @@ import {
 } from 'node:fs';
 import {dirname} from 'node:path';
 import {
+    afterAll,
+    beforeAll,
     describe,
     expect,
     it,
@@ -40,11 +43,42 @@ import {
     shouldPreserveWorkspaceRecoveryArtifacts,
 } from '@scripts/electron-run/sessionController';
 
-const processTree = vi.hoisted(() => ({isProcessAlive: vi.fn<(pid: number) => boolean>()}));
+const processTree = vi.hoisted(() => ({
+    isProcessAlive: vi.fn<(pid: number) => boolean>(),
+    identityOutputs: new Map<string, ReturnType<typeof TChildProcess.execFileSync>>(),
+}));
+
+vi.mock('node:child_process', async importOriginal => {
+    const actual = await importOriginal<typeof TChildProcess>();
+    return {
+        ...actual,
+        execFileSync: vi.fn(actual.execFileSync).mockImplementation((file, args, options) => {
+            const key = JSON.stringify([
+                file,
+                args,
+                options,
+            ]);
+            const cached = processTree.identityOutputs.get(key);
+            if (cached !== undefined) {
+                return cached;
+            }
+            const output = actual.execFileSync(file, args, options);
+            // These policy cases keep the same unrelated processes alive.
+            // Capture their real Windows identities during fixture setup;
+            // ownership decisions still use the product parser and live PIDs.
+            if (file === 'powershell.exe' && args?.some(arg => arg.includes('$p = $all'))) {
+                processTree.identityOutputs.set(key, output);
+            }
+            return output;
+        }),
+    };
+});
 
 vi.mock('@scripts/electron-run/electronRunProcessTree', async importOriginal => ({
     ...await importOriginal<typeof TElectronRunProcessTree>(),
     isProcessAlive: processTree.isProcessAlive,
+    // This file launches Node fixtures, never an Electron session.
+    findPidsByCommandSubstring: vi.fn(() => []),
 }));
 
 // Above Linux's default pid_max, so it can never name a live host process.
@@ -90,6 +124,28 @@ async function spawnUnreapedZombie() {
 }
 
 describe('Electron automation graceful shutdown policy', () => {
+    let unrelated: ReturnType<typeof spawn>;
+    let unrelatedPid: number;
+    beforeAll(async () => {
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
+            '@scripts/electron-run/electronRunProcessTree',
+        );
+        processTree.isProcessAlive.mockImplementation(isProcessAlive);
+        unrelated = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000)',
+        ], {stdio: 'ignore'});
+        await once(unrelated, 'spawn');
+        unrelatedPid = unrelated.pid ?? 0;
+        expect(unrelatedPid).toBeGreaterThan(0);
+        expect(inspectProcessIdentity(unrelatedPid)).not.toBeNull();
+        expect(inspectProcessIdentity(process.pid)).not.toBeNull();
+    });
+    afterAll(async () => {
+        await forceKillAndWait(unrelated);
+        processTree.identityOutputs.clear();
+    });
+
     it('exposes a controller-owned shutdown command', () => {
         expect(isElectronRunCommand('shutdown')).toBe(true);
         expect(parseElectronRunCommandRequest({
@@ -267,7 +323,7 @@ describe('Electron automation graceful shutdown policy', () => {
 
     it('refuses to terminate a live process whose identity does not match the session', async () => {
         // Exercised against a real, still-running process so the refusal comes
-        // from a successfully read identity that fails ownership matching,
+        // from the real identity captured during setup that fails ownership matching,
         // rather than from an absent PID that yields no identity at all. The
         // child runs from the project root, so it clears the project-identity
         // half of the controller check and can only be rejected on the
@@ -279,14 +335,8 @@ describe('Electron automation graceful shutdown policy', () => {
         processTree.isProcessAlive.mockReset();
         processTree.isProcessAlive.mockImplementation(isProcessAlive);
 
-        const unrelated = spawn(process.execPath, [
-            '-e',
-            'setTimeout(() => {}, 30000)',
-        ], {stdio: 'ignore'});
-        const unrelatedPid = unrelated.pid ?? 0;
         try {
             expect(unrelatedPid).toBeGreaterThan(0);
-            await once(unrelated, 'spawn');
             expect(inspectProcessIdentity(unrelatedPid)).not.toBeNull();
 
             await expect(killVerifiedSessionProcess({
@@ -300,7 +350,6 @@ describe('Electron automation graceful shutdown policy', () => {
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refused to terminate'));
         } finally {
             warn.mockRestore();
-            await forceKillAndWait(unrelated);
         }
     });
 

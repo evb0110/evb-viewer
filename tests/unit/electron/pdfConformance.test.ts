@@ -1,4 +1,5 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
+import type * as TPdfCore from '@pdf-core';
 
 import {
     beforeEach,
@@ -78,6 +79,7 @@ const mocks = vi.hoisted(() => {
 
     return {
         workerState,
+        sparseMarkerResults: false,
         workerCtor,
         loggerWarn,
         runNativeToolCommand,
@@ -93,6 +95,22 @@ const mocks = vi.hoisted(() => {
         rm,
         stat,
         load,
+    };
+});
+
+vi.mock('@pdf-core', async importOriginal => {
+    const actual = await importOriginal<typeof TPdfCore>();
+    return {
+        ...actual,
+        hasPdfSignatureMarkersInPdfText: (text: string) => (
+            mocks.sparseMarkerResults ? false : actual.hasPdfSignatureMarkersInPdfText(text)
+        ),
+        hasPdfEncryptMarkersInPdfText: (text: string) => (
+            mocks.sparseMarkerResults ? false : actual.hasPdfEncryptMarkersInPdfText(text)
+        ),
+        detectPdfaLevelFromPdfText: (text: string) => (
+            mocks.sparseMarkerResults ? null : actual.detectPdfaLevelFromPdfText(text)
+        ),
     };
 });
 
@@ -455,29 +473,53 @@ describe('analyzePdfConformanceFileDirect', () => {
             size: 2 * 1024 * 1024 * 1024 + 1,
         });
         mocks.setFactsBytes(createNativeStructuralFacts());
+        // The sparse fixture contains a PDF header and zero-filled holes.
+        // Marker parsing is covered with real cross-window bytes above; here
+        // use its known result while exercising every large-file range read.
+        const reads: Array<{
+            length: number;
+            position: number | bigint | null;
+        }> = [];
+        const normalRead = mocks.rangeRead.getMockImplementation()!;
+        mocks.rangeRead.mockImplementation(async (buffer, offset, length, position) => {
+            reads.push({
+                length,
+                position,
+            });
+            // Recording the buffer argument would retain two GiB of mock
+            // history. Keep the observable ranges and release each buffer.
+            mocks.rangeRead.mockClear();
+            buffer.fill(0, offset, offset + length);
+            return {bytesRead: length};
+        });
+        mocks.sparseMarkerResults = true;
+        try {
+            const result = await analyzePdfConformanceFileDirect('/tmp/sparse-2gib.pdf');
 
-        const result = await analyzePdfConformanceFileDirect('/tmp/sparse-2gib.pdf');
-
-        expect(result.canIncrementalSave).toBe(true);
-        expect(mocks.open).toHaveBeenCalledTimes(1);
-        expect(mocks.rangeRead.mock.calls.length).toBeGreaterThan(500);
-        expect(mocks.rangeRead.mock.calls.every(call =>
-            call[2] <= 4 * 1024 * 1024,
-        )).toBe(true);
-        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
-            '/mock/page-ops',
-            [
-                'pdf-conformance',
-                '--input',
-                '/tmp/sparse-2gib.pdf',
-                '--qpdf',
-                '/mock/qpdf',
-            ],
-            expect.objectContaining({
-                maxStdoutBytes: 64 * 1024,
-                rejectOnStdoutTruncation: true,
-            }),
-        );
+            expect(result.canIncrementalSave).toBe(true);
+            expect(mocks.open).toHaveBeenCalledTimes(1);
+            expect(reads.length).toBeGreaterThan(500);
+            expect(reads.every(read => read.length <= 4 * 1024 * 1024)).toBe(true);
+            expect(reads.at(-1)?.position).toBe(2n * 1024n * 1024n * 1024n);
+            expect(mocks.close).toHaveBeenCalledTimes(1);
+            expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+                '/mock/page-ops',
+                [
+                    'pdf-conformance',
+                    '--input',
+                    '/tmp/sparse-2gib.pdf',
+                    '--qpdf',
+                    '/mock/qpdf',
+                ],
+                expect.objectContaining({
+                    maxStdoutBytes: 64 * 1024,
+                    rejectOnStdoutTruncation: true,
+                }),
+            );
+        } finally {
+            mocks.sparseMarkerResults = false;
+            mocks.rangeRead.mockImplementation(normalRead);
+        }
     }, 15_000);
 
     it('fails with a typed capability error when qpdf structure is unavailable', async () => {

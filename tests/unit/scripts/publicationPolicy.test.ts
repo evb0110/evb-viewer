@@ -1,5 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import {
+    appendFileSync,
+    cpSync,
+    mkdtempSync,
+    readFileSync,
+} from 'node:fs';
+import {
     mkdir,
     mkdtemp,
     readFile,
@@ -9,6 +15,8 @@ import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+    afterAll,
+    beforeAll,
     describe,
     expect,
     it,
@@ -74,24 +82,40 @@ function runGit(cwd: string, arguments_: string[], input?: string | Buffer) {
     return result.stdout.trim();
 }
 
-async function createRepository(prefix: string, extraArguments: string[] = []) {
-    const repository = await mkdtemp(join(getAbsoluteOsTemporaryDirectory(), prefix));
+let repositoryTemplate: string | undefined;
+let bareRepositoryTemplate: string | undefined;
+
+beforeAll(() => {
+    repositoryTemplate = createRepository('evb-policy-template-');
+    bareRepositoryTemplate = createRepository('evb-policy-bare-template-', ['--bare']);
+});
+
+afterAll(async () => {
+    await Promise.all([
+        repositoryTemplate,
+        bareRepositoryTemplate,
+    ].map(async repository => {
+        if (repository) {
+            await removeRepository(repository);
+        }
+    }));
+});
+
+function createRepository(prefix: string, extraArguments: string[] = []) {
+    const repository = mkdtempSync(join(getAbsoluteOsTemporaryDirectory(), prefix));
+    const template = extraArguments.includes('--bare') ? bareRepositoryTemplate : repositoryTemplate;
+    if (template) {
+        cpSync(template, repository, {recursive: true});
+        return repository;
+    }
     runGit(repository, [
         'init',
         '--initial-branch=main',
         ...extraArguments,
         '.',
     ]);
-    runGit(repository, [
-        'config',
-        'user.name',
-        'Test User',
-    ]);
-    runGit(repository, [
-        'config',
-        'user.email',
-        'test@example.test',
-    ]);
+    appendFileSync(join(repository, extraArguments.includes('--bare') ? 'config' : '.git/config'),
+        '\n[user]\n\tname = Test User\n\temail = test@example.test\n');
     return repository;
 }
 
@@ -139,10 +163,8 @@ async function commit(repository: string, message: string, files: Record<string,
         '-m',
         message,
     ]);
-    return runGit(repository, [
-        'rev-parse',
-        'HEAD',
-    ]);
+    const headRef = readFileSync(join(repository, '.git/HEAD'), 'utf8').trim().slice('ref: '.length);
+    return readFileSync(join(repository, '.git', headRef), 'utf8').trim();
 }
 
 function updateLine(remoteRef: string, localOid: string, remoteOid = ZERO_OID, localRef = remoteRef) {
@@ -169,13 +191,7 @@ function repositoryState(repository: string) {
         runGit(repository, [
             'rev-parse',
             '--is-inside-work-tree',
-        ]),
-        runGit(repository, [
-            'rev-parse',
             '--is-bare-repository',
-        ]),
-        runGit(repository, [
-            'rev-parse',
             'HEAD',
         ]),
         runGit(repository, [
@@ -194,7 +210,7 @@ function isWithinDirectory(directory: string, candidate: string) {
 
 describe('publication policy', () => {
     it('checks every commit in a range, not only the tip', async () => {
-        const repository = await createRepository('evb-attribution-repo-');
+        const repository = createRepository('evb-attribution-repo-');
         try {
             const base = await commit(repository, 'Clean base');
             const middle = await commit(repository, 'Add harness notes', {'docs/AGENTS.md': '# local rules\n'});
@@ -228,16 +244,8 @@ describe('publication policy', () => {
                 '--initial-branch=main',
                 primary,
             ]);
-            runGit(primary, [
-                'config',
-                'user.name',
-                'Test User',
-            ]);
-            runGit(primary, [
-                'config',
-                'user.email',
-                'test@example.test',
-            ]);
+            appendFileSync(join(primary, '.git/config'),
+                '\n[user]\n\tname = Test User\n\temail = test@example.test\n');
             await writeFiles(primary, {'README.md': 'fixture host\n'});
             runGit(primary, [
                 'add',
@@ -259,10 +267,12 @@ describe('publication policy', () => {
             const linkedState = repositoryState(linked);
             process.env.TMPDIR = '.';
 
+            // Keep cwd changes synchronous: a test deadline must never let
+            // the next hook-wiring case observe a fixture's working directory.
             process.chdir(primary);
-            primaryFixture = await createRepository('evb-attribution-primary-');
+            primaryFixture = createRepository('evb-attribution-primary-');
             process.chdir(linked);
-            linkedFixture = await createRepository('evb-attribution-linked-');
+            linkedFixture = createRepository('evb-attribution-linked-');
 
             expect(path.isAbsolute(primaryFixture)).toBe(true);
             expect(path.isAbsolute(linkedFixture)).toBe(true);
@@ -401,7 +411,7 @@ describe('added check and flake tolerance detection', () => {
 
 describe('forbidden artifact detection in history', () => {
     it('detects a non-ASCII path that the default quoted output would hide', async () => {
-        const repository = await createRepository('evb-artifact-unicode-');
+        const repository = createRepository('evb-artifact-unicode-');
         try {
             const introducing = await commit(repository, 'Add localized harness notes', {
                 'docs/тест/AGENTS.md': '# local rules\n',
@@ -427,7 +437,7 @@ describe('forbidden artifact detection in history', () => {
     });
 
     it('detects an artifact under a directory whose name contains a newline', async () => {
-        const repository = await createRepository('evb-artifact-newline-');
+        const repository = createRepository('evb-artifact-newline-');
         try {
             // Store the unusual name in a Git tree; Windows cannot create it on disk.
             const blob = runGit(repository, [
@@ -496,7 +506,7 @@ describe('forbidden artifact detection in history', () => {
     });
 
     it('flags the root commit of an orphan history', async () => {
-        const repository = await createRepository('evb-artifact-root-');
+        const repository = createRepository('evb-artifact-root-');
         try {
             const root = await commit(repository, 'Initial harness setup', {'.claude/settings.json': '{}\n'});
 
@@ -508,7 +518,7 @@ describe('forbidden artifact detection in history', () => {
     });
 
     it('flags an artifact introduced by the merge commit itself', async () => {
-        const repository = await createRepository('evb-artifact-merge-');
+        const repository = createRepository('evb-artifact-merge-');
         try {
             await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
             runGit(repository, [
@@ -559,7 +569,7 @@ describe('forbidden artifact detection in history', () => {
     });
 
     it('allows a purge commit that only deletes the artifacts', async () => {
-        const repository = await createRepository('evb-artifact-purge-');
+        const repository = createRepository('evb-artifact-purge-');
         try {
             await commit(repository, 'Legacy history with harness notes', {
                 'docs/AGENTS.md': '# local rules\n',
@@ -580,7 +590,7 @@ describe('forbidden artifact detection in history', () => {
 
     it('rejects staged artifacts before the commit exists', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const repository = await createRepository('evb-artifact-staged-');
+        const repository = createRepository('evb-artifact-staged-');
         try {
             await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
             await writeFiles(repository, {
@@ -613,7 +623,7 @@ describe('forbidden artifact detection in history', () => {
     // catch similarly named product paths.
     it('rejects a forced add of local working material', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const repository = await createRepository('evb-artifact-devkit-');
+        const repository = createRepository('evb-artifact-devkit-');
         try {
             await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
             await writeFiles(repository, {
@@ -638,7 +648,7 @@ describe('forbidden artifact detection in history', () => {
     // --cached` compares with the empty tree there, so the gate still applies.
     it('rejects staged artifacts in a repository with no commits yet', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const repository = await createRepository('evb-artifact-unborn-');
+        const repository = createRepository('evb-artifact-unborn-');
         try {
             await writeFiles(repository, {
                 'docs/AGENTS.md': '# local rules\n',
@@ -661,8 +671,8 @@ describe('forbidden artifact detection in history', () => {
 
 describe('pre-push publication scope', () => {
     async function createRemoteAndWorkspace() {
-        const remote = await createRepository('evb-push-remote-', ['--bare']);
-        const workspace = await createRepository('evb-push-work-');
+        const remote = createRepository('evb-push-remote-', ['--bare']);
+        const workspace = createRepository('evb-push-work-');
         runGit(workspace, [
             'remote',
             'add',
@@ -811,7 +821,7 @@ describe('pre-push publication scope', () => {
     });
 
     it('fails closed when the remote advertisement cannot be read', async () => {
-        const workspace = await createRepository('evb-push-noremote-');
+        const workspace = createRepository('evb-push-noremote-');
         try {
             const head = await commit(workspace, 'Clean base');
 
@@ -851,7 +861,7 @@ describe('pre-push publication scope', () => {
     });
 
     it('allows deleting a ref without consulting the remote', async () => {
-        const workspace = await createRepository('evb-push-delete-');
+        const workspace = createRepository('evb-push-delete-');
         try {
             const head = await commit(workspace, 'Clean base');
 
@@ -1026,7 +1036,7 @@ describe('pushed range resolution for CI', () => {
         ],
     ])('falls back to the complete head history for %s', async (_label, beforeOid) => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const repository = await createRepository('evb-pushed-range-rewrite-');
+        const repository = createRepository('evb-pushed-range-rewrite-');
         try {
             const root = await commit(repository, 'Rewritten root', {'docs/AGENTS.md': '# local rules\n'});
             const head = await commit(repository, 'Rewritten tip', {'app/index.ts': 'export const app = true;\n'});
@@ -1046,7 +1056,7 @@ describe('pushed range resolution for CI', () => {
     });
 
     it('scans only commits beyond origin/main when the before SHA is zero', async () => {
-        const repository = await createRepository('evb-pushed-range-new-branch-');
+        const repository = createRepository('evb-pushed-range-new-branch-');
         try {
             const main = await commit(repository, 'Published main fix', {'app/index.ts': 'export const app = true;\n'});
             runGit(repository, [
@@ -1071,7 +1081,7 @@ describe('pushed range resolution for CI', () => {
 
     it('falls back to the complete head history when the before SHA is an unrelated root', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const repository = await createRepository('evb-pushed-range-unrelated-');
+        const repository = createRepository('evb-pushed-range-unrelated-');
         try {
             await commit(repository, 'Old root', {'app/old.ts': 'export const old = true;\n'});
             const unrelated = runGit(repository, [
@@ -1112,7 +1122,7 @@ describe('pushed range resolution for CI', () => {
     // local-only artifact. That is why the wide fallback is a usable safeguard
     // rather than a permanent failure.
     it('passes a full-history fallback scan whose whole history is clean', async () => {
-        const repository = await createRepository('evb-pushed-range-clean-');
+        const repository = createRepository('evb-pushed-range-clean-');
         try {
             await commit(repository, 'Clean root', {'app/index.ts': 'export const app = true;\n'});
             const head = await commit(repository, 'Extend the agent feature', {
@@ -1133,7 +1143,7 @@ describe('pushed range resolution for CI', () => {
 
 describe('fix chains', () => {
     async function repositoryWithThreeFixes() {
-        const repository = await createRepository('evb-fix-chain-');
+        const repository = createRepository('evb-fix-chain-');
         let body = 'export const state = 0;\n';
         await commit(repository, 'Add viewport state', {'app/viewport.ts': body});
         for (const index of [
