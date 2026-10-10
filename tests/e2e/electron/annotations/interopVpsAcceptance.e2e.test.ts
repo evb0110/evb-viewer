@@ -359,7 +359,7 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         }
         await waitForPaintedAppearance();
         const initialTextBoxes = (await page.$$(textBoxSelector)).length;
-        async function captureAppearance(label: string) {
+        async function captureAppearanceFrame(screenshotPath: string) {
             const clip = await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]', element => {
                 const rect = element.getBoundingClientRect();
                 return {
@@ -369,7 +369,6 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
                     height: rect.height / 2,
                 };
             });
-            const screenshotPath = join(artifactDirectory, `${label}.png`);
             await page.screenshot({
                 path: screenshotPath,
                 clip,
@@ -400,6 +399,20 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
                 inkWidth,
                 inkHeight,
             };
+        }
+        async function captureAppearance(label: string) {
+            const screenshotPath = join(artifactDirectory, `${label}.png`);
+            const deadline = Date.now() + SAVE_TIMEOUT_MS;
+            // The readback above sees the committed canvas as soon as it is drawn,
+            // but the hidden window presents it on a later frame: the first capture
+            // after the commit can still return the frame from before it, and the
+            // next capture shows the ink a person would see. Capture again until the
+            // presented frame holds the appearance, within the save budget.
+            let appearance = await captureAppearanceFrame(screenshotPath);
+            while (appearance.inkCount <= 100 && Date.now() < deadline) {
+                appearance = await captureAppearanceFrame(screenshotPath);
+            }
+            return appearance;
         }
         const initialAppearance = await captureAppearance('opened-appearance');
         const {
