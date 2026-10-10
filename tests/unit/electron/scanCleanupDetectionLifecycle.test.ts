@@ -1249,11 +1249,14 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
     const owner = sender();
     const detect = async (request_: IScanCleanupDetectionRequest) => {
         const started = await service.detectAll(owner, request_);
-        await vi.waitFor(() => expect(service.getDetectionJobState(
-            owner,
-            started.jobId,
-            request_,
-        )?.status).toBe('completed'));
+        await vi.waitFor(() => {
+            const state = service.getDetectionJobState(owner, started.jobId, request_);
+            expect(state?.status, JSON.stringify({
+                jobId: started.jobId,
+                pageOverrides: request_.options.pageOverrides,
+                error: state?.status === 'failed' ? state.error : undefined,
+            })).toBe('completed');
+        });
         return service.getDetectionJobState(owner, started.jobId, request_)!;
     };
 
