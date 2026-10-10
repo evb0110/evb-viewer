@@ -14,6 +14,7 @@ import {
     ref,
     type Ref,
 } from 'vue';
+import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 
@@ -186,6 +187,45 @@ describe('usePdfCanvasRenderer', () => {
         annotationProjectionReady.value = true;
         await rendering;
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode: AnnotationMode.ENABLE}));
+    });
+
+    it('paints without annotation appearances when the projection is not ready within the page-stage timeout', async () => {
+        vi.useFakeTimers();
+        try {
+            installCanvasDocument();
+            const annotationProjectionReady = ref(false);
+            const pdfPage = createPdfPage();
+            const renderer = usePdfCanvasRenderer({
+                outputScale: 1,
+                annotationProjectionReady,
+            });
+            const rendering = renderer.renderCanvas(pdfPage as never, 1);
+            await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
+
+            await expect(rendering).resolves.not.toBeNull();
+            expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode: AnnotationMode.DISABLE}));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('ends a wait for the projection when the render is aborted', async () => {
+        installCanvasDocument();
+        const abortController = new AbortController();
+        const pdfPage = createPdfPage();
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 1,
+            annotationProjectionReady: ref(false),
+        });
+        const rendering = renderer.renderCanvas(pdfPage as never, 1, {pageRenderCoordination: {
+            owner: 'test',
+            priority: 0,
+            signal: abortController.signal,
+        }});
+        abortController.abort();
+
+        await expect(rendering).resolves.toBeNull();
+        expect(pdfPage.render).not.toHaveBeenCalled();
     });
 
     it.each([

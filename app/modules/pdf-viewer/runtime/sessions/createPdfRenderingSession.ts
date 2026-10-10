@@ -506,6 +506,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderOptions.maxCanvasPixels ?? '',
                 pageRenderOptions.openSurfaceGeneration ?? '',
                 pageRenderOptions.openSurfaceRevision ?? '',
+                pageRenderer.annotationProjectionReady.value,
             ].join(':');
             // An in-flight raster is already scale-current within tolerance.
             // Keep its key so float drift in a recomputed fit cannot orphan it.
@@ -1285,7 +1286,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     return {
         ...pageRenderer,
         renderVisiblePages,
-        cancelInFlightRenders,
         preparePageRotationPreview,
         cancelPageRotationPreview,
         releaseUnmountedPage: (pageNumber: TPageNumber) => clearAuthoritativePage(pageNumber),

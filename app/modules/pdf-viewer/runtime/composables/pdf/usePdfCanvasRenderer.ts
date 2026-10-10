@@ -207,11 +207,35 @@ export const usePdfCanvasRenderer = (deps: {
         ] : undefined;
     }
 
-    async function createAnnotationRenderOptions(options?: IRenderCanvasOptions) {
+    async function createAnnotationRenderOptions(pageNumber: number, options?: IRenderCanvasOptions) {
         // The raster paints foreign appearances and must not paint an owned one,
-        // so it waits until the canonical store has loaded its PDF refs. Ownership
-        // refresh then has nothing to repair: the first raster is already right.
-        await until(() => toValue(deps.annotationProjectionReady ?? true)).toBe(true);
+        // so it waits for the canonical store's PDF refs. A projection still
+        // pending after the page-stage budget paints without appearances; the
+        // ownership refresh repaints the page once the projection is ready.
+        const ready = await withPageStageTimeout(
+            until(() => toValue(deps.annotationProjectionReady ?? true)).toBe(true, {timeout: PDF_PAGE_RENDER_TIMEOUT_MS}),
+            {
+                pageNumber: requirePageNumber(pageNumber),
+                stage: 'canvas-prepare',
+                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+            },
+            () => shouldContinueCanvasPreparation(options),
+            undefined,
+            undefined,
+            undefined,
+            options?.pageRenderCoordination?.signal,
+        ).catch((error: unknown) => {
+            if (error instanceof Error && error.name === 'PdfPageRenderTimeoutError') {
+                return false;
+            }
+            throw error;
+        });
+        if (!ready) {
+            return {
+                annotationMode: AnnotationMode?.DISABLE ?? 0,
+                hiddenAnnotationIds: undefined,
+            };
+        }
         const hidden = typeof options?.hiddenAnnotationIds === 'function'
             ? options.hiddenAnnotationIds()
             : options?.hiddenAnnotationIds;
@@ -269,19 +293,7 @@ export const usePdfCanvasRenderer = (deps: {
             return null;
         }
 
-        const annotationOptions = await withPageStageTimeout(
-            Promise.resolve(createAnnotationRenderOptions(options)),
-            {
-                pageNumber: requirePageNumber(pdfPage.pageNumber),
-                stage: 'canvas-prepare',
-                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
-            },
-            () => shouldContinueCanvasPreparation(options),
-            undefined,
-            options?.onRenderStall,
-            undefined,
-            options?.pageRenderCoordination?.signal,
-        ).catch((error: unknown) => {
+        const annotationOptions = await createAnnotationRenderOptions(pdfPage.pageNumber, options).catch((error: unknown) => {
             if (error instanceof Error && error.name === 'AbortError') {
                 return null;
             }
