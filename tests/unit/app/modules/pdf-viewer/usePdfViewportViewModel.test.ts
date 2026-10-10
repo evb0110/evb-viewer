@@ -120,6 +120,15 @@ describe('usePdfViewportViewModel', () => {
         expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(false);
 
         await nextTick();
+        clientWidth = 630;
+        container.scrollLeft = 5;
+        ResizeObserverDouble.instances[0]?.trigger();
+
+        // The paper fits, but its two 20 px gutters still need scrolling.
+        expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(false);
+        expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(false);
+        expect(container.scrollLeft).toBe(5);
+
         clientWidth = 700;
         ResizeObserverDouble.instances[0]?.trigger();
 

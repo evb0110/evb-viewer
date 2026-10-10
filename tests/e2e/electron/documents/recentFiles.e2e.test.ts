@@ -40,12 +40,14 @@ import {
     goToPageViaToolbar,
     openDjvuInApp,
     openPdfInApp,
+    openDocumentSidebarTab,
     readDrawnPage,
     readHeldShell,
     waitForToolbarCurrentPage,
     waitForDjvuLoaded,
     waitForActiveDocumentSource,
     waitForPdfLoaded,
+    waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
@@ -1519,8 +1521,44 @@ describe('Electron E2E - Recent Files', () => {
         await waitForPdfLoaded(session.page);
         const defaultZoomLabel = await readZoomLabel(session);
         await goToPageViaToolbar(session.page, 27);
-        const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await clickAsUser(session.page, '#editor-global-toolbar-host .zoom-controls-display');
+        await clickAsUser(session.page, '.zoom-chip-custom-input', {count: 3});
+        await session.page.keyboard.type('140');
+        await session.page.keyboard.press('Enter');
+        const readingZoomLabel = '140%';
         await expectReadingPlace(session, 27, readingZoomLabel);
+        await waitForViewerInteractive(session.page);
+        await waitForViewportQuiet(session.page);
+        const viewport = await session.page.$eval('.editor-pane.is-active [data-document-viewer-chassis-viewport]', element => (
+            element.getBoundingClientRect().toJSON()
+        ));
+        await session.page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
+        await session.page.mouse.wheel({deltaY: 230});
+        await waitForViewportQuiet(session.page);
+        const readPoint = () => evaluateInPage(session.page, () => {
+            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')!;
+            const box = viewport.getBoundingClientRect();
+            const x = box.left + viewport.clientLeft + viewport.clientWidth / 2;
+            const y = box.top + viewport.clientTop + viewport.clientHeight / 2;
+            const page = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container--rendered[data-page]'))
+                .find(element => {
+                    const rect = element.getBoundingClientRect();
+                    return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
+                })!;
+            const rect = page.getBoundingClientRect();
+            return {
+                page: Number(page.dataset.page),
+                x: (x - rect.left) / rect.width,
+                y: (y - rect.top) / rect.height,
+                width: rect.width,
+                height: rect.height,
+                painted: (page.querySelector<HTMLCanvasElement>('canvas')?.width ?? 0) > 0,
+            };
+        });
+        const beforeClose = await readPoint();
+        expect(beforeClose.page).toBe(27);
+        expect(beforeClose.painted).toBe(true);
 
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
@@ -1529,6 +1567,19 @@ describe('Electron E2E - Recent Files', () => {
         await waitForPdfLoaded(session.page);
         await expectReadingPlace(session, 27, readingZoomLabel);
         await expectFirstDrawnPageNear(session, 27);
+        await waitForViewerInteractive(session.page);
+        await waitForViewportQuiet(session.page);
+        const afterReopen = await readPoint();
+        expect(afterReopen.page).toBe(27);
+        expect(afterReopen.painted).toBe(true);
+        expect(Math.abs(afterReopen.x - beforeClose.x) * afterReopen.width, JSON.stringify({
+            beforeClose,
+            afterReopen,
+        })).toBeLessThanOrEqual(1);
+        expect(Math.abs(afterReopen.y - beforeClose.y) * afterReopen.height, JSON.stringify({
+            beforeClose,
+            afterReopen,
+        })).toBeLessThanOrEqual(1);
 
         // Quitting remembers the place the reader moved to since the reopen.
         await goToPageViaToolbar(session.page, 31);

@@ -678,10 +678,6 @@
     overflow-anchor: none;
     background: var(--app-pdf-viewer-bg);
 
-    &.pdfViewer--fit-height {
-        overflow-x: auto;
-    }
-
     // Fit-height decides admission before subtracting the scrollbar's height.
     // Keep that gutter even when the resulting smaller spread fits, so native
     // auto overflow cannot restart the fit/resize/render cycle indefinitely.
@@ -732,15 +728,15 @@
     display: flex;
     flex-direction: column;
 
-    /* Keep the scroll extent stable while Vue replaces disjoint page windows.
-     * Page unmount hooks can force layout before the spacer update finishes. */
+    /* Keep both scroll extents stable across page-window replacement, including
+     * the trailing gutter that flex overflow omits from the track padding. */
     &::after {
         content: "";
         position: absolute;
         top: 0;
         left: 0;
-        width: 100%;
-        height: var(--pdf-virtual-scroll-height, 0);
+        width: max(100%, var(--pdf-virtual-scroll-width, 0px));
+        height: max(1px, var(--pdf-virtual-scroll-height, 0px));
         pointer-events: none;
     }
 

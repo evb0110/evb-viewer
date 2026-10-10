@@ -15,6 +15,7 @@ import {
 } from 'vue';
 import {
     buildPageLayoutMetrics,
+    createPageNavigationRequest,
     getLayoutPageTop,
     type IPdfPageLayoutMetrics,
 } from '@app/modules/document-viewer/public';
@@ -302,14 +303,27 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it('clamps a mounted narrow navigation row despite wider document overflow', async () => {
+    it.each([
+        {
+            viewportWidth: 1_604,
+            pageWidth: 1_532,
+            expectedLeft: 0,
+        },
+        {
+            viewportWidth: 885,
+            pageWidth: 857,
+            expectedLeft: 6,
+        },
+    ])('restores the reading centre with $viewportWidth px of viewport and $pageWidth px of paper', async ({
+        viewportWidth, pageWidth, expectedLeft,
+    }) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
             clientHeight: {value: 700},
-            clientWidth: {value: 1_604},
+            clientWidth: {value: viewportWidth},
             scrollHeight: {value: 4_000},
-            scrollWidth: {value: 2_200},
+            scrollWidth: {value: Math.max(2_200, pageWidth + 40)},
             scrollLeft: {
                 value: 0,
                 writable: true,
@@ -323,9 +337,9 @@ describe('usePdfSinglePageNavigationController', () => {
             bottom: 700,
             height: 700,
             left: 0,
-            right: 1_604,
+            right: viewportWidth,
             top: 0,
-            width: 1_604,
+            width: viewportWidth,
             x: 0,
             y: 0,
             toJSON: () => ({}),
@@ -333,22 +347,23 @@ describe('usePdfSinglePageNavigationController', () => {
         const target = document.createElement('div');
         target.className = 'page_container page_container--rendered';
         target.dataset.page = '2';
-        target.innerHTML = '<div class="page_canvas"><canvas width="1532" height="800"></canvas></div>';
+        target.innerHTML = `<div class="page_canvas"><canvas width="${String(pageWidth)}" height="800"></canvas></div>`;
+        const pageLeft = Math.max(20, (viewportWidth - pageWidth) / 2);
         target.getBoundingClientRect = () => ({
-            bottom: 1_700,
+            bottom: 1_700 - viewer.scrollTop,
             height: 800,
-            left: 36,
-            right: 1_568,
-            top: 900,
-            width: 1_532,
-            x: 36,
-            y: 900,
+            left: pageLeft - viewer.scrollLeft,
+            right: pageLeft + pageWidth - viewer.scrollLeft,
+            top: 900 - viewer.scrollTop,
+            width: pageWidth,
+            x: pageLeft - viewer.scrollLeft,
+            y: 900 - viewer.scrollTop,
             toJSON: () => ({}),
         });
         viewer.append(target);
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 2}, () => ({
-                width: 1_532,
+                width: pageWidth,
                 height: 800,
             })),
             totalPages: 2,
@@ -362,6 +377,7 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const viewportWrites = createTestPdfViewportWritePort();
+        const pageIndicator = ref(1);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -382,7 +398,9 @@ describe('usePdfSinglePageNavigationController', () => {
                     start: 1,
                     end: 1,
                 }),
-                emitCurrentPage: vi.fn(),
+                emitCurrentPage: (page) => {
+                    pageIndicator.value = page;
+                },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
@@ -393,28 +411,23 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.submitNavigationRequest({
-                target: {
-                    kind: 'rect',
-                    page: 2,
-                    rect: {
-                        left: 0.9,
-                        top: 0.4,
-                        width: 0.05,
-                        height: 0.05,
-                    },
-                },
-                alignment: 'rect-center',
-                readiness: 'page-canvas',
-                source: 'toolbar',
-                supersession: 'latest-wins',
-            })).toBe(true);
+            expect(controller.submitNavigationRequest(createPageNavigationRequest(2, 'restore', {
+                page: 2,
+                pageXFraction: 0.5,
+                pageYFraction: 0.425,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center',
+            }))).toBe(true);
 
             await vi.waitFor(() => {
-                expect(viewportWrites.writes).toHaveLength(1);
+                expect(pageIndicator.value).toBe(2);
+                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
             });
             expect(viewer.scrollTop).toBe(890);
-            expect(viewer.scrollLeft).toBe(0);
+            expect(viewer.scrollLeft).toBe(expectedLeft);
+            const restoredPaperPoint = (viewportWidth / 2 - target.getBoundingClientRect().left) / pageWidth;
+            expect(restoredPaperPoint).toBe(0.5);
         } finally {
             scope.stop();
         }
