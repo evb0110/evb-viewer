@@ -392,6 +392,7 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
                     });
                 }
             }
+            expect(ink.length, `${label} has ink`).toBeGreaterThan(0);
             const inkWidth = Math.max(...ink.map(point => point.x)) - Math.min(...ink.map(point => point.x)) + 1;
             const inkHeight = Math.max(...ink.map(point => point.y)) - Math.min(...ink.map(point => point.y)) + 1;
             return {
