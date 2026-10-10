@@ -1,0 +1,21 @@
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle.ts
+  s_0971ec1f7fee89::t_fcd4b29a4e87aa 67-68
+app/modules/workspace-shell/components/DocumentSessionHost.vue
+  s_0971ec1f7fee89::t_fcd4b29a4e87aa 11,20-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b7d27dbc05ee829fbc3cc633add44b6a23231fb2",
+  "prompts": {},
+  "sessions": {
+    "s_0971ec1f7fee89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1239f-3cbd-7a21-9348-5947c95d38fa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
