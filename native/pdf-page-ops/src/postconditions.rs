@@ -253,12 +253,9 @@ pub(crate) fn validate_note_geometry_document_postconditions(
                 document,
                 target_dict,
                 actual_rect,
-                target_dict
-                    .get(b"Rotate")
-                    .ok()
-                    .map(Object::as_i64)
-                    .transpose()?
-                    .unwrap_or(0),
+                document
+                    .resolved(target_dict.get(b"Rotate").unwrap_or(&Object::Integer(0)))?
+                    .as_i64()?,
                 page_rotation,
             )?
             .0

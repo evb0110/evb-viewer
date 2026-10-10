@@ -2460,21 +2460,15 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
     )
     .unwrap();
     let rotation_id = original.add_object(Object::Integer(0));
-    for (overlay, rotations) in [
-        (false, vec![None, Some(Object::string_literal("invalid"))]),
-        (
-            true,
-            vec![
-                None,
-                Some(Object::Integer(0)),
-                Some(Object::Reference(rotation_id)),
-                Some(Object::string_literal("invalid")),
-                Some(Object::Null),
-                Some(Object::Real(0.5)),
-            ],
-        ),
-    ] {
-        for rotation in rotations {
+    for overlay in [false, true] {
+        for rotation in [
+            None,
+            Some(Object::Integer(0)),
+            Some(Object::Reference(rotation_id)),
+            Some(Object::string_literal("invalid")),
+            Some(Object::Null),
+            Some(Object::Real(0.5)),
+        ] {
             let invalid = matches!(
                 rotation,
                 Some(Object::String(..) | Object::Null | Object::Real(..))
@@ -2511,7 +2505,7 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
             );
             if invalid {
                 assert_eq!(fs::read(&output).unwrap(), previous);
-            } else if overlay {
+            } else {
                 run_text_box_command("parse-annotations", &output, &parsed, None);
                 let entries: serde_json::Value = serde_json::from_str(
                     fs::read_to_string(&parsed).unwrap().lines().nth(1).unwrap(),
@@ -2527,13 +2521,6 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
                         "left":0.1,"top":0.625,"width":0.2,"height":0.125,
                     })
                 );
-            } else {
-                assert!(Document::load(&output)
-                    .unwrap()
-                    .get_dictionary(id)
-                    .unwrap()
-                    .get(b"EVBTextGeometry")
-                    .is_ok());
             }
         }
     }
