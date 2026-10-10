@@ -8,6 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { createShutdownCoordinator } from '@electron/bootstrap/shutdown';
 
 type TMockSettings = Record<string, unknown>;
 type TMockSettingsUpdater = (
@@ -1117,6 +1118,50 @@ describe('updates robustness', () => {
             'marker',
             'quit',
         ]);
+    });
+
+    it('does not install an update whose settings write finishes after system shutdown starts', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        });
+        const updates = await loadUpdatesModule();
+        const preservation = Promise.withResolvers<undefined>();
+        const app = {
+            exit: vi.fn(),
+            quit: vi.fn(),
+        };
+        const coordinator = createShutdownCoordinator({
+            app,
+            logger: {
+                ...mocks.logger,
+                debug: vi.fn(),
+            },
+            runPreservationSteps: () => preservation.promise,
+            runBestEffortCleanupSteps: async () => {},
+        });
+        updates.configureUpdateInstallShutdown(install => coordinator.requestGracefulQuit({afterCleanup: install}));
+        updates.initializeUpdates(() => undefined);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        const settingsWrite = Promise.withResolvers<undefined>();
+        mocks.updateSettings.mockImplementationOnce(async () => {
+            await settingsWrite.promise;
+            return {};
+        });
+        const installation = updates.installDownloadedUpdate();
+        coordinator.requestSystemShutdown();
+        settingsWrite.resolve(undefined);
+        await installation;
+        preservation.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+        expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
+        expect(app.quit).toHaveBeenCalledOnce();
     });
 
     it('installs downloaded updates immediately when no shutdown hook is configured', async () => {
