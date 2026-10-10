@@ -1,0 +1,31 @@
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_0971ec1f7fee89::t_668a168468cf5a 58-61,413-414,416-421,423-440,443-445
+tests/e2e/electron/navigation/moveTabViewState.e2e.test.ts
+  s_0971ec1f7fee89::t_e052c6d67ca96d 443
+  s_0971ec1f7fee89::t_2672de70505358 32-37,384-397,399,403-404,413,424-440,442,444-459
+  s_0971ec1f7fee89::t_2bdf2a49ef806c 441
+  s_0971ec1f7fee89::t_83be0f45484a27 398,400-402,412,414-423
+  s_0971ec1f7fee89::t_c64ccbf16daab8 405-411
+tests/unit/app/modules/workspace-shell/composables/windowTabTransferOrchestration.test.ts
+  s_0971ec1f7fee89::t_874a92437ef3f6 44,288-289,302-303,307-308,315-320,325-330,347-348
+  s_0971ec1f7fee89::t_83be0f45484a27 355-357,367-369,460-462,467-471,473-474,479,481
+  s_0971ec1f7fee89::t_acb72812f7ad85 309-314,321-324,358-366,463,465-466
+app/modules/workspace-shell/documentContext.ts
+  s_0971ec1f7fee89::t_668a168468cf5a 583
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ee2b78778f8634141d55c57f526c5b70ec8cfe80",
+  "prompts": {},
+  "sessions": {
+    "s_0971ec1f7fee89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1239f-3cbd-7a21-9348-5947c95d38fa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
