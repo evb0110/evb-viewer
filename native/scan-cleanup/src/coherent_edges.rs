@@ -56,13 +56,30 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
 
     // A fold crease breaks into short line fragments stacked along one column,
     // and each fragment can pass as a standalone mark. Line-shaped fragments
-    // whose column run exceeds maximum_height are one crease, not marks. Glyph
-    // shapes (numerals are at most about 3:1) never count as lines, so stacked
-    // numerals keep their standalone mark.
+    // whose column run exceeds maximum_height are one crease, not marks, but
+    // only while they are faint: a crease is shading, and printed rules are
+    // dark, so a dashed or cut rule keeps its print. Glyph shapes (numerals are
+    // at most about 3:1) never count as lines, so stacked numerals keep their
+    // standalone mark.
     let is_line = |component: &Component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         height >= width.saturating_mul(4)
+    };
+    // Faint means the fragment's mean luminance stays within a quarter of the
+    // paper's: measured crease fragments sit 15-32 levels below paper 219-228,
+    // while even a thin printed rule blurred at analysis scale averages darker.
+    let paper = crate::mode_select::grayscale_percentile(image, 0.7);
+    let is_faint = |component: &Component| {
+        let mut luminance_sum = 0usize;
+        let mut area = 0usize;
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                luminance_sum += usize::from(image.get(x, y));
+                area += 1;
+            }
+        }
+        4 * luminance_sum >= 3 * usize::from(paper) * area
     };
     let column_run_height = |component: &Component| {
         candidates
@@ -83,7 +100,9 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
             && component.area >= minimum_area.saturating_mul(2)
             && width.saturating_mul(8) >= height
             && height.saturating_mul(8) >= width
-            && (!is_line(component) || column_run_height(component) <= maximum_height)
+            && (!is_line(component)
+                || column_run_height(component) <= maximum_height
+                || !is_faint(component))
     }) {
         return true;
     }
@@ -134,13 +153,66 @@ mod tests {
         assert!(!is_blank_scan_candidate(&gray, None));
     }
 
+    fn fill(gray: &mut GrayImage, left: usize, top: usize, right: usize, bottom: usize, value: u8) {
+        for y in top..bottom {
+            for x in left..right {
+                gray.set(x, y, value);
+            }
+        }
+    }
+
+    #[test]
+    fn a_dark_dashed_rule_is_not_a_blank_candidate() {
+        // A printed rule blurred toward gray at analysis scale is still far
+        // darker than a crease (a crease sits about 30 levels below paper).
+        for ink in [60, 140] {
+            let mut gray = GrayImage::new(620, 877, 232);
+            for top in (40..800).step_by(40) {
+                fill(&mut gray, 300, top, 304, top + 32, ink);
+            }
+            assert!(!is_blank_scan_candidate(&gray, None), "ink {ink}");
+        }
+    }
+
+    #[test]
+    fn a_dark_rule_cut_into_short_pieces_is_not_a_blank_candidate() {
+        let mut gray = GrayImage::new(620, 877, 232);
+        for top in (100..400).step_by(36) {
+            fill(&mut gray, 300, top, 304, top + 32, 60);
+        }
+        assert!(!is_blank_scan_candidate(&gray, None));
+
+        let mut thick = GrayImage::new(620, 877, 232);
+        for top in [100, 170, 240] {
+            fill(&mut thick, 300, top, 308, top + 60, 60);
+        }
+        assert!(!is_blank_scan_candidate(&thick, None));
+    }
+
+    #[test]
+    fn a_column_of_narrow_dark_strokes_is_not_a_blank_candidate() {
+        let mut gray = GrayImage::new(620, 877, 232);
+        for index in 0..14 {
+            let top = 60 + index * 40;
+            fill(&mut gray, 300, top, 302, top + 16, 60);
+        }
+        assert!(!is_blank_scan_candidate(&gray, None));
+
+        let mut bars = GrayImage::new(620, 877, 232);
+        for index in 0..14 {
+            let top = 60 + index * 40;
+            fill(&mut bars, 300, top, 303, top + 20, 60);
+        }
+        assert!(!is_blank_scan_candidate(&bars, None));
+    }
+
     #[test]
     fn a_fold_crease_broken_into_line_fragments_is_a_blank_candidate() {
         let mut gray = GrayImage::new(620, 877, 236);
         for index in 0..8 {
             for y in 40 + index * 60..40 + index * 60 + 32 {
                 for x in 300..304 {
-                    gray.set(x, y, 166);
+                    gray.set(x, y, 206);
                 }
             }
         }
