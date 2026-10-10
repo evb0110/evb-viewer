@@ -1834,16 +1834,18 @@ fn append_source_annotations(
     instruction: &TextLayerInstruction,
     pages: &[OverlayPage<'_>],
 ) -> Result<()> {
-    let source_page = source.get_dictionary(source_page_id)?;
-    let Ok(annots) = source_page.get(b"Annots") else {
+    let Ok(annots) = source.get_dictionary(source_page_id)?.get(b"Annots") else {
         return Ok(());
     };
     let annotations = source.dereference(annots)?.1.as_array()?;
-    let view = instruction
+    let filter = instruction
         .filter_to_output_page
         .then(|| match instruction.source_region {
-            Some(region) => crate::split_pages::validate_crop_rect(region.rect),
-            None => resolve_page_view(target, target_page_id),
+            Some(region) => crate::split_pages::validate_crop_rect(region.rect)
+                .map(|view| (region.matrix, view)),
+            None => {
+                resolve_page_view(target, target_page_id).map(|view| (instruction.matrix, view))
+            }
         })
         .transpose()?;
     let rotation = resolve_page_rotation(target, target_page_id)?;
@@ -1859,38 +1861,40 @@ fn append_source_annotations(
         Ok(())
     };
     let mut copied = HashMap::from([(source_page_id, target_page_id)]);
-    let mut output = Vec::new();
-    for (annotation, geometry) in annotations.iter().filter_map(|annotation| {
-        resolved_dictionary(source, annotation).map(|geometry| (annotation, geometry))
-    }) {
-        // Replies and popup windows follow their owner's placement, even when
-        // their own window rectangle lies on the other half of a split.
-        let owner = geometry
-            .get(b"IRT")
-            .or_else(|_| geometry.get(b"Parent"))
-            .ok()
-            .and_then(|owner| resolved_dictionary(source, owner))
-            .unwrap_or(geometry);
-        if let Some(view) = view {
-            if let Some(rect) = read_pdf_rect_from_dict(source, owner) {
-                let rect = TextMatrix::from_values(
-                    instruction
-                        .source_region
-                        .map_or(instruction.matrix, |region| region.matrix),
-                )
-                .bounds(rect);
-                let subtype =
-                    resolved_name(source, geometry.get(b"Subtype").unwrap_or(&Object::Null));
-                let belongs = if matches!(subtype, Some(b"Text" | b"Popup")) {
+    let mut output = match target.get_dictionary(target_page_id)?.get(b"Annots") {
+        Ok(annots) => target.dereference(annots)?.1.as_array()?.clone(),
+        Err(_) => Vec::new(),
+    };
+    for annotation in annotations {
+        let Some(mut owner) = resolved_dictionary(source, annotation) else {
+            continue;
+        };
+        let subtype = resolved_name(source, owner.get(b"Subtype").unwrap_or(&Object::Null));
+        // The terminal owner places the whole reply and popup thread.
+        if let Some((matrix, view)) = filter {
+            let mut owners = HashSet::from([owner as *const Dictionary]);
+            while let Some(next) = owner
+                .get(b"IRT")
+                .or_else(|_| owner.get(b"Parent"))
+                .ok()
+                .and_then(|object| resolved_dictionary(source, object))
+            {
+                if owners.len() >= MAX_OBJECT_GRAPH_DEPTH || !owners.insert(next as *const _) {
+                    return Err("overlay-text annotation ownership is cyclic or too deep".into());
+                }
+                owner = next;
+            }
+            if read_pdf_rect_from_dict(source, owner).is_some_and(|rect| {
+                let rect = TextMatrix::from_values(matrix).bounds(rect);
+                if matches!(subtype, Some(b"Text" | b"Popup")) {
                     let x = (rect.x1 + rect.x2) / 2.0;
                     let y = (rect.y1 + rect.y2) / 2.0;
-                    x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2
+                    !(x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2)
                 } else {
-                    intersect_rect(rect, view).is_some()
-                };
-                if !belongs {
-                    continue;
+                    intersect_rect(rect, view).is_none()
                 }
+            }) {
+                continue;
             }
         }
         output.push(clone_object_graph(
@@ -1906,14 +1910,9 @@ fn append_source_annotations(
             transform(target, annotation)?;
         }
     }
-    let mut existing = match target.get_dictionary(target_page_id)?.get(b"Annots") {
-        Ok(annots) => target.dereference(annots)?.1.as_array()?.clone(),
-        Err(_) => Vec::new(),
-    };
-    existing.extend(output);
     target
         .get_dictionary_mut(target_page_id)?
-        .set("Annots", existing);
+        .set("Annots", output);
     Ok(())
 }
 

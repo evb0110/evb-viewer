@@ -1777,69 +1777,263 @@ fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() 
 
 #[test]
 fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
-    let source = path("source-region-note", "pdf");
-    let input = path("source-region-target", "pdf");
-    let output = path("source-region-output", "pdf");
-    let instructions = path("source-region", "json");
-    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
-    let page_id = document.get_pages()[&1];
-    document
-        .get_dictionary_mut(page_id)
-        .unwrap()
-        .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 100.into()]);
-    let note = document.add_object(dictionary! {
-        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
-        "Rect" => vec![195.into(), 45.into(), 205.into(), 55.into()], "Contents" => Object::string_literal("Seam note"),
-    });
-    document
-        .get_dictionary_mut(page_id)
-        .unwrap()
-        .set("Annots", vec![Object::Reference(note)]);
-    document.save(&source).unwrap();
-    let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
-    for id in target.get_pages().values() {
-        target
-            .get_dictionary_mut(*id)
+    for (incremental, margin, source_region) in [
+        (false, 0, false),
+        (false, 0, true),
+        (false, 20, true),
+        (true, 0, true),
+        (true, 20, true),
+    ] {
+        let source = path("source-region-note", "pdf");
+        let input = path("source-region-target", "pdf");
+        let output = path("source-region-output", "pdf");
+        let inspected = path("source-region-inspected", "pdf");
+        let instructions = path("source-region", "json");
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page_id = document.get_pages()[&1];
+        let seam = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+            "Rect" => vec![95.into(), 45.into(), 105.into(), 55.into()],
+            "Contents" => Object::string_literal("Seam note"),
+        });
+        let root = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+            "Rect" => vec![20.into(), 30.into(), 30.into(), 40.into()],
+            "Contents" => Object::string_literal("Root note"),
+        });
+        let reply = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+            "Rect" => vec![150.into(), 30.into(), 160.into(), 40.into()],
+            "Contents" => Object::string_literal("Reply note"),
+        });
+        let popup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => reply,
+            "Rect" => vec![140.into(), 45.into(), 190.into(), 100.into()],
+            "Contents" => Object::string_literal("Reply popup"),
+        });
+        document
+            .get_dictionary_mut(reply)
             .unwrap()
-            .set("MediaBox", vec![0.into(), 0.into(), 210.into(), 110.into()]);
-    }
-    target.save(&input).unwrap();
-    write(&instructions, serde_json::to_vec(&serde_json::json!({"pages": [
-        {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,5,5],"filterToOutputPage":true,
-         "sourceRegion":{"rect":{"x":0,"y":0,"width":200,"height":100},"matrix":[1,0,0,-1,0,100]}},
-        {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-195,5],"filterToOutputPage":true,
-         "sourceRegion":{"rect":{"x":200,"y":0,"width":200,"height":100},"matrix":[1,0,0,-1,0,100]}}
-    ]})).unwrap()).unwrap();
-    let result = run_overlay_text(&input, &source, &output, &instructions);
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let saved = Document::load(&output).unwrap();
-    let counts = saved
-        .get_pages()
-        .values()
-        .map(|id| {
-            saved
-                .get_dictionary(*id)
+            .set("Popup", popup);
+        let markup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => page_id,
+            "Rect" => vec![90.into(), 45.into(), 110.into(), 55.into()],
+            "QuadPoints" => vec![90.into(), 55.into(), 110.into(), 55.into(), 90.into(), 45.into(), 110.into(), 45.into()],
+            "Contents" => Object::string_literal("Cross-seam markup"),
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![seam, root, reply, popup, markup]
+                .into_iter()
+                .map(Object::Reference)
+                .collect::<Vec<_>>(),
+        );
+        document.save(&source).unwrap();
+        if incremental {
+            assert!(write_sparse_source(&input, 2, None, None) > 512 * 1024 * 1024);
+        } else {
+            let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+            for id in target.get_pages().values() {
+                target.get_dictionary_mut(*id).unwrap().set(
+                    "MediaBox",
+                    vec![
+                        0.into(),
+                        0.into(),
+                        (100 + 2 * margin).into(),
+                        (120 + 2 * margin).into(),
+                    ],
+                );
+            }
+            let target_page = target.get_pages()[&1];
+            let existing = target.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "Text", "P" => target_page,
+                "Rect" => vec![70.into(), 20.into(), 80.into(), 30.into()],
+                "Contents" => Object::string_literal("Existing target note"),
+            });
+            target
+                .get_dictionary_mut(target_page)
                 .unwrap()
-                .get(b"Annots")
-                .ok()
-                .map_or(0, |annots| {
-                    saved
-                        .dereference(annots)
-                        .unwrap()
-                        .1
-                        .as_array()
-                        .unwrap()
-                        .len()
+                .set("Annots", vec![Object::Reference(existing)]);
+            target.save(&input).unwrap();
+        }
+        let pages = (0..2)
+            .map(|index| {
+                let mut instruction = serde_json::json!({
+                    "sourcePageIndex":0,"outputPageIndex":index,
+                    "matrix":[1,0,0,1,margin-index*100,margin],"filterToOutputPage":true,
+                });
+                if source_region {
+                    instruction["sourceRegion"] = serde_json::json!({
+                        "rect":{"x":index*100,"y":0,"width":100,"height":120},
+                        "matrix":[1,0,0,-1,0,120],
+                    });
+                }
+                instruction
+            })
+            .collect::<Vec<_>>();
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":pages})).unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let compact = Command::new(qpdf_path())
+            .arg(&output)
+            .arg(&inspected)
+            .output()
+            .unwrap();
+        assert!(
+            compact.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compact.stderr)
+        );
+        let saved = Document::load(&inspected).unwrap();
+        let annotations = saved
+            .get_pages()
+            .values()
+            .map(|page| {
+                saved
+                    .get_dictionary(*page)
+                    .unwrap()
+                    .get(b"Annots")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|object| {
+                        let id = object.as_reference().unwrap();
+                        let annotation = saved.get_dictionary(id).unwrap();
+                        assert_eq!(annotation.get(b"P").unwrap().as_reference().unwrap(), *page);
+                        (
+                            String::from_utf8(
+                                annotation
+                                    .get(b"Contents")
+                                    .unwrap()
+                                    .as_str()
+                                    .unwrap()
+                                    .to_vec(),
+                            )
+                            .unwrap(),
+                            id,
+                        )
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            })
+            .collect::<Vec<_>>();
+        let mut expected_left = vec![
+            "Cross-seam markup",
+            "Reply note",
+            "Reply popup",
+            "Root note",
+        ];
+        if !incremental {
+            expected_left.insert(1, "Existing target note");
+            assert_eq!(
+                saved
+                    .get_dictionary(annotations[0]["Existing target note"])
+                    .unwrap()
+                    .get(b"Rect")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|number| number.as_i64().unwrap())
+                    .collect::<Vec<_>>(),
+                vec![70, 20, 80, 30]
+            );
+        }
+        assert_eq!(
+            annotations[0]
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            expected_left
+        );
+        assert_eq!(
+            annotations[1]
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["Cross-seam markup", "Seam note"]
+        );
+        let left = &annotations[0];
+        let reply = saved.get_dictionary(left["Reply note"]).unwrap();
+        assert_eq!(
+            reply.get(b"IRT").unwrap().as_reference().unwrap(),
+            left["Root note"]
+        );
+        assert_eq!(
+            reply.get(b"Popup").unwrap().as_reference().unwrap(),
+            left["Reply popup"]
+        );
+        assert_eq!(
+            saved
+                .get_dictionary(left["Reply popup"])
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            left["Reply note"]
+        );
+        assert_eq!(
+            saved
+                .objects
+                .values()
+                .filter(|object| {
+                    object
+                        .as_dict()
+                        .ok()
+                        .and_then(|dict| dict.get(b"Subtype").ok())
+                        .and_then(|subtype| subtype.as_name().ok())
+                        .is_some_and(|subtype| matches!(subtype, b"Text" | b"Popup"))
                 })
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(counts, vec![0, 1]);
-    for file in [source, input, output, instructions] {
-        remove_file(file).unwrap();
+                .count(),
+            4 + usize::from(!incremental)
+        );
+        // An ownership cycle has no terminal half. Refuse before publication.
+        for owner in [
+            root,
+            document
+                .get_dictionary(popup)
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+        ] {
+            document.get_dictionary_mut(root).unwrap().set("IRT", owner);
+            document.save(&source).unwrap();
+            write(&output, b"existing output").unwrap();
+            let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+            assert!(!result.status.success());
+            assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        }
+        document.get_dictionary_mut(root).unwrap().remove(b"IRT");
+        let mut deep_owner = root;
+        for _ in 0..128 {
+            deep_owner = document.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => deep_owner,
+                "Rect" => vec![150.into(), 30.into(), 160.into(), 40.into()],
+            });
+        }
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(deep_owner)]);
+        document.save(&source).unwrap();
+        write(&output, b"existing output").unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(!result.status.success());
+        assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        for file in [source, input, output, inspected, instructions] {
+            remove_file(file).unwrap();
+        }
     }
 }
 
