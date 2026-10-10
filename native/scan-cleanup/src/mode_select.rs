@@ -1337,23 +1337,14 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
     for y in 0..image.height() {
         for x in 0..image.width() {
             let value = image.get(x, y);
-            if x > 0 {
-                let neighbor = image.get(x - 1, y);
+            let neighbors = [(x > 0).then(|| (x - 1, y)), (y > 0).then(|| (x, y - 1))];
+            for (neighbor_x, neighbor_y) in neighbors.into_iter().flatten() {
+                let neighbor = image.get(neighbor_x, neighbor_y);
                 if value.abs_diff(neighbor) >= BLANK_EDGE_DIFFERENCE {
                     if value <= neighbor {
                         edges.set(x, y, true);
                     } else {
-                        edges.set(x - 1, y, true);
-                    }
-                }
-            }
-            if y > 0 {
-                let neighbor = image.get(x, y - 1);
-                if value.abs_diff(neighbor) >= BLANK_EDGE_DIFFERENCE {
-                    if value <= neighbor {
-                        edges.set(x, y, true);
-                    } else {
-                        edges.set(x, y - 1, true);
+                        edges.set(neighbor_x, neighbor_y, true);
                     }
                 }
             }
@@ -1394,6 +1385,14 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
             && component.area >= minimum_area.saturating_mul(2)
             && width.saturating_mul(8) >= height
             && height.saturating_mul(8) >= width
+            // A fold crease splits into short fragments stacked in one column;
+            // no glyph is taller than maximum_height, so such a stack is a line.
+            && candidates
+                .iter()
+                .filter(|other| other.left <= component.right && component.left <= other.right)
+                .map(|other| other.bottom + 1 - other.top)
+                .sum::<usize>()
+                <= maximum_height
     }) {
         return true;
     }
