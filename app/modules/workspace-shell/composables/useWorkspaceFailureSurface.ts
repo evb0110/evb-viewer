@@ -102,7 +102,7 @@ export const useWorkspaceFailureSurface = () => {
             return t('errors.save.originalChanged');
         }
         const message = persistence?.message ?? '';
-        if (/EACCES|EPERM|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
+        if (/EACCES|EPERM|EBUSY|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
             return t('errors.save.permissionDenied');
         }
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {

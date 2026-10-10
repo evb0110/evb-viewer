@@ -186,14 +186,17 @@ describe('useWorkspaceFailureSurface', () => {
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 
-    it('keeps the native bridge receipt and cause in the save presentation', () => {
+    it.each([
+        'EACCES: permission denied',
+        'EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak',
+    ])('keeps the native bridge receipt and cause for %s in the save presentation', message => {
         const receipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',
             eventId: '0123456789abcdef0123456789abcdef',
             occurredAt: 1,
             severity: 'error',
         } as FailureReceipt;
-        const cause = Object.assign(new Error('EACCES: permission denied'), {failure: receipt});
+        const cause = Object.assign(new Error(message), {failure: receipt});
         const surface = useWorkspaceFailureSurface();
         surface.reportSaveFailure('save-native', 'persist-rejected', undefined, undefined, {
             channel: 'native',
