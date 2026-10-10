@@ -546,53 +546,69 @@ fn page_annotation_array(document: &Document, page: &Dictionary) -> Option<Vec<O
     resolved.as_array().ok().cloned()
 }
 
+fn page_annotation_dictionaries(
+    source: &Document,
+    page: &Dictionary,
+) -> Option<Vec<(Object, Option<Dictionary>)>> {
+    Some(
+        page_annotation_array(source, page)?
+            .into_iter()
+            .map(|annotation| {
+                let resolved = source
+                    .dereference(&annotation)
+                    .ok()
+                    .and_then(|(_, object)| object.as_dict().ok())
+                    .cloned();
+                (annotation, resolved)
+            })
+            .collect(),
+    )
+}
+
 /// Annotations live in the same user space as the content they mark, so a
 /// content transform that leaves them alone silently moves every note off its
 /// target. The annotation objects can be shared with the source page and with
 /// the other half of a split, so each output gets its own copy.
+///
+/// Writes each annotation's transformed copy into `target`. The dictionaries
+/// come from `page_annotation_dictionaries`, so a source that is the target
+/// itself is read before any copy is added to it.
 fn transform_annotations(
-    document: &mut Document,
+    target: &mut Document,
     page: &mut Dictionary,
+    annotations: Option<Vec<(Object, Option<Dictionary>)>>,
     transform: SplitContentTransform,
+    geometry_base: Option<&Document>,
 ) -> Result<()> {
-    let Some(source) = page_annotation_array(document, page) else {
+    let Some(annotations) = annotations else {
         return Ok(());
     };
-    let mut transformed = Vec::with_capacity(source.len());
-    for annotation in source {
+    let rotation = page
+        .get(b"Rotate")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(0);
+    let matrix = [
+        transform.scale,
+        0.0,
+        0.0,
+        transform.scale,
+        transform.translate_x,
+        transform.translate_y,
+    ];
+    let mut transformed = Vec::with_capacity(annotations.len());
+    for (annotation, resolved) in annotations {
         // An entry this tool cannot read as an annotation dictionary — a
         // reference the source is missing, or an object that is not a
         // dictionary at all — is carried over exactly as it was. Dropping it
         // would delete a note the source page still shows, which is a worse
         // answer than one note left at the coordinates it already had.
-        let resolved = document
-            .dereference(&annotation)
-            .ok()
-            .and_then(|(_, object)| object.as_dict().ok())
-            .cloned();
-        let Some(dictionary) = resolved else {
+        let Some(mut copy) = resolved else {
             transformed.push(annotation);
             continue;
         };
-        let mut copy = dictionary;
-        transform_annotation_geometry(
-            document,
-            &mut copy,
-            [
-                transform.scale,
-                0.0,
-                0.0,
-                transform.scale,
-                transform.translate_x,
-                transform.translate_y,
-            ],
-            None,
-            page.get(b"Rotate")
-                .ok()
-                .and_then(|value| value.as_i64().ok())
-                .unwrap_or(0),
-        )?;
-        transformed.push(Object::Reference(document.add_object(copy)));
+        transform_annotation_geometry(target, &mut copy, matrix, geometry_base, rotation)?;
+        transformed.push(Object::Reference(target.add_object(copy)));
     }
     page.set("Annots", Object::Array(transformed));
     Ok(())
@@ -623,7 +639,8 @@ fn apply_content_transform(
         "Contents",
         Object::Array(streams.into_iter().map(Object::Reference).collect()),
     );
-    transform_annotations(document, page, transform)
+    let annotations = page_annotation_dictionaries(document, page);
+    transform_annotations(document, page, annotations, transform, None)
 }
 
 /// Collect the existing page content references without copying their stream
@@ -684,50 +701,6 @@ fn collect_content_streams_from_base(
     Ok(())
 }
 
-fn transform_annotations_incremental(
-    base: &Document,
-    target: &mut Document,
-    page: &mut Dictionary,
-    transform: SplitContentTransform,
-) -> Result<()> {
-    let Some(source) = page_annotation_array(base, page) else {
-        return Ok(());
-    };
-    let mut transformed = Vec::with_capacity(source.len());
-    for annotation in source {
-        let resolved = base
-            .dereference(&annotation)
-            .ok()
-            .and_then(|(_, object)| object.as_dict().ok())
-            .cloned();
-        let Some(dictionary) = resolved else {
-            transformed.push(annotation);
-            continue;
-        };
-        let mut copy = dictionary;
-        transform_annotation_geometry(
-            target,
-            &mut copy,
-            [
-                transform.scale,
-                0.0,
-                0.0,
-                transform.scale,
-                transform.translate_x,
-                transform.translate_y,
-            ],
-            Some(base),
-            page.get(b"Rotate")
-                .ok()
-                .and_then(|value| value.as_i64().ok())
-                .unwrap_or(0),
-        )?;
-        transformed.push(Object::Reference(target.add_object(copy)));
-    }
-    page.set("Annots", Object::Array(transformed));
-    Ok(())
-}
-
 fn apply_content_transform_incremental(
     base: &Document,
     target: &mut Document,
@@ -751,7 +724,8 @@ fn apply_content_transform_incremental(
         "Contents",
         Object::Array(streams.into_iter().map(Object::Reference).collect()),
     );
-    transform_annotations_incremental(base, target, page, transform)
+    let annotations = page_annotation_dictionaries(base, page);
+    transform_annotations(target, page, annotations, transform, Some(base))
 }
 
 const MAX_OC_GRAPH_DEPTH: usize = 64;
