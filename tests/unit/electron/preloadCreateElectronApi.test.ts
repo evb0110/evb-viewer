@@ -445,6 +445,20 @@ describe('createElectronApi', () => {
         });
     });
 
+    it('uses the kernel MemAvailable as Linux headroom instead of MemFree plus page cache', async () => {
+        const { decodeSystemMemoryInfo } = await import('@electron/preload/createElectronApi');
+
+        expect(decodeSystemMemoryInfo({
+            total: 29_360_128,
+            free: 3_145_728,
+            available: 15_728_640,
+        })).toEqual({
+            availableBytes: 16_106_127_360,
+            totalBytes: 30_064_771_072,
+            freeBytes: 3_221_225_472,
+        });
+    });
+
     it('falls back when a sandboxed preload cannot read system memory', async () => {
         const runtimeProcess = process as typeof process & {getSystemMemoryInfo?: () => never;};
         const originalDescriptor = Object.getOwnPropertyDescriptor(
