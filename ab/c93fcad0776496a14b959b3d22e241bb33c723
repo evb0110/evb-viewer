@@ -1,0 +1,26 @@
+app/modules/workspace-shell/documentViewContext.ts
+  s_0971ec1f7fee89::t_8ff1784a63555f 119,122,128
+tests/e2e/electron/save/compactPageLabelsStructuralOperations.e2e.test.ts
+  s_0971ec1f7fee89::t_e1a92a52e86c32 43,410-457
+app/platform/browserWindowTabs.ts
+  s_0971ec1f7fee89::t_8ff1784a63555f 1029
+tests/unit/app/modules/workspace-shell/components/documentWorkspaceNavigationCommand.test.ts
+  s_0971ec1f7fee89::t_1417c04f863d89 369
+  s_0971ec1f7fee89::t_8c5ac770f7c10c 201,223,228,261-266,275,314-319,330-333,338,347,349-350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "abc93fcad0776496a14b959b3d22e241bb33c723",
+  "prompts": {},
+  "sessions": {
+    "s_0971ec1f7fee89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1239f-3cbd-7a21-9348-5947c95d38fa",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}
