@@ -33,7 +33,11 @@ keeps its own cut. A hairline beside a heavy stem peaks far short of that
 stem's core, so it is cut seven tenths of the way to its own core, found within
 a quarter of a millimetre, and stays whole without widening darker strokes.
 Where the nearby ink is shallower than three tenths of the page's ink depth,
-the page-wide midpoint applies, so faint show-through stays paper.
+the page-wide midpoint applies, so faint show-through stays paper. A faint
+stroke that is long and thin, such as a pencil note or a light printed rule,
+is the exception: it prints whole, cut at half its own depth. A round smudge,
+the short strokes of blind embossing and the shading along the scan's edge stay
+paper.
 
 Wolf and Sauvola remain available as explicit choices. They normalize contrast
 per window, which thickens light words more than dark ones; Auto no longer

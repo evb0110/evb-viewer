@@ -986,6 +986,97 @@ mod tests {
         );
     }
 
+    /// Dark print beside a pencil curve 3 px wide whose pressure varies along
+    /// it, from 34 to 54 levels below the paper. The cut keeps none of it.
+    fn print_and_pencil_curve() -> (GrayImage, BinaryImage) {
+        let mut raw = GrayImage::new(600, 300, 220);
+        let mut binary = BinaryImage::new(600, 300);
+        for left in [40, 100] {
+            for y in 40..90 {
+                for x in left..left + 30 {
+                    raw.set(x, y, 35);
+                    binary.set(x, y, true);
+                }
+            }
+        }
+        for x in 200..520 {
+            let center = 150.0 + 30.0 * (x as f64 / 40.0).sin();
+            let value = (176.0 + 10.0 * (x as f64 / 23.0).sin()).round() as u8;
+            for y in center.round() as usize - 1..=center.round() as usize + 1 {
+                raw.set(x, y, value);
+            }
+        }
+        (raw, binary)
+    }
+
+    #[test]
+    fn faint_pencil_curve_beside_print_prints_whole() {
+        let (raw, binary) = print_and_pencil_curve();
+        for local_route in [false, true] {
+            let filtered = filter_soft_shallow_bleed_components(
+                &binary, &raw, None, None, None, 300.0, local_route,
+            );
+            assert!((200..520).all(|x| (110..190).any(|y| filtered.get(x, y))));
+            assert!((40..70).all(|x| (40..90).all(|y| filtered.get(x, y))));
+        }
+    }
+
+    #[test]
+    fn faint_smudge_embossing_edge_shading_and_picture_lines_stay_paper() {
+        let (mut raw, binary) = print_and_pencil_curve();
+        for x in 200..520 {
+            for y in 110..190 {
+                raw.set(x, y, 220);
+            }
+        }
+        // A round smudge as deep as the pencil.
+        for y in 120..160 {
+            for x in 260..300 {
+                if (x as f64 - 280.0).hypot(y as f64 - 140.0) <= 14.0 {
+                    raw.set(x, y, 176);
+                }
+            }
+        }
+        // The letters of a blind stamp: short strokes, each 4 mm long.
+        for left in (330..520).step_by(20) {
+            for y in 200..247 {
+                for x in left..left + 3 {
+                    raw.set(x, y, 176);
+                }
+            }
+        }
+        // The shading along the scan's edge: a straight line beside it.
+        for y in 20..280 {
+            for x in 588..591 {
+                raw.set(x, y, 176);
+            }
+        }
+        // A pencil line running into a picture.
+        let mut picture = BinaryImage::new(600, 300);
+        for x in 100..400 {
+            for y in 268..271 {
+                raw.set(x, y, 176);
+            }
+        }
+        for y in 250..290 {
+            for x in 380..440 {
+                picture.set(x, y, true);
+            }
+        }
+        let filtered = filter_soft_shallow_bleed_components(
+            &binary,
+            &raw,
+            Some(&picture),
+            None,
+            None,
+            300.0,
+            false,
+        );
+        assert!(!(200..560).any(|x| (100..260).any(|y| filtered.get(x, y))));
+        assert!(!(580..600).any(|x| (20..280).any(|y| filtered.get(x, y))));
+        assert!(!(100..360).any(|x| (262..278).any(|y| filtered.get(x, y))));
+    }
+
     #[test]
     fn soft_underline_below_text_row_is_preserved() {
         let mut raw = GrayImage::new(420, 160, 220);

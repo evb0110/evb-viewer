@@ -61,6 +61,7 @@ use crate::{
     },
     CleanupOptions, OrthogonalRotation, OutputMode, ResolvedOutputMode,
 };
+use faint_marks::filter_soft_shallow_bleed_components;
 use rayon::prelude::*;
 use scan_primitives::{
     distance::squared_euclidean_distance,
@@ -80,6 +81,8 @@ use std::{
 
 #[path = "render/document_analysis.rs"]
 mod document_analysis;
+#[path = "render/faint_marks.rs"]
+mod faint_marks;
 #[path = "render/final_composition.rs"]
 mod final_composition;
 #[path = "render/fold_edge_filtering.rs"]
@@ -2845,154 +2848,6 @@ fn unowned_text_recall(text_mask: &BinaryImage, binary: &BinaryImage) -> BinaryI
         }
     }
     components.retain(|component| !contacted[component.label as usize])
-}
-
-fn filter_soft_shallow_bleed_components(
-    binary: &BinaryImage,
-    raw: &GrayImage,
-    picture_mask: Option<&BinaryImage>,
-    text_mask: Option<&BinaryImage>,
-    text_vicinity_mask: Option<&BinaryImage>,
-    dpi: f64,
-    local_route: bool,
-) -> BinaryImage {
-    debug_assert_eq!(binary.width(), raw.width());
-    debug_assert_eq!(binary.height(), raw.height());
-    debug_assert!(picture_mask
-        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
-    debug_assert!(text_mask
-        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
-    debug_assert!(text_vicinity_mask
-        .is_none_or(|mask| { mask.width() == binary.width() && mask.height() == binary.height() }));
-    if binary.count_black() == 0 {
-        return binary.clone();
-    }
-
-    const LARGE_CRISPNESS_FLOOR: f64 = 24.0;
-    const LARGE_SHALLOW_DEPTH: u8 = 72;
-    let crispness_floor = f64::from(BLEED_CRISPNESS_FLOOR);
-    let shallow_depth = BLEED_SHALLOW_DEPTH;
-
-    let gradient_radius = (dpi * 0.12 / 25.4).round().clamp(1.0, 4.0) as usize;
-    let boundary_radius = (dpi * 0.07 / 25.4).round().clamp(1.0, 3.0) as usize;
-    let boundary = erode(binary, boundary_radius, boundary_radius);
-    let (raw_max, raw_min) = rayon::join(
-        || erode_gray(raw, gradient_radius, gradient_radius),
-        || dilate_gray(raw, gradient_radius, gradient_radius),
-    );
-    let components = ComponentMap::from_binary(binary);
-    let (raw_sums, raw_counts) = components.gray_sums_by_component(raw);
-    let mut gradient_sums = vec![0u64; components.components().len() + 1];
-    let mut gradient_counts = vec![0usize; components.components().len() + 1];
-    let paper = paper_reference(raw);
-    let shallow_floor = paper.saturating_sub(shallow_depth);
-    let mut deep_pixels = vec![0usize; components.components().len() + 1];
-    let mut text_overlap = vec![0usize; components.components().len() + 1];
-    let mut protected = vec![false; components.components().len() + 1];
-    let protected_picture = picture_mask.map(|mask| {
-        let radius = picture_protection_radius(dpi);
-        dilate(mask, radius, radius)
-    });
-    for y in 0..binary.height() {
-        for x in 0..binary.width() {
-            if !binary.get(x, y) {
-                continue;
-            }
-            let label = components.label_at(x, y) as usize;
-            if protected_picture
-                .as_ref()
-                .is_some_and(|mask| mask.get(x, y))
-            {
-                protected[label] = true;
-            }
-            if raw.get(x, y) < shallow_floor {
-                deep_pixels[label] += 1;
-            }
-            if text_mask.is_some_and(|mask| mask.get(x, y)) {
-                text_overlap[label] += 1;
-            }
-            if !boundary.get(x, y) {
-                gradient_sums[label] +=
-                    u64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)));
-                gradient_counts[label] += 1;
-            }
-        }
-    }
-    let area_ceiling = ((dpi.max(1.0) * 2.0 / 25.4).powi(2)).round().max(16.0) as usize;
-    let underline_major_extent = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
-    let underline_max_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
-    let underline_max_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
-    let underline_components = components.components().iter().fold(
-        vec![false; components.components().len() + 1],
-        |mut flags, component| {
-            let label = component.label as usize;
-            let width = component.right - component.left + 1;
-            let height = component.bottom - component.top + 1;
-            let text_row_above = {
-                let left = component.left;
-                let right = component.right.min(binary.width().saturating_sub(1));
-                let top = component.top.saturating_sub(underline_max_gap);
-                (top..component.top).any(|y| {
-                    (left..=right).any(|x| {
-                        text_mask.is_some_and(|mask| mask.get(x, y))
-                            || text_vicinity_mask.is_some_and(|mask| mask.get(x, y))
-                    })
-                })
-            };
-            let horizontal_rule = width >= underline_major_extent
-                && width >= height.saturating_mul(4)
-                && height <= underline_max_thickness;
-            let has_depth_or_crispness = deep_pixels[label].saturating_mul(4) >= component.area
-                || (gradient_counts[label] > 0
-                    && gradient_sums[label] as f64 / gradient_counts[label] as f64
-                        >= LARGE_CRISPNESS_FLOOR);
-            flags[label] = horizontal_rule
-                && text_overlap[label] == 0
-                && text_row_above
-                && has_depth_or_crispness;
-            flags
-        },
-    );
-    let retained = components.retain(|component| {
-        let label = component.label as usize;
-        if protected[label]
-            || underline_components[label]
-            || gradient_counts[label] == 0
-            || raw_counts[label] == 0
-        {
-            return true;
-        }
-        let mean = raw_sums[label] as f64 / raw_counts[label] as f64;
-        let crispness = gradient_sums[label] as f64 / gradient_counts[label] as f64;
-        if component.area <= area_ceiling {
-            !(crispness < crispness_floor && mean >= f64::from(paper.saturating_sub(shallow_depth)))
-        } else {
-            !(crispness < LARGE_CRISPNESS_FLOOR
-                && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
-        }
-    });
-    // A local threshold (Wolf, Sauvola) normalizes contrast per window, so
-    // heavy show-through can cross it: a bleed rule that crosses a running
-    // head then merges with the glyphs into one component that the verdict
-    // above rightly keeps, and the merged strike must be removed pixelwise. A
-    // bleed pixel is simultaneously shallow and locally soft, while a crisp
-    // print's glyph pixel is either deep or crisp. The midpoint route cuts each
-    // stroke relative to its own ink, so faint bleed never reaches its stencil;
-    // there the same test would only erase the blurred hairlines of soft scans.
-    if !local_route {
-        return retained;
-    }
-    BinaryImage::from_fn_parallel(retained.width(), retained.height(), |x, y| {
-        let label = components.label_at(x, y) as usize;
-        retained.get(x, y)
-            && (underline_components[label]
-                || raw.get(x, y) < shallow_floor
-                || f64::from(raw_max.get(x, y).saturating_sub(raw_min.get(x, y)))
-                    >= crispness_floor
-                || protected_picture
-                    .as_ref()
-                    .is_some_and(|mask| mask.get(x, y)))
-    })
 }
 
 /// Reclaims only exact raw-dark pixels from a coherent horizontal rule that

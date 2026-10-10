@@ -203,8 +203,8 @@ async function createHairlineFacePdf(path: string) {
     return coverageArea(coverage);
 }
 
-/** The soft title and contents pages; returns the title's sharp ink area. */
-async function createSoftScanPdf(path: string) {
+/** The title's three lines of capitals, as ink coverage. */
+function createTitleCoverage() {
     const title = createCoverage();
     for (const [
         top,
@@ -218,6 +218,12 @@ async function createSoftScanPdf(path: string) {
             title.fill(left, top, 2 * TITLE_STEM + TITLE_COUNTER, TITLE_STEM / 2);
         }
     }
+    return title;
+}
+
+/** The soft title and contents pages; returns the title's sharp ink area. */
+async function createSoftScanPdf(path: string) {
+    const title = createTitleCoverage();
     const titleScan = blur(blur(title.coverage, SOFT_SCAN_KERNEL), SOFT_SCAN_KERNEL);
     const titlePixels = new Uint8Array(titleScan.length);
     for (let y = 0; y < PAGE_HEIGHT; y += 1) {
@@ -234,6 +240,42 @@ async function createSoftScanPdf(path: string) {
         createContentsPixels(7, 6, GUTTER_WIDTH),
     ]);
     return coverageArea(title.coverage);
+}
+
+// A pencil note between the title lines, like the one on the owner's 1915
+// title page: a stroke 3 px wide whose pressure varies along it, 40 to 65
+// levels below the paper before the scan's blur. Black-and-white cleanup
+// erased it.
+const NOTE_LEFT = 520;
+const NOTE_RIGHT = 900;
+const NOTE_MIDLINE = 1395;
+
+/** The pencil note's centre line: one point per column. */
+function pencilNotePath() {
+    return Array.from({length: NOTE_RIGHT - NOTE_LEFT}, (_, index) => ({
+        x: NOTE_LEFT + index,
+        y: Math.round(NOTE_MIDLINE + 30 * Math.sin((NOTE_LEFT + index) / 40)),
+    }));
+}
+
+/** A soft title page with a pencil note; returns the title's printed ink. */
+async function createPencilNoteScanPdf(path: string): Promise<IInkRaster> {
+    const title = createTitleCoverage();
+    const note = createCoverage();
+    for (const {
+        x, y,
+    } of pencilNotePath()) {
+        const pressure = 0.5 + 0.5 * Math.sin(x / 23);
+        note.fill(x, y - 1, 1, 3, (40 + 25 * pressure) / (SOFT_PAPER - TITLE_INK));
+    }
+    const titleScan = blur(blur(title.coverage, SOFT_SCAN_KERNEL), SOFT_SCAN_KERNEL);
+    const noteScan = blur(note.coverage, SOFT_SCAN_KERNEL);
+    await writeScanPdf(path, [Uint8Array.from(titleScan, (value, index) => Math.round(SOFT_PAPER - (value + noteScan[index]!) * (SOFT_PAPER - TITLE_INK)))]);
+    return {
+        ink: Uint8Array.from(title.coverage, value => (value >= 0.5 ? 1 : 0)),
+        width: PAGE_WIDTH,
+        height: PAGE_HEIGHT,
+    };
 }
 
 /** Short lines of soft contents type, beside a gutter shadow `gutter` pixels wide. */
@@ -786,5 +828,38 @@ describe('scan cleanup of soft display capitals', () => {
         // its own core printed these capitals a sixth heavier.
         expect(cleanedInk).toBeGreaterThan(printedInk * 0.85);
         expect(cleanedInk).toBeLessThan(printedInk * 1.15);
+    }, 300_000);
+});
+
+describe('automatic scan cleanup of a title page with a pencil note', () => {
+    it('prints the note whole when the page is cleaned to black and white', async () => {
+        const directory = createScratchDirectory('evb-e2e-cleanup-pencil-note-');
+        const sourcePath = join(directory, 'pencil-note-scan.pdf');
+        const printed = await createPencilNoteScanPdf(sourcePath);
+        const outputPath = await cleanScan(sourcePath, {blackAndWhite: false});
+
+        const page = await readPageImage(outputPath, 0);
+        const cleaned = await readPageInk(outputPath, directory, 1);
+        const {
+            dx, dy,
+        } = inkOffset(printed, cleaned);
+        const path = pencilNotePath();
+        const inkedColumns = path.filter(({
+            x, y,
+        }) => [
+            -2,
+            -1,
+            0,
+            1,
+            2,
+        ].some(offset => cleaned.ink[(y + offset + dy) * cleaned.width + x + dx] === 1)).length;
+        console.log('scan-cleanup-pencil-note', JSON.stringify({
+            bilevel: page.bilevel,
+            inked: inkedColumns / path.length,
+        }));
+        expect(page.bilevel).toBe(true);
+        // The note prints along its whole length: the soft-bleed filter used
+        // to treat it as show-through and leave the whole note as paper.
+        expect(inkedColumns / path.length).toBeGreaterThan(0.95);
     }, 300_000);
 });

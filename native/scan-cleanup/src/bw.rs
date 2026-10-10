@@ -40,7 +40,7 @@ const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
 /// Local ink shallower than this is paper texture, whatever the page's depth.
-const LOCAL_MIDPOINT_MIN_DEPTH: i16 = 24;
+pub(crate) const LOCAL_MIDPOINT_MIN_DEPTH: i16 = 24;
 /// A mark at least this fraction of the page's ink depth below its paper is
 /// print: a light dash or pencil note. Show-through and paper texture stay
 /// far shallower (a tenth of the depth on the owner's 1915 book).
