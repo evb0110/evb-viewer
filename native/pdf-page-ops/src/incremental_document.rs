@@ -1280,12 +1280,8 @@ fn qpdf_dictionary_with_mode(value: &Value, allow_legacy_encoding: bool) -> Resu
     for (key, value) in values {
         let decoded_key = decode_qpdf_name(key, qpdf_name_mode(allow_legacy_encoding))?;
         dictionary.set(
-            decoded_key.clone(),
-            if decoded_key == b"DA" {
-                qpdf_default_appearance_object(value, allow_legacy_encoding)?
-            } else {
-                qpdf_object_with_mode(value, allow_legacy_encoding)?
-            },
+            decoded_key,
+            qpdf_object_with_mode(value, allow_legacy_encoding)?,
         );
     }
     Ok(dictionary)
@@ -1346,10 +1342,18 @@ fn qpdf_string_object_with_mode(value: &str, allow_legacy_encoding: bool) -> Res
         )?));
     }
     if let Some(text) = value.strip_prefix("u:") {
-        return Ok(Object::String(
-            encode_pdf_text_string(text),
-            StringFormat::Hexadecimal,
-        ));
+        // qpdf writes "u:" for every string it decodes, including an ASCII
+        // byte string such as /DA. Printable ASCII, tab and line breaks are
+        // their own PDFDocEncoding; other control bytes are not.
+        let bytes = if text
+            .bytes()
+            .all(|byte| matches!(byte, b'\t' | b'\n' | b'\r' | b' '..=b'~'))
+        {
+            text.as_bytes().to_vec()
+        } else {
+            encode_pdf_text_string(text)
+        };
+        return Ok(Object::String(bytes, StringFormat::Hexadecimal));
     }
     if let Some(hex) = value.strip_prefix("b:") {
         return Ok(Object::String(
@@ -1364,18 +1368,6 @@ fn qpdf_string_object_with_mode(value: &str, allow_legacy_encoding: bool) -> Res
         ));
     }
     Err("qpdf JSON string has an unknown PDF encoding".into())
-}
-
-fn qpdf_default_appearance_object(value: &Value, allow_legacy_encoding: bool) -> Result<Object> {
-    if let Value::String(value) = value {
-        if let Some(appearance) = value.strip_prefix("u:") {
-            return Ok(Object::String(
-                appearance.as_bytes().to_vec(),
-                StringFormat::Literal,
-            ));
-        }
-    }
-    qpdf_object_with_mode(value, allow_legacy_encoding)
 }
 
 fn qpdf_name_mode(allow_legacy_encoding: bool) -> QpdfNameMode {
@@ -1523,7 +1515,7 @@ mod tests {
         );
         assert_eq!(
             dictionary.get(b"Contents").unwrap().as_str().unwrap(),
-            encode_pdf_text_string("canonical text box"),
+            b"canonical text box",
         );
     }
 
