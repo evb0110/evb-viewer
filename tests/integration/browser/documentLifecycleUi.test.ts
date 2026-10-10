@@ -18,6 +18,7 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 import {chromium} from 'playwright';
+import type {loadBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {
     BrowserContext, Page,
 } from 'playwright';
@@ -2605,17 +2606,43 @@ describe('browser document lifecycle UI', () => {
             const originalOwnerId = originalRecord!.ownerId;
             await expect.poll(async () => (await readLeaseOwnerLocks(original)).held, {timeout: 15_000})
                 .toEqual([originalOwnerId]);
+            const readOriginalRecovery = (page: Page) => page.evaluate<Awaited<ReturnType<typeof loadBrowserWorkspaceRecovery>>>(`(async () => {
+                const {loadBrowserWorkspaceRecovery} = await import('/_nuxt/platform/browser/browserWorkspaceRecoveryStore.ts');
+                return loadBrowserWorkspaceRecovery(${JSON.stringify(originalOwnerId)});
+            })()`);
+            const beforeFreeze = await readOriginalRecovery(original);
+            if (!beforeFreeze) throw new Error('The original has no recovery record before freezing');
+            expect(Date.now() - beforeFreeze.updatedAt).toBeLessThan(30_000);
+            const resumeOriginal = await freezeWindow(context, original);
+            console.info('Frozen duplicate setup', JSON.stringify({
+                originalOwnerId,
+                heartbeatAt: beforeFreeze.updatedAt,
+            }));
 
             // The copy's instance nonce sorts first, so the nonces alone would
-            // make the original, which holds the lock, give up the id.
+            // make the original give up the id. It cannot answer discovery
+            // while frozen, so the copied id's lock alone must cause rekeying.
             const copy = await openWindow(page => page.addInitScript((windowName) => {
                 if (!window.name) window.name = windowName;
                 Reflect.set(window, '__evbBrowserWindowTabsState', {recoveryInstanceNonce: '!'});
             }, `evb-viewer-window:${originalOwnerId.slice('window:'.length)}`));
-            // A copy that kept the id shows the original's recovered document.
-            if (await copy.locator('.page_container').count() === 0) {
-                await openPdf(copy, 'copy.pdf');
-            }
+            const copyOwnerId = await copy.evaluate(() => `window:${window.name.slice('evb-viewer-window:'.length)}`);
+            expect(copyOwnerId).not.toBe(originalOwnerId);
+            expect(await copy.locator('.page_container').count()).toBe(0);
+            expect(await readOriginalRecovery(copy)).toEqual(beforeFreeze);
+            expect(await readLeaseOwnerLocks(copy)).toEqual({
+                held: [
+                    originalOwnerId,
+                    copyOwnerId,
+                ].sort(),
+                pending: [],
+            });
+            console.info('Frozen duplicate started', JSON.stringify({
+                originalOwnerId,
+                copyOwnerId,
+            }));
+            await resumeOriginal();
+            await openPdf(copy, 'copy.pdf');
             await addNote(copy, 'Copy note', {
                 x: 200,
                 y: 200,

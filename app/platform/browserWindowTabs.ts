@@ -676,6 +676,25 @@ function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage
         && message.instanceNonce === currentRecoveryInstanceNonce;
 }
 
+function rekeyCurrentWindow() {
+    const retainedWindowId = currentWindowId;
+    const nextWindowId = createWindowId();
+    void holdLeaseOwnerLock(recoveryOwnerId(nextWindowId), true);
+    knownWindows.delete(currentWindowId);
+    currentWindowId = nextWindowId;
+    const state = getBrowserWindowTabsState();
+    if (state) state.windowId = currentWindowId;
+    rememberNamedWindowId(currentWindowId);
+    updateKnownCurrentWindow();
+    announceCurrentWindow();
+    postMessage({
+        type: 'discover',
+        windowId: currentWindowId,
+        instanceNonce: currentRecoveryInstanceNonce,
+    });
+    return retainedWindowId;
+}
+
 function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { type: 'announce' }>) {
     if (
         message.windowId === currentWindowId
@@ -688,25 +707,12 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
         const retainsOwner = holdsLeaseOwnerLock(recoveryOwnerId(currentWindowId))
             ?? currentRecoveryInstanceNonce < message.instanceNonce;
         if (!retainsOwner) {
-            const retainedWindowId = currentWindowId;
-            knownWindows.delete(currentWindowId);
-            currentWindowId = createWindowId();
-            void holdLeaseOwnerLock(recoveryOwnerId(currentWindowId));
-            const state = getBrowserWindowTabsState();
-            if (state) state.windowId = currentWindowId;
-            rememberNamedWindowId(currentWindowId);
-            updateKnownCurrentWindow();
+            const retainedWindowId = rekeyCurrentWindow();
             knownWindows.set(retainedWindowId, {
                 label: message.label,
                 lastSeenAt: Date.now(),
                 ready: message.ready,
                 instanceNonce: message.instanceNonce,
-            });
-            announceCurrentWindow();
-            postMessage({
-                type: 'discover',
-                windowId: currentWindowId,
-                instanceNonce: currentRecoveryInstanceNonce,
             });
         } else {
             announceCurrentWindow();
@@ -971,25 +977,18 @@ async function waitForTransferDecision(transferId: string, nonce: string) {
     }
     throw new Error('Durable transfer decision remained unavailable.');
 }
-// Waits until this window holds its recovery owner's lease lock. A window
-// that has loaded or claimed a record holds no lease until its first dirty
-// checkpoint, and without the lock a window starting meanwhile would take the
-// record for an orphan. A duplicated window that gives its id up while it
-// waits withdraws the wait and waits for its new id's lock instead.
+// Hold the owner lock before restoration can expose its record as an orphan.
+// A silent duplicate cannot announce a collision; its held lock forces rekeying.
 async function holdRecoveryOwnerLock() {
     for (;;) {
         const ownerId = getBrowserWindowRecoveryOwnerId();
         if (!ownerId) {
             return null;
         }
-        try {
-            await holdLeaseOwnerLock(ownerId);
-            return ownerId;
-        } catch (error) {
-            if (ownerId === getBrowserWindowRecoveryOwnerId()) {
-                throw error;
-            }
-        }
+        const held = await holdLeaseOwnerLock(ownerId, true);
+        if (ownerId !== getBrowserWindowRecoveryOwnerId()) continue;
+        if (held) return ownerId;
+        rekeyCurrentWindow();
     }
 }
 // Recovery records and their live document leases share this platform owner.
@@ -1076,7 +1075,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             pruneStaleTargetWindows(discoveryStartedAt);
         }
 
-        const ownerId = getBrowserWindowRecoveryOwnerId();
+        const ownerId = await holdRecoveryOwnerLock();
         if (!ownerId) {
             return null;
         }
