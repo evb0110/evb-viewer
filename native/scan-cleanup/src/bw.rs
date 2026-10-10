@@ -47,6 +47,11 @@ const LOCAL_MIDPOINT_MIN_DEPTH: i16 = 24;
 const LOCAL_MARK_DEPTH_FRACTION: f32 = 0.3;
 /// Smallest window, in pixels, in which a mark's ink core is measured.
 const LOCAL_INK_MIN_RADIUS: usize = 4;
+/// Reach to a stroke's own core: across a hairline, short of the stem it meets.
+const OWN_INK_RADIUS_MM: f64 = 0.25;
+/// A hairline far shallower than the ink around it is cut this far toward its
+/// own core instead, which keeps it whole without widening anything darker.
+const OWN_CUT_DEPTH_FRACTION: f32 = 0.7;
 /// Where the local cut sits between paper (0) and ink core (1). The printed
 /// edge of a stroke wider than the scanner's blur is at one half; a hairline
 /// narrower than the blur peaks only near that depth, so an exact half cut
@@ -1664,7 +1669,8 @@ fn paper_ink_midpoint_threshold(
 /// paper as light as its paper: elsewhere a faint passage thins and a shaded
 /// gutter fills. Here the paper is measured within `radius` of each pixel and
 /// the ink core within a third of it, and the cut sits at
-/// `LOCAL_CUT_DEPTH_FRACTION` of their distance. Where the nearby ink is
+/// `LOCAL_CUT_DEPTH_FRACTION` of their distance, or at `OWN_CUT_DEPTH_FRACTION`
+/// of the pixel's own depth where that keeps more. Where the nearby ink is
 /// shallower than `LOCAL_MARK_DEPTH_FRACTION` of the page's ink there is no
 /// stroke to measure, and the page-wide cut applies, as it did before.
 fn threshold_local_midpoint(
@@ -1701,12 +1707,23 @@ fn threshold_local_midpoint(
     // wide enough to see past a large glyph's interior.
     let ink_radius = (radius / 3).max(LOCAL_INK_MIN_RADIUS);
     let ink = dilate_gray(&neutral(255), ink_radius, ink_radius);
+    // A hairline beside a heavy stem peaks far below that stem's core, so its
+    // own core, measured across the hairline alone, keeps it from breaking.
+    let own_radius = ((dpi * OWN_INK_RADIUS_MM / 25.4).round() as usize).max(1);
+    let own_ink = dilate_gray(&neutral(255), own_radius, own_radius);
     let output = BinaryImage::from_fn_parallel(source.width(), source.height(), |x, y| {
         let local_paper = i16::from(paper.get(x, y));
-        let local_ink = i16::from(ink.get(x, y));
-        let threshold = if local_paper - local_ink >= minimum_depth {
-            local_paper
-                - (f32::from(local_paper - local_ink) * LOCAL_CUT_DEPTH_FRACTION).round() as i16
+        let depth = |core: &GrayImage| f32::from(local_paper - i16::from(core.get(x, y)));
+        let local_depth = depth(&ink);
+        let threshold = if local_depth >= f32::from(minimum_depth) {
+            let cut = local_depth * LOCAL_CUT_DEPTH_FRACTION;
+            let own = depth(&own_ink);
+            let cut = if own >= f32::from(minimum_depth) {
+                cut.min(own * OWN_CUT_DEPTH_FRACTION)
+            } else {
+                cut
+            };
+            local_paper - cut.round() as i16
         } else {
             i16::from(page_threshold)
         };
@@ -1836,28 +1853,6 @@ fn sobel_gradient_magnitude(image: &GrayImage, x: usize, y: usize) -> u16 {
 
     ((gradient_x.unsigned_abs() + gradient_y.unsigned_abs() + 2) / 4).min(u32::from(u16::MAX))
         as u16
-}
-
-#[cfg(test)]
-fn postprocess_binary_with_raw_budgeted(
-    binary: &BinaryImage,
-    normalized: Option<&GrayImage>,
-    raw: Option<&GrayImage>,
-    options: &CleanupOptions,
-    calibration: PageCalibration,
-    budget: Option<&LineStrokeBudget>,
-    interventions: &mut LineStrokeBudgetInterventions,
-) -> BinaryImage {
-    postprocess_binary_with_diagnostics_and_raw_budgeted(
-        binary,
-        normalized,
-        raw,
-        options,
-        calibration,
-        budget,
-        interventions,
-    )
-    .0
 }
 
 #[cfg(test)]
@@ -4803,7 +4798,7 @@ mod tests {
             };
             let calibration =
                 PageCalibration::estimate(&normalized, options.dpi, CalibrationConfig::default());
-            let damaged = postprocess_binary_with_raw_budgeted(
+            let (damaged, _) = postprocess_binary_with_diagnostics_and_raw_budgeted(
                 &threshold_with_mode(
                     &normalized,
                     &normalized,
@@ -6084,7 +6079,7 @@ mod tests {
             None,
         );
         let mut expected_interventions = LineStrokeBudgetInterventions::default();
-        let expected = postprocess_binary_with_raw_budgeted(
+        let (expected, _) = postprocess_binary_with_diagnostics_and_raw_budgeted(
             &thresholded,
             Some(&normalized),
             Some(&raw),

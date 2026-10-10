@@ -44,7 +44,6 @@ import { resolvePdfRasterResidencyPlan } from '@app/modules/pdf-viewer/runtime/r
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
 import { usePdfScroll } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { useViewportPagePin } from '@app/modules/pdf-viewer/runtime/composables/pdf/useViewportPagePin';
 import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
@@ -665,11 +664,22 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         visibleRange.value = range;
         return true;
     }
-    function applyReloadViewport(pageNumber: TPageNumber, scrollOptions?: IScrollToPageOptions) {
-        scroll.scrollToPage(options.viewerContainer.value, pageNumber, numPages.value, scale.scaledMargin.value, scrollOptions);
-        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber)
-            || singlePageScroll.applyOpeningViewportAnchor(pageNumber) === true
-            && singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
+    /** Places the reading point a reload carried, or else the page's top, and commits it. */
+    function applyReloadViewport(pageNumber: TPageNumber, anchor?: IPdfSemanticAnchor | null) {
+        scroll.scrollToPage(options.viewerContainer.value, pageNumber, numPages.value, scale.scaledMargin.value, anchor ? {
+            navigationSource: 'restore',
+            preferExactDom: true,
+            pageYRatio: anchor.pageYFraction,
+            markerRect: {
+                left: anchor.pageXFraction,
+                top: anchor.pageYFraction,
+                width: 0,
+                height: 0,
+            },
+        } : undefined);
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber, anchor)
+            || singlePageScroll.applyOpeningViewportAnchor(pageNumber, anchor) === true
+            && singlePageScroll.commitCurrentViewportIfSettled(pageNumber, anchor);
         logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber,
             afterScrollTop: options.viewerContainer.value?.scrollTop ?? null,
@@ -1153,22 +1163,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
     }
     function applyReloadAnchor() {
-        const anchor = activeReloadAnchor;
-        applyReloadViewport(resolvedPageToRestore, {
-            navigationSource: 'restore',
-            preferExactDom: true,
-            ...(anchor
-                ? {
-                    pageYRatio: anchor.pageYFraction,
-                    markerRect: {
-                        left: anchor.pageXFraction,
-                        top: anchor.pageYFraction,
-                        width: 0,
-                        height: 0,
-                    },
-                }
-                : {}),
-        });
+        applyReloadViewport(resolvedPageToRestore, activeReloadAnchor);
     }
     function preserveNextSourceReloadVisibleContent() {
         nextReloadAnchor = documentSession.carryAnchorThroughPageMutation(singlePageScroll.captureCurrentSemanticAnchor());

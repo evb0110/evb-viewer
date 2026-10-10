@@ -298,20 +298,17 @@ interface IInkRaster {
     height: number;
 }
 
-/** A rendered page as ink (true) and paper (false), one pixel per image pixel. */
-async function renderPageInk(pdfPath: string, directory: string, pageNumber: number): Promise<IInkRaster> {
+/**
+ * A page's image as ink (true) and paper (false), read from the saved bytes.
+ * Rendering a 1-bit page, even at its own resolution, moves a few pixel
+ * columns, which can cut a one-pixel hairline the page itself keeps.
+ */
+async function readPageInk(pdfPath: string, directory: string, pageNumber: number): Promise<IInkRaster> {
+    const {pdfimages} = getPdfNativeToolPaths();
+    if (!pdfimages) throw new Error('The bundled Poppler tools have no pdfimages.');
     const prefix = join(directory, `cleaned-page-${pageNumber}`);
-    const {dpi} = await readPageImage(pdfPath, pageNumber - 1);
-    await execFileAsync(getPdfNativeToolPaths().pdftoppm, [
+    await execFileAsync(pdfimages, [
         '-png',
-        '-gray',
-        '-singlefile',
-        '-aa',
-        'no',
-        '-aaVector',
-        'no',
-        '-r',
-        String(dpi),
         '-f',
         String(pageNumber),
         '-l',
@@ -319,11 +316,16 @@ async function renderPageInk(pdfPath: string, directory: string, pageNumber: num
         pdfPath,
         prefix,
     ], {timeout: 60_000});
-    const image = decode(readFileSync(`${prefix}.png`));
-    const channels = image.data.length / (image.width * image.height);
+    const image = decode(readFileSync(`${prefix}-000.png`));
+    const rowBytes = Math.ceil(image.width * image.channels * image.depth / 8);
     const ink = new Uint8Array(image.width * image.height);
-    for (let index = 0; index < ink.length; index += 1) {
-        ink[index] = image.data[index * channels]! < 128 ? 1 : 0;
+    for (let y = 0; y < image.height; y += 1) {
+        for (let x = 0; x < image.width; x += 1) {
+            const paper = image.depth === 1
+                ? (image.data[y * rowBytes + (x >> 3)]! >> (7 - (x & 7)) & 1) === 1
+                : image.data[(y * image.width + x) * image.channels]! >= 128;
+            ink[y * image.width + x] = paper ? 0 : 1;
+        }
     }
     return {
         ink,
@@ -332,8 +334,8 @@ async function renderPageInk(pdfPath: string, directory: string, pageNumber: num
     };
 }
 
-/** Areas of the 8-connected ink shapes. */
-function inkShapeAreas({
+/** The 8-connected ink shapes: each pixel's shape (-1 for paper) and each shape's area. */
+function inkShapes({
     ink, width, height,
 }: IInkRaster) {
     const label = new Int32Array(ink.length).fill(-1);
@@ -365,7 +367,15 @@ function inkShapeAreas({
         }
         areas.push(area);
     }
-    return areas;
+    return {
+        label,
+        areas,
+    };
+}
+
+/** Areas of the 8-connected ink shapes. */
+function inkShapeAreas(raster: IInkRaster) {
+    return inkShapes(raster).areas;
 }
 
 /** Opens a scan, runs scan cleanup as a user would, and returns the cleaned path. */
@@ -422,6 +432,216 @@ async function cleanScan(sourcePath: string, options: {blackAndWhite: boolean}) 
     return outputPath as string;
 }
 
+// Display capitals like the owner's 1915 title page: each N, M and A pairs
+// heavy strokes with hairlines under two pixels wide, which the soft scan
+// records far lighter than the heavy stroke beside them.
+const CAPITAL_HEIGHT = 96;
+const HEAVY_STROKE = 13;
+const HAIRLINE_STROKE = 1.9;
+const CAPITAL_GAP = 26;
+const CAPITAL_INK = 45;
+const CAPITAL_SUBPIXELS = 8;
+const CAPITAL_WORDS = [
+    'MANNA',
+    'NAMMAN',
+    'AMMAN',
+    'MAMMA',
+    'NANNA',
+    'MANAMA',
+];
+
+interface IDisplayCapital {
+    width: number;
+    /** Convex quadrilaterals, each as its four corners' x and y in order. */
+    strokes: number[][];
+}
+
+/** A display capital drawn from its top-left corner. */
+function displayCapital(letter: string, x: number, y: number): IDisplayCapital {
+    const c = CAPITAL_HEIGHT;
+    const T = HEAVY_STROKE;
+    const t = HAIRLINE_STROKE;
+    const quad = (...corners: number[]) => corners;
+    if (letter === 'N') {
+        // Thin stems and a heavy diagonal.
+        const w = 70;
+        return {
+            width: w,
+            strokes: [
+                quad(x, y, x + t, y, x + t, y + c, x, y + c),
+                quad(x + w - t, y, x + w, y, x + w, y + c, x + w - t, y + c),
+                quad(x, y, x + T, y, x + w, y + c, x + w - T, y + c),
+            ],
+        };
+    }
+    if (letter === 'M') {
+        // A thin left stem and second diagonal; a heavy first diagonal and right stem.
+        const w = 88;
+        return {
+            width: w,
+            strokes: [
+                quad(x, y, x + t, y, x + t, y + c, x, y + c),
+                quad(x, y, x + T, y, x + w / 2 + T / 2, y + c, x + w / 2 - T / 2, y + c),
+                quad(x + w / 2 - t / 2, y + c, x + w / 2 + t / 2, y + c, x + w - T + t, y, x + w - T, y),
+                quad(x + w - T, y, x + w, y, x + w, y + c, x + w - T, y + c),
+            ],
+        };
+    }
+    // A: a thin left diagonal and bar, and a heavy right diagonal.
+    const w = 72;
+    const bar = y + c * 0.66;
+    return {
+        width: w,
+        strokes: [
+            quad(x + w / 2 - t / 2, y, x + w / 2 + t / 2, y, x + t, y + c, x, y + c),
+            quad(x + w / 2 - T / 2, y, x + w / 2 + T / 2, y, x + w, y + c, x + w - T, y + c),
+            quad(x + w * 0.22, bar, x + w * 0.78, bar, x + w * 0.78, bar + t, x + w * 0.22, bar + t),
+        ],
+    };
+}
+
+/** Paints a capital's coverage, sampling each pixel on a grid of subpixels. */
+function paintCapital(coverage: Float32Array, strokes: number[][]) {
+    const inside = (corners: number[], px: number, py: number) => {
+        let sign = 0;
+        for (let corner = 0; corner < 8; corner += 2) {
+            const ax = corners[corner]!;
+            const ay = corners[corner + 1]!;
+            const cross = (corners[(corner + 2) % 8]! - ax) * (py - ay) - (corners[(corner + 3) % 8]! - ay) * (px - ax);
+            if (cross === 0) continue;
+            if (sign === 0) sign = Math.sign(cross);
+            else if (Math.sign(cross) !== sign) return false;
+        }
+        return true;
+    };
+    const xs = strokes.flatMap(corners => corners.filter((_, index) => index % 2 === 0));
+    const ys = strokes.flatMap(corners => corners.filter((_, index) => index % 2 === 1));
+    const samples = CAPITAL_SUBPIXELS * CAPITAL_SUBPIXELS;
+    for (let y = Math.floor(Math.min(...ys)); y < Math.ceil(Math.max(...ys)); y += 1) {
+        for (let x = Math.floor(Math.min(...xs)); x < Math.ceil(Math.max(...xs)); x += 1) {
+            let hits = 0;
+            for (let sample = 0; sample < samples; sample += 1) {
+                const px = x + (sample % CAPITAL_SUBPIXELS + 0.5) / CAPITAL_SUBPIXELS;
+                const py = y + (Math.floor(sample / CAPITAL_SUBPIXELS) + 0.5) / CAPITAL_SUBPIXELS;
+                if (strokes.some(corners => inside(corners, px, py))) hits += 1;
+            }
+            coverage[y * PAGE_WIDTH + x] = hits / samples;
+        }
+    }
+}
+
+/** A soft scan of display capitals; returns the printed capitals' ink. */
+async function createDisplayCapitalsScanPdf(path: string): Promise<IInkRaster> {
+    const {coverage} = createCoverage();
+    CAPITAL_WORDS.forEach((word, line) => {
+        let left = 150 + line % 3 * 37;
+        for (const letter of word) {
+            const capital = displayCapital(letter, left, 300 + line * 250);
+            paintCapital(coverage, capital.strokes);
+            left += capital.width + CAPITAL_GAP;
+        }
+    });
+    const scan = blur(blur(coverage, SOFT_SCAN_KERNEL), SOFT_SCAN_KERNEL);
+    await writeScanPdf(path, [Uint8Array.from(scan, value => Math.round(SOFT_PAPER - value * (SOFT_PAPER - CAPITAL_INK)))]);
+    return {
+        ink: Uint8Array.from(coverage, value => (value >= 0.5 ? 1 : 0)),
+        width: PAGE_WIDTH,
+        height: PAGE_HEIGHT,
+    };
+}
+
+/** Ink on a stroke at most three pixels across, horizontally or vertically. */
+function thinStrokeInk({
+    ink, width, height,
+}: IInkRaster) {
+    const across = new Uint16Array(ink.length).fill(0xffff);
+    const measure = (start: number, step: number, count: number) => {
+        let run = 0;
+        for (let offset = 0; offset <= count; offset += 1) {
+            const index = start + offset * step;
+            if (offset < count && ink[index]) {
+                run += 1;
+                continue;
+            }
+            for (let back = 1; back <= run; back += 1) {
+                const inked = index - back * step;
+                across[inked] = Math.min(across[inked]!, run);
+            }
+            run = 0;
+        }
+    };
+    for (let y = 0; y < height; y += 1) measure(y * width, 1, width);
+    for (let x = 0; x < width; x += 1) measure(x, width, height);
+    return Uint8Array.from(across, (run, index) => (ink[index] && run <= 3 ? 1 : 0));
+}
+
+/** Centres of a raster's glyph-sized ink shapes. */
+function glyphCentres(raster: IInkRaster) {
+    const {
+        label, areas,
+    } = inkShapes(raster);
+    const sumX = new Float64Array(areas.length);
+    const sumY = new Float64Array(areas.length);
+    label.forEach((shape, index) => {
+        if (shape < 0) return;
+        sumX[shape] = sumX[shape]! + index % raster.width;
+        sumY[shape] = sumY[shape]! + Math.floor(index / raster.width);
+    });
+    return areas.flatMap((area, shape) => (area < MINIMUM_GLYPH_AREA
+        ? []
+        : [{
+            x: sumX[shape]! / area,
+            y: sumY[shape]! / area,
+        }]));
+}
+
+/**
+ * Where the cleaned page placed the printed ink: the shift most glyphs agree
+ * on, refined to the pixel that overlaps the most ink.
+ */
+function inkOffset(printed: IInkRaster, cleaned: IInkRaster) {
+    const votes = new Map<string, number>();
+    const cleanedCentres = glyphCentres(cleaned);
+    for (const from of glyphCentres(printed)) {
+        for (const to of cleanedCentres) {
+            const key = `${Math.round((to.x - from.x) / 2) * 2},${Math.round((to.y - from.y) / 2) * 2}`;
+            votes.set(key, (votes.get(key) ?? 0) + 1);
+        }
+    }
+    const [voted] = [...votes].reduce((best, entry) => (entry[1] > best[1] ? entry : best));
+    const [
+        votedX,
+        votedY,
+    ] = voted.split(',').map(Number) as [number, number];
+    const printedInk = printed.ink.reduce<number[]>((indices, inked, index) => {
+        if (inked) indices.push(index);
+        return indices;
+    }, []);
+    let best = {
+        dx: votedX,
+        dy: votedY,
+        overlap: -1,
+    };
+    for (let dy = votedY - 3; dy <= votedY + 3; dy += 1) {
+        for (let dx = votedX - 3; dx <= votedX + 3; dx += 1) {
+            let overlap = 0;
+            for (const index of printedInk) {
+                const x = index % printed.width + dx;
+                const y = Math.floor(index / printed.width) + dy;
+                if (x >= 0 && y >= 0 && x < cleaned.width && y < cleaned.height && cleaned.ink[y * cleaned.width + x]) overlap += 1;
+            }
+            if (overlap > best.overlap) {
+                best = {
+                    dx,
+                    dy,
+                    overlap,
+                };
+            }
+        }
+    }
+    return best;
+}
+
 function createScratchDirectory(prefix: string) {
     const directory = mkdtempSync(join(tmpdir(), prefix));
     onTestFinished(() => rm(directory, {
@@ -439,7 +659,7 @@ describe('scan cleanup of a high-contrast book face', () => {
         // Choose black and white as a user would; this test is about the cut.
         const outputPath = await cleanScan(sourcePath, {blackAndWhite: true});
 
-        const glyphs = inkShapeAreas(await renderPageInk(outputPath, directory, 1))
+        const glyphs = inkShapeAreas(await readPageInk(outputPath, directory, 1))
             .filter(area => area >= MINIMUM_GLYPH_AREA);
         const inkArea = glyphs.reduce((total, area) => total + area, 0);
         console.log('scan-cleanup-hairline-joins', JSON.stringify({
@@ -464,7 +684,7 @@ describe('automatic scan cleanup of a soft book scan', () => {
 
         const title = await readPageImage(outputPath, 0);
         const contents = await readPageImage(outputPath, 1);
-        const glyphs = inkShapeAreas(await renderPageInk(outputPath, directory, 1))
+        const glyphs = inkShapeAreas(await readPageInk(outputPath, directory, 1))
             .filter(area => area >= MINIMUM_GLYPH_AREA);
         const inkArea = glyphs.reduce((total, area) => total + area, 0);
         console.log('scan-cleanup-soft-scan', JSON.stringify({
@@ -494,7 +714,7 @@ describe('automatic scan cleanup of a scan placed at one pixel per point', () =>
         const outputPath = await cleanScan(sourcePath, {blackAndWhite: false});
 
         const page = await readPageImage(outputPath, 0);
-        const glyphs = inkShapeAreas(await renderPageInk(outputPath, directory, 1))
+        const glyphs = inkShapeAreas(await readPageInk(outputPath, directory, 1))
             .filter(area => area >= MINIMUM_GLYPH_AREA);
         console.log('scan-cleanup-placeholder-dpi', JSON.stringify(page), glyphs.length);
         expect(page.bilevel).toBe(true);
@@ -503,5 +723,68 @@ describe('automatic scan cleanup of a scan placed at one pixel per point', () =>
         expect(page.height).toBeCloseTo(PAGE_HEIGHT, 3);
         expect(page.dpi).toBeCloseTo(72, 3);
         expect(glyphs).toHaveLength(6);
+    }, 300_000);
+});
+
+describe('scan cleanup of soft display capitals', () => {
+    it('keeps the hairlines beside heavy strokes whole without widening the letters', async () => {
+        const directory = createScratchDirectory('evb-e2e-cleanup-display-capitals-');
+        const sourcePath = join(directory, 'display-capitals-scan.pdf');
+        const printed = await createDisplayCapitalsScanPdf(sourcePath);
+        const outputPath = await cleanScan(sourcePath, {blackAndWhite: true});
+        const cleaned = await readPageInk(outputPath, directory, 1);
+
+        const {
+            dx, dy,
+        } = inkOffset(printed, cleaned);
+        const cleanedIndex = (index: number) => {
+            const x = index % printed.width + dx;
+            const y = Math.floor(index / printed.width) + dy;
+            return x >= 0 && y >= 0 && x < cleaned.width && y < cleaned.height ? y * cleaned.width + x : -1;
+        };
+        const thin = thinStrokeInk(printed);
+        let thinInk = 0;
+        let thinKept = 0;
+        thin.forEach((inked, index) => {
+            if (!inked) return;
+            thinInk += 1;
+            const target = cleanedIndex(index);
+            if (target >= 0 && cleaned.ink[target]) thinKept += 1;
+        });
+        // Each letter is one cleaned shape, and each cleaned shape one letter:
+        // a letter broken in two cannot hide behind two letters run together.
+        const letters = inkShapes(printed);
+        const shapes = inkShapes(cleaned);
+        const shapesOfLetter = letters.areas.map(() => new Set<number>());
+        const lettersOfShape = shapes.areas.map(() => new Set<number>());
+        letters.label.forEach((letter, index) => {
+            const target = cleanedIndex(index);
+            const shape = target >= 0 ? shapes.label[target]! : -1;
+            if (letter < 0 || shape < 0) return;
+            shapesOfLetter[letter]!.add(shape);
+            lettersOfShape[shape]!.add(letter);
+        });
+        const brokenLetters = shapesOfLetter.filter(found => found.size !== 1).length;
+        const mergedShapes = lettersOfShape.filter(found => found.size > 1).length;
+        const printedInk = letters.areas.reduce((total, area) => total + area, 0);
+        const cleanedInk = shapes.areas.reduce((total, area) => total + area, 0);
+        console.log('scan-cleanup-display-capitals', JSON.stringify({
+            letters: letters.areas.length,
+            brokenLetters,
+            mergedShapes,
+            thinKept: thinKept / thinInk,
+            inkRatio: cleanedInk / printedInk,
+        }));
+        // A hairline cut against the heavy stroke beside it shrinks to dots:
+        // that split ten of these 32 letters and kept under three quarters of
+        // the hairlines' ink. One acute corner, where a hairline meets the top
+        // of a heavy stem, may still part by a pixel.
+        expect(brokenLetters).toBeLessThanOrEqual(1);
+        expect(mergedShapes).toBe(0);
+        expect(thinKept / thinInk).toBeGreaterThan(0.9);
+        // Whole hairlines, not heavier letters: widening every stroke toward
+        // its own core printed these capitals a sixth heavier.
+        expect(cleanedInk).toBeGreaterThan(printedInk * 0.85);
+        expect(cleanedInk).toBeLessThan(printedInk * 1.15);
     }, 300_000);
 });
