@@ -2547,7 +2547,12 @@ describe('browser document lifecycle UI', () => {
     // up the id and kept the lock, the copy waited for that lock forever and
     // none of its notes reached recovery, and the lock outlived the copy, so
     // no other window could recover its record after it closed.
-    it('keeps a duplicated window\'s notes recoverable and releases its lease lock when it closes', async () => {
+    it.each([
+        true,
+        false,
+    ])('keeps a duplicated window\'s notes recoverable (Web Locks: %s)', async (hasWebLocks) => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-duplicate-${process.pid}-${hasWebLocks ? 'locks' : 'no-locks'}`);
+        mkdirSync(evidenceDir, {recursive: true});
         const consoleProblems: string[][] = [];
         const browser = await chromium.launch({headless: true});
         try {
@@ -2555,11 +2560,12 @@ describe('browser document lifecycle UI', () => {
                 width: 1_280,
                 height: 800,
             }});
-            await context.addInitScript(() => {
+            await context.addInitScript((hasLocks) => {
+                if (!hasLocks) Object.defineProperty(navigator, 'locks', {value: undefined});
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
+            }, hasWebLocks);
             async function openWindow(prepare?: (page: Page) => Promise<unknown>) {
                 const page = await context.newPage();
                 consoleProblems.push(collectConsoleProblems(page));
@@ -2604,8 +2610,10 @@ describe('browser document lifecycle UI', () => {
                 .toEqual([['Original note']]);
             const [originalRecord] = await readRecoveries(original);
             const originalOwnerId = originalRecord!.ownerId;
-            await expect.poll(async () => (await readLeaseOwnerLocks(original)).held, {timeout: 15_000})
-                .toEqual([originalOwnerId]);
+            if (hasWebLocks) {
+                await expect.poll(async () => (await readLeaseOwnerLocks(original)).held, {timeout: 15_000})
+                    .toEqual([originalOwnerId]);
+            }
             const readOriginalRecovery = (page: Page) => page.evaluate<Awaited<ReturnType<typeof loadBrowserWorkspaceRecovery>>>(`(async () => {
                 const {loadBrowserWorkspaceRecovery} = await import('/_nuxt/platform/browser/browserWorkspaceRecoveryStore.ts');
                 return loadBrowserWorkspaceRecovery(${JSON.stringify(originalOwnerId)});
@@ -2621,7 +2629,8 @@ describe('browser document lifecycle UI', () => {
 
             // The copy's instance nonce sorts first, so the nonces alone would
             // make the original give up the id. It cannot answer discovery
-            // while frozen, so the copied id's lock alone must cause rekeying.
+            // while frozen: its lock, or its fresh heartbeat without Web Locks,
+            // must keep the copy from taking over the original's journal.
             const copy = await openWindow(page => page.addInitScript((windowName) => {
                 if (!window.name) window.name = windowName;
                 Reflect.set(window, '__evbBrowserWindowTabsState', {recoveryInstanceNonce: '!'});
@@ -2630,7 +2639,7 @@ describe('browser document lifecycle UI', () => {
             expect(copyOwnerId).not.toBe(originalOwnerId);
             expect(await copy.locator('.page_container').count()).toBe(0);
             expect(await readOriginalRecovery(copy)).toEqual(beforeFreeze);
-            expect(await readLeaseOwnerLocks(copy)).toEqual({
+            if (hasWebLocks) expect(await readLeaseOwnerLocks(copy)).toEqual({
                 held: [
                     originalOwnerId,
                     copyOwnerId,
@@ -2659,7 +2668,7 @@ describe('browser document lifecycle UI', () => {
             const records = await readRecoveries(original);
             const ownerOf = (note: string) => records.find(record => record.notes.has(note))!.ownerId;
             // Each owner id's lock is held, and no window waits for one.
-            expect(await readLeaseOwnerLocks(original)).toEqual({
+            if (hasWebLocks) expect(await readLeaseOwnerLocks(original)).toEqual({
                 held: [
                     ownerOf('Copy note'),
                     ownerOf('Second original note'),
@@ -2670,6 +2679,40 @@ describe('browser document lifecycle UI', () => {
                 'Copy note',
                 'Original note, Second original note',
             ]);
+
+            if (!hasWebLocks) {
+                // Reload replaces this context, so it recovers its own fresh
+                // journal while leaving the original window's work intact.
+                await copy.reload({waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(copy);
+                await copy.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+                expect(await copy.evaluate(() => `window:${window.name.slice('evb-viewer-window:'.length)}`)).toBe(copyOwnerId);
+                const download = copy.waitForEvent('download');
+                await copy.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).click();
+                await copy.getByRole('menuitem', {name: /^Save As/u}).click();
+                const savedPath = resolve(evidenceDir, 'reloaded-copy.pdf');
+                await (await download).saveAs(savedPath);
+                const saved = await PDFDocument.load(readFileSync(savedPath));
+                expect(noteTexts(saved)).toEqual(new Set(['Copy note']));
+                await expect.poll(async () => (await readRecoveries(original)).map(record => [...record.notes].sort()), {timeout: 15_000})
+                    .toEqual([[
+                        'Original note',
+                        'Second original note',
+                    ]]);
+                writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify({
+                    originalOwnerId,
+                    copyOwnerId,
+                    beforeFreeze,
+                    afterOriginalEdit: await readOriginalRecovery(original),
+                    savedCopyNotes: [...noteTexts(saved)],
+                    problems: consoleProblems.flat(),
+                }, null, 2));
+                expect(consoleProblems.flat()).toEqual([]);
+                return;
+            }
 
             // Closing the copy releases its lock and only its lock, and its
             // record is recoverable at once.
@@ -3335,7 +3378,8 @@ describe('browser document lifecycle UI', () => {
             const savedPath = resolve(process.cwd(), '.devkit/browser-transfer-save-reopen/transferred-edited.pdf');
             await download.saveAs(savedPath);
 
-            const reopened = await context.newPage();
+            // Fresh storage makes the reopen prove the downloaded PDF's bytes.
+            const reopened = await browser.newPage();
             try {
                 await reopened.addInitScript(() => {
                     Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);

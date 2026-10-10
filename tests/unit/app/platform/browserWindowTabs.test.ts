@@ -206,27 +206,33 @@ describe('browserWindowTabsCapability', () => {
         }]);
     });
 
-    it('claims only its stable per-window recovery owner across a module reload', async () => {
+    it('recovers its stable per-window owner across reload initialization without Web Locks', async () => {
         const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=321');
-        recoveryMocks.loadBrowserWorkspaceRecovery.mockResolvedValue({checkpoint: {
+        vi.stubGlobal('performance', {getEntriesByType: () => [{type: 'reload'}]});
+        const checkpoint = {
             version: 1,
             tabs: [],
-        }});
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ownerId: 'window:321',
+            checkpoint,
+            updatedAt: Date.now(),
+            leaseRevision: 1,
+            generation: 1,
+        }]);
         const firstModule = await import('@app/platform/browserWindowTabs');
-
         const firstClaim = firstModule.browserWindowTabsCapability.claimWorkspaceCheckpoint();
         await vi.advanceTimersByTimeAsync(70);
-        await firstClaim;
-        expect(recoveryMocks.loadBrowserWorkspaceRecovery).toHaveBeenLastCalledWith('window:321');
+        await expect(firstClaim).resolves.toBe(checkpoint);
+        expect(firstModule.getBrowserWindowRecoveryOwnerId()).toBe('window:321');
         expect(browserWindow.location.href).not.toContain('evbWindowId');
 
         vi.resetModules();
         const secondModule = await import('@app/platform/browserWindowTabs');
         const secondClaim = secondModule.browserWindowTabsCapability.claimWorkspaceCheckpoint();
         await vi.advanceTimersByTimeAsync(70);
-        await secondClaim;
-
-        expect(recoveryMocks.loadBrowserWorkspaceRecovery).toHaveBeenLastCalledWith('window:321');
+        await expect(secondClaim).resolves.toBe(checkpoint);
+        expect(secondModule.getBrowserWindowRecoveryOwnerId()).toBe('window:321');
     });
 
     it('rekeys a duplicated live context before it can share a recovery owner', async () => {
@@ -249,12 +255,19 @@ describe('browserWindowTabsCapability', () => {
         const module = await import('@app/platform/browserWindowTabs');
 
         expect(module.getBrowserWindowRecoveryOwnerId()).not.toBe('window:321');
-        recoveryMocks.loadBrowserWorkspaceRecovery.mockResolvedValue(null);
-        recoveryMocks.loadBrowserWorkspaceRecovery.mockClear();
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ownerId: 'window:321',
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            generation: 1,
+            leaseRevision: 1,
+            updatedAt: Date.now(),
+        }]);
         const claim = module.browserWindowTabsCapability.claimWorkspaceCheckpoint();
         await vi.advanceTimersByTimeAsync(70);
-        await claim;
-        expect(recoveryMocks.loadBrowserWorkspaceRecovery).not.toHaveBeenCalledWith('window:321');
+        await expect(claim).resolves.toBeNull();
     });
 
     it('claims the newest inactive recovery journal without touching the remaining queue', async () => {
@@ -482,9 +495,6 @@ describe('browserWindowTabsCapability', () => {
             leaseRevision: 7,
             updatedAt: Date.now(),
         };
-        recoveryMocks.loadBrowserWorkspaceRecovery.mockImplementation(async (ownerId: string) => (
-            ownerId === originalRecord.ownerId ? originalRecord : null
-        ));
         recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([originalRecord]);
         recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
             claimed: true,

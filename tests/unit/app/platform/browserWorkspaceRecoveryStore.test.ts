@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -393,6 +394,104 @@ describe('browserWorkspaceRecoveryStore', () => {
                 'window:b',
                 'window:c',
             ]).toContain(records[0]?.ownerId);
+        });
+    });
+});
+
+// T2: an inherited window.name does not authorize clearing another tab's journal.
+describe('browser recovery without Web Locks', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.useFakeTimers();
+        vi.setSystemTime(100_000);
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        vi.stubGlobal('navigator', {});
+        vi.stubGlobal('window', {
+            name: 'evb-viewer-window:321',
+            location: {href: 'http://localhost:3235/'},
+            history: {
+                state: null,
+                replaceState: vi.fn(),
+            },
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            setTimeout,
+            clearTimeout,
+        });
+        vi.stubGlobal('document', {title: 'EVB Viewer'});
+        vi.stubGlobal('BroadcastChannel', class {
+            addEventListener() {}
+            removeEventListener() {}
+            postMessage() {}
+            close() {}
+        });
+        vi.stubGlobal('performance', {getEntriesByType: () => [{type: 'navigate'}]});
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it.each([
+        true,
+        false,
+    ])('preserves a silent original journal and its next save (channel: %s)', async (hasChannel) => {
+        if (!hasChannel) vi.stubGlobal('BroadcastChannel', undefined);
+        const store = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        const refs = [requireDocumentRef('browser://documents/recovery.pdf')];
+        await store.saveBrowserWorkspaceRecovery('window:321', 0, checkpoint, refs);
+        const before = await store.loadBrowserWorkspaceRecovery('window:321');
+        const tabs = await import('@app/platform/browserWindowTabs');
+        const claim = tabs.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        const recovered = await claim;
+        const ownerId = tabs.getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) throw new Error('The duplicate has no recovery owner');
+        // Closing a clean duplicate must only clear its own empty journal.
+        await store.clearBrowserWorkspaceRecovery(ownerId, recovered ? before!.generation : 0);
+        await expect(store.loadBrowserWorkspaceRecovery('window:321')).resolves.toEqual(before);
+        await expect(store.saveBrowserWorkspaceRecovery('window:321', before!.generation, checkpoint, refs))
+            .resolves.toEqual({
+                saved: true,
+                generation: 2,
+            });
+        expect(recovered).toBeNull();
+        expect(ownerId).not.toBe('window:321');
+    });
+
+    it('recovers a fresh journal on an ordinary same-tab reload', async () => {
+        vi.stubGlobal('performance', {getEntriesByType: () => [{type: 'reload'}]});
+        const store = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        const refs = [requireDocumentRef('browser://documents/recovery.pdf')];
+        await store.saveBrowserWorkspaceRecovery('window:321', 0, checkpoint, refs);
+        const tabs = await import('@app/platform/browserWindowTabs');
+        const claim = tabs.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(claim).resolves.toEqual(checkpoint);
+        expect(tabs.getBrowserWindowRecoveryOwnerId()).toBe('window:321');
+        await expect(store.saveBrowserWorkspaceRecovery('window:321', 1, checkpoint, refs))
+            .resolves.toEqual({
+                saved: true,
+                generation: 2,
+            });
+    });
+
+    it('recovers an expired inherited owner through the orphan claim transaction', async () => {
+        const store = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        await store.saveBrowserWorkspaceRecovery('window:321', 0, checkpoint, [requireDocumentRef('browser://documents/recovery.pdf')]);
+        vi.setSystemTime(130_000);
+        const tabs = await import('@app/platform/browserWindowTabs');
+        const claim = tabs.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(claim).resolves.toEqual(checkpoint);
+        const ownerId = tabs.getBrowserWindowRecoveryOwnerId();
+        expect(ownerId).not.toBe('window:321');
+        await expect(store.loadBrowserWorkspaceRecovery('window:321')).resolves.toBeNull();
+        await expect(store.loadBrowserWorkspaceRecovery(ownerId!)).resolves.toMatchObject({
+            checkpoint,
+            generation: 2,
+            leaseRevision: 2,
         });
     });
 });

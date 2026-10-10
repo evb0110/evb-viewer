@@ -1063,8 +1063,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         if (!await holdRecoveryOwnerLock()) {
             return null;
         }
-        const canDiscoverLivePeers = Boolean(ensureChannel());
-        if (canDiscoverLivePeers) {
+        if (ensureChannel()) {
             const discoveryStartedAt = Date.now();
             postMessage({
                 type: 'discover',
@@ -1075,39 +1074,38 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             pruneStaleTargetWindows(discoveryStartedAt);
         }
 
-        const ownerId = await holdRecoveryOwnerLock();
-        if (!ownerId) {
-            return null;
-        }
-        const exact = await loadBrowserWorkspaceRecovery(ownerId);
+        let ownerId = await holdRecoveryOwnerLock();
+        if (!ownerId) return null;
+        const records = await loadBrowserWorkspaceRecoveries();
+        const exact = records.find(record => record.ownerId === ownerId);
         if (exact && ownerId === getBrowserWindowRecoveryOwnerId()) {
-            return exact.checkpoint;
+            // A reload replaced its context; a copied name alone proves nothing.
+            if (holdsLeaseOwnerLock(ownerId) || performance.getEntriesByType('navigation').some(entry => 'type' in entry && entry.type === 'reload')) {
+                return exact.checkpoint;
+            }
+            rekeyCurrentWindow();
+            ownerId = await holdRecoveryOwnerLock();
+            if (!ownerId) return null;
         }
 
         const activeOwnerIds = new Set(Array.from(knownWindows.keys(), recoveryOwnerId));
         const liveOwnerIds = await loadLiveLeaseOwnerIds();
         const now = Date.now();
-        const orphaned = (await loadBrowserWorkspaceRecoveries())
+        const orphan = records
             .filter(record => (
                 record.ownerId !== ownerId
                 && !activeOwnerIds.has(record.ownerId)
-                // A channel response proves liveness, but a missed 60ms
-                // response does not prove death: background tabs are heavily
-                // throttled and frozen ones do not answer. A held lease lock
-                // proves the owner alive. Without a lock manager, never steal
-                // a fresh durable owner heartbeat.
+                // Silence proves nothing: use locks or the conservative heartbeat
+                // check, then fence a changed lease revision in the claim transaction.
                 && (liveOwnerIds
                     ? !liveOwnerIds.has(record.ownerId)
                     : now - record.updatedAt >= RECOVERY_OWNER_LEASE_TIMEOUT_MS)
             ))
             .sort((first, second) => (
-                second.updatedAt - first.updatedAt
+                Number(second.ownerId === exact?.ownerId) - Number(first.ownerId === exact?.ownerId)
+                || second.updatedAt - first.updatedAt
                 || first.ownerId.localeCompare(second.ownerId)
-            ));
-        if (orphaned.length === 0) {
-            return null;
-        }
-        const orphan = orphaned[0];
+            ))[0];
         if (!orphan) {
             return null;
         }
