@@ -1,11 +1,8 @@
-import {
-    execFileSync,
-    spawn,
-} from 'node:child_process';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {
     existsSync,
     mkdirSync,
-    readFileSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -67,25 +64,12 @@ async function forceKillAndWait(child: ReturnType<typeof spawn>) {
     });
 }
 
-function readPosixProcessState(pid: number) {
-    if (process.platform === 'linux') {
-        const procStat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
-        return procStat.slice(procStat.lastIndexOf(')') + 1).trimStart().charAt(0);
-    }
-    return execFileSync('ps', [
-        '-p',
-        String(pid),
-        '-o',
-        'stat=',
-    ], {encoding: 'utf8'}).trim().charAt(0);
-}
-
 // A child that exited while its parent neither waits for it nor dies stays a
 // zombie: `kill(pid, 0)` still succeeds and `ps` reports `<defunct>`.
 async function spawnUnreapedZombie() {
     const parent = spawn('python3', [
         '-c',
-        'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nprint(pid, flush=True)\ntime.sleep(30)',
+        'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nos.waitid(os.P_PID,pid,os.WEXITED|os.WNOWAIT)\nprint(pid, flush=True)\ntime.sleep(30)',
     ], {stdio: [
         'ignore',
         'pipe',
@@ -99,9 +83,6 @@ async function spawnUnreapedZombie() {
         )));
     });
     expect(zombiePid).toBeGreaterThan(0);
-    await vi.waitFor(() => {
-        expect(readPosixProcessState(zombiePid)).toBe('Z');
-    });
     return {
         parent,
         zombiePid,
@@ -305,9 +286,8 @@ describe('Electron automation graceful shutdown policy', () => {
         const unrelatedPid = unrelated.pid ?? 0;
         try {
             expect(unrelatedPid).toBeGreaterThan(0);
-            await vi.waitFor(() => {
-                expect(inspectProcessIdentity(unrelatedPid)).not.toBeNull();
-            });
+            await once(unrelated, 'spawn');
+            expect(inspectProcessIdentity(unrelatedPid)).not.toBeNull();
 
             await expect(killVerifiedSessionProcess({
                 pid: unrelatedPid,

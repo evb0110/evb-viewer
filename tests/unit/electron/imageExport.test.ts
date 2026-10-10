@@ -263,6 +263,10 @@ const {
 } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
 const UTIF = utifModule;
+const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
+const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
+const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
+const realAtomicReplace = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
 
 function computePdftoppmRasterSize(args: string[]): IRenderedRasterSize {
     const scaleToIndex = args.indexOf('-scale-to');
@@ -1390,19 +1394,16 @@ describe('image export', () => {
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {
         const {
             PDFDocument, rgb,
-        } = await vi.importActual<typeof TPdfLib>('pdf-lib');
-        const nativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
-        const toolPaths = nativeTools.resolvePdfNativeToolPaths({
+        } = realPdfLib;
+        const toolPaths = realNativeTools.resolvePdfNativeToolPaths({
             isPackaged: true,
             nativeToolsBase: join(process.cwd(), 'resources'),
             platformArch: `${process.platform}-${process.arch}`,
         });
-        const fs = await vi.importActual<typeof FsPromises>('fs/promises');
-        const atomic = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
-        mocks.stat.mockImplementation(fs.stat);
-        mocks.rename.mockImplementation(fs.rename);
-        mocks.makeSiblingTempPath.mockImplementation(atomic.makeSiblingTempPath);
-        mocks.atomicReplace.mockImplementation(atomic.atomicReplace);
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
         mocks.popplerDataDir = toolPaths.popplerDataDir;
         mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
         const run = promisify(execFile);

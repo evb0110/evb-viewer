@@ -472,9 +472,23 @@ describe('assistant chat session store persistence', () => {
         33,
         65,
     ])('rehydrates history and provider resume IDs after %i document lookups and restart', async (count) => {
+        // Check the default 32-entry boundary without writing empty histories.
+        // The durable scenario then crosses a two-entry cache once or twice,
+        // exercising the same eviction/reload path with three or five files.
+        const defaultStore = createAssistantChatSessionStore({persistence: false});
+        for (let index = 0; index < count; index += 1) {
+            defaultStore.getSession({
+                ...scope,
+                key: `document-${index}`,
+            }, selection, {create: true});
+        }
+        expect(defaultStore.listSessions()).toHaveLength(32);
         const rootDir = createTempRoot();
         const persistence = new AssistantChatPersistence({rootDir});
-        const store = createAssistantChatSessionStore({persistence});
+        const store = createAssistantChatSessionStore({
+            persistence,
+            maxEntries: 2,
+        });
         await store.ready;
         const original = store.getSession(scope, selection, {create: true});
         original.providerThreadId = 'resume-original';
@@ -498,14 +512,14 @@ describe('assistant chat session store persistence', () => {
             text: 'original tool result',
         });
         const expected = structuredClone(original.messages);
-        for (let index = 1; index < count; index += 1) {
+        for (let index = 1; index < (count === 33 ? 3 : 5); index += 1) {
             store.getSession({
                 ...scope,
                 key: `document-${index}`,
             }, selection, {create: true});
         }
         await store.flushPersistenceForTests();
-        expect(store.listSessions()).toHaveLength(32);
+        expect(store.listSessions()).toHaveLength(2);
 
         const requestedScope = {
             ...scope,
@@ -519,11 +533,14 @@ describe('assistant chat session store persistence', () => {
         expect(returned.lastSenderWindowId).toBeNull();
         await store.flushPersistenceForTests();
 
-        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        const restarted = createAssistantChatSessionStore({
+            persistence: new AssistantChatPersistence({rootDir}),
+            maxEntries: 2,
+        });
         const cold = await restarted.loadSession(requestedScope, selection, {create: true});
         expect(cold.messages).toEqual(expected);
         expect(cold.providerThreadId).toBe('resume-original');
-        expect(restarted.listSessions()).toHaveLength(32);
+        expect(restarted.listSessions()).toHaveLength(2);
         await restarted.flushPersistenceForTests();
     });
 

@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -9,14 +10,16 @@ import {
     effectScope,
     ref,
 } from 'vue';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {useWorkspacePrint} from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 
-const failureReceipt = {
+const failureReceipt = vi.hoisted(() => ({
     eventId: '0123456789abcdef0123456789abcdef',
     code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
     occurredAt: 1,
     severity: 'error',
-};
-const failureReporter = {capture: vi.fn(() => failureReceipt)};
+}));
+const failureReporter = vi.hoisted(() => ({capture: vi.fn(() => failureReceipt)}));
 
 vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
 
@@ -24,6 +27,7 @@ class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
     public static instances: FakeWorker[] = [];
     public static autoRespond = true;
+    public static onPostMessage: ((worker: FakeWorker) => void) | null = null;
 
     public readonly postMessageCalls: Array<{
         message: unknown;
@@ -66,6 +70,7 @@ class FakeWorker {
             message,
             transfer,
         });
+        FakeWorker.onPostMessage?.(this);
         if (!FakeWorker.autoRespond) {
             return;
         }
@@ -113,14 +118,21 @@ function createParseResponse(id: number, data: Uint8Array) {
 
 describe('browserPageOpsWorkerClient', () => {
     beforeEach(() => {
-        vi.resetModules();
+        vi.useFakeTimers();
         vi.unstubAllGlobals();
         FakeWorker.lastInstance = null;
         FakeWorker.instances = [];
         FakeWorker.autoRespond = true;
+        FakeWorker.onPostMessage = null;
         failureReporter.capture.mockClear();
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
+    });
+
+    afterEach(async () => {
+        await vi.runOnlyPendingTimersAsync();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
     });
 
     it('rejects malformed catalog bookmark fields through the shared codec', async () => {
@@ -307,9 +319,6 @@ describe('browserPageOpsWorkerClient', () => {
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
-        const {runBrowserPageOpsWorkerRequest} = await import(
-            '@app/platform/browser-api/browserPageOpsWorkerClient'
-        );
         const request = runBrowserPageOpsWorkerRequest('rotate', {
             data: new Uint8Array([1]),
             pages: [1],
@@ -340,10 +349,6 @@ describe('browserPageOpsWorkerClient', () => {
     });
 
     it('does not report an idle worker termination', async () => {
-        vi.useFakeTimers();
-        const {runBrowserPageOpsWorkerRequest} = await import(
-            '@app/platform/browser-api/browserPageOpsWorkerClient'
-        );
         const result = runBrowserPageOpsWorkerRequest('rotate', {
             data: new Uint8Array([1]),
             pages: [1],
@@ -354,14 +359,10 @@ describe('browserPageOpsWorkerClient', () => {
         await vi.advanceTimersByTimeAsync(15_000);
         expect(terminateSpy).toHaveBeenCalledOnce();
         expect(failureReporter.capture).not.toHaveBeenCalled();
-        vi.useRealTimers();
     });
 
     it('cancels one dedicated parse without resetting an overlapping sibling', async () => {
         FakeWorker.autoRespond = false;
-        const {runBrowserPageOpsWorkerRequest} = await import(
-            '@app/platform/browser-api/browserPageOpsWorkerClient'
-        );
         const canceledController = new AbortController();
         const canceledInput = new Uint8Array([
             1,
@@ -416,9 +417,6 @@ describe('browserPageOpsWorkerClient', () => {
 
     it('ignores a late result from a canceled dedicated parse generation', async () => {
         FakeWorker.autoRespond = false;
-        const {runBrowserPageOpsWorkerRequest} = await import(
-            '@app/platform/browser-api/browserPageOpsWorkerClient'
-        );
         const staleController = new AbortController();
         const stale = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([1])}, {
             dedicated: true,
@@ -464,9 +462,6 @@ describe('browserPageOpsWorkerClient', () => {
 
     it('isolates a dedicated worker failure and preserves input ownership before transfer', async () => {
         FakeWorker.autoRespond = false;
-        const {runBrowserPageOpsWorkerRequest} = await import(
-            '@app/platform/browser-api/browserPageOpsWorkerClient'
-        );
         const failedInput = new Uint8Array([
             13,
             14,
@@ -520,7 +515,6 @@ describe('browserPageOpsWorkerClient', () => {
     ] as const)(
         'isolates cancellation of %s from an overlapping page operation', async (type) => {
             FakeWorker.autoRespond = false;
-            const {runBrowserPageOpsWorkerRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
             const controller = new AbortController();
             const input = new Uint8Array([
                 1,
@@ -561,8 +555,9 @@ describe('browserPageOpsWorkerClient', () => {
             await rejection;
             const siblingWorker = FakeWorker.lastInstance;
             if (!siblingWorker) throw new Error('Missing sibling worker');
+            const siblingRequest = siblingWorker.postMessageCalls[0]?.message as {id: number};
             siblingWorker.dispatchMessage({
-                id: 1,
+                id: siblingRequest.id,
                 type: 'rotate',
                 ok: true,
                 data: {
@@ -589,7 +584,7 @@ describe('browserPageOpsWorkerClient', () => {
             add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
             remove: () => undefined,
         }));
-        const {useWorkspacePrint} = await import('@app/modules/workspace-shell/composables/useWorkspacePrint');
+        const workerReady = new Promise<FakeWorker>(resolve => { FakeWorker.onPostMessage = resolve; });
         const scope = effectScope();
         const input = new Uint8Array([
             1,
@@ -614,10 +609,9 @@ describe('browserPageOpsWorkerClient', () => {
             orientation: 'landscape',
         });
         try {
-            await vi.waitFor(() => expect(FakeWorker.lastInstance).not.toBeNull());
-            const worker = FakeWorker.lastInstance!;
+            const worker = await workerReady;
             print.handlePrintDialogOpenChange(false);
-            await vi.waitFor(() => expect(worker.terminated).toBe(true));
+            expect(worker.terminated).toBe(true);
             await preparation;
             expect(print.isPreparingPrint.value).toBe(false);
             expect(notices).toEqual([]);
@@ -650,7 +644,6 @@ describe('browserPageOpsWorkerClient', () => {
 
     it('preserves typed decrypt failures and unavailable WASM results across the worker boundary', async () => {
         FakeWorker.autoRespond = false;
-        const {runBrowserPageOpsWorkerRequest} = await import('@app/platform/browser-api/browserPageOpsWorkerClient');
         for (const result of [
             null,
             {

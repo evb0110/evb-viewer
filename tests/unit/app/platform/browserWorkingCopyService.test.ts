@@ -13,6 +13,19 @@ import {
 import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type {IBrowserBatchOpenProgress} from '@app/platform/browser-api/createCombinedPdfFromPaths';
+import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
+import {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
+import * as workingCopyService from '@app/platform/browser-api/browserWorkingCopyService';
+
+const serviceState = vi.hoisted(() => ({store: null as BrowserDocumentStore | null}));
+
+vi.mock('@app/platform/browserDocumentStore', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserDocumentStore>(),
+    get browserDocumentStore() {
+        if (!serviceState.store) throw new Error('Missing working-copy test store');
+        return serviceState.store;
+    },
+}));
 
 const wasmRun = vi.hoisted(() => vi.fn());
 const combinedPdfRun = vi.hoisted(() => vi.fn());
@@ -54,18 +67,11 @@ const DECRYPTED_PDF = Uint8Array.from(
     new TextEncoder().encode('%PDF-1.7\nplain document\n'),
 );
 
-async function loadService() {
-    vi.resetModules();
-    const [
-        {browserDocumentStore},
-        service,
-    ] = await Promise.all([
-        import('@app/platform/browserDocumentStore'),
-        import('@app/platform/browser-api/browserWorkingCopyService'),
-    ]);
+function loadService() {
+    if (!serviceState.store) throw new Error('Missing working-copy test store');
     return {
-        browserDocumentStore,
-        ...service,
+        browserDocumentStore: serviceState.store,
+        ...workingCopyService,
     };
 }
 
@@ -77,6 +83,7 @@ describe('browser working-copy decryption', () => {
         vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         vi.stubGlobal('window', {localStorage: new MemoryStorage()});
         vi.stubGlobal('document', {cookie: ''});
+        serviceState.store = new BrowserDocumentStore();
         wasmRun.mockReset();
         combinedPdfRun.mockReset();
         emitBatchOpenProgressMock.mockClear();

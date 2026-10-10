@@ -5,10 +5,15 @@ import {
     readdir,
     rename,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    join,
+    sep,
+} from 'node:path';
+import type * as TFsPromises from 'node:fs/promises';
 import {decode} from 'fast-png';
 import {
     afterEach,
@@ -21,6 +26,31 @@ import {
     createScanCleanupRasterBatchRenderer,
     type IScanCleanupRasterBatchFileSystem,
 } from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
+
+// Keep all 1,024 real PNG encodes and pixel checks without thousands of disk
+// operations. Other cases below still publish through the real filesystem.
+const memoryFiles = vi.hoisted(() => new Map<string, Buffer>());
+vi.mock('fs/promises', async importOriginal => {
+    const actual = await importOriginal<typeof TFsPromises>();
+    return {
+        ...actual,
+        readFile: async (...args: Parameters<typeof actual.readFile>) =>
+            memoryFiles.get(String(args[0])) ?? actual.readFile(...args),
+        open: async (path: string, flags: string) => {
+            if (!path.replaceAll('\\', '/').startsWith('/memory-raster-batch/')) return actual.open(path, flags);
+            if (flags === 'w') memoryFiles.set(path, Buffer.alloc(0));
+            return {
+                write: async (bytes: Uint8Array) => {
+                    memoryFiles.set(path, Buffer.concat([
+                        memoryFiles.get(path)!,
+                        bytes,
+                    ]));
+                },
+                close: async () => undefined,
+            };
+        },
+    };
+});
 
 // One RGB pixel as Poppler writes it when no output format is requested.
 const PPM = Buffer.concat([
@@ -67,6 +97,7 @@ function createFileSystem() {
 }
 
 afterEach(async () => {
+    memoryFiles.clear();
     await Promise.all(roots.splice(0).map(root => rm(root, {
         force: true,
         recursive: true,
@@ -347,23 +378,50 @@ describe('scan cleanup raster batch renderer', () => {
     });
 
     it('accepts the 1,024-page manifest batch without changing per-page limits', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
-        roots.push(root);
+        const root = '/memory-raster-batch';
+        const scratch = join(root, 'pdftoppm-batch-test');
+        const ppmPath = join(tmpdir(), `scan-cleanup-ppm-${process.pid}`);
+        await writeFile(ppmPath, PPM);
+        const ppmStat = await stat(ppmPath);
+        await rm(ppmPath);
         const runCommand = vi.fn(async (_binary: string, args: string[]) => {
             const prefix = args.at(-1)!;
             const firstPage = Number(args[args.indexOf('-f') + 1]);
             const lastPage = Number(args[args.indexOf('-l') + 1]);
             expect(firstPage).toBe(1);
             expect(lastPage).toBe(1_024);
-            await Promise.all(Array.from({length: lastPage - firstPage + 1}, (_, index) =>
-                writeFile(`${prefix}-${String(index + 1).padStart(4, '0')}.ppm`, PPM)));
+            for (let page = firstPage; page <= lastPage; page += 1) {
+                memoryFiles.set(`${prefix}-${String(page).padStart(4, '0')}.ppm`, PPM);
+            }
             return {
                 exitCode: 0,
                 stderr: '',
                 stdout: '',
             };
         });
-        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, {
+            mkdtemp: async () => scratch,
+            open: async path => ({
+                read: async (buffer, offset, length, position) => ({bytesRead: memoryFiles.get(path)!.copy(buffer, offset, position, position + length)}),
+                stat: async () => ppmStat,
+                close: async () => undefined,
+            }),
+            readdir: async () => Array.from({length: 1_024}, (_, index) => ({
+                isFile: () => true,
+                name: `page-${String(index + 1).padStart(4, '0')}.ppm`,
+            })),
+            rename: async (source, target) => {
+                const bytes = memoryFiles.get(source);
+                if (!bytes) throw new Error(`Missing encoded raster: ${source}`);
+                memoryFiles.set(target, bytes);
+                memoryFiles.delete(source);
+            },
+            rm: async () => {
+                for (const path of memoryFiles.keys()) {
+                    if (path.startsWith(`${scratch}${sep}`)) memoryFiles.delete(path);
+                }
+            },
+        });
         const targets = Array.from({length: 1_024}, (_, index) => ({
             limits: {
                 expectedHeightPx: 1,

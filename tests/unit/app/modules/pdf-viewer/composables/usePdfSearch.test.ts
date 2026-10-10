@@ -18,7 +18,7 @@ import {
     ref,
     type Ref,
 } from 'vue';
-import type * as TimeoutConstants from '@app/constants/timeouts';
+import type * as TTimeoutConstants from '@app/constants/timeouts';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
@@ -28,7 +28,7 @@ import {
     createPlatformApiFixtureOperation,
     type IPlatformApiFixtureEventMethod,
 } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
-import type { usePdfSearch as TUsePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
+import { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 
 interface IPdfSearchTestExcerpt {
     after: string;
@@ -97,10 +97,9 @@ async function flushToScheduledSearch() {
     }
 }
 
-type TPdfSearchApi = ReturnType<typeof TUsePdfSearch>;
+type TPdfSearchApi = ReturnType<typeof usePdfSearch>;
 
 async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<Omit<TPdfSearchApi, 'getMatchesForPage'> & {getMatchesForPage: (pageIndex: number) => ReturnType<TPdfSearchApi['getMatchesForPage']>;}> {
-    const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
     const search = usePdfSearch(options);
     return {
         ...search,
@@ -122,7 +121,6 @@ describe('usePdfSearch', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.doUnmock('@app/constants/timeouts');
-        vi.resetModules();
     });
 
     it('retains response coverage without progress events and clears it for a new query', async () => {
@@ -1156,13 +1154,15 @@ describe('usePdfSearch', () => {
     });
 
     it('clears the pending debounce timer instead of leaving it to fire', async () => {
-        const timeouts = await vi.importActual<typeof TimeoutConstants>('@app/constants/timeouts');
-        vi.doMock('@app/constants/timeouts', () => ({
-            ...timeouts,
+        // Only this case needs a nonzero debounce; the other instances share
+        // the normal module rather than reimporting its graph after every test.
+        vi.doMock('@app/constants/timeouts', async importOriginal => ({
+            ...await importOriginal<typeof TTimeoutConstants>(),
             SEARCH_DEBOUNCE_MS: 50,
         }));
         vi.resetModules();
-        const search = await createPdfSearch();
+        const {usePdfSearch: useDebouncedPdfSearch} = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
+        const search = useDebouncedPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
         await flushToScheduledSearch();

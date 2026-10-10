@@ -8,6 +8,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -57,45 +58,54 @@ async function waitForFirstCheckpoint(root: string) {
 }
 
 describe('real OCR worker durable page checkpoints', () => {
-    it.each([
-        'native',
-        'runtime',
-        'selected-model',
-    ] as const)(
-        'reuses same-recipe recognition but recomputes saved text after a %s identity change',
-        async (identityKind) => {
-            const originalModelHash = OCR_LANGUAGE_MODEL_SHA256.eng;
-            const identityName = identityKind === 'native' ? '__EVB_NATIVE_BUILD_IDS__' : '__EVB_RUNTIME_ARCHIVE_IDS__';
-            const identityKey = identityKind === 'native' ? 'evb-scan-cleanup' : `tesseract-${process.platform}-${process.arch}`;
-            const first = await createOcrWorkerPipelineHarness();
+    describe('recipe identity', () => {
+        let first: IOcrWorkerPipelineHarness;
+
+        beforeEach(async () => {
+            // Fixture/module startup precedes the behavior under test. These
+            // identity checks still run the real pipeline and read saved text.
+            first = await createOcrWorkerPipelineHarness({concurrency: 3});
             harnesses.push(first);
-            try {
-                vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
-                await first.start('old-recipe');
-                const scriptPath = join(first.root, 'fake-tesseract.sh');
-                await writeFile(scriptPath, (await readFile(scriptPath, 'utf8')).replaceAll('checkpoint', 'newrecipe'));
-                await first.start('same-recipe');
-                const readSavedText = async () => {
-                    const root = join(first.root, 'ocr-checkpoints');
-                    const files = await readdir(root, {recursive: true});
-                    return Promise.all(files.filter(file => file.endsWith('page-1.json')).map(async file => (
-                        JSON.parse(await readFile(join(root, file), 'utf8')).pageData.text as string
-                    )));
-                };
-                expect(await readSavedText()).toEqual(['checkpoint page 1']);
-                if (identityKind === 'selected-model') {
-                    Object.assign(OCR_LANGUAGE_MODEL_SHA256, {eng: 'new-model-hash'});
-                } else {
-                    vi.stubGlobal(identityName, {[identityKey]: 'new-tool'});
+        });
+
+        it.each([
+            'native',
+            'runtime',
+            'selected-model',
+        ] as const)(
+            'reuses same-recipe recognition but recomputes saved text after a %s identity change',
+            async (identityKind) => {
+                const originalModelHash = OCR_LANGUAGE_MODEL_SHA256.eng;
+                const identityName = identityKind === 'native' ? '__EVB_NATIVE_BUILD_IDS__' : '__EVB_RUNTIME_ARCHIVE_IDS__';
+                const identityKey = identityKind === 'native' ? 'evb-scan-cleanup' : `tesseract-${process.platform}-${process.arch}`;
+                try {
+                    vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
+                    await first.start('old-recipe');
+                    const scriptPath = join(first.root, 'fake-tesseract.sh');
+                    await writeFile(scriptPath, (await readFile(scriptPath, 'utf8')).replaceAll('checkpoint', 'newrecipe'));
+                    await first.start('same-recipe');
+                    const readSavedText = async () => {
+                        const root = join(first.root, 'ocr-checkpoints');
+                        const files = await readdir(root, {recursive: true});
+                        return Promise.all(files.filter(file => file.endsWith('page-1.json')).map(async file => (
+                            JSON.parse(await readFile(join(root, file), 'utf8')).pageData.text as string
+                        )));
+                    };
+                    expect(await readSavedText()).toEqual(['checkpoint page 1']);
+                    if (identityKind === 'selected-model') {
+                        Object.assign(OCR_LANGUAGE_MODEL_SHA256, {eng: 'new-model-hash'});
+                    } else {
+                        vi.stubGlobal(identityName, {[identityKey]: 'new-tool'});
+                    }
+                    await first.start('changed-recipe');
+                    expect(await readSavedText()).toContain('newrecipe page 1');
+                } finally {
+                    Object.assign(OCR_LANGUAGE_MODEL_SHA256, {eng: originalModelHash});
+                    vi.unstubAllGlobals();
                 }
-                await first.start('changed-recipe');
-                expect(await readSavedText()).toContain('newrecipe page 1');
-            } finally {
-                Object.assign(OCR_LANGUAGE_MODEL_SHA256, {eng: originalModelHash});
-                vi.unstubAllGlobals();
-            }
-        },
-    );
+            },
+        );
+    });
 
     it('rejects same-size checkpoint corruption while retaining the other recognized pages', async () => {
         const harness = await createOcrWorkerPipelineHarness();

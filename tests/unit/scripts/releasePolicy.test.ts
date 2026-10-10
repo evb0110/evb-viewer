@@ -277,70 +277,39 @@ function writeExecutable(filePath: string, lines: string[]): void {
 }
 
 function createFakeDmgNotaryTools(binDir: string): string {
-    // The fake tools are extensionless CommonJS scripts. A temp directory
-    // inside this repository would otherwise inherit its `"type": "module"`.
-    writeFileSync(join(binDir, 'package.json'), '{"type": "commonjs"}\n');
+    // Shell fixtures keep the real subprocess boundary without starting a Node
+    // runtime for every codesign, notarytool, stapler and blockmap operation.
     writeExecutable(join(binDir, 'codesign'), [
-        '#!/usr/bin/env node',
-        'const args = process.argv.slice(2);',
-        'if (args[0] === \'-dv\') {',
-        '    process.stderr.write(\'not signed\\n\');',
-        '    process.exit(1);',
-        '}',
-        'process.exit(0);',
+        '#!/bin/sh',
+        'if [ "$1" = "-dv" ]; then echo "not signed" >&2; exit 1; fi',
+        'exit 0',
     ]);
-
     writeExecutable(join(binDir, 'xcrun'), [
-        '#!/usr/bin/env node',
-        'const { appendFileSync, existsSync, writeFileSync } = require(\'node:fs\');',
-        'const args = process.argv.slice(2);',
-        'if (args[0] === \'stapler\' && args[1] === \'validate\') {',
-        '    const markerPath = `${args[2]}.stapled`;',
-        '    if (existsSync(markerPath)) {',
-        '        process.stdout.write(\'valid\\n\');',
-        '        process.exit(0);',
-        '    }',
-        '    process.stderr.write(\'not stapled\\n\');',
-        '    process.exit(1);',
-        '}',
-        'if (args[0] === \'stapler\' && args[1] === \'staple\') {',
-        '    appendFileSync(args[2], \'\\nstapled-ticket\\n\');',
-        '    writeFileSync(`${args[2]}.stapled`, \'1\');',
-        '    process.exit(0);',
-        '}',
-        'if (args[0] === \'notarytool\' && args[1] === \'submit\') {',
-        '    process.stdout.write(JSON.stringify({ id: \'submission-1\' }));',
-        '    process.exit(0);',
-        '}',
-        'if (args[0] === \'notarytool\' && args[1] === \'wait\') {',
-        '    process.stdout.write(JSON.stringify({ status: \'Accepted\' }));',
-        '    process.exit(0);',
-        '}',
-        'process.stderr.write(`Unexpected xcrun args: ${args.join(\' \')}\\n`);',
-        'process.exit(2);',
+        '#!/bin/sh',
+        'case "$1 $2" in',
+        '  "stapler validate") [ -f "$3.stapled" ] || exit 1; echo valid ;;',
+        '  "stapler staple") printf "\\nstapled-ticket\\n" >> "$3"; printf 1 > "$3.stapled" ;;',
+        '  "notarytool submit") printf \'{"id":"submission-1"}\' ;;',
+        '  "notarytool wait") printf \'{"status":"Accepted"}\' ;;',
+        '  *) echo "Unexpected xcrun args: $*" >&2; exit 2 ;;',
+        'esac',
     ]);
-
+    writeFileSync(join(binDir, 'package.json'), '{"type": "commonjs"}\n');
     const appBuilderPath = join(binDir, 'app-builder');
     writeExecutable(appBuilderPath, [
         '#!/usr/bin/env node',
         'const { createHash } = require(\'node:crypto\');',
         'const { readFileSync, statSync, writeFileSync } = require(\'node:fs\');',
         'const args = process.argv.slice(2);',
-        'if (args[0] !== \'blockmap\') {',
-        '    process.stderr.write(`Unexpected app-builder args: ${args.join(\' \')}\\n`);',
-        '    process.exit(2);',
-        '}',
+        'if (args[0] !== \'blockmap\') process.exit(2);',
         'const inputPath = args[args.indexOf(\'--input\') + 1];',
         'const outputPath = args[args.indexOf(\'--output\') + 1];',
         'writeFileSync(outputPath, \'blockmap\');',
-        'const data = readFileSync(inputPath);',
-        'const info = {',
-        '    sha512: createHash(\'sha512\').update(data).digest(\'base64\'),',
+        'process.stdout.write(JSON.stringify({',
+        '    sha512: createHash(\'sha512\').update(readFileSync(inputPath)).digest(\'base64\'),',
         '    size: statSync(inputPath).size,',
-        '};',
-        'process.stdout.write(JSON.stringify(info));',
+        '}));',
     ]);
-
     return appBuilderPath;
 }
 
