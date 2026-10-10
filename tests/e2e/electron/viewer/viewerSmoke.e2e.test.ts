@@ -3396,10 +3396,16 @@ describe('Electron E2E - Viewer Smoke', () => {
                 const userAnchor = await readSplitResizeViewportAnchor(session, paneId, 'pdf');
                 await openNewPane(session.page, direction);
                 expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', userAnchor), userAnchor);
-                if (direction === 'down') await session.command('windowResize', [
-                    900,
-                    1000,
-                ]);
+                if (direction === 'down') {
+                    const height = await session.page.evaluate(() => Math.min(
+                        1000,
+                        screen.availHeight - (window.outerHeight - window.innerHeight),
+                    ));
+                    await session.command('windowResize', [
+                        900,
+                        height,
+                    ]);
+                }
                 const anchor = await readSplitResizeViewportAnchor(session, paneId, 'pdf');
                 const sash = '.editor-sash';
                 const readGeometry = () => session.page.$eval(sash, element => {
