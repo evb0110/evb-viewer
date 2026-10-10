@@ -1718,6 +1718,7 @@ export default {
             'validation': 'The document did not pass its validity check, so nothing was written.',
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',
+            'originalChanged': 'The file changed on disk since you opened it. Your changes are kept. Use Save As to keep both versions.',
             'workingCopyMissing': 'The temporary copy of the document was removed, so these changes cannot be saved. Reopen the file.',
             'notCompleted': 'The document could not be written.',
             'permissionDenied': 'Permission to write the file was denied. Choose Save As to save your changes elsewhere.',

@@ -954,14 +954,17 @@ describe('Electron E2E - save pipeline diagnostics', () => {
 
     it('refuses to overwrite a PDF another program replaced after changing one byte', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-external-replace-${Date.now()}.pdf`, 2);
+        const destination = createFixturePath(`save-external-replace-saved-as-${Date.now()}.pdf`);
         session = await startElectronE2ESession(`e2e-save-external-replace-${Date.now()}`, {
             clean: true,
             initialOpenPaths: [pdfPath],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destination},
         });
         const {page} = session;
         await waitForOpenedPdf(page, pdfPath);
         await openAnnotationsTab(page, 30_000);
-        await createFreeTextAnnotationWithPointer(page, `Unsaved edit ${Date.now()}`, {
+        const text = `Unsaved edit ${Date.now()}`;
+        await createFreeTextAnnotationWithPointer(page, text, {
             x: 0.4,
             y: 0.3,
         });
@@ -1001,6 +1004,8 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             visible: true,
         });
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        const failureText = await page.$eval('.app-toast-failure:not([data-state="closed"])', element => element.textContent ?? '');
+        expect(failureText).toContain('The file changed on disk since you opened it. Your changes are kept. Use Save As to keep both versions.');
         await expect(readFile(pdfPath)).resolves.toEqual(externalBytes);
         expect(await waitForAutomationEvent(page, 'save-committed', {
             afterEventId: baselineEventId,
@@ -1008,6 +1013,13 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             timeoutMs: 1_000,
         }).catch(() => null)).toBeNull();
         expect(await isSaveButtonEnabled(page)).toBe(true);
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure:not([data-state="closed"]) button'))
+            .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'changed-original failure Save As'});
+        await expect.poll(() => existsSync(destination), {timeout: SAVE_TIMEOUT_MS}).toBe(true);
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        expect((await readPdfTextAnnotationRecords(destination)).some(annotation => annotation.contents === text)).toBe(true);
+        await expect(readFile(pdfPath)).resolves.toEqual(externalBytes);
+        await expect.poll(() => isSaveButtonEnabled(page), {timeout: SAVE_TIMEOUT_MS}).toBe(false);
     }, E2E_TIMEOUT_MS);
 
     it('saves after another program atomically replaces the original with identical bytes', async () => {

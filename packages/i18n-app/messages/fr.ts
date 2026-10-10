@@ -1729,6 +1729,7 @@ export default {
             'validation': 'Le document n’a pas passé le contrôle de validité, rien n’a été écrit.',
             'openNotes': 'Les notes ouvertes n’ont pas pu être enregistrées, le document n’a pas été écrit.',
             'documentChanged': 'Le document a changé avant la fin de l’enregistrement, rien n’a été écrit.',
+            'originalChanged': 'Le fichier sur le disque a changé depuis son ouverture. Vos modifications sont conservées. Utilisez « Enregistrer sous » pour conserver les deux versions.',
             'workingCopyMissing': 'La copie temporaire du document a été supprimée, donc ces modifications ne peuvent pas être enregistrées. Rouvrez le fichier.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
             'permissionDenied': 'L’autorisation d’écrire le fichier a été refusée. Choisissez « Enregistrer sous » pour enregistrer vos modifications ailleurs.',

@@ -1050,7 +1050,7 @@ export function createDocumentPersistence(
                     ...createFailedPersistResult(opts.saveMode, false, refusedPersistFailure(
                         'native',
                         'mutation',
-                        result.validation?.isValid === false ? 'validation-failed' : 'write-failed',
+                        result.reason ?? (result.validation?.isValid === false ? 'validation-failed' : 'write-failed'),
                         {
                             ...(result.error ? {
                                 message: result.error.message,

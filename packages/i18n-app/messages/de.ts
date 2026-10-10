@@ -1718,6 +1718,7 @@ export default {
             'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',
+            'originalChanged': 'Die Datei auf dem Datenträger wurde seit dem Öffnen geändert. Ihre Änderungen bleiben erhalten. Verwenden Sie „Speichern unter“, um beide Versionen zu behalten.',
             'workingCopyMissing': 'Die temporäre Kopie des Dokuments wurde entfernt, daher können diese Änderungen nicht gespeichert werden. Öffnen Sie die Datei erneut.',
             'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
             'permissionDenied': 'Die Schreibberechtigung für die Datei wurde verweigert. Wählen Sie «Speichern unter», um Ihre Änderungen an einem anderen Ort zu speichern.',

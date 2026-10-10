@@ -531,7 +531,10 @@ export async function handleCommitStagedPdfNativeMutations(
                         ? {}
                         : {identityBindings: revisionOptions.identityBindings}),
                 }
-                : createNotAppliedResult();
+                : {
+                    ...createNotAppliedResult(),
+                    reason: 'original-changed',
+                };
 
             releaseManagedTempFileHandle(context, stagedOutput.leaseId);
             await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>

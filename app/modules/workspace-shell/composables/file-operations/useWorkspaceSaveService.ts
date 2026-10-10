@@ -669,6 +669,14 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 options.detail,
                 options.failure,
                 options.diagnostics,
+                options.diagnostics?.reason === 'original-changed' ? () => {
+                    if (ownsCurrentDocument()) {
+                        void save({
+                            kind: 'save-as',
+                            optimizeLossless: deps.optimizePdfOnSaveAs?.value === true,
+                        });
+                    }
+                } : undefined,
             );
         }
 

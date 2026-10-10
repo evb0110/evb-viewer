@@ -383,6 +383,7 @@ const documentSaveFailureReasons = [
     'user-canceled',
     'validation-failed',
     'working-copy-missing',
+    'original-changed',
     'write-failed',
     'refresh-failed',
     'working-copy-sync-required',
@@ -441,6 +442,7 @@ const nativeErrorEnvelopeSchema: v.GenericSchema<unknown, INativeErrorEnvelope> 
 const nativeSaveResultSchema = v.object({
     applied: v.boolean(),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
+    reason: v.exactOptional(v.literal('original-changed')),
     nativeMutationPostconditionsVerified: v.exactOptional(v.literal(true, 'invalid native PDF save result')),
     identityBindings: v.exactOptional(v.pipe(
         v.unknown(),

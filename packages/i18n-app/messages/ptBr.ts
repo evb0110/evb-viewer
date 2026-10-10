@@ -1729,6 +1729,7 @@ export default {
             'validation': 'O documento não passou na verificação de validade, então nada foi gravado.',
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',
+            'originalChanged': 'O arquivo no disco mudou desde que você o abriu. Suas alterações são mantidas. Use «Salvar como» para manter as duas versões.',
             'workingCopyMissing': 'A cópia temporária do documento foi removida, então estas alterações não podem ser salvas. Abra o arquivo novamente.',
             'notCompleted': 'Não foi possível gravar o documento.',
             'permissionDenied': 'A permissão para gravar o arquivo foi negada. Escolha «Salvar como» para salvar as alterações em outro local.',
