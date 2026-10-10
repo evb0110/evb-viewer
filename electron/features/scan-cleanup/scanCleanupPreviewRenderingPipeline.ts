@@ -11,10 +11,8 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { decodeNativeScanCleanupPreviewOutputMetadataJson } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { INativeScanCleanupReusableGeometryV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupMarginsMm,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {resolveScanCleanupMarginsMm} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import { PREVIEW_DPI } from '@evb/scan-cleanup/core/detection';
 import {
     logRasterHandoff,
@@ -115,7 +113,7 @@ export async function pruneBaseAnalysisCache(
     dependencies: IScanCleanupRenderingDependencies,
 ) {
     let retainedBytes = [...cache.values()]
-        .reduce((total, analysis) => total + analysis.canonicalRasterBytes, 0);
+        .reduce((total, analysis) => total + analysis.retainedBytes, 0);
     while (
         cache.size > BASE_ANALYSIS_CACHE_PAGE_LIMIT
         || retainedBytes > BASE_ANALYSIS_CACHE_BYTE_LIMIT
@@ -126,7 +124,7 @@ export async function pruneBaseAnalysisCache(
         }
         cache.delete(oldest[0]);
         await removeBaseAnalysisArtifacts(oldest[1], dependencies);
-        retainedBytes -= oldest[1].canonicalRasterBytes;
+        retainedBytes -= oldest[1].retainedBytes;
     }
 }
 export function resolveFallbackDetailDpi(

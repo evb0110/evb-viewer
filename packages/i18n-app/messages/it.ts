@@ -954,6 +954,10 @@ export default {
             'existingTextSkipped': 'Pagina {page}: il testo esistente è stato mantenuto.',
         },
         'preparing': 'Preparazione OCR...',
+        'modelDownload': {
+            'progress': 'Download di {language}: {received} / {total} MB ({percent}%)',
+            'retrying': 'Nuovo tentativo di download di {language} (tentativo {attempt} di {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Download dei modelli linguistici...',
             'pdfPrep': 'Preparazione del PDF...',
@@ -1714,9 +1718,11 @@ export default {
             'validation': 'Il documento non ha superato il controllo di validità, quindi non è stato scritto nulla.',
             'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
             'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',
+            'originalChanged': 'Il file sul disco è cambiato da quando lo hai aperto. Le tue modifiche sono conservate. Usa «Salva con nome» per mantenere entrambe le versioni.',
             'workingCopyMissing': 'La copia temporanea del documento è stata rimossa, quindi queste modifiche non possono essere salvate. Riapri il file.',
             'notCompleted': 'Non è stato possibile scrivere il documento.',
             'permissionDenied': 'Il permesso di scrivere il file è stato negato. Scegli «Salva con nome» per salvare le modifiche altrove.',
+            'fileBusy': 'Il file è in uso da un altro programma, quindi non è stato possibile scriverlo. Chiudi quel programma e riprova, oppure scegli «Salva con nome» per salvare le modifiche altrove.',
             'diskFull': 'Il disco è pieno. Libera spazio o usa «Salva con nome» su un altro disco.',
             'writeFailed': 'Impossibile scrivere il file. Controlla i permessi di scrittura e lo spazio libero, oppure salvalo altrove.',
             'nativeFailure': 'Il motore PDF non ha potuto applicare le modifiche. Restano aperte qui.',

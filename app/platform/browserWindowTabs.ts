@@ -20,15 +20,21 @@ import {
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     claimBrowserWorkspaceRecoveryOwner,
+    clearBrowserWorkspaceRecovery,
+    saveBrowserWorkspaceRecovery,
+    touchBrowserWorkspaceRecovery,
     loadBrowserWorkspaceRecoveries,
     loadBrowserWorkspaceRecovery,
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import {
+    releaseBrowserDocumentLiveLease,
+    saveBrowserDocumentLiveLease,
     holdLeaseOwnerLock,
     holdsLeaseOwnerLock,
     loadLiveLeaseOwnerIds,
 } from '@app/platform/browser/browserDocumentLeaseStore';
+import type { TDocumentRef } from '@contracts/documentRef';
 import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
@@ -249,6 +255,7 @@ const incomingTransferNonces = new Map<string, IIncomingBrowserTransferNonce>();
 const queuedTransfersByWindow = new Map<number, string[]>();
 
 const browserWindowTabsInstanceId = Symbol('browserWindowTabsInstance');
+const inheritedWindowId = hasBrowserWindowContext() ? readNamedWindowId() : null;
 
 let channel: BroadcastChannel | null = null;
 let initialized = false;
@@ -354,6 +361,8 @@ function resolveCurrentWindowId() {
         return -1;
     }
 
+    const state = getBrowserWindowTabsState();
+    const stateWindowId = parsePositiveWindowId(state?.windowId);
     try {
         const url = new URL(window.location.href);
         const fromQuery = Number(url.searchParams.get(WINDOW_ID_QUERY_PARAM));
@@ -364,38 +373,32 @@ function resolveCurrentWindowId() {
                 '',
                 url.toString(),
             );
-            const state = getBrowserWindowTabsState();
-            if (state) {
-                state.windowId = fromQuery;
-            }
+            window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
+            if (state) state.windowId = fromQuery;
             rememberNamedWindowId(fromQuery);
             return fromQuery;
         }
+        if (stateWindowId !== null) {
+            rememberNamedWindowId(stateWindowId);
+            return stateWindowId;
+        }
+
+        const namedWindowId = readNamedWindowId();
+        const reloadingWindowId = parsePositiveWindowId(Number(window.sessionStorage?.getItem(WINDOW_TABS_STATE_KEY)));
+        window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
+        if (namedWindowId && (holdsLeaseOwnerLock(recoveryOwnerId(namedWindowId)) !== null
+            || (namedWindowId === reloadingWindowId
+                && performance.getEntriesByType('navigation').some(entry => 'type' in entry && entry.type === 'reload')))) {
+            if (state) state.windowId = namedWindowId;
+            rememberNamedWindowId(namedWindowId);
+            return namedWindowId;
+        }
     } catch (error) {
-        BrowserLogger.warn(
-            'browserWindowTabs',
-            'Failed to resolve browser window ID from URL',
-            error,
-        );
-    }
-
-    const state = getBrowserWindowTabsState();
-    const stateWindowId = parsePositiveWindowId(state?.windowId);
-    if (stateWindowId !== null) {
-        rememberNamedWindowId(stateWindowId);
-        return stateWindowId;
-    }
-
-    const namedWindowId = readNamedWindowId();
-    if (namedWindowId) {
-        if (state) state.windowId = namedWindowId;
-        return namedWindowId;
+        BrowserLogger.warn('browserWindowTabs', 'Failed to resolve retained browser window identity', error);
     }
 
     const windowId = createWindowId();
-    if (state) {
-        state.windowId = windowId;
-    }
+    if (state) state.windowId = windowId;
     rememberNamedWindowId(windowId);
     return windowId;
 }
@@ -838,6 +841,8 @@ function handleWindowPageHide(event: PageTransitionEvent) {
         });
         return;
     }
+    // Only a departing established context hands its owner to a reload.
+    window.sessionStorage?.setItem(WINDOW_TABS_STATE_KEY, String(currentWindowId));
     cleanupBrowserWindowTabsInstance(true);
 }
 
@@ -984,8 +989,69 @@ async function holdRecoveryOwnerLock() {
         rekeyCurrentWindow();
     }
 }
+// Recovery records and their live document leases share this platform owner.
+let recoveryLiveLease: {
+    ownerId: string;
+    generation: number
+} | null = null;
+
+async function releaseRecoveryLiveLease() {
+    if (!recoveryLiveLease) return;
+    const lease = recoveryLiveLease;
+    try {
+        await releaseBrowserDocumentLiveLease(lease.ownerId, lease.generation);
+        recoveryLiveLease = null;
+    } catch {
+        // Retain the generation for the next same-owner clean checkpoint.
+    }
+}
+
+async function publishRecoveryLiveLease(ownerId: string, refs: TDocumentRef[]) {
+    try {
+        const lease = await saveBrowserDocumentLiveLease(ownerId, recoveryLiveLease?.generation ?? 0, 'active', refs.map(ref => ({ref})));
+        recoveryLiveLease = {
+            ownerId,
+            generation: lease.generation,
+        };
+    } catch (error) {
+        // A later successful record write or heartbeat reacquires the lease.
+        recoveryLiveLease = null;
+        BrowserLogger.warn('workspace-recovery', 'Failed to publish browser document live lease', error);
+    }
+}
+
 export const browserWindowTabsCapability: IWindowTabsCapability = {
+    browserRecovery: {
+        getOwnerId: getBrowserWindowRecoveryOwnerId,
+        async load(ownerId) {
+            if (recoveryLiveLease && recoveryLiveLease.ownerId !== ownerId) {
+                await releaseRecoveryLiveLease();
+                // A later page load's orphan sweep reclaims the lease once this owner's lock is free.
+                recoveryLiveLease = null;
+            }
+            return loadBrowserWorkspaceRecovery(ownerId);
+        },
+        async save(ownerId, expectedGeneration, checkpoint, snapshotRefs, liveDocumentRefs) {
+            const outcome = await saveBrowserWorkspaceRecovery(ownerId, expectedGeneration, checkpoint, snapshotRefs);
+            if (outcome.saved) await publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+            return outcome;
+        },
+        async touch(ownerId, expectedGeneration, liveDocumentRefs) {
+            const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
+            if (outcome.saved && (recoveryLiveLease || liveDocumentRefs.length > 0)) {
+                await publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+            }
+            return outcome;
+        },
+        async clear(ownerId, expectedGeneration) {
+            const outcome = await clearBrowserWorkspaceRecovery(ownerId, expectedGeneration);
+            if (outcome.saved) await releaseRecoveryLiveLease();
+            return outcome;
+        },
+    },
     async saveWorkspaceCheckpoint() {},
+    // Restore acknowledgement cannot delete the browser's only dirty bytes.
+    // The browser writer retires them after a replacement or clean checkpoint.
     async acknowledgeWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
@@ -993,8 +1059,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         if (!await holdRecoveryOwnerLock()) {
             return null;
         }
-        const canDiscoverLivePeers = Boolean(ensureChannel());
-        if (canDiscoverLivePeers) {
+        if (ensureChannel()) {
             const discoveryStartedAt = Date.now();
             postMessage({
                 type: 'discover',
@@ -1006,38 +1071,32 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         }
 
         const ownerId = await holdRecoveryOwnerLock();
-        if (!ownerId) {
-            return null;
-        }
-        const exact = await loadBrowserWorkspaceRecovery(ownerId);
-        if (exact && ownerId === getBrowserWindowRecoveryOwnerId()) {
+        if (!ownerId) return null;
+        const records = await loadBrowserWorkspaceRecoveries();
+        const exact = records.find(record => record.ownerId === ownerId)
+            ?? records.find(record => record.ownerId === recoveryOwnerId(inheritedWindowId ?? -1));
+        if (exact?.ownerId === ownerId && ownerId === getBrowserWindowRecoveryOwnerId()) {
             return exact.checkpoint;
         }
 
         const activeOwnerIds = new Set(Array.from(knownWindows.keys(), recoveryOwnerId));
         const liveOwnerIds = await loadLiveLeaseOwnerIds();
         const now = Date.now();
-        const orphaned = (await loadBrowserWorkspaceRecoveries())
+        const orphan = records
             .filter(record => (
                 record.ownerId !== ownerId
                 && !activeOwnerIds.has(record.ownerId)
-                // A channel response proves liveness, but a missed 60ms
-                // response does not prove death: background tabs are heavily
-                // throttled and frozen ones do not answer. A held lease lock
-                // proves the owner alive. Without a lock manager, never steal
-                // a fresh durable owner heartbeat.
+                // Silence proves nothing: use locks or the conservative heartbeat
+                // check, then fence a changed lease revision in the claim transaction.
                 && (liveOwnerIds
                     ? !liveOwnerIds.has(record.ownerId)
                     : now - record.updatedAt >= RECOVERY_OWNER_LEASE_TIMEOUT_MS)
             ))
             .sort((first, second) => (
-                second.updatedAt - first.updatedAt
+                Number(second.ownerId === exact?.ownerId) - Number(first.ownerId === exact?.ownerId)
+                || second.updatedAt - first.updatedAt
                 || first.ownerId.localeCompare(second.ownerId)
-            ));
-        if (orphaned.length === 0) {
-            return null;
-        }
-        const orphan = orphaned[0];
+            ))[0];
         if (!orphan) {
             return null;
         }

@@ -14,6 +14,11 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
 import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import * as v from 'valibot';
+import {
+    documentSaveResult,
+    nativeSaveResult,
+} from '@contracts/documentsPlatformFeatureSchemas';
 
 const toastAddMock = vi.fn();
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
@@ -181,14 +186,23 @@ describe('useWorkspaceFailureSurface', () => {
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 
-    it('keeps the native bridge receipt and cause in the save presentation', () => {
+    it.each([
+        [
+            'EACCES: permission denied',
+            'errors.save.permissionDenied',
+        ],
+        [
+            'EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak',
+            'errors.save.fileBusy',
+        ],
+    ])('keeps the native bridge receipt and cause for %s in the save presentation', (message, description) => {
         const receipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',
             eventId: '0123456789abcdef0123456789abcdef',
             occurredAt: 1,
             severity: 'error',
         } as FailureReceipt;
-        const cause = Object.assign(new Error('EACCES: permission denied'), {failure: receipt});
+        const cause = Object.assign(new Error(message), {failure: receipt});
         const surface = useWorkspaceFailureSurface();
         surface.reportSaveFailure('save-native', 'persist-rejected', undefined, undefined, {
             channel: 'native',
@@ -200,10 +214,58 @@ describe('useWorkspaceFailureSurface', () => {
         });
         expect(surface.saveFailurePresentation.value).toMatchObject({
             failure: receipt,
-            description: 'errors.save.permissionDenied',
+            description,
             technicalDetails: expect.stringContaining(cause.message),
         });
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: receipt.eventId}));
+    });
+
+    it.each([
+        'structured',
+        'native',
+    ] as const)('names a changed original from the decoded %s save result and offers Save As', channel => {
+        const result = channel === 'structured'
+            ? v.parse(documentSaveResult, {
+                ok: false,
+                reason: 'original-changed',
+                externalWriteCommitted: false,
+            })
+            : v.parse(nativeSaveResult, {
+                applied: false,
+                reason: 'original-changed',
+                validation: null,
+            });
+        if (!('reason' in result) || !result.reason) throw new Error('The save refusal lost its reason');
+        const surface = useWorkspaceFailureSurface();
+        let destination = '';
+        surface.reportSaveFailure('changed-original', 'persist-rejected', undefined, undefined, {
+            channel,
+            operation: 'persist',
+            phase: 'publish-original',
+            reason: result.reason,
+        }, () => {destination = 'saved-as.pdf';});
+
+        expect(surface.saveFailurePresentation.value?.description).toBe('errors.save.originalChanged');
+        const toast = toastAddMock.mock.calls[0]?.[0];
+        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
+            'toolbar.saveAs',
+            'errors.runtime.copy',
+        ]);
+        toast.actions[0].onClick();
+        expect(destination).toBe('saved-as.pdf');
+        expect(surface.hasSaveFailure.value).toBe(true);
+    });
+
+    it('keeps a genuine write failure separate from a changed original', () => {
+        const surface = useWorkspaceFailureSurface();
+        surface.reportSaveFailure('write-failed', 'persist-rejected', undefined, undefined, {
+            channel: 'file:saveStructured',
+            operation: 'persist',
+            phase: 'publish-original',
+            reason: 'write-failed',
+        });
+        expect(surface.saveFailurePresentation.value?.description).toBe('errors.save.notCompleted');
+        expect(toastAddMock.mock.calls[0]?.[0].actions.map((action: {label: string}) => action.label)).toEqual(['errors.runtime.copy']);
     });
 
     it('keeps a rejected annotation out of the save state', () => {

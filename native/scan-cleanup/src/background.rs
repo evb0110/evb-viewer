@@ -1,4 +1,4 @@
-use crate::png::RgbImage;
+use crate::io::png::RgbImage;
 use rayon::prelude::*;
 use scan_primitives::{morphology::reconstruct_gray, BinaryImage, GrayImage};
 
@@ -2231,7 +2231,7 @@ mod tests {
 
     #[test]
     fn color_normalization_matches_real_gutter_fixture_golden() {
-        let decoded = crate::png::decode_image(
+        let decoded = crate::io::png::decode_image(
             include_bytes!("../tests/fixtures/split/spread-luther-soft-gutter-p00001.png"),
             crate::DEFAULT_MAX_PIXELS,
             crate::DEFAULT_MAX_DIMENSION,
@@ -2587,7 +2587,7 @@ mod tests {
     }
 
     fn gutter_fixture() -> GrayImage {
-        crate::png::decode_image(
+        crate::io::png::decode_image(
             include_bytes!("../tests/fixtures/split/spread-luther-soft-gutter-p00001.png"),
             crate::DEFAULT_MAX_PIXELS,
             crate::DEFAULT_MAX_DIMENSION,

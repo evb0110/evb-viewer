@@ -71,7 +71,7 @@ describe('atomicReplace', () => {
         });
         mocks.readFile.mockRejectedValue(Object.assign(new Error('not found'), {code: 'ENOENT'}));
         mocks.rename.mockResolvedValue(undefined);
-        mocks.stat.mockResolvedValue({});
+        mocks.stat.mockResolvedValue({isFile: () => true});
         mocks.unlink.mockResolvedValue(undefined);
         mocks.sync.mockResolvedValue(undefined);
     });

@@ -80,7 +80,7 @@ trustedMrcBackgroundPreserved?: boolean,
  * Compatibility field for legacy consumers. Fresh raster cleanup keeps
  * producer selection masks as hints and never sets this bit.
  */
-trustedSelectionApplied?: boolean, illuminationNormalized: boolean, textToneDiagnostics?: TextToneDiagnostics, binarizationMode: BinarizationMode | null, binarizationDiagnostics: BinarizationDiagnostics | null, inkConsistencyDiagnostics?: InkConsistencyDiagnostics, despeckleFallback: boolean, forwardTransform: Affine | null, inverseTransform: Affine | null, dewarpModel: DewarpOptions | null, dewarpMapping: DewarpMappingGrid | null, dewarpConfidence: number | null, inputWidthPx: number, inputHeightPx: number, 
+trustedSelectionApplied?: boolean, illuminationNormalized: boolean, textToneDiagnostics?: TextToneDiagnostics, faintStrokeMasks: [Array<number> | null, Array<number> | null], binarizationMode: BinarizationMode | null, binarizationDiagnostics: BinarizationDiagnostics | null, inkConsistencyDiagnostics?: InkConsistencyDiagnostics, despeckleFallback: boolean, forwardTransform: Affine | null, inverseTransform: Affine | null, dewarpModel: DewarpOptions | null, dewarpMapping: DewarpMappingGrid | null, dewarpConfidence: number | null, inputWidthPx: number, inputHeightPx: number, 
 /**
  * Intrinsic, unpadded cleaned-raster width.
  */

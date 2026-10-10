@@ -38,6 +38,7 @@ import {
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import { fenceDocumentViewportPaneRelocationScroll } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -1192,6 +1193,54 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('keeps the restored in-page point when a Blob reload becomes ready', async () => {
+        const fixture = createViewportFixture({
+            pageCount: 8,
+            zoomMode: 'custom',
+        });
+        const reloadPlan = {
+            isReload: true,
+            isSelectiveReload: false,
+            pagesToInvalidate: null,
+            preserveVisibleContent: false,
+            preservePageStructure: false,
+        };
+        const stop = watch(fixture.viewport.demand, (demand) => {
+            if (demand.mandatoryRaster) {
+                fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+            }
+        }, {flush: 'post'});
+        try {
+            appendPageBox(fixture.container, 2, {
+                height: 900,
+                top: 940,
+            });
+            fixture.viewport.markPageMounted(requirePageNumber(2));
+            setCurrentPage(fixture.viewport, 2);
+            await fixture.documentSession.emit(transition('loading', reloadPlan));
+            expect(fixture.viewport.singlePageScroll.submitNavigationRequest(createPageNavigationRequest(2, 'restore', {
+                page: 2,
+                pageXFraction: 0.5,
+                pageYFraction: (230 + 400) / 900,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center',
+            }))).toBe(true);
+            await vi.waitFor(() => {
+                expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+                expect(fixture.container.scrollTop).toBe(1_170);
+            });
+
+            await fixture.documentSession.emit(transition('ready', reloadPlan));
+
+            expect(fixture.container.scrollTop).toBe(1_170);
+            expect(fixture.viewport.currentPage.value).toBe(2);
+        } finally {
+            stop();
+            await fixture.dispose();
+        }
+    });
+
     it('keeps reload target and custom display zoom while fit reloads retain their fit mode', async () => {
         const customZoom = ref(1.94);
         const fixture = createViewportFixture({
@@ -1461,6 +1510,59 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.container.scrollTop).toBe(4_000);
         } finally {
             fixture.app.unmount();
+        }
+    });
+
+    it('keeps an opening restore in charge while its previous PDF intent retires', async () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: 'save-as.pdf',
+            documentRevision: 'revision-1',
+        });
+        surface.metadataReady(8);
+        surface.commitGeometry(generation, {
+            width: 600,
+            height: 900,
+            margin: 20,
+        });
+        const fixture = createViewportFixture({
+            chassisAuthority: createChassisAuthority(surface),
+            pageCount: 8,
+            zoomMode: 'custom',
+        });
+        const metrics = Promise.withResolvers<boolean>();
+        try {
+            fixture.container.scrollTop = 1_170;
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
+            surface.navigate(createPageNavigationRequest(2, 'restore', {
+                page: 2,
+                pageXFraction: 0.5,
+                pageYFraction: 0.7,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center',
+            }));
+            await vi.waitFor(() => expect(
+                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
+            ).toBe(true));
+            const renderFence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 6,
+                pageNumber: 2,
+            });
+            fixture.documentSession.loadToken.value = 2;
+            expect(surface.commitCanvas(renderFence!)).toBe(true);
+            await nextTick();
+
+            expect(fixture.container.scrollTop).toBe(1_170);
+            expect(surface.snapshot.value.committedViewport).toBeNull();
+            expect(surface.navigationTicket.value?.request.source).toBe('restore');
+        } finally {
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            metrics.resolve(true);
+            await fixture.dispose();
         }
     });
 

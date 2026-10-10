@@ -1,9 +1,10 @@
 import {
-    chmod,
     mkdtemp,
     readFile,
     writeFile,
 } from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
@@ -56,37 +57,47 @@ export async function createOcrWorkerPipelineHarness(options: {
         800,
     ]).drawText('checkpoint', {font: fakeOutputFont});
     await writeFile(fakeTesseractPdf, await fakeOutputDocument.save());
-    const fakeTesseract = join(root, 'fake-tesseract.sh');
-    await writeFile(fakeTesseract, `#!/bin/sh
-input="$1"
-output="$2"
-tail="\${input#*-page-}"
-page="\${tail%%-*}"
-page="\${page%%.*}"
-if [ "\${EVB_FAKE_OCR_FAIL_PAGE:-}" = "$page" ]; then
-    exit 86
-fi
-if [ "\${EVB_FAKE_OCR_STALL_PAGE:-}" = "$page" ]; then
-    sleep 30
-fi
-printf '%s\\n' "$page" >> "$EVB_FAKE_OCR_CALL_LOG"
-cp "$EVB_FAKE_OCR_PDF_TEMPLATE" "$output.pdf"
-if [ -n "\${EVB_FAKE_OCR_GROW_KB:-}" ]; then
-    : > "$output.tsv"
-    written=0
-    while [ "$written" -lt "$EVB_FAKE_OCR_GROW_KB" ]; do
-        dd if=/dev/zero bs=1024 count=64 >> "$output.tsv" 2>/dev/null
-        written=$((written + 64))
-        sleep 0.02
-    done
-    exit 0
-fi
-printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\ttop\\twidth\\theight\\tconf\\ttext\\n4\\t1\\t1\\t1\\t1\\t0\\t20\\t30\\t300\\t30\\t-1\\t\\n5\\t1\\t1\\t1\\t1\\t1\\t20\\t30\\t120\\t30\\t95\\tcheckpoint\\n5\\t1\\t1\\t1\\t1\\t2\\t150\\t30\\t70\\t30\\t95\\tpage\\n5\\t1\\t1\\t1\\t1\\t3\\t230\\t30\\t30\\t30\\t95\\t%s\\n' "$page" > "$output.tsv"
+    // The production runner spawns an executable with Tesseract's arguments,
+    // without a shell. A Node preload keeps that boundary runnable on Windows.
+    const fakeTesseract = join(root, 'fake-tesseract.cjs');
+    await writeFile(fakeTesseract, `
+const fs = require('node:fs');
+const [input, output] = process.argv.slice(1);
+const page = /-page-(\\d+)/.exec(input)[1];
+function recognize() {
+    const sleep = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+    if (process.env.EVB_FAKE_OCR_FAIL_PAGE === page) process.exit(86);
+    if (process.env.EVB_FAKE_OCR_STALL_PAGE === page) {
+        sleep(30_000);
+    }
+    fs.appendFileSync(process.env.EVB_FAKE_OCR_CALL_LOG, page + '\\n');
+    fs.copyFileSync(process.env.EVB_FAKE_OCR_PDF_TEMPLATE, output + '.pdf');
+    if (process.env.EVB_FAKE_OCR_GROW_KB) {
+        fs.writeFileSync(output + '.tsv', '');
+        for (let written = 0; written < Number(process.env.EVB_FAKE_OCR_GROW_KB); written += 64) {
+            fs.appendFileSync(output + '.tsv', Buffer.alloc(64 * 1024));
+            sleep(20);
+        }
+        return;
+    }
+    fs.writeFileSync(output + '.tsv', [
+        'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\ttop\\twidth\\theight\\tconf\\ttext',
+        '4\\t1\\t1\\t1\\t1\\t0\\t20\\t30\\t300\\t30\\t-1\\t',
+        '5\\t1\\t1\\t1\\t1\\t1\\t20\\t30\\t120\\t30\\t95\\tcheckpoint',
+        '5\\t1\\t1\\t1\\t1\\t2\\t150\\t30\\t70\\t30\\t95\\tpage',
+        '5\\t1\\t1\\t1\\t1\\t3\\t230\\t30\\t30\\t30\\t95\\t' + page,
+    ].join('\\n') + '\\n');
+}
+recognize();
+process.exit(0);
 `);
-    await chmod(fakeTesseract, 0o755);
     const callLogPath = join(root, 'tesseract-calls.txt');
     const env: Record<string, string> = {
+        NODE_OPTIONS: `--require=${JSON.stringify(fakeTesseract)}`,
         OCR_CONCURRENCY: String(options.concurrency ?? 1),
+        // The low-memory Windows guest defaults to one page per job. Keep the
+        // requested fixture concurrency while the real broker caps resources.
+        OCR_GLOBAL_PAGE_SLOTS: String(options.concurrency ?? 1),
         OCR_TESSERACT_THREADS: '1',
         EVB_OCR_JOB_MAX_TEMP_MB: String(options.jobMaxTempMb ?? 4_096),
         EVB_FAKE_OCR_CALL_LOG: callLogPath,
@@ -149,12 +160,13 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
                 languages: ['eng'],
             })),
             options: {
-                renderDpi: 150,
+                // Checkpoint semantics do not need a high-resolution blank raster.
+                renderDpi: 72,
                 supersessionPolicy: 'replace-all',
                 replaceAllAcknowledged: true,
             },
             paths: {
-                tesseractBinary: fakeTesseract,
+                tesseractBinary: process.execPath,
                 tessdataPath: root,
                 pdftoppmBinary: getPdfNativeToolPaths().pdftoppm,
                 pdftotextBinary: getPdfNativeToolPaths().pdftotext,
@@ -196,4 +208,15 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
 
 export async function readOcrWorkerCallLog(path: string) {
     return readFile(path, 'utf8').then(text => text.trim().split(/\s+/u).filter(Boolean).map(Number)).catch(() => []);
+}
+
+/** Probe the same bundled/system executables the pipeline will spawn. */
+export async function hasOcrWorkerPipelineTools() {
+    const tools = getPdfNativeToolPaths();
+    const run = promisify(execFile);
+    return Promise.all([
+        run(tools.qpdf, ['--version']),
+        run(tools.pdftoppm, ['-v']),
+        run(tools.pdftotext, ['-v']),
+    ]).then(() => true).catch(() => false);
 }

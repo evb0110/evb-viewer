@@ -576,42 +576,4 @@ describe('ViewportAuthority', () => {
         expect(authority.currentPage.value).toBe(2);
         expect(authority.getTerminalOutcome('ticket-replay')).toBe('settled');
     });
-
-    it('generation-fences stale post-arrival effects', async () => {
-        let releasePostArrival!: () => void;
-        const effects: string[] = [];
-        const authority = createViewportAuthority({
-            getDocumentRevision: () => 1,
-            getGeometryRevision: () => 1,
-            resolve: async request => ({
-                anchor: {
-                    ...anchor,
-                    page: request.navigation?.target.kind === 'page' ? request.navigation.target.page : 1,
-                },
-                left: 0,
-                top: 10,
-            }),
-            awaitMetrics: async () => {},
-            apply: () => {},
-            awaitVisual: async () => {},
-            postArrival: async (request, signal) => {
-                if (request.source === 'search') {
-                    await new Promise<void>((resolve) => { releasePostArrival = resolve; });
-                }
-                if (!signal.aborted) effects.push(request.source);
-            },
-        });
-        const staleRequest = createPageNavigationRequest(2, 'search');
-        staleRequest.postArrival = 'search-highlight';
-        const stale = authority.submit({
-            ...intent('stale-effect', 2),
-            navigation: staleRequest,
-        });
-        await vi.waitFor(() => expect(releasePostArrival).toBeTypeOf('function'));
-        const latest = authority.submit(intent('latest-effect', 3));
-        releasePostArrival();
-        await expect(stale).resolves.toMatchObject({outcome: 'cancelled'});
-        await expect(latest).resolves.toMatchObject({outcome: 'settled'});
-        expect(effects).toEqual(['toolbar']);
-    });
 });

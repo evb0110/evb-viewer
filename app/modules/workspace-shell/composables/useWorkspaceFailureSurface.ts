@@ -98,9 +98,12 @@ export const useWorkspaceFailureSurface = () => {
     }
 
     function describeSaveFailure(reason: TWorkspaceSaveFailureReason, persistence?: IPdfPersistFailure) {
+        if (persistence?.reason === 'original-changed') {
+            return t('errors.save.originalChanged');
+        }
         const message = persistence?.message ?? '';
-        if (/EACCES|EPERM|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
-            return t('errors.save.permissionDenied');
+        if (/EACCES|EPERM|EBUSY|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
+            return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : 'errors.save.permissionDenied');
         }
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
@@ -112,23 +115,14 @@ export const useWorkspaceFailureSurface = () => {
         if (persistence?.channel === 'native' && reason !== 'validation-rejected') {
             return t(nativeError?.code === 'io' ? 'errors.save.writeFailed' : 'errors.save.nativeFailure');
         }
-        switch (reason) {
-            case 'validation-rejected':
-                return t('errors.save.validation');
-            case 'note-persistence-failed':
-                return t('errors.save.openNotes');
-            case 'document-changed':
-                return t('errors.save.documentChanged');
-            case 'too-large-for-edit':
-                return t('errors.save.tooLargeForEdit');
-            case 'working-copy-missing':
-                return t('errors.save.workingCopyMissing');
-            case 'capability-unavailable':
-            case 'native-save-required':
-            case 'persist-rejected':
-            case 'unexpected-error':
-                return t('errors.save.notCompleted');
-        }
+        const messages: Partial<Record<TWorkspaceSaveFailureReason, Extract<Parameters<TTranslateFn>[0], `errors.save.${string}`>>> = {
+            'validation-rejected': 'errors.save.validation',
+            'note-persistence-failed': 'errors.save.openNotes',
+            'document-changed': 'errors.save.documentChanged',
+            'too-large-for-edit': 'errors.save.tooLargeForEdit',
+            'working-copy-missing': 'errors.save.workingCopyMissing',
+        };
+        return t(messages[reason] ?? 'errors.save.notCompleted');
     }
 
     function reportSaveFailure(
@@ -137,6 +131,7 @@ export const useWorkspaceFailureSurface = () => {
         detail?: string | null,
         existingReceipt?: FailureReceipt | FailurePresentation,
         diagnostics?: IPdfPersistFailure,
+        saveAs?: () => void,
     ) {
         if (isDuplicateFailure({
             domain: 'save',
@@ -162,6 +157,10 @@ export const useWorkspaceFailureSurface = () => {
             failure: receipt,
             title: t('errors.file.save'),
             description,
+            ...(diagnostics?.reason === 'original-changed' && saveAs ? {actions: [{
+                label: t('toolbar.saveAs'),
+                onClick: saveAs,
+            }]} : {}),
             ...(diagnostics ? {technicalDetails: getNonEmptyDetails([
                 diagnostics.message,
                 diagnostics.validation?.errors.join('\n'),

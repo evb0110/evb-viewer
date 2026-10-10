@@ -8,6 +8,7 @@ import {
 import { getOcrToolPaths } from '@electron/features/ocr/main/paths';
 import type { TOcrPdfPageSelection } from '@electron/features/ocr/pipeline/types';
 import { createLogger } from '@electron/utils/createLogger';
+import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 
 const log = createLogger('ocr-ipc');
 
@@ -32,9 +33,13 @@ function logMissingLanguageModels(languages: string[]) {
 export async function prepareLanguageModelsForJob(
     pages: TOcrPdfPageSelection,
     signal: AbortSignal,
+    onProgress: (progress: IOcrModelDownloadProgress) => void,
 ) {
     const languages = getOcrJobLanguages(pages);
     await ensureRuntimeTessdataSeeded({ signal });
     logMissingLanguageModels(languages);
-    await ensureTessdataLanguages(languages, { signal });
+    await ensureTessdataLanguages(languages, {
+        signal,
+        onProgress,
+    });
 }

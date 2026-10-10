@@ -954,6 +954,10 @@ export default {
             'existingTextSkipped': 'Pagina {page}: bestaande tekst is behouden.',
         },
         'preparing': 'OCR voorbereiden...',
+        'modelDownload': {
+            'progress': '{language} downloaden: {received} / {total} MB ({percent}%)',
+            'retrying': 'Download van {language} opnieuw proberen (poging {attempt} van {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Taalmodellen downloaden...',
             'pdfPrep': 'PDF voorbereiden...',
@@ -1714,9 +1718,11 @@ export default {
             'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',
+            'originalChanged': 'Het bestand op schijf is gewijzigd sinds u het opende. Uw wijzigingen blijven behouden. Gebruik ‘Opslaan als’ om beide versies te bewaren.',
             'workingCopyMissing': 'De tijdelijke kopie van het document is verwijderd, dus deze wijzigingen kunnen niet worden opgeslagen. Open het bestand opnieuw.',
             'notCompleted': 'Het document kon niet worden weggeschreven.',
             'permissionDenied': 'Toestemming om het bestand te schrijven is geweigerd. Kies «Opslaan als» om uw wijzigingen elders op te slaan.',
+            'fileBusy': 'Het bestand wordt gebruikt door een ander programma, daarom kon het niet worden geschreven. Sluit dat programma en probeer het opnieuw, of kies «Opslaan als» om uw wijzigingen elders op te slaan.',
             'diskFull': 'De schijf is vol. Maak ruimte vrij of gebruik «Opslaan als» op een andere schijf.',
             'writeFailed': 'Het bestand kon niet worden geschreven. Controleer de schrijfrechten en vrije schijfruimte, of sla het elders op.',
             'nativeFailure': 'De PDF-schrijver kon uw wijzigingen niet toepassen. Uw bewerkingen blijven hier open.',

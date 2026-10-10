@@ -566,6 +566,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         ?? runWithoutDocumentOperationLease;
     let saveOperations = 0;
     let saveQueueTail: Promise<void> = Promise.resolve();
+    // Set once the lease admits a save; the reading watch reads this, not the indicator.
+    const isAnySaveAdmitted = ref(false);
     const acknowledgedUnencryptedSaveSessions = new Set<string>();
     const nativeSaveTransactionOptions = () => getNativeSaveTransactionOptions(deps);
     const createRecoverySnapshotBytes = createRecoverySnapshotBytesForService(
@@ -592,29 +594,21 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     async function executeSave(
         request: TWorkspaceSaveRequest,
         queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'>,
-        options: {withinDocumentOperationLease?: boolean} = {},
     ) {
+        const indicator = isSaveAsRequest(request) ? deps.status.isSavingAs : deps.status.isSaving;
+        indicator.value = true;
         const queuedTargetIsCurrent = () => (
             deps.document.sessionKey.value === queuedTarget.expectedDocumentSessionKey
             && deps.document.originalPath.value === queuedTarget.expectedOriginalPath
             && deps.document.workingCopyPath.value === queuedTarget.expectedWorkingPath
         );
-        if (!queuedTargetIsCurrent()) {
-            BrowserLogger.debug('workspace', 'Dropped a queued save for a replaced document');
-            return false;
-        }
         saveOperations += 1;
         const operationId = `save-${saveOperations}`;
         failureSurface.clearSaveFailure();
         const startedAtMs = nowMs();
-        const saveAs = isSaveAsRequest(request);
-        const indicator = saveAs
-            ? deps.status.isSavingAs
-            : deps.status.isSaving;
         const expectedOriginalPath = queuedTarget.expectedOriginalPath;
         const expectedWorkingPath = queuedTarget.expectedWorkingPath;
         let saveSucceeded = false;
-        indicator.value = true;
 
         /**
          * A save outlives its own document: every failure below is reported
@@ -669,6 +663,14 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 options.detail,
                 options.failure,
                 options.diagnostics,
+                options.diagnostics?.reason === 'original-changed' ? () => {
+                    if (ownsCurrentDocument()) {
+                        void save({
+                            kind: 'save-as',
+                            optimizeLossless: deps.optimizePdfOnSaveAs?.value === true,
+                        });
+                    }
+                } : undefined,
             );
         }
 
@@ -696,6 +698,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
 
         const runSave = async () => {
             if (!queuedTargetIsCurrent()) {
+                indicator.value = false;
                 BrowserLogger.debug(
                     'workspace',
                     'Dropped a queued save after its document lease became stale',
@@ -703,6 +706,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 );
                 return false;
             }
+            // Set once the lease admits this save: a page operation's reload is not this save's.
+            isAnySaveAdmitted.value = true;
             let lastPlan: TWorkspaceSavePlan | null = null;
             try {
                 for (let attempt = 0; attempt <= MAX_STALE_REVISION_SAVE_RETRIES; attempt += 1) {
@@ -772,6 +777,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     try {
                         const result = await executeSavePlan(lastPlan, deps);
                         indicator.value = false;
+                        isAnySaveAdmitted.value = false;
                         saveSucceeded = await completeWorkspaceSave(lastPlan, result, deps);
                         if (result.status === 'not-saved') {
                             reportSaveAbort(result);
@@ -823,23 +829,19 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     success: saveSucceeded,
                 });
                 indicator.value = false;
+                isAnySaveAdmitted.value = false;
             }
         };
-        return options.withinDocumentOperationLease
-            ? runSave()
-            : runWithDocumentOperationLease(resolveOperationKind(request), runSave);
+        return runWithDocumentOperationLease(resolveOperationKind(request), runSave);
     }
 
-    function save(
-        request: TWorkspaceSaveRequest,
-        options: {withinDocumentOperationLease?: boolean} = {},
-    ) {
+    function save(request: TWorkspaceSaveRequest) {
         const queuedTarget: Omit<IWorkspaceSaveTarget, 'expectedRevisionToken'> = {
             expectedDocumentSessionKey: deps.document.sessionKey.value,
             expectedOriginalPath: deps.document.originalPath.value,
             expectedWorkingPath: deps.document.workingCopyPath.value,
         };
-        const execute = () => executeSave(request, queuedTarget, options);
+        const execute = () => executeSave(request, queuedTarget);
         const result = saveQueueTail.then(execute, execute);
         saveQueueTail = result.then(() => undefined, () => undefined);
         return result;
@@ -855,10 +857,10 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         )
     ));
     const isAnySaving = computed(() => deps.status.isSaving.value || deps.status.isSavingAs.value);
-    const saveIfDirty = (options: {withinDocumentOperationLease?: boolean} = {}) => (
+    const saveIfDirty = () => (
         deps.hasPendingUnsavedChanges || deps.hasUnsavedChanges
-            ? canSave.value ? save({kind: 'save'}, options) : Promise.resolve(true)
-            : save({kind: 'save'}, options)
+            ? canSave.value ? save({kind: 'save'}) : Promise.resolve(true)
+            : save({kind: 'save'})
     );
 
     return {
@@ -866,8 +868,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         hasSaveFailure: failureSurface.hasSaveFailure,
         canSave,
         isAnySaving,
+        isAnySaveAdmitted,
         handleSave: saveIfDirty,
-        handleSaveWithinDocumentOperationLease: () => saveIfDirty({withinDocumentOperationLease: true}),
         saveForExternalRead: saveIfDirty,
         getNativeSaveTransactionOptions: nativeSaveTransactionOptions,
         createRecoverySnapshotBytes,

@@ -10,11 +10,11 @@ import {
     openSync,
     readFileSync,
     renameSync,
+    rmSync,
     writeFileSync,
 } from 'fs';
 import {
     mkdir,
-    open,
     readFile,
     rename,
     writeFile,
@@ -25,6 +25,10 @@ import {
     join,
 } from 'path';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
+import {
+    fsyncFile,
+    fsyncFileSync,
+} from '@electron/utils/fsyncPath';
 
 type TSnapshotRecord<TSession, TVersion extends number> =
     | {
@@ -103,12 +107,7 @@ async function atomicWriteJsonLineFile(filePath: string, payload: unknown) {
     await mkdir(dirname(filePath), {recursive: true});
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
     await writeFile(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
-    const handle = await open(tempPath, 'r');
-    try {
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
+    await fsyncFile(tempPath);
     await rename(tempPath, filePath);
     await fsyncParentDirectory(filePath);
 }
@@ -116,22 +115,14 @@ async function atomicWriteJsonLineFile(filePath: string, payload: unknown) {
 function atomicWriteJsonLineFileSync(filePath: string, payload: unknown) {
     mkdirSync(dirname(filePath), {recursive: true});
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    writeFileSync(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
-    let fd: number | null = null;
     try {
-        fd = openSync(tempPath, 'r');
-        fsyncSyncBestEffort(fd);
+        writeFileSync(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
+        fsyncFileSync(tempPath);
+        renameSync(tempPath, filePath);
+        fsyncParentDirectorySync(filePath);
     } finally {
-        if (fd !== null) {
-            try {
-                closeSync(fd);
-            } catch {
-                // Best effort.
-            }
-        }
+        rmSync(tempPath, {force: true});
     }
-    renameSync(tempPath, filePath);
-    fsyncParentDirectorySync(filePath);
 }
 
 function serializedBytes(value: unknown) {

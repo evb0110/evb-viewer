@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { EventEmitter } from 'node:events';
 import {
     afterEach,
@@ -61,12 +62,12 @@ describe('checkMacCodeSignature', () => {
             '--deep',
             '--strict',
             '--verbose=2',
-            '/Applications/EVB Viewer.app',
+            resolve('/Applications/EVB Viewer.app'),
         ]);
         expect(mocks.spawn.mock.calls[1]?.[1]).toEqual([
             '-d',
             '--verbose=4',
-            '/Applications/EVB Viewer.app',
+            resolve('/Applications/EVB Viewer.app'),
         ]);
     });
 

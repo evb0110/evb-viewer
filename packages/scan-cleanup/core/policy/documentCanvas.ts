@@ -5,7 +5,7 @@ import {
     isLargerScanCleanupPaperRect,
     mergeScanCleanupPaperCohortTallies,
     resolveScanCleanupDominantPaperRect,
-} from '@contracts/scan-cleanup/scanCleanupPaperCohort';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupOptions,
@@ -13,10 +13,8 @@ import type {
     TScanCleanupLayoutClassification,
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupPageLayout,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {resolveScanCleanupPageLayout} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     IScanCleanupPageRasterSource,

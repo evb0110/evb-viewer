@@ -99,14 +99,17 @@ function commitHarnessSurfaceReady(harness: ReturnType<typeof createHarness>) {
 }
 
 describe('useDocumentOpenVisualSettle', () => {
-    it('settles a PDF only once its first page is on screen', () => {
+    it.each([
+        true,
+        false,
+    ])('settles a PDF when its first page is on screen, with its document projection ready: %s', (documentPublished) => {
         const harness = createHarness({
             pdfSrc: { path: 'fixture.pdf' },
-            pdfDocument: {},
+            pdfDocument: documentPublished ? {} : null,
             totalPages: 1,
             isLoading: false,
         });
-        expect(harness.settle.documentOpenAccepted.value).toBe(true);
+        expect(harness.settle.documentOpenAccepted.value).toBe(documentPublished);
         expect(harness.settle.documentOpenSettled.value).toBe(false);
 
         commitHarnessSurfaceReady(harness);

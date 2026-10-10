@@ -956,15 +956,19 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             const viewport = await session.page.$('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
             const box = await viewport?.boundingBox();
             if (!box) throw new Error('DjVu viewport was not found for pointer zoom');
+            const beforeWheel = await readActiveDjvuPagePresentationGeometry(session, 7);
             await session.page.mouse.move(box.x + 100, box.y + 100);
-            await session.page.keyboard.down('Control');
+            const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+            await session.page.keyboard.down(modifier);
             try {
                 await session.page.mouse.wheel({deltaY: -120});
             } finally {
-                await session.page.keyboard.up('Control');
+                await session.page.keyboard.up(modifier);
             }
             // Settled rendering also outlasts the pointer gesture's grace period.
             await waitForViewportQuiet(session.page);
+            const afterWheel = await readActiveDjvuPagePresentationGeometry(session, 7);
+            expect(afterWheel?.width).toBeGreaterThan(beforeWheel?.width ?? Number.POSITIVE_INFINITY);
         }
         // The page point at the unobscured viewport centre, then where that
         // point is drawn relative to the centre.

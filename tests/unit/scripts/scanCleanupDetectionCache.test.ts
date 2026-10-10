@@ -1,4 +1,5 @@
 import {
+    copyFile,
     mkdtemp,
     readFile,
     rm,
@@ -13,7 +14,17 @@ import type {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {readDetectionResultsForPageNumbers} from '@evb/scan-cleanup/core/runScanCleanupConversion';
-import {buildScanCleanupCliDetectionRequestFields} from '@scripts/scan-cleanup-convert';
+import {buildScanCleanupPlacementAnchorSummary} from '@evb/scan-cleanup/core/placementAnchors';
+import {
+    PDFDocument, PDFHexString, PDFName,
+} from 'pdf-lib';
+import * as cliAdapters from '@scripts/scanCleanupCliAdapters';
+import * as detectionCache from '@scripts/scanCleanupDetectionCache';
+import * as conversion from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {assembleWithCompactSourcePages} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {
+    main, buildScanCleanupCliDetectionRequestFields,
+} from '@scripts/scan-cleanup-convert';
 import {
     createScanCleanupDetectionCacheKey,
     openScanCleanupDetectionCacheStore,
@@ -82,6 +93,180 @@ afterEach(async () => {
 });
 
 describe('scan-cleanup detection cache', () => {
+    it.each([
+        false,
+        true,
+    ])('assembles a non-parity affine CLI output (annotated: %s)', async (annotated) => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-cli-affine-'));
+        temporaryDirectories.push(directory);
+        const source = join(directory, 'source.pdf');
+        const output = join(directory, 'output.pdf');
+        const document = await PDFDocument.create();
+        const page = document.addPage([
+            200,
+            200,
+        ]);
+        if (annotated) {
+            page.node.set(PDFName.of('Annots'), document.context.obj([{
+                Type: 'Annot',
+                Subtype: 'Text',
+                Rect: [
+                    20,
+                    20,
+                    40,
+                    40,
+                ],
+                Contents: PDFHexString.fromText('Retained note'),
+            }]));
+        }
+        await writeFile(source, await document.save());
+        const argv = process.argv;
+        try {
+            process.argv = [
+                'node',
+                'scan-cleanup-convert.ts',
+                '--source',
+                source,
+                '--out',
+                output,
+                '--no-crop-content',
+                '--no-match-page-size',
+            ];
+            vi.spyOn(cliAdapters, 'resolveCliNativeToolPath').mockImplementation(binary => `/native/${binary}`);
+            vi.spyOn(cliAdapters, 'runCliNativeToolCommand').mockImplementation(async (_command, args) => {
+                if (args[0] === 'overlay-text') {
+                    await copyFile(args[args.indexOf('--source') + 1]!, args[args.indexOf('--output') + 1]!);
+                }
+                return {
+                    exitCode: 0,
+                    stdout: '1',
+                    stderr: '',
+                };
+            });
+            vi.spyOn(detectionCache, 'runScanCleanupDetectionWithCache').mockResolvedValue({results: [result]});
+            vi.spyOn(conversion, 'runScanCleanupConversion').mockImplementation(async (request, paths, signal,
+                _progress, _policy, log, dependencies) => {
+                const raster = join(paths.tempDir, 'raster.pdf');
+                await copyFile(source, raster);
+                await assembleWithCompactSourcePages([], paths, source, raster, request.outputPdfPath,
+                    paths.tempDir, signal, log ?? vi.fn(), dependencies, undefined, {
+                        pages: [{
+                            sourcePageIndex: 0,
+                            outputPageIndex: 0,
+                            matrix: [
+                                1,
+                                0,
+                                0,
+                                1,
+                                5,
+                                5,
+                            ],
+                        }],
+                        alreadyPreserved: [],
+                        skippedNonAffine: [],
+                    });
+                await writeFile(join(dependencies.evidenceDirectory!, 'scan-cleanup-representation-report.json'),
+                    JSON.stringify({
+                        pages: [],
+                        outputMappings: [],
+                    }));
+                await writeFile(join(dependencies.evidenceDirectory!, 'scan-cleanup-provenance-stamp.json'),
+                    JSON.stringify({buildIds: {
+                        assemblerBackend: 'native',
+                        transportMode: 'path',
+                    }}));
+                return {
+                    inputPages: 1,
+                    outputPages: 1,
+                    spreadsSplit: 0,
+                    offcutsDiscarded: 0,
+                    deskewSkipped: 0,
+                    cropSkipped: 0,
+                    excludedPages: 0,
+                    blankPagesSkipped: 0,
+                    warnings: [],
+                };
+            });
+            await main();
+            const saved = await PDFDocument.load(await readFile(output));
+            expect(saved.getPageCount()).toBe(1);
+            expect(saved.getPage(0).node.Annots()?.size() ?? 0).toBe(annotated ? 1 : 0);
+        } finally {
+            process.argv = argv;
+            vi.restoreAllMocks();
+        }
+    });
+
+    it('keeps centered ink below the body text in a small CLI conversion', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-cli-ink-placement-'));
+        temporaryDirectories.push(directory);
+        const inkOptions: IScanCleanupOptions = {
+            ...options,
+            pageAlignment: 'ink',
+        };
+        const records: IScanCleanupDetectionResult[] = [
+            0.1,
+            0.1,
+            0.5,
+        ].map((yNormalized, index) => {
+            const pageNumber = requirePageNumber(index + 1);
+            return {
+                ...result,
+                pageNumber,
+                sourcePageMetadata: {
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    sourceDpi: 144,
+                },
+                pagePlanEvidence: {
+                    pageNumber,
+                    rotationDegrees: 0,
+                    layoutClassification: 'single-uncut-page',
+                    outputs: {full: {contentBox: {
+                        xNormalized: 0.1,
+                        yNormalized,
+                        widthNormalized: 0.8,
+                        heightNormalized: 0.2,
+                        rotationDegrees: 0,
+                    }}},
+                },
+            };
+        });
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            rootDir: directory,
+            pageCount: records.length,
+        });
+        try {
+            for (const record of records) await store.append(record);
+            const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
+                options: inkOptions,
+                resultStore: store,
+                signal: new AbortController().signal,
+                identity: {
+                    documentRevision: 'revision',
+                    detectionSignature: 'detection',
+                    calibrationSignature: 'calibration',
+                },
+            });
+            const fields = buildScanCleanupCliDetectionRequestFields({
+                results: records,
+                resultStore: store,
+                placementAnchorSummary,
+            }, inkOptions);
+            expect(fields.placementAnchorsByPage).toEqual({
+                '1': {full: {yNormalized: 0}},
+                '2': {full: {yNormalized: 0}},
+                '3': {full: {yNormalized: expect.closeTo(0.4)}},
+            });
+        } finally {
+            await store.close();
+        }
+    });
+
     it('keys source bytes and every detection option canonically', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-detection-cache-key-'));
         temporaryDirectories.push(directory);
@@ -170,7 +355,7 @@ describe('scan-cleanup detection cache', () => {
             const fields = buildScanCleanupCliDetectionRequestFields({
                 resultStore: store,
                 results: [],
-            });
+            }, options);
             expect(fields).toEqual({detectionResultStore: store});
             expect(fromEntries).not.toHaveBeenCalled();
 
@@ -230,7 +415,7 @@ describe('scan-cleanup detection cache', () => {
             // result store remains authoritative even if a caller supplies a
             // partial snapshot while migrating an older detector.
             results: [result],
-        });
+        }, options);
         expect('detectionResultStore' in fields).toBe(expectsStore);
         if (expectsStore) {
             expect(fields).toEqual({detectionResultStore: store});

@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { escapeRegExp } from 'es-toolkit/string';
 import type * as TDjvuNativeToolPathsModule from '@electron/features/djvu/main/nativeToolPaths';
 import {
     beforeEach,
@@ -155,7 +157,7 @@ describe('DjVu native page preview helpers', () => {
 
         expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
             '/tmp/book.djvu',
-            expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.ppm$/u),
+            expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
             1,
             expect.stringMatching(/^djvu-preview-page-1-/u),
             {
@@ -176,7 +178,7 @@ describe('DjVu native page preview helpers', () => {
 
         expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
             '/tmp/book.djvu',
-            expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.ppm$/u),
+            expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
             1,
             expect.stringMatching(/^djvu-preview-page-1-/u),
             {format: 'ppm'},
@@ -194,7 +196,7 @@ describe('DjVu native page preview helpers', () => {
 
         expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
             '/tmp/book.djvu',
-            expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.ppm$/u),
+            expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
             1,
             expect.stringMatching(/^djvu-preview-page-1-/u),
             {
@@ -612,11 +614,11 @@ describe('DjVu native page preview helpers', () => {
             '/tools/evb-pdf-image-combine',
             [
                 '--output',
-                expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.png$/u),
+                expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.png$`, 'u')),
                 '--format',
                 'png',
                 '--',
-                expect.stringMatching(/^\/tmp\/djvu-preview-test\/page-1-.+\.ppm$/u),
+                expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
             ],
         ]]);
     });

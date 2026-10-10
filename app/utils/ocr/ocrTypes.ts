@@ -3,6 +3,7 @@ import type { TRequestId } from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     TOcrProgressPhase,
+    IOcrModelDownloadProgress,
     TOcrPreprocessingMode,
     TOcrQualityProfile,
     TOcrTextSupersessionPolicy,
@@ -29,6 +30,7 @@ export interface IOcrUiProgress {
     totalPages: number;
     processedCount: number;
     phaseProgress: number | null;
+    modelDownload?: IOcrModelDownloadProgress | undefined;
 }
 
 export interface IOcrSearchablePdfResult {

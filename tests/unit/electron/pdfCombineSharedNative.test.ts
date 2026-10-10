@@ -1,4 +1,6 @@
-import { resolve } from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     beforeEach,
     describe,
@@ -277,14 +279,14 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.nativeImageCreateFromPath).toHaveBeenCalledWith(sourcePath);
         expect(mocks.nativeImageToPng).toHaveBeenCalledTimes(1);
         expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/pdfExport-scope-normalized/input-1.png',
+            join('/tmp/pdfExport-scope-normalized', 'input-1.png'),
             new Uint8Array([
                 8,
                 8,
             ]),
         );
         expect(mocks.nativeCombine).toHaveBeenCalledWith(
-            ['/tmp/pdfExport-scope-normalized/input-1.png'],
+            [join('/tmp/pdfExport-scope-normalized', 'input-1.png')],
             expect.any(Object),
         );
         expect(mocks.embedPng).not.toHaveBeenCalled();
@@ -305,7 +307,7 @@ describe('createCombinedPdf native image fast path', () => {
         await expect(createCombinedPdf(['/tmp/small.bmp'], {unsupportedFileError: path => `Unsupported: ${path}`})).rejects.toBe(terminationError);
 
         expect(mocks.nativeCombine).toHaveBeenCalledWith(
-            ['/tmp/pdfExport-scope-normalized/input-1.png'],
+            [join('/tmp/pdfExport-scope-normalized', 'input-1.png')],
             expect.any(Object),
         );
         expect(mocks.rm).not.toHaveBeenCalledWith(NORMALIZED_SCRATCH_DIR, {

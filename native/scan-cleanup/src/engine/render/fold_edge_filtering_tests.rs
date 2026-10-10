@@ -220,3 +220,67 @@ fn rail_stage_groups_aligned_ragged_components_and_marks_them_for_removal() {
     let kept = retain_fragments(&context, &labels);
     assert_eq!(kept.count_black(), 0);
 }
+
+#[test]
+fn single_page_scanner_shadow_renders_as_paper_without_changing_margin_text() {
+    let fixture = crate::io::png::decode_gray(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/leaf-edge/scanedge-left-shadow.png"
+        )),
+        crate::domain::options::DEFAULT_MAX_PIXELS,
+        crate::domain::options::DEFAULT_MAX_DIMENSION,
+    )
+    .unwrap();
+    for mirror in [false, true] {
+        let mut source = fixture.clone();
+        if mirror {
+            for y in 0..fixture.height() {
+                for x in 0..fixture.width() {
+                    source.set(x, y, fixture.get(fixture.width() - 1 - x, y));
+                }
+            }
+        }
+        let mut control = source.clone();
+        for y in 40..1160 {
+            for x in 0..5 {
+                control.set(if mirror { source.width() - 1 - x } else { x }, y, 222);
+            }
+        }
+        for crop_content in [false, true] {
+            let options = CleanupOptions {
+                dpi: 300.0,
+                layout: crate::LayoutMode::Single,
+                match_page_size: false,
+                crop_content,
+                ..CleanupOptions::default()
+            };
+            let output = clean_page(&source, &options, 0).unwrap().outputs.remove(0);
+            let expected = clean_page(&control, &options, 0).unwrap().outputs.remove(0);
+            assert_eq!(output.metadata.crop_rect, expected.metadata.crop_rect);
+            let crop = output.metadata.crop_rect;
+            let start = if mirror {
+                (source.width() as f64 - 8.0 - crop.x).max(0.0) as usize
+            } else {
+                (-crop.x).max(0.0) as usize
+            };
+            let densest_edge_column = (start..(start + 8).min(output.image.width()))
+                .map(|x| {
+                    (0..output.image.height())
+                        .filter(|&y| output.image.get(x, y) == 0)
+                        .count()
+                })
+                .max()
+                .unwrap_or(0);
+            assert_eq!(
+                densest_edge_column, 0,
+                "scanner shadow survived: mirror={mirror}, crop={crop_content}"
+            );
+            assert_eq!(
+                crate::io::png::encode_gray(&output.image.to_gray()).unwrap(),
+                crate::io::png::encode_gray(&expected.image.to_gray()).unwrap(),
+                "removing the shadow changed rendered margin text"
+            );
+        }
+    }
+}

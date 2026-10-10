@@ -670,10 +670,11 @@ pub(crate) struct AppendedRevision<'a> {
 
 impl<'a> AppendedRevision<'a> {
     pub(crate) fn new(incremental: &'a IncrementalDocument) -> Self {
-        Self {
-            base: incremental.get_prev_documents(),
-            appended: &incremental.new_document,
-        }
+        Self::from_documents(incremental.get_prev_documents(), &incremental.new_document)
+    }
+
+    pub(crate) fn from_documents(base: &'a Document, appended: &'a Document) -> Self {
+        Self { base, appended }
     }
 }
 
@@ -792,6 +793,9 @@ pub(crate) struct TextLayerInstruction {
     pub(crate) output_page_index: usize,
     /// PDF `cm` operands mapping source-page user space into output-page user space.
     pub(crate) matrix: [f64; 6],
+    /// Source half before cleanup and canvas placement, in cleanup raster space.
+    #[serde(default)]
+    pub(crate) source_region: Option<TextLayerSourceRegion>,
     /// PDF text extraction commonly ignores clipping. Split pages therefore
     /// filter show operators by their positioned origin in target-page space.
     #[serde(default)]
@@ -801,6 +805,13 @@ pub(crate) struct TextLayerInstruction {
     /// scalar, so normalize that scalar before embedding the stream.
     #[serde(default)]
     pub(crate) normalize_greek_micro_sign: bool,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct TextLayerSourceRegion {
+    pub(crate) rect: SplitCropRect,
+    pub(crate) matrix: [f64; 6],
 }
 
 #[derive(Deserialize)]

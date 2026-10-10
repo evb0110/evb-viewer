@@ -454,6 +454,8 @@ export async function scenarioDemandMaterializesLazyOriginalInputBeforeScanClean
             maxDimensionPx: 40_000,
             maxPixels: 45_000_000,
         }),
+        'cropbox',
+        'exclude',
     );
 
 }
@@ -559,6 +561,8 @@ export async function scenarioKeepsEagerScanCleanupPreviewPathsUnchanged(): Prom
             maxDimensionPx: 40_000,
             maxPixels: 45_000_000,
         }),
+        'cropbox',
+        'exclude',
     );
 
 }

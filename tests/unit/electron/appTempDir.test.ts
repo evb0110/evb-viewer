@@ -52,17 +52,19 @@ describe('app temp directory namespace', () => {
 
     it('propagates the profile namespace for worker-safe temp resolution', () => {
         vi.stubEnv('TMPDIR', '/tmp');
+        vi.stubEnv('TEMP', '/tmp');
+        vi.stubEnv('TMP', '/tmp');
         const namespace = initializeAppTempNamespace('/profiles/automation-a');
 
         expect(process.env.EVB_APP_TEMP_NAMESPACE).toBe(namespace);
-        expect(getAppTempDirPath()).toBe(`/tmp/evb-viewer-${namespace}`);
+        expect(getAppTempDirPath()).toBe(join('/tmp', `evb-viewer-${namespace}`));
     });
 
     it('derives the temp namespace path outside Electron from a profile path', () => {
         const namespace = createAppTempNamespace('/profiles/automation-a');
 
         expect(getAppTempDirPathForUserData('/profiles/automation-a', '/var/tmp'))
-            .toBe(`/var/tmp/evb-viewer-${namespace}`);
+            .toBe(join('/var/tmp', `evb-viewer-${namespace}`));
     });
 
     it.runIf(process.platform !== 'win32')('replaces an owner-marker symlink without writing through to its target', () => {
@@ -76,6 +78,8 @@ describe('app temp directory namespace', () => {
 
         try {
             vi.stubEnv('TMPDIR', tempRoot);
+            vi.stubEnv('TEMP', tempRoot);
+            vi.stubEnv('TMP', tempRoot);
             mocks.paths.userData = userDataPath;
             initializeAppTempNamespace(userDataPath);
             mkdirSync(namespacePath, {recursive: true});
@@ -135,6 +139,8 @@ describe('app temp directory namespace', () => {
                 deadOwner.once('exit', () => resolve());
             });
             vi.stubEnv('TMPDIR', tempRoot);
+            vi.stubEnv('TEMP', tempRoot);
+            vi.stubEnv('TMP', tempRoot);
             mocks.paths.userData = '/profiles/current';
             initializeAppTempNamespace('/profiles/current');
             getAppTempDir();

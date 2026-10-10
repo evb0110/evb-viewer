@@ -66,6 +66,40 @@ function output(
 }
 
 describe('scan-cleanup source text layer', () => {
+    it('keeps split ownership in the source raster before padded placement', () => {
+        const instruction = resolveScanCleanupTextLayerInstruction(output({
+            half: 'right',
+            sourceRegion: {
+                xPx: 500,
+                yPx: 0,
+                widthPx: 500,
+                heightPx: 600,
+            },
+            placementOffsetXPx: 25,
+            placementOffsetYPx: 25,
+        }), 1, {
+            ...pageSize,
+            xPoints: 10,
+            yPoints: 20,
+        });
+        expect(instruction).toMatchObject({sourceRegion: {
+            rect: {
+                x: 500,
+                y: 0,
+                width: 500,
+                height: 600,
+            },
+            matrix: [
+                expect.closeTo(5, 12),
+                0,
+                0,
+                expect.closeTo(-5, 12),
+                -50,
+                700,
+            ],
+        }});
+    });
+
     it('maps unchanged source user space onto the cleaned page', () => {
         const instruction = resolveScanCleanupTextLayerInstruction(output(), 0, pageSize);
 

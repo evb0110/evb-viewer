@@ -25,6 +25,8 @@ pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
     }
     let mut output_pages = HashSet::new();
     for instruction in &instructions.pages {
+        overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
+        overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
         if !instruction.matrix.iter().all(|value| value.is_finite()) {
             return Err("overlay-text matrix values must be finite".into());
         }
@@ -32,6 +34,19 @@ pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
             - instruction.matrix[1] * instruction.matrix[2];
         if determinant.abs() <= f64::EPSILON {
             return Err("overlay-text matrix must be invertible".into());
+        }
+        if let Some(region) = instruction.source_region {
+            crate::split_pages::validate_crop_rect(region.rect)?;
+            let determinant =
+                region.matrix[0] * region.matrix[3] - region.matrix[1] * region.matrix[2];
+            if !region.matrix.iter().all(|value| value.is_finite())
+                || !determinant.is_finite()
+                || determinant.abs() <= f64::EPSILON
+            {
+                return Err(
+                    "overlay-text sourceRegion matrix must be finite and invertible".into(),
+                );
+            }
         }
         if !output_pages.insert(instruction.output_page_index) {
             return Err("overlay-text outputPageIndex values must be unique".into());
@@ -515,90 +530,7 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
     })
 }
 
-#[derive(Clone, Copy)]
-struct TextMatrix {
-    a: f64,
-    b: f64,
-    c: f64,
-    d: f64,
-    e: f64,
-    f: f64,
-}
-
-impl TextMatrix {
-    const IDENTITY: Self = Self {
-        a: 1.0,
-        b: 0.0,
-        c: 0.0,
-        d: 1.0,
-        e: 0.0,
-        f: 0.0,
-    };
-
-    fn from_values(values: [f64; 6]) -> Self {
-        Self {
-            a: values[0],
-            b: values[1],
-            c: values[2],
-            d: values[3],
-            e: values[4],
-            f: values[5],
-        }
-    }
-
-    fn from_operation(operation: &ContentOperation) -> Option<Self> {
-        let values = operation
-            .operands
-            .iter()
-            .map(|operand| object_to_f64(operand).ok())
-            .collect::<Option<Vec<_>>>()?;
-        let values: [f64; 6] = values.try_into().ok()?;
-        Some(Self::from_values(values))
-    }
-
-    fn concat(self, rhs: Self) -> Self {
-        Self {
-            a: self.a * rhs.a + self.c * rhs.b,
-            b: self.b * rhs.a + self.d * rhs.b,
-            c: self.a * rhs.c + self.c * rhs.d,
-            d: self.b * rhs.c + self.d * rhs.d,
-            e: self.a * rhs.e + self.c * rhs.f + self.e,
-            f: self.b * rhs.e + self.d * rhs.f + self.f,
-        }
-    }
-
-    fn translation(x: f64, y: f64) -> Self {
-        Self {
-            e: x,
-            f: y,
-            ..Self::IDENTITY
-        }
-    }
-
-    fn transform(self, x: f64, y: f64) -> (f64, f64) {
-        (
-            self.a * x + self.c * y + self.e,
-            self.b * x + self.d * y + self.f,
-        )
-    }
-
-    fn operands(self) -> Vec<Object> {
-        [self.a, self.b, self.c, self.d, self.e, self.f]
-            .into_iter()
-            .map(number_object)
-            .collect()
-    }
-
-    fn local_horizontal_offset(self, line: Self) -> Option<f64> {
-        let determinant = line.a * line.d - line.b * line.c;
-        if determinant.abs() <= f64::EPSILON {
-            return None;
-        }
-        let delta_x = self.e - line.e;
-        let delta_y = self.f - line.f;
-        Some((delta_x * line.d - line.c * delta_y) / determinant)
-    }
-}
+use crate::split_pages::{transform_annotation_geometry, PdfMatrix as TextMatrix};
 
 #[derive(Clone)]
 struct TextFilterState {
@@ -1243,58 +1175,87 @@ fn clone_object_graph(
     target: &mut Document,
     object: &Object,
     copied: &mut HashMap<ObjectId, ObjectId>,
+    pages: &[OverlayPage<'_>],
+    transform: &impl Fn(&mut Document, &mut Dictionary) -> Result<()>,
     depth: usize,
 ) -> Result<Object> {
     if depth > MAX_OBJECT_GRAPH_DEPTH {
-        return Err("overlay-text font object graph exceeded the dereference limit".into());
+        return Err("overlay-text object graph exceeded the dereference limit".into());
     }
     match object {
         Object::Reference(source_id) => {
-            if let Some(target_id) = copied.get(source_id) {
-                return Ok(Object::Reference(*target_id));
+            if let Some(target_id) = copied.get(source_id).copied().or_else(|| {
+                pages
+                    .iter()
+                    .find(|page| page.0 == *source_id)
+                    .map(|page| page.1)
+            }) {
+                return Ok(Object::Reference(target_id));
             }
             let target_id = target.new_object_id();
             copied.insert(*source_id, target_id);
-            let source_object = source.objects.get(source_id).ok_or_else(|| {
-                format!(
-                    "overlay-text source font object {}R{} is missing",
-                    source_id.0, source_id.1
-                )
-            })?;
-            let cloned = clone_object_graph(source, target, source_object, copied, depth + 1)?;
+            let mut cloned = clone_object_graph(
+                source,
+                target,
+                source.objects.get(source_id).ok_or_else(|| {
+                    format!("overlay-text source object {source_id:?} is missing")
+                })?,
+                copied,
+                pages,
+                transform,
+                depth + 1,
+            )?;
+            if let Ok(annotation) = cloned.as_dict_mut() {
+                if annotation.has(b"Subtype") && annotation.has(b"Rect") {
+                    transform(target, annotation)?;
+                }
+            }
             target.objects.insert(target_id, cloned);
             Ok(Object::Reference(target_id))
         }
         Object::Array(items) => Ok(Object::Array(
             items
                 .iter()
-                .map(|item| clone_object_graph(source, target, item, copied, depth + 1))
+                .map(|item| {
+                    clone_object_graph(source, target, item, copied, pages, transform, depth + 1)
+                })
                 .collect::<Result<Vec<_>>>()?,
         )),
-        Object::Dictionary(dictionary) => {
-            let mut cloned = Dictionary::new();
-            for (key, value) in dictionary {
-                cloned.set(
-                    key.clone(),
-                    clone_object_graph(source, target, value, copied, depth + 1)?,
-                );
+        Object::Dictionary(_) | Object::Stream(_) => {
+            let mut cloned = object.clone();
+            let dictionary = match &mut cloned {
+                Object::Dictionary(dictionary) => dictionary,
+                Object::Stream(stream) => {
+                    stream.start_position = None;
+                    &mut stream.dict
+                }
+                _ => unreachable!(),
+            };
+            if matches!(
+                resolved_name(source, dictionary.get(b"Type").unwrap_or(&Object::Null)),
+                Some(b"Page" | b"Pages")
+            ) {
+                return Err("overlay-text references an unmapped source page or tree".into());
             }
-            Ok(Object::Dictionary(cloned))
-        }
-        Object::Stream(stream) => {
-            let mut dictionary = Dictionary::new();
-            for (key, value) in &stream.dict {
+            let key: &[u8] = if resolved_name(source, dictionary.get(b"S").unwrap_or(&Object::Null))
+                == Some(b"GoTo")
+            {
+                b"D"
+            } else {
+                b"Dest"
+            };
+            let destination = dictionary.remove(key);
+            for (_, value) in dictionary.iter_mut() {
+                *value =
+                    clone_object_graph(source, target, value, copied, pages, transform, depth + 1)?;
+            }
+            if let Some(destination) = destination {
                 dictionary.set(
-                    key.clone(),
-                    clone_object_graph(source, target, value, copied, depth + 1)?,
+                    key,
+                    crate::split_pages::remap_internal_destination(source, &destination, pages)?,
                 );
             }
-            Ok(Object::Stream(Stream {
-                dict: dictionary,
-                content: stream.content.clone(),
-                allows_compression: stream.allows_compression,
-                start_position: None,
-            }))
+            Ok(cloned)
         }
         value => Ok(value.clone()),
     }
@@ -1796,7 +1757,15 @@ pub(crate) fn append_text_layer(
             return Err(reason.into());
         };
         let target_name = unique_font_name(&target_fonts, &source_name);
-        let cloned = match clone_object_graph(source, target, source_font, &mut staged_copied, 0) {
+        let cloned = match clone_object_graph(
+            source,
+            target,
+            source_font,
+            &mut staged_copied,
+            &[],
+            &|_, _| Ok(()),
+            0,
+        ) {
             Ok(cloned) => cloned,
             Err(error) if filter_to_output_page => return Ok(Some(error.to_string())),
             Err(error) => return Err(error),
@@ -1854,25 +1823,137 @@ pub(crate) fn append_text_layer(
     Ok(None)
 }
 
-pub(crate) fn overlay_text_layers(
+/// Carry the source annotation graph with the same geometry as its text and
+/// pixels. A page-local copy keeps split outputs independent; seeding /P avoids
+/// cloning the source page tree through notes, popups and reply links.
+fn append_source_annotations(
+    target: &mut Document,
+    source: &Document,
+    target_page_id: ObjectId,
+    source_page_id: ObjectId,
+    instruction: &TextLayerInstruction,
+    pages: &[OverlayPage<'_>],
+) -> Result<()> {
+    let Ok(annots) = source.get_dictionary(source_page_id)?.get(b"Annots") else {
+        return Ok(());
+    };
+    let annotations = source.dereference(annots)?.1.as_array()?;
+    let filter = instruction
+        .filter_to_output_page
+        .then(|| match instruction.source_region {
+            Some(region) => crate::split_pages::validate_crop_rect(region.rect)
+                .map(|view| (region.matrix, view)),
+            None => {
+                resolve_page_view(target, target_page_id).map(|view| (instruction.matrix, view))
+            }
+        })
+        .transpose()?;
+    let rotation = resolve_page_rotation(target, target_page_id)?;
+    let source_view = resolve_page_view(source, source_page_id)?;
+    let source_rotation = resolve_page_rotation(source, source_page_id)?;
+    let transform = |target: &mut Document, annotation: &mut Dictionary| {
+        transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
+        annotation.set("P", target_page_id);
+        Ok(())
+    };
+    let mut copied = HashMap::from([(source_page_id, target_page_id)]);
+    let mut output = match target.get_dictionary(target_page_id)?.get(b"Annots") {
+        Ok(annots) => target.dereference(annots)?.1.as_array()?.clone(),
+        Err(_) => Vec::new(),
+    };
+    for annotation in annotations {
+        let Some(mut owner) = resolved_dictionary(source, annotation) else {
+            continue;
+        };
+        let subtype = resolved_name(source, owner.get(b"Subtype").unwrap_or(&Object::Null));
+        // The terminal owner places the whole reply and popup thread.
+        if let Some((matrix, view)) = filter {
+            let mut owners = HashSet::from([owner as *const Dictionary]);
+            while let Some(next) = owner
+                .get(b"IRT")
+                .or_else(|_| owner.get(b"Parent"))
+                .ok()
+                .and_then(|object| resolved_dictionary(source, object))
+            {
+                if owners.len() >= MAX_OBJECT_GRAPH_DEPTH || !owners.insert(next as *const _) {
+                    return Err("overlay-text annotation ownership is cyclic or too deep".into());
+                }
+                owner = next;
+            }
+            if read_pdf_rect_from_dict(source, owner).is_some_and(|rect| {
+                let rect = TextMatrix::from_values(matrix).bounds(rect);
+                if matches!(subtype, Some(b"Text" | b"Popup"))
+                    || is_free_text_note_marker(source, owner, source_view, source_rotation)
+                {
+                    let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
+                    !(x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2)
+                } else {
+                    intersect_rect(rect, view).is_none()
+                }
+            }) {
+                continue;
+            }
+        }
+        output.push(clone_object_graph(
+            source,
+            target,
+            annotation,
+            &mut copied,
+            pages,
+            &transform,
+            0,
+        )?);
+        if let Some(Object::Dictionary(annotation)) = output.last_mut() {
+            transform(target, annotation)?;
+        }
+    }
+    target
+        .get_dictionary_mut(target_page_id)?
+        .set("Annots", output);
+    Ok(())
+}
+
+pub(crate) type OverlayPage<'a> = (ObjectId, ObjectId, &'a TextLayerInstruction, PdfRect);
+
+fn append_overlay_pages(
     target: &mut Document,
     source: &Document,
     instructions: &TextLayerFile,
+    base: Option<&Document>,
 ) -> Result<()> {
     let source_resolver = PageTreeResolver::new(source)?;
-    let target_resolver = PageTreeResolver::new(target)?;
-    // Producer OCR commonly shares one font, descriptor, embedded program and
-    // ToUnicode CMap across the whole book. Keep one source-to-target object
-    // map for the overlay operation so each source object is cloned once, then
-    // referenced from every output page that uses it.
+    let target_resolver = PageTreeResolver::new(base.unwrap_or(target))?;
+    let pages: Vec<OverlayPage<'_>> = instructions
+        .pages
+        .iter()
+        .map(|instruction| {
+            let source_number =
+                overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
+            let target_number =
+                overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
+            let target_page = target_resolver.page_id(base.unwrap_or(target), target_number)?;
+            Ok((
+                source_resolver.page_id(source, source_number)?,
+                target_page,
+                instruction,
+                resolve_page_view(base.unwrap_or(target), target_page)?,
+            ))
+        })
+        .collect::<Result<_>>()?;
     let mut copied = HashMap::new();
-    for instruction in &instructions.pages {
-        let source_page_number =
-            overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
-        let output_page_number =
-            overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
-        let source_page_id = source_resolver.page_id(source, source_page_number)?;
-        let target_page_id = target_resolver.page_id(target, output_page_number)?;
+    for &(source_page_id, target_page_id, instruction, _) in &pages {
+        // The new-document object map already owns materialization.
+        if let Some(base) = base.filter(|_| !target.has_object(target_page_id)) {
+            prepare_overlay_page(base, target, target_page_id)?;
+        }
+        append_source_annotations(
+            target,
+            source,
+            target_page_id,
+            source_page_id,
+            instruction,
+            &pages,
+        )?;
         let skipped = append_text_layer(
             target,
             source,
@@ -1897,12 +1978,17 @@ pub(crate) fn overlay_text_layers(
             );
         }
     }
+    Ok(())
+}
+
+pub(crate) fn overlay_text_layers(
+    target: &mut Document,
+    source: &Document,
+    instructions: &TextLayerFile,
+) -> Result<()> {
+    append_overlay_pages(target, source, instructions, None)?;
     target.prune_objects();
-    // `add_to_page_content` stores the decoded OCR operators in a new stream.
-    // A full-book OCR layer is large enough that leaving those streams raw can
-    // add tens of megabytes even though the source streams were compressed.
-    // Lopdf only compresses eligible, currently unfiltered streams here, so
-    // existing image/JBIG2/JPX payloads remain byte-for-byte untouched.
+    // Compress new OCR streams without changing already-compressed images.
     target.compress();
     Ok(())
 }
@@ -1914,9 +2000,17 @@ pub(crate) fn prepare_incremental_overlay_page(
     incremental: &mut IncrementalDocument,
     page_id: ObjectId,
 ) -> Result<()> {
-    let base = &incremental.previous_document;
+    prepare_overlay_page(
+        &incremental.previous_document,
+        &mut incremental.new_document,
+        page_id,
+    )
+}
+
+fn prepare_overlay_page(base: &Document, target: &mut Document, page_id: ObjectId) -> Result<()> {
     let parent = base.get_dictionary(page_id)?.get(b"Parent").ok().cloned();
     let mut page = materialized_page_dictionary(base, page_id)?;
+    page.set("Rotate", resolve_page_rotation(base, page_id)?);
     if let Some(parent) = parent {
         page.set("Parent", parent);
     }
@@ -1933,19 +2027,24 @@ pub(crate) fn prepare_incremental_overlay_page(
         page.set("Resources", Object::Dictionary(resources));
     }
 
+    if let Ok(annotations) = page.get(b"Annots") {
+        page.set(
+            "Annots",
+            base.dereference(annotations)?.1.as_array()?.clone(),
+        );
+    }
+
     // Normalize nested /Contents arrays while the base structure is available.
     // This keeps `Document::add_page_contents` from treating an indirect array
     // as if it were a stream reference in the new revision.
     if page.get(b"Contents").is_ok() {
-        let content_ids = content_stream_ids_from_base(base, &mut incremental.new_document, &page)?;
+        let content_ids = content_stream_ids_from_base(base, target, &page)?;
         page.set(
             "Contents",
             Object::Array(content_ids.into_iter().map(Object::Reference).collect()),
         );
     }
-    incremental
-        .new_document
-        .set_object(page_id, Object::Dictionary(page));
+    target.set_object(page_id, Object::Dictionary(page));
     Ok(())
 }
 
@@ -1954,53 +2053,12 @@ pub(crate) fn overlay_text_layers_incremental(
     source: &Document,
     instructions: &TextLayerFile,
 ) -> Result<()> {
-    let source_resolver = PageTreeResolver::new(source)?;
-    let target_resolver = PageTreeResolver::new(&incremental.previous_document)?;
-    let mut copied = HashMap::new();
-    let mut prepared_pages = HashSet::new();
-    for instruction in &instructions.pages {
-        let source_page_number =
-            overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
-        let output_page_number =
-            overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
-        let source_page_id = source_resolver.page_id(source, source_page_number)?;
-        let target_page_id =
-            target_resolver.page_id(&incremental.previous_document, output_page_number)?;
-        // Materializing a page copies its base /Contents into the new
-        // revision. Do it once per resolved page, otherwise a later
-        // instruction targeting the same page would replace the streams
-        // appended by earlier instructions. The object-map check also covers
-        // another source batch applied to the same IncrementalDocument.
-        if prepared_pages.insert(target_page_id)
-            && !incremental.new_document.has_object(target_page_id)
-        {
-            prepare_incremental_overlay_page(incremental, target_page_id)?;
-        }
-        let skipped = append_text_layer(
-            &mut incremental.new_document,
-            source,
-            target_page_id,
-            source_page_id,
-            instruction.matrix,
-            instruction.filter_to_output_page,
-            instruction.normalize_greek_micro_sign,
-            None,
-            &mut copied,
-        )?;
-        if let Some(reason) = skipped {
-            eprintln!(
-                "{}",
-                serde_json::json!({
-                    "level": "warning",
-                    "event": "scan_cleanup_text_overlay_skipped",
-                    "sourcePageIndex": instruction.source_page_index,
-                    "outputPageIndex": instruction.output_page_index,
-                    "reason": reason,
-                })
-            );
-        }
-    }
-    Ok(())
+    append_overlay_pages(
+        &mut incremental.new_document,
+        source,
+        instructions,
+        Some(&incremental.previous_document),
+    )
 }
 
 struct OverlaySourceTempDir {
@@ -2065,14 +2123,6 @@ fn referenced_source_pages(instructions: &TextLayerFile) -> Result<Vec<usize>> {
         overlay_page_number(*page, "sourcePageIndex")?;
     }
     Ok(pages)
-}
-
-fn validate_overlay_page_numbers(instructions: &TextLayerFile) -> Result<()> {
-    for instruction in &instructions.pages {
-        overlay_page_number(instruction.source_page_index, "sourcePageIndex")?;
-        overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
-    }
-    Ok(())
 }
 
 fn source_page_ranges(pages: &[usize]) -> Result<Vec<String>> {
@@ -2209,6 +2259,7 @@ fn rebase_overlay_source_instructions(
                     matrix: instruction.matrix,
                     filter_to_output_page: instruction.filter_to_output_page,
                     normalize_greek_micro_sign: instruction.normalize_greek_micro_sign,
+                    source_region: instruction.source_region,
                 })
         })
         .collect::<Vec<_>>();
@@ -2355,7 +2406,6 @@ pub(crate) fn write_overlay_text_layers_path(
     instructions: &TextLayerFile,
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    validate_overlay_page_numbers(instructions)?;
     // Preserve the established rewrite semantics only when both documents fit
     // the byte-input compatibility budget. A large source is just as unsafe to
     // eagerly load as a large target, even when the target itself is small.

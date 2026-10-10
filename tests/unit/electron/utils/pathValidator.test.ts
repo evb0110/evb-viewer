@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {resolve} from 'node:path';
 
 const mocks = vi.hoisted(() => ({
     tempDir: '/tmp/electron-test',
@@ -58,8 +59,8 @@ process.env.EVB_APP_TEMP_NAMESPACE = 'test-profile';
 
 beforeEach(() => {
     resetPathValidatorCachesForTests();
-    mocks.tempDir = '/tmp/electron-test';
-    mocks.userDataDir = '/profiles/electron-test';
+    mocks.tempDir = resolve('/tmp/electron-test');
+    mocks.userDataDir = resolve('/profiles/electron-test');
     mocks.existsSync.mockReset();
     mocks.lstatSync.mockReset();
     mocks.realpathSync.mockReset();
@@ -79,7 +80,7 @@ afterAll(() => {
 
 describe('isAllowedWritePath', () => {
     it('allows a file inside the temp directory', () => {
-        expect(isAllowedWritePath('/tmp/electron-test/evb-viewer-test-profile/output.pdf')).toBe(true);
+        expect(isAllowedWritePath(resolve('/tmp/electron-test/evb-viewer-test-profile/output.pdf'))).toBe(true);
     });
 
     it('accepts Windows native paths inside the temp directory', () => {
@@ -98,30 +99,30 @@ describe('isAllowedWritePath', () => {
     it('rejects symlink targets', () => {
         mocks.lstatSync.mockReturnValue(createStat(true));
 
-        expect(isAllowedWritePath('/tmp/electron-test/evb-viewer-test-profile/symlink-output.pdf')).toBe(false);
+        expect(isAllowedWritePath(resolve('/tmp/electron-test/evb-viewer-test-profile/symlink-output.pdf'))).toBe(false);
     });
 
     it('does not authorize the shared legacy or another profile temp namespace', () => {
-        expect(isAllowedWritePath('/tmp/electron-test/evb-viewer/output.pdf')).toBe(false);
-        expect(isAllowedWritePath('/tmp/electron-test/evb-viewer-another-profile/output.pdf')).toBe(false);
+        expect(isAllowedWritePath(resolve('/tmp/electron-test/evb-viewer/output.pdf'))).toBe(false);
+        expect(isAllowedWritePath(resolve('/tmp/electron-test/evb-viewer-another-profile/output.pdf'))).toBe(false);
     });
 });
 
 describe('isAllowedReadPath', () => {
     it('allows a regular file inside the temp directory', () => {
-        expect(isAllowedReadPath('/tmp/electron-test/evb-viewer-test-profile/document.pdf')).toBe(true);
+        expect(isAllowedReadPath(resolve('/tmp/electron-test/evb-viewer-test-profile/document.pdf'))).toBe(true);
     });
 
     it('accepts canonical temp directory paths', () => {
-        mocks.tempDir = '/tmp/electron-test';
+        mocks.tempDir = resolve('/tmp/electron-test');
         mocks.realpathSync.mockImplementation((path: string) => {
-            if (path === '/tmp/electron-test/evb-viewer-test-profile') {
-                return '/private/tmp/electron-test/evb-viewer-test-profile';
+            if (path === resolve('/tmp/electron-test/evb-viewer-test-profile')) {
+                return resolve('/private/tmp/electron-test/evb-viewer-test-profile');
             }
             return path;
         });
 
-        expect(isAllowedReadPath('/private/tmp/electron-test/evb-viewer-test-profile/document.pdf')).toBe(true);
+        expect(isAllowedReadPath(resolve('/private/tmp/electron-test/evb-viewer-test-profile/document.pdf'))).toBe(true);
     });
 
     it('accepts Windows native paths inside the temp directory', () => {
@@ -140,13 +141,13 @@ describe('isAllowedReadPath', () => {
     it('rejects symlink targets', () => {
         mocks.lstatSync.mockReturnValue(createStat(true));
 
-        expect(isAllowedReadPath('/tmp/electron-test/evb-viewer-test-profile/symlink-document.pdf')).toBe(false);
+        expect(isAllowedReadPath(resolve('/tmp/electron-test/evb-viewer-test-profile/symlink-document.pdf'))).toBe(false);
     });
 
     it('rejects missing files', () => {
         mocks.existsSync.mockReturnValue(false);
 
-        expect(isAllowedReadPath('/tmp/electron-test/evb-viewer-test-profile/missing.pdf')).toBe(false);
+        expect(isAllowedReadPath(resolve('/tmp/electron-test/evb-viewer-test-profile/missing.pdf'))).toBe(false);
     });
 });
 
@@ -154,24 +155,24 @@ describe('resolveAllowedReadPath', () => {
     it('rejects symlink targets', async () => {
         mocks.lstatSync.mockReturnValue(createStat(true));
 
-        await expect(resolveAllowedReadPath('/tmp/electron-test/evb-viewer-test-profile/symlink.pdf')).resolves.toBeNull();
-        expect(mocks.realpathSync).toHaveBeenCalledWith('/tmp/electron-test/evb-viewer-test-profile');
-        expect(mocks.realpathSync).not.toHaveBeenCalledWith('/tmp/electron-test/evb-viewer-test-profile/symlink.pdf');
+        await expect(resolveAllowedReadPath(resolve('/tmp/electron-test/evb-viewer-test-profile/symlink.pdf'))).resolves.toBeNull();
+        expect(mocks.realpathSync).toHaveBeenCalledWith(resolve('/tmp/electron-test/evb-viewer-test-profile'));
+        expect(mocks.realpathSync).not.toHaveBeenCalledWith(resolve('/tmp/electron-test/evb-viewer-test-profile/symlink.pdf'));
     });
 
     it('allows temp paths when canonical temp dir differs', async () => {
-        mocks.tempDir = '/var/folders/abc/T';
+        mocks.tempDir = resolve('/var/folders/abc/T');
         mocks.realpathSync.mockImplementation((path: string) => {
-            if (path === '/var/folders/abc/T/evb-viewer-test-profile') {
-                return '/private/var/folders/abc/T/evb-viewer-test-profile';
+            if (path === resolve('/var/folders/abc/T/evb-viewer-test-profile')) {
+                return resolve('/private/var/folders/abc/T/evb-viewer-test-profile');
             }
-            if (path === '/var/folders/abc/T/evb-viewer-test-profile/file.pdf') {
-                return '/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf';
+            if (path === resolve('/var/folders/abc/T/evb-viewer-test-profile/file.pdf')) {
+                return resolve('/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf');
             }
             return path;
         });
 
-        await expect(resolveAllowedReadPath('/var/folders/abc/T/evb-viewer-test-profile/file.pdf')).resolves.toBe('/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf');
+        await expect(resolveAllowedReadPath(resolve('/var/folders/abc/T/evb-viewer-test-profile/file.pdf'))).resolves.toBe(resolve('/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf'));
     });
 
     it('recovers when the temp directory becomes canonicalizable only after the first validation', async () => {
@@ -225,9 +226,9 @@ describe('resolveAllowedWritePath', () => {
     it('rejects symlink targets', async () => {
         mocks.lstatSync.mockReturnValue(createStat(true));
 
-        await expect(resolveAllowedWritePath('/tmp/electron-test/evb-viewer-test-profile/symlink-write.pdf')).resolves.toBeNull();
-        expect(mocks.realpathSync).toHaveBeenCalledWith('/tmp/electron-test/evb-viewer-test-profile');
-        expect(mocks.realpathSync).not.toHaveBeenCalledWith('/tmp/electron-test/evb-viewer-test-profile/symlink-write.pdf');
+        await expect(resolveAllowedWritePath(resolve('/tmp/electron-test/evb-viewer-test-profile/symlink-write.pdf'))).resolves.toBeNull();
+        expect(mocks.realpathSync).toHaveBeenCalledWith(resolve('/tmp/electron-test/evb-viewer-test-profile'));
+        expect(mocks.realpathSync).not.toHaveBeenCalledWith(resolve('/tmp/electron-test/evb-viewer-test-profile/symlink-write.pdf'));
     });
 
     it('allows missing Windows targets whose real parent is the temp directory', async () => {

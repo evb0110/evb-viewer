@@ -103,10 +103,9 @@ export async function fsyncParentDirectory(filePath: string) {
     }
 }
 
-async function pathExists(filePath: string) {
+async function fileExists(filePath: string) {
     try {
-        await stat(filePath);
-        return true;
+        return (await stat(filePath)).isFile();
     } catch {
         return false;
     }
@@ -121,13 +120,13 @@ async function waitForAtomicReplaceTestBarrier(stage: string) {
         throw new Error('Atomic replace test barrier requires EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE');
     }
     await writeFile(`${barrierPath}.${stage}`, `${String(process.pid)}\n`, 'utf8');
-    while (!(await pathExists(`${barrierPath}.release`))) {
+    while (!(await fileExists(`${barrierPath}.release`))) {
         await new Promise(resolve => setTimeout(resolve, 25));
     }
 }
 
-async function assertPathExists(filePath: string, context: string) {
-    if (await pathExists(filePath)) {
+async function assertFileExists(filePath: string, context: string) {
+    if (await fileExists(filePath)) {
         return;
     }
 
@@ -171,8 +170,8 @@ async function recoverWindowsAtomicReplace(destinationPath: string) {
     }
     assertNoSymlinkPathSegments(destinationPath);
     assertNoSymlinkPathSegments(journal.backupPath);
-    const backupExists = await pathExists(journal.backupPath);
-    if (await pathExists(destinationPath)) {
+    const backupExists = await fileExists(journal.backupPath);
+    if (await fileExists(destinationPath)) {
         if (!backupExists) {
             await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot);
             await unlink(atomicReplaceJournalPath(destinationPath));
@@ -219,8 +218,8 @@ async function createRestoreFailureError(
         dstExists,
         backupExists,
     ] = await Promise.all([
-        pathExists(dst),
-        pathExists(backupPath),
+        fileExists(dst),
+        fileExists(backupPath),
     ]);
     return new Error(
         `Atomic replace failed and backup restore failed for "${dst}". `
@@ -418,7 +417,7 @@ export async function atomicReplace(
         await rename(srcTemp, dst);
     } catch (error) {
         const code = isErrnoException(error) ? error.code : undefined;
-        if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await pathExists(dst))) {
+        if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await fileExists(dst))) {
             throw error;
         }
 
@@ -435,7 +434,7 @@ export async function atomicReplace(
                 }
                 throw promotionError;
             }
-            await assertPathExists(dst, 'Atomic replace completed');
+            await assertFileExists(dst, 'Atomic replace completed');
             await fsyncParentDirectory(dst);
             await unlink(backupPath).catch(() => undefined);
             return;
@@ -448,24 +447,17 @@ export async function atomicReplace(
         const destinationWitness = await capturePathSaveWitness(dst);
         const sourceWitness = await capturePathSaveWitness(srcTemp);
         if (!destinationWitness || !sourceWitness) {
-            await destinationWitness?.close();
-            await sourceWitness?.close();
             throw error;
         }
         const backupPath = `${dst}.bak-${randomSuffix()}`;
-        try {
-            await writeJsonAtomic(atomicReplaceJournalPath(dst), {
-                version: ATOMIC_REPLACE_JOURNAL_VERSION,
-                sourcePath: srcTemp,
-                destinationPath: dst,
-                backupPath,
-                destinationSnapshot: destinationWitness.getSnapshotForJournal(),
-                sourceSnapshot: sourceWitness.getSnapshotForJournal(),
-            } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
-        } finally {
-            await destinationWitness.close();
-            await sourceWitness.close();
-        }
+        await writeJsonAtomic(atomicReplaceJournalPath(dst), {
+            version: ATOMIC_REPLACE_JOURNAL_VERSION,
+            sourcePath: srcTemp,
+            destinationPath: dst,
+            backupPath,
+            destinationSnapshot: destinationWitness.getSnapshotForJournal(),
+            sourceSnapshot: sourceWitness.getSnapshotForJournal(),
+        } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
 
         let hasBackup = false;
         try {
@@ -496,7 +488,7 @@ export async function atomicReplace(
             throw promotionError;
         }
 
-        await assertPathExists(dst, 'Atomic replace completed');
+        await assertFileExists(dst, 'Atomic replace completed');
         await fsyncParentDirectory(dst);
         await unlink(atomicReplaceJournalPath(dst)).catch(() => undefined);
         await unlink(backupPath).catch((cleanupError) => {
@@ -504,7 +496,7 @@ export async function atomicReplace(
         });
         return;
     }
-    await assertPathExists(dst, 'Atomic replace completed');
+    await assertFileExists(dst, 'Atomic replace completed');
     await fsyncParentDirectory(dst);
 }
 

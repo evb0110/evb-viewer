@@ -261,6 +261,44 @@ export const OCR_LANGUAGE_MODEL_SHA256 = {
     vie: 'b6b49293d95d0b6dbd8780174627e82c75be957b6f4ed9862155540d6b00bb45',
 } as const satisfies Record<TOcrModelCode, string>;
 
+/** Byte sizes from the same pinned tessdata_best revision as the SHA-256 registry. */
+export const OCR_LANGUAGE_MODEL_BYTES = {
+    ara: 12603724,
+    bul: 8844613,
+    ces: 10918912,
+    dan: 9758142,
+    deu: 8628461,
+    ell: 8945021,
+    eng: 15400601,
+    fin: 14369979,
+    fra: 3972885,
+    grc: 5168122,
+    heb: 3704077,
+    hrv: 11195424,
+    hun: 12350405,
+    ind: 8253606,
+    ita: 8863635,
+    ita_old: 9852171,
+    kmr: 10196464,
+    lat: 101402885,
+    lat_dictionary: 9705145,
+    nld: 8903736,
+    nor: 14312333,
+    pol: 11978867,
+    por: 8159939,
+    ron: 9595755,
+    rus: 15301764,
+    slk: 11542252,
+    spa: 13570187,
+    spa_old: 9476925,
+    srp: 9345851,
+    swe: 14325549,
+    syr: 12498294,
+    tur: 7456265,
+    ukr: 10859081,
+    vie: 12435550,
+} as const satisfies Record<TOcrModelCode, number>;
+
 export const OCR_MODEL_CODES = Object.keys(OCR_LANGUAGE_MODEL_SHA256) as TOcrModelCode[];
 
 /** Models seeded into an offline installation; every other supported model is downloaded on demand. */

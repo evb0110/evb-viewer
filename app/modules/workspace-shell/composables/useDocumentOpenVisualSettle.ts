@@ -95,7 +95,10 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
     const documentOpenSettled = computed(() => hasOpenError.value || (
         options.showDjvuSource.value
             ? !options.isLoading.value && initialDocumentVisualReady.value
-            : documentOpenAccepted.value && initialDocumentVisualReady.value
+            // The committed surface proves the current PDF has been painted.
+            // Its workspace document projection can arrive later when a view
+            // opens in the background; it does not own visual completion.
+            : initialDocumentVisualReady.value
     ));
 
     return {

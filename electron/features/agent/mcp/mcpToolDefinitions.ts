@@ -97,7 +97,7 @@ const ACTION_INPUT_SCHEMA = {
             windowId: v.optional(WINDOW_ID_SCHEMA),
             tabId: v.optional(TAB_ID_SCHEMA),
             id: v.literal(capability.id),
-            input: v.optional(capability.inputSchema),
+            input: v.is(capability.inputSchema, {}) ? v.optional(capability.inputSchema) : capability.inputSchema,
             dryRun: v.optional(v.pipe(v.boolean(), v.description('Validate and preview without mutating visible app state when supported.'))),
         }));
         const properties = schema.properties as Record<string, Record<string, unknown>>;

@@ -113,9 +113,19 @@ it('does not reopen a document whose restore ended the renderer, says so, and ke
             await window.__allowRendererFileOpenForAutomation?.(path);
             void window.__openFileDirect?.(path);
         }, slowPath as TDocumentRef);
-        // The open ends the renderer; recovery reloads the window and its
-        // restore opens the document again, which ends the renderer again.
-        await crashWhileSlowDocumentOpens(session.page, session.name);
+        // Prepare a durable workspace before recovery. On low-tier hosts
+        // its debounced checkpoint can arrive after the initial page paints.
+        await session.page.waitForFunction((fileName: string) => (
+            (document.querySelector('.tab.is-active')?.textContent ?? '').includes(fileName)
+            && document.querySelectorAll('.workspace-host[data-workspace-active="true"] .page_container--rendered').length > 0
+        ), {timeout: 60_000}, SLOW_FILE_NAME);
+        await expect.poll(() => JSON.stringify(readWorkspaceRecoveryRecords(session.name))
+            .includes(SLOW_FILE_NAME), {timeout: 60_000}).toBe(true);
+        const client = await session.page.createCDPSession();
+        void client.send('Page.crash').catch(() => undefined);
+
+        // Recovery now reopens the checkpointed document. Crash its restore
+        // before it paints; the next recovery must leave that document closed.
         await crashWhileSlowDocumentOpens(session.page, session.name);
 
         // The next recovery keeps the workspace, leaves that document closed

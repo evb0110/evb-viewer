@@ -1,4 +1,5 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
+import type * as TOcrComposableModule from '@app/composables/useOcr';
 
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -261,6 +262,68 @@ describe('useOcrPopupPresenter', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('bounds the real model progress bar and keeps retries indeterminate', async () => {
+        const {useOcr} = await vi.importActual<typeof TOcrComposableModule>('@app/composables/useOcr');
+        vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+        const scope = effectScope();
+        try {
+            const ocr = scope.run(() => useOcr());
+            if (!ocr) throw new Error('OCR composable is unavailable');
+            ocr.progress.value.phase = 'model-prep';
+            ocr.progress.value.modelDownload = {
+                languageCode: 'deu',
+                receivedBytes: 50,
+                totalBytes: 100,
+                attempt: 1,
+                maxAttempts: 3,
+                retrying: false,
+            };
+            expect(ocr.progressPercent.value).toBe(50);
+            ocr.progress.value.modelDownload.receivedBytes = 101;
+            expect(ocr.progressPercent.value).toBe(100);
+            ocr.progress.value.modelDownload.retrying = true;
+            expect(ocr.progressPercent.value).toBeNull();
+        } finally {
+            scope.stop();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('shows received model bytes and retry attempts, then switches to recognition progress', () => {
+        const harness = createPresenterHarness();
+        try {
+            harness.ocr.progress.value = {
+                ...harness.ocr.progress.value,
+                isRunning: true,
+                phase: 'model-prep',
+                modelDownload: {
+                    languageCode: 'deu',
+                    receivedBytes: 1_000_000,
+                    totalBytes: 8_628_461,
+                    attempt: 1,
+                    maxAttempts: 3,
+                    retrying: false,
+                },
+            };
+            expect(harness.presenter.progressStatusText.value).toBe('ocr.modelDownload.progress:{"language":"ocr.languagePicker.names.deu","received":"1.0","total":"8.6","percent":11}');
+            harness.ocr.progress.value.modelDownload!.receivedBytes = 2_000_000;
+            expect(harness.presenter.progressStatusText.value).toContain('"received":"2.0"');
+            expect(harness.presenter.progressStatusText.value).toContain('"percent":23');
+            harness.ocr.progress.value.modelDownload!.attempt = 2;
+            harness.ocr.progress.value.modelDownload!.retrying = true;
+            expect(harness.presenter.progressStatusText.value).toBe('ocr.modelDownload.retrying:{"language":"ocr.languagePicker.names.deu","attempt":2,"attempts":3}');
+            harness.ocr.progress.value.modelDownload!.retrying = false;
+            expect(harness.presenter.progressStatusText.value).toContain('"attempt":2');
+            harness.ocr.progress.value.phase = 'processing';
+            expect(harness.presenter.progressStatusText.value).toBe('ocr.processingPage:{"page":0,"processed":0,"total":0}');
+            harness.ocr.progress.value.phase = 'model-prep';
+            harness.ocr.progress.value.modelDownload = undefined;
+            expect(harness.presenter.progressStatusText.value).toBe('ocr.preparing');
+        } finally {
+            stopHarness(harness.scope);
+        }
     });
 
     it('normalizes agent settings and applies completed OCR results with the source page to restore', async () => {

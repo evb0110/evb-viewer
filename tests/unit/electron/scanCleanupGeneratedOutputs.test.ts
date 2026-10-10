@@ -93,10 +93,13 @@ afterEach(async () => {
     vi.unstubAllEnvs();
     clearWorkingCopyOriginalPaths();
     const {rm} = await import('fs/promises');
-    await Promise.all(tempDirs.splice(0).map(path => rm(path, {
-        recursive: true,
-        force: true,
-    })));
+    // Remove child fixtures before their parent; concurrent nested rmdir fails on Windows.
+    for (const path of tempDirs.splice(0).reverse()) {
+        await rm(path, {
+            recursive: true,
+            force: true,
+        });
+    }
 });
 
 describe('scan cleanup generated output pruning', () => {

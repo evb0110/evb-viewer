@@ -118,7 +118,7 @@ describe('pdf.js JBIG2 consumer compatibility', () => {
             data: combined.data,
             disableWorker: true,
             useWorkerFetch: false,
-            wasmUrl: `${resolve(process.cwd(), 'node_modules/pdfjs-dist/wasm')}${sep}`,
+            wasmUrl: `${resolve(process.cwd(), 'node_modules/pdfjs-dist/wasm').split(sep).join('/')}/`,
         } satisfies {
             data: Uint8Array;
             disableWorker: boolean;

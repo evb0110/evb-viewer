@@ -61,12 +61,6 @@ export function createPdfPageNavigationRequest(
         alignment = 'page-top';
     }
 
-    const postArrival = source === 'search'
-        ? 'search-highlight'
-        : source === 'annotation'
-            ? 'annotation-pulse'
-            : undefined;
-
     return {
         ...(source === 'search' && typeof options.searchNavigationId === 'number'
             ? {searchNavigationId: options.searchNavigationId}
@@ -74,7 +68,6 @@ export function createPdfPageNavigationRequest(
         target,
         alignment,
         readiness,
-        ...(postArrival ? {postArrival} : {}),
         source,
         supersession: 'latest-wins',
     };

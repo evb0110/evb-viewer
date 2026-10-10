@@ -69,6 +69,7 @@ for (const [prefix, allowed] of [
     }
 }
 addZone(['app/modules/pdf-viewer', 'app/modules/document-viewer'], 'app/modules/workspace-shell');
+addZone('app/modules', 'app/platform/browser');
 for (const owner of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
     for (const importer of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
         if (owner !== importer) addZone(`electron/features/${importer}`, `electron/features/${owner}/main`);

@@ -15,7 +15,9 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     NUXT_BUILD_DIR_ENV,
     NUXT_OUTPUT_DIR_ENV,
@@ -319,9 +321,9 @@ describe('sessionManager automation launch args', () => {
 
         const isolated = resolveNuxtDevServerArtifactDirs({}, 'e2e-coexistence-shared-renderer');
         expect(isolated).toEqual({
-            buildDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/nuxt-build$/u),
-            outputDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/nuxt-output$/u),
-            viteCacheDir: expect.stringMatching(/\.devkit\/sessions\/e2e-coexistence-shared-renderer\/vite-cache$/u),
+            buildDir: resolve('.devkit', 'sessions', 'e2e-coexistence-shared-renderer', 'nuxt-build'),
+            outputDir: resolve('.devkit', 'sessions', 'e2e-coexistence-shared-renderer', 'nuxt-output'),
+            viteCacheDir: resolve('.devkit', 'sessions', 'e2e-coexistence-shared-renderer', 'vite-cache'),
         });
         expect(buildNuxtDevServerEnv({}, 3125, 'e2e-coexistence-shared-renderer')).toMatchObject({
             [NUXT_BUILD_DIR_ENV]: isolated?.buildDir,
@@ -344,18 +346,18 @@ describe('sessionManager automation launch args', () => {
 
     it('force-cleans only the active isolated Nuxt artifacts', () => {
         expect(resolveNuxtForceCleanCachePaths('/repo', {
-            buildDir: '/repo/.devkit/sessions/e2e-clean/nuxt-build',
-            outputDir: '/repo/.devkit/sessions/e2e-clean/nuxt-output',
-            viteCacheDir: '/repo/.devkit/sessions/e2e-clean/vite-cache',
+            buildDir: resolve('/repo/.devkit/sessions/e2e-clean/nuxt-build'),
+            outputDir: resolve('/repo/.devkit/sessions/e2e-clean/nuxt-output'),
+            viteCacheDir: resolve('/repo/.devkit/sessions/e2e-clean/vite-cache'),
         })).toEqual([
-            '/repo/.devkit/sessions/e2e-clean/nuxt-build',
-            '/repo/.devkit/sessions/e2e-clean/nuxt-output',
-            '/repo/.devkit/sessions/e2e-clean/vite-cache',
+            resolve('/repo/.devkit/sessions/e2e-clean/nuxt-build'),
+            resolve('/repo/.devkit/sessions/e2e-clean/nuxt-output'),
+            resolve('/repo/.devkit/sessions/e2e-clean/vite-cache'),
         ]);
         expect(resolveNuxtForceCleanCachePaths('/repo', null)).toEqual([
-            '/repo/node_modules/.vite',
-            '/repo/node_modules/.cache/vite',
-            '/repo/.nuxt',
+            join('/repo/node_modules/.vite'),
+            join('/repo/node_modules/.cache/vite'),
+            join('/repo/.nuxt'),
         ]);
     });
 
@@ -606,17 +608,17 @@ describe('sessionManager automation launch args', () => {
             sourceAppPath: '/Applications/Electron.app',
             destinationRoot: '/tmp/evb-automation-app',
         })).toEqual({
-            appPath: '/tmp/evb-automation-app/Electron.app',
-            executablePath: '/tmp/evb-automation-app/Electron.app/Contents/MacOS/Electron',
-            infoPlistPath: '/tmp/evb-automation-app/Electron.app/Contents/Info.plist',
+            appPath: join('/tmp/evb-automation-app/Electron.app'),
+            executablePath: join('/tmp/evb-automation-app/Electron.app/Contents/MacOS/Electron'),
+            infoPlistPath: join('/tmp/evb-automation-app/Electron.app/Contents/Info.plist'),
         });
     });
 
     it('builds wrapper app entry paths for managed development launches', () => {
         expect(buildAutomationAppEntryPaths('/tmp/evb-automation-entry')).toEqual({
-            appPath: '/tmp/evb-automation-entry/automation-app',
-            packageJsonPath: '/tmp/evb-automation-entry/automation-app/package.json',
-            mainJsPath: '/tmp/evb-automation-entry/automation-app/main.js',
+            appPath: join('/tmp/evb-automation-entry/automation-app'),
+            packageJsonPath: join('/tmp/evb-automation-entry/automation-app/package.json'),
+            mainJsPath: join('/tmp/evb-automation-entry/automation-app/main.js'),
         });
     });
 
@@ -655,17 +657,17 @@ describe('sessionManager automation launch args', () => {
         expect(buildElectronExecutablePath({
             platform: 'linux',
             rootDir: '/repo',
-        })).toBe('/repo/node_modules/electron/dist/electron');
+        })).toBe(join('/repo/node_modules/electron/dist/electron'));
 
         expect(buildElectronExecutablePath({
             platform: 'win32',
             rootDir: 'C:/repo',
-        })).toBe('C:/repo/node_modules/electron/dist/electron.exe');
+        })).toBe(join('C:/repo/node_modules/electron/dist/electron.exe'));
 
         expect(buildElectronExecutablePath({
             platform: 'darwin',
             rootDir: '/repo',
-        })).toBe('/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+        })).toBe(join('/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'));
     });
 
     it('reuses only Nuxt-looking dev server responses', () => {
@@ -1025,7 +1027,7 @@ describe('shared hidden macOS app bundle', () => {
         expect(resolveMacOSHiddenAppBundleDestinationRoot({
             electronVersion: '43.4.1',
             rootDir: '/repo',
-        })).toBe('/repo/.devkit/tmp/electron-e2e-hidden-app/electron-43.4.1');
+        })).toBe(join('/repo/.devkit/tmp/electron-e2e-hidden-app/electron-43.4.1'));
     });
 
     it('selects every bundle directory except the current one and fresh staging dirs', () => {

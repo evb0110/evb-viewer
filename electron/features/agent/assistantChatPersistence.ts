@@ -6,7 +6,6 @@ import {mkdirSync} from 'fs';
 import {
     appendFile,
     mkdir,
-    open,
     readFile,
     readdir,
     rename,
@@ -44,6 +43,7 @@ import {
     isAssistantTurnActive,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
+import {fsyncFile} from '@electron/utils/fsyncPath';
 import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
 import pruneAssistantChatSnapshotBlobs from '@electron/features/agent/pruneAssistantChatSnapshotBlobs';
 import {pruneAssistantChatArchives} from '@electron/features/agent/pruneAssistantChatArchives';
@@ -88,6 +88,7 @@ export type TRecoveredAssistantChatSessionData = IPersistedAssistantChatSession 
 interface IAssistantChatSessionEntry {
     filePath: string;
     key: string;
+    session: IPersistedAssistantChatSession;
     lastAccessedAtMs: number;
     sizeBytes: number;
 }
@@ -217,12 +218,7 @@ async function atomicWriteJsonFile(filePath: string, payload: unknown) {
     await mkdir(dirname(filePath), { recursive: true });
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
     await writeFile(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    const handle = await open(tempPath, 'r');
-    try {
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
+    await fsyncFile(tempPath);
     await rename(tempPath, filePath);
     await fsyncParentDirectory(filePath);
 }
@@ -587,49 +583,17 @@ export class AssistantChatPersistence {
     }
 
     async recoverSessions(): Promise<IRecoveredAssistantChatSession[]> {
-        const recovered: IRecoveredAssistantChatSession[] = [];
-        let sessionEntries;
+        let entries: IAssistantChatSessionEntry[];
         try {
-            sessionEntries = await readdir(this.sessionsDir, {withFileTypes: true});
+            entries = await this.readSessionEntries();
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') {
-                return recovered;
-            }
             this.onError('Failed to enumerate assistant chat sessions', error);
-            return recovered;
+            return [];
         }
-
-        for (const entry of sessionEntries) {
-            await new Promise<void>(resolve => setImmediate(resolve));
-            if (!entry.isFile()) {
-                continue;
-            }
-            const key = decodePersistenceSessionFileName(entry.name);
-            if (key === null && !entry.name.endsWith('.jsonl')) {
-                continue;
-            }
-            const filePath = join(this.sessionsDir, entry.name);
-            try {
-                const recoveredFile = await this.recoverSessionFileAsync(filePath, key ?? undefined);
-                if (!recoveredFile) {
-                    continue;
-                }
-                const fileStat = await stat(filePath);
-                recovered.push({
-                    key: recoveredFile.key,
-                    session: interruptRecoveredSession(recoveredFile.session),
-                    filePath,
-                    sizeBytes: fileStat.size,
-                });
-            } catch (error) {
-                try {
-                    await this.quarantineCorruptSession(filePath);
-                } catch (quarantineError) {
-                    this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
-                }
-                this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
-            }
-        }
+        const recovered = entries.map(entry => ({
+            ...entry,
+            session: interruptRecoveredSession(entry.session),
+        }));
         await this.pruneRecoveredSessionsAsync(recovered);
         await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
         await this.pruneSnapshotBlobs();
@@ -637,7 +601,8 @@ export class AssistantChatPersistence {
     }
 
     async recoverSession(key: string): Promise<IRecoveredAssistantChatSession | null> {
-        let recovered: IRecoveredAssistantChatSession | null = null;
+        // The queued callback supplies the result before the lookup returns.
+        let recovered = null as IRecoveredAssistantChatSession | AssistantChatPersistenceError | null;
         this.forcePendingSnapshot(key, true);
         await this.enqueue(key, async () => {
             const legacyName = `${Buffer.from(key).toString('base64url')}.jsonl`;
@@ -658,19 +623,25 @@ export class AssistantChatPersistence {
                 }
                 let contents: string;
                 try {
-                    contents = await readFile(candidate.filePath, 'utf8');
+                    contents = await this.readSessionContents(candidate.filePath, key);
                 } catch (error) {
                     if (isErrnoException(error) && error.code === 'ENOENT') {
                         continue;
                     }
-                    throw error;
+                    recovered = this.toPersistenceError(key, error);
+                    this.onError(`Failed to recover assistant chat session "${key}" during lookup`, recovered);
+                    break;
                 }
                 let file;
                 try {
                     file = this.recoverSessionContents(candidate.filePath, key, contents);
                 } catch (error) {
-                    await this.quarantineCorruptSession(candidate.filePath);
-                    this.onError(`Quarantined corrupt assistant chat session "${key}" during lookup`, error);
+                    if (error instanceof AssistantChatPersistenceError) {
+                        recovered = error;
+                    } else {
+                        await this.quarantineCorruptSession(candidate.filePath);
+                    }
+                    this.onError(`Failed to recover assistant chat session "${key}" during lookup`, error);
                     break;
                 }
                 if (file) {
@@ -686,6 +657,8 @@ export class AssistantChatPersistence {
                 break;
             }
         }, true);
+        // A failed lookup must reject without poisoning the settled write queue.
+        if (recovered instanceof AssistantChatPersistenceError) throw recovered;
         return recovered;
     }
 
@@ -924,12 +897,7 @@ export class AssistantChatPersistence {
         const filePath = this.sessionPath(key);
         const storageRecord = await this.snapshotStorage.prepareRecordForStorage(record, key);
         await appendFile(filePath, `${JSON.stringify(storageRecord)}\n`, 'utf8');
-        const handle = await open(filePath, 'r');
-        try {
-            await handle.sync();
-        } finally {
-            await handle.close();
-        }
+        await fsyncFile(filePath);
         return storageRecord;
     }
 
@@ -982,6 +950,9 @@ export class AssistantChatPersistence {
         try {
             recovered = await this.recoverSessionFileAsync(filePath, key);
         } catch (error) {
+            if (error instanceof AssistantChatPersistenceError) {
+                throw error;
+            }
             await this.quarantineCorruptSession(filePath);
             this.onError(`Quarantined corrupt assistant chat session "${key}" during compaction`, error);
             return;
@@ -998,8 +969,17 @@ export class AssistantChatPersistence {
     }
 
     private async recoverSessionFileAsync(filePath: string, expectedKey?: string) {
-        const contents = await readFile(filePath, 'utf8');
+        const contents = await this.readSessionContents(filePath, expectedKey ?? basename(filePath));
         return this.recoverSessionContents(filePath, expectedKey, contents);
+    }
+
+    private async readSessionContents(filePath: string, key: string) {
+        try {
+            return await readFile(filePath, 'utf8');
+        } catch (error) {
+            if (isErrnoException(error) && error.code === 'ENOENT') throw error;
+            throw this.toPersistenceError(key, error);
+        }
     }
 
     private recoverSessionContents(
@@ -1030,11 +1010,15 @@ export class AssistantChatPersistence {
                     && key !== null
                     && lastSession !== null
                 ) {
-                    this.snapshotStorage.writeBoundedSnapshotSync(
-                        filePath,
-                        createPersistedSnapshotRecord(key, clonePersistedSession(lastSession)),
-                        key,
-                    );
+                    try {
+                        this.snapshotStorage.writeBoundedSnapshotSync(
+                            filePath,
+                            createPersistedSnapshotRecord(key, clonePersistedSession(lastSession)),
+                            key,
+                        );
+                    } catch (error) {
+                        throw this.toPersistenceError(key, error);
+                    }
                     break;
                 }
                 throw new Error('Assistant chat transcript contains a malformed persisted record.');
@@ -1147,6 +1131,7 @@ export class AssistantChatPersistence {
             if (!entry.isFile()) {
                 continue;
             }
+            await new Promise<void>(resolve => setImmediate(resolve));
             const key = decodePersistenceSessionFileName(entry.name);
             if (key === null && !entry.name.endsWith('.jsonl')) {
                 continue;
@@ -1156,8 +1141,14 @@ export class AssistantChatPersistence {
             try {
                 recovered = await this.recoverSessionFileAsync(filePath, key ?? undefined);
             } catch (error) {
-                await this.quarantineCorruptSession(filePath);
-                this.onError(`Quarantined corrupt assistant chat session "${key ?? entry.name}" during maintenance`, error);
+                if (!(error instanceof AssistantChatPersistenceError)) {
+                    try {
+                        await this.quarantineCorruptSession(filePath);
+                    } catch (quarantineError) {
+                        this.onError(`Failed to quarantine corrupt assistant chat session "${key ?? entry.name}"`, quarantineError);
+                    }
+                }
+                this.onError(`Failed to recover assistant chat session "${key ?? entry.name}"`, error);
                 continue;
             }
             const fileStat = await stat(filePath).catch(() => null);
@@ -1167,6 +1158,7 @@ export class AssistantChatPersistence {
             entries.push({
                 filePath,
                 key: recovered.key,
+                session: recovered.session,
                 lastAccessedAtMs: recovered.session.lastAccessedAtMs,
                 sizeBytes: fileStat.size,
             });

@@ -9,7 +9,7 @@ import {
 } from 'vue';
 import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {estimateScanCleanupOutputPages} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {estimateScanCleanupOutputPages} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
 
 function detectionResult(pageNumber: number): IScanCleanupDetectionResult {

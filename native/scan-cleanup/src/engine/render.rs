@@ -38,6 +38,7 @@ use crate::{
         rasterize_inverse_area_rgb_with, rasterize_inverse_area_with, DewarpModel, DEWARP_GRID_SIZE,
     },
     ink_consistency::{stabilize_trusted_stroke_mass, InkConsistencyDiagnostics},
+    io::png::RgbImage,
     mrc::derive_halftone_zones,
     picture::{
         apply_manual_zones, detect_continuous_tone_mask, detect_picture_mask_with_continuous_tone,
@@ -46,7 +47,6 @@ use crate::{
         refine_line_art_preservation_alpha, refine_tone_preservation_alpha,
         resample_binary_mask_nearest, semantic_tone_preservation_alpha, veto_text_like_regions,
     },
-    png::RgbImage,
     protocol::{
         manifest_v3::{ContentDiagnostics, DetailRenderPlan},
         progress::PageStageTimings,
@@ -381,6 +381,9 @@ pub struct CleanupMetadata {
     pub illumination_normalized: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_tone_diagnostics: Option<TextToneDiagnostics>,
+    // Preserved/rejected PNG masks on the rotated canonical analysis plane.
+    #[serde(default)]
+    pub faint_stroke_masks: [Option<Vec<u8>>; 2],
     pub binarization_mode: Option<crate::BinarizationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binarization_diagnostics: Option<BinarizationDiagnostics>,
@@ -593,14 +596,14 @@ pub(crate) fn clean_detail_page_with_color(
     base_metadata: &CleanupMetadata,
     timings: &mut PageStageTimings,
 ) -> Result<PageCleanupResult, AnalysisError> {
-    clean_detail_page_with_color_impl(
+    clean_detail_page_with_color_cancellable(
         sources,
         options,
         source_page_index,
         plan,
         base_metadata,
         timings,
-        None,
+        &AtomicBool::new(false),
     )
 }
 
@@ -613,33 +616,13 @@ pub(crate) fn clean_detail_page_with_color_cancellable(
     timings: &mut PageStageTimings,
     is_canceled: &AtomicBool,
 ) -> Result<PageCleanupResult, AnalysisError> {
-    clean_detail_page_with_color_impl(
-        sources,
-        options,
-        source_page_index,
-        plan,
-        base_metadata,
-        timings,
-        Some(is_canceled),
-    )
-}
-
-fn clean_detail_page_with_color_impl(
-    sources: DetailRenderSources<'_>,
-    options: &CleanupOptions,
-    source_page_index: usize,
-    plan: &DetailRenderPlan,
-    base_metadata: &CleanupMetadata,
-    timings: &mut PageStageTimings,
-    cancellation: Option<&AtomicBool>,
-) -> Result<PageCleanupResult, AnalysisError> {
     region_rendering::render_detail_page(region_rendering::DetailPageInput {
         sources,
         options,
         source_page_index,
         plan,
         base_metadata,
-        cancellation,
+        cancellation: Some(is_canceled),
         timings,
     })
 }
@@ -1210,6 +1193,7 @@ struct PreparedPage<'a> {
     calibration: PageCalibration,
     rotated_color: Option<RgbImage>,
     content_picture_mask: Option<Arc<BinaryImage>>,
+    faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1242,6 +1226,7 @@ struct PreparedAnalysis {
     whitespace_score: f64,
     text_axis: Option<TextAxisHint>,
     content_picture_mask: Option<Arc<BinaryImage>>,
+    faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1282,6 +1267,7 @@ struct AnalysisArtifact {
     text_mask: Option<Arc<BinaryImage>>,
     text_vicinity_mask: Option<Arc<BinaryImage>>,
     content_picture_mask: Option<Arc<BinaryImage>>,
+    faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
@@ -2358,6 +2344,7 @@ fn prepare_page<'a>(
         calibration,
         canonical_routing_dpi,
         content_picture_mask: analysis_content_picture_mask,
+        faint_stroke_masks,
         picture_mask: analysis_picture_mask,
         halftone_zone_mask: analysis_halftone_zone_mask,
         spatial_tone_mask: analysis_spatial_tone_mask,
@@ -2440,6 +2427,7 @@ fn prepare_page<'a>(
         calibration,
         rotated_color,
         content_picture_mask: analysis_content_picture_mask,
+        faint_stroke_masks,
         picture_mask: picture_mask.take(),
         halftone_zone_mask: analysis_halftone_zone_mask,
         spatial_tone_mask: analysis_spatial_tone_mask,
@@ -2475,61 +2463,35 @@ fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
         } else {
             canonical.data().len()
         };
-    let picture_mask = artifact
-        .picture_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let halftone_zone_mask = artifact
-        .halftone_zone_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let spatial_tone_mask = artifact
-        .spatial_tone_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let chroma_picture_mask = artifact
-        .chroma_picture_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let tonal_protection_mask = artifact
-        .tonal_protection_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let tone_preservation_alpha = artifact
-        .tone_preservation_alpha
-        .as_deref()
-        .map_or(0, |alpha| alpha.data().len());
-    let semantic_preservation_alpha = artifact
-        .semantic_preservation_alpha
-        .as_deref()
-        .map_or(0, |alpha| alpha.data().len());
-    let photo_preservation_alpha = artifact
-        .photo_preservation_alpha
-        .as_deref()
-        .map_or(0, |alpha| alpha.data().len());
-    let text_mask = artifact
-        .text_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let text_vicinity_mask = artifact
-        .text_vicinity_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    let content_picture_mask = artifact
-        .content_picture_mask
-        .as_deref()
-        .map_or(0, |mask| std::mem::size_of_val(mask.words()));
-    gray.saturating_add(picture_mask)
-        .saturating_add(halftone_zone_mask)
-        .saturating_add(spatial_tone_mask)
-        .saturating_add(chroma_picture_mask)
-        .saturating_add(tonal_protection_mask)
-        .saturating_add(semantic_preservation_alpha)
-        .saturating_add(photo_preservation_alpha)
-        .saturating_add(tone_preservation_alpha)
-        .saturating_add(text_mask)
-        .saturating_add(text_vicinity_mask)
-        .saturating_add(content_picture_mask)
+    let masks = [
+        &artifact.picture_mask,
+        &artifact.halftone_zone_mask,
+        &artifact.spatial_tone_mask,
+        &artifact.chroma_picture_mask,
+        &artifact.tonal_protection_mask,
+        &artifact.text_mask,
+        &artifact.text_vicinity_mask,
+        &artifact.content_picture_mask,
+        &artifact.faint_stroke_masks[0],
+        &artifact.faint_stroke_masks[1],
+    ]
+    .into_iter()
+    .flatten()
+    .fold(0usize, |bytes, mask| {
+        bytes.saturating_add(std::mem::size_of_val(mask.words()))
+    });
+    let alphas = [
+        &artifact.tone_preservation_alpha,
+        &artifact.semantic_preservation_alpha,
+        &artifact.photo_preservation_alpha,
+    ]
+    .into_iter()
+    .flatten()
+    .fold(0usize, |bytes, alpha| {
+        bytes.saturating_add(alpha.data().len())
+    });
+    gray.saturating_add(masks)
+        .saturating_add(alphas)
         .saturating_add(std::mem::size_of::<AnalysisArtifact>())
 }
 

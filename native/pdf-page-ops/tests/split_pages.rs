@@ -659,9 +659,7 @@ fn split_pages_scales_content_and_annotations_onto_the_canvas() {
     });
     let content_bytes = b"BT /F1 9 Tf 10 20 Td (Half size) Tj ET".to_vec();
     let content_id = document.add_object(Stream::new(dictionary! {}, content_bytes.clone()));
-    // An annotation with an appearance stream: the stream is drawn into the
-    // rectangle, so following the rectangle is the whole of moving it, and its
-    // bytes must not be touched.
+    // An appearance must paint in the same place as the scaled page content.
     let appearance_bytes = b"0 0 1 rg 0 0 20 20 re f".to_vec();
     let appearance_id = document.add_object(Stream::new(
         dictionary! {
@@ -812,35 +810,54 @@ fn split_pages_scales_content_and_annotations_onto_the_canvas() {
             .collect::<Vec<_>>()
     };
     assert_eq!(numbers(annotations[0], b"Rect"), vec![20, 40, 60, 80]);
-    // The appearance stream itself is the source object, untouched: it is drawn
-    // into the rectangle, which is what changed.
-    let appearance = split
-        .get_object(
-            annotations[0]
-                .get(b"AP")
-                .unwrap()
-                .as_dict()
-                .unwrap()
-                .get(b"N")
-                .unwrap()
-                .as_reference()
-                .unwrap(),
-        )
+    // Isolate the appearance from the later ink and line annotations that
+    // deliberately overlap its blue pixels.
+    let appearance_pdf = path("split-appearance-only", "pdf");
+    let mut appearance_document = Document::load(&output).unwrap();
+    let appearance_page = appearance_document.get_pages()[&1];
+    let square = appearance_document
+        .get_dictionary(appearance_page)
         .unwrap()
-        .as_stream()
-        .unwrap();
-    assert_eq!(appearance.content, appearance_bytes);
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .clone();
+    appearance_document
+        .get_dictionary_mut(appearance_page)
+        .unwrap()
+        .set("Annots", vec![square]);
+    appearance_document.save(&appearance_pdf).unwrap();
+    let rendered = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args(["-r", "72", "-singlefile"])
+    .arg(&appearance_pdf)
+    .output()
+    .unwrap();
+    assert!(rendered.status.success());
+    let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+    assert_eq!(header.next().unwrap(), b"P6");
+    assert_eq!(header.next().unwrap(), b"200 120");
+    assert_eq!(header.next().unwrap(), b"255");
+    let blue = header
+        .next()
+        .unwrap()
+        .chunks_exact(3)
+        .enumerate()
+        .filter(|(_, rgb)| rgb[0] < 30 && rgb[1] < 30 && rgb[2] > 200)
+        .map(|(index, _)| (index % 200, index / 200))
+        .collect::<Vec<_>>();
+    assert_eq!(blue.len(), 1600);
     assert_eq!(
-        appearance
-            .dict
-            .get(b"BBox")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_i64().unwrap())
-            .collect::<Vec<_>>(),
-        vec![0, 0, 20, 20]
+        blue.iter().map(|point| point.0).sum::<usize>(),
+        1600 * 79 / 2
+    );
+    assert_eq!(
+        blue.iter().map(|point| point.1).sum::<usize>(),
+        1600 * 119 / 2
     );
 
     assert_eq!(numbers(annotations[1], b"Rect"), vec![10, 10, 90, 50]);
@@ -876,6 +893,7 @@ fn split_pages_scales_content_and_annotations_onto_the_canvas() {
     let _ = remove_file(input);
     let _ = remove_file(output);
     let _ = remove_file(instructions);
+    let _ = remove_file(appearance_pdf);
 }
 
 /// qpdf — which is what writes the working copies this pipeline splits — stores

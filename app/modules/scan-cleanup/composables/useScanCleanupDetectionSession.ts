@@ -12,13 +12,15 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     attachScanCleanupPageOverrideDefaults,
-    estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    estimateScanCleanupOutputPages,
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
     usesScanCleanupInkAlignment,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';

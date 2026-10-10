@@ -145,6 +145,7 @@ export async function renderScanCleanupRasterToDisk(
         crop,
         limits,
         renderBox,
+        'exclude',
     );
     if (format === 'ppm') {
         const dimensions = await readPpmDimensions(outputPath, dependencies.fileSystem.open);

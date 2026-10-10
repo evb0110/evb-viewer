@@ -1,6 +1,9 @@
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IRecentReadingView } from '@contracts/recentReadingView';
+import type {
+    IPdfSemanticAnchor,
+    IRecentReadingView,
+} from '@contracts/recentReadingView';
 import {
     createPageNavigationRequest,
     type IDocumentOpenSurfaceSession,
@@ -52,24 +55,28 @@ export interface IOpeningReadingSeed {
 /**
  * Claims the opening surface with the admitted shape. A normal open starts
  * at its remembered page and seeds its view before the first frame; other
- * opens take a shape only of `initialPage`.
+ * opens take their tab's retained page or reading anchor.
  */
 export function beginOpenSurfaceWithPageShape(
     openSurface: IDocumentOpenSurfaceSession,
     identity: Parameters<IDocumentOpenSurfaceSession['begin']>[0],
-    initialPage: number,
+    initialPlace: number | IPdfSemanticAnchor,
     shape: IPdfOpeningGeometry | null,
     reading: IOpeningReadingSeed | null = null,
 ) {
     const view = reading && shape ? shape.readingView ?? null : null;
-    const openingPage = shape && view ? shape.pageNumber : initialPage;
+    const retainedAnchor = typeof initialPlace === 'number' ? null : initialPlace;
+    const initialPage = typeof initialPlace === 'number' ? initialPlace : initialPlace.page;
+    const openingPage = retainedAnchor?.page ?? (shape && view ? shape.pageNumber : initialPage);
     openSurface.begin(identity, shape?.pageNumber === openingPage ? {
         documentId: identity.documentId,
         ...shape,
         readingView: reading?.shown ? null : view,
     } : null, openingPage);
-    if (shape && view) {
-        openSurface.navigate(createPageNavigationRequest(shape.pageNumber, 'restore', view.anchor));
-        reading?.seed(view);
+    if (retainedAnchor || view) {
+        openSurface.navigate(createPageNavigationRequest(openingPage, 'restore', retainedAnchor ?? view?.anchor));
+        if (view) {
+            reading?.seed(view);
+        }
     }
 }

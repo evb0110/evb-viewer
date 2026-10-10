@@ -40,6 +40,11 @@ import type { IAssistantSelection } from '@electron/features/agent/assistantProv
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import {normalizeOutgoingMessageRequest} from '@electron/features/agent/assistantOutgoingMessage';
 import {createLargeAssistantImage} from '@tests/fixtures/electron/createLargeAssistantImage';
+import * as fileFlush from '@electron/utils/fsyncPath';
+import * as chatFiles from 'fs/promises';
+import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
+
+vi.mock('fs/promises', {spy: true});
 
 const tempRoots: string[] = [];
 
@@ -472,9 +477,23 @@ describe('assistant chat session store persistence', () => {
         33,
         65,
     ])('rehydrates history and provider resume IDs after %i document lookups and restart', async (count) => {
+        // Check the default 32-entry boundary without writing empty histories.
+        // The durable scenario then crosses a two-entry cache once or twice,
+        // exercising the same eviction/reload path with three or five files.
+        const defaultStore = createAssistantChatSessionStore({persistence: false});
+        for (let index = 0; index < count; index += 1) {
+            defaultStore.getSession({
+                ...scope,
+                key: `document-${index}`,
+            }, selection, {create: true});
+        }
+        expect(defaultStore.listSessions()).toHaveLength(32);
         const rootDir = createTempRoot();
         const persistence = new AssistantChatPersistence({rootDir});
-        const store = createAssistantChatSessionStore({persistence});
+        const store = createAssistantChatSessionStore({
+            persistence,
+            maxEntries: 2,
+        });
         await store.ready;
         const original = store.getSession(scope, selection, {create: true});
         original.providerThreadId = 'resume-original';
@@ -498,14 +517,14 @@ describe('assistant chat session store persistence', () => {
             text: 'original tool result',
         });
         const expected = structuredClone(original.messages);
-        for (let index = 1; index < count; index += 1) {
+        for (let index = 1; index < (count === 33 ? 3 : 5); index += 1) {
             store.getSession({
                 ...scope,
                 key: `document-${index}`,
             }, selection, {create: true});
         }
         await store.flushPersistenceForTests();
-        expect(store.listSessions()).toHaveLength(32);
+        expect(store.listSessions()).toHaveLength(2);
 
         const requestedScope = {
             ...scope,
@@ -519,11 +538,14 @@ describe('assistant chat session store persistence', () => {
         expect(returned.lastSenderWindowId).toBeNull();
         await store.flushPersistenceForTests();
 
-        const restarted = createAssistantChatSessionStore({persistence: new AssistantChatPersistence({rootDir})});
+        const restarted = createAssistantChatSessionStore({
+            persistence: new AssistantChatPersistence({rootDir}),
+            maxEntries: 2,
+        });
         const cold = await restarted.loadSession(requestedScope, selection, {create: true});
         expect(cold.messages).toEqual(expected);
         expect(cold.providerThreadId).toBe('resume-original');
-        expect(restarted.listSessions()).toHaveLength(32);
+        expect(restarted.listSessions()).toHaveLength(2);
         await restarted.flushPersistenceForTests();
     });
 
@@ -762,7 +784,10 @@ describe('assistant chat session store persistence', () => {
         expect(readdirSync(join(rootDir, 'sessions'))).toEqual([]);
     });
 
-    it('recovers the last durable snapshot when a crash leaves a torn final record', async () => {
+    it.each([
+        false,
+        true,
+    ])('keeps a torn final record recoverable when its repair flush fails (%s)', async (flushFails) => {
         const rootDir = createTempRoot();
         const persistence = createPersistence(rootDir);
         const store = createAssistantChatSessionStore({persistence});
@@ -775,13 +800,96 @@ describe('assistant chat session store persistence', () => {
 
         const transcriptPath = persistence.sessionPath(store.keyForSession(session));
         writeFileSync(transcriptPath, '{"type":"session-snapshot"', {flag: 'a'});
+        const originalContents = readFileSync(transcriptPath, 'utf8');
 
-        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
-        await recoveredStore.ready;
-
-        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['durable message']);
+        const flush = vi.spyOn(fileFlush, 'fsyncFileSync');
+        const flushError = new Error('Recovery flush failed');
+        if (flushFails) flush.mockImplementation(() => {throw flushError;});
+        const onError = vi.fn();
+        const recovery = createPersistence(rootDir, {onError});
+        try {
+            const recovered = await recovery.recoverSessions();
+            expect(recovered.flatMap(record => record.session.messages.map(message => message.text)))
+                .toEqual(flushFails ? [] : ['durable message']);
+            if (flushFails) {
+                const recoveredStore = createAssistantChatSessionStore({persistence: recovery});
+                await expect(recoveredStore.loadSession(scope, selection, {create: true})).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+                expect(readFileSync(transcriptPath, 'utf8')).toBe(originalContents);
+                expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to recover'), expect.objectContaining({
+                    code: 'write-failed',
+                    cause: flushError,
+                }));
+            } else {
+                expect(readFileSync(transcriptPath, 'utf8')).toMatch(/\n$/u);
+                expect(onError).not.toHaveBeenCalled();
+            }
+            expect(readdirSync(join(rootDir, 'archive'))).toEqual([]);
+            expect(readdirSync(join(rootDir, 'sessions'))).toEqual([basename(transcriptPath)]);
+        } finally {
+            flush.mockRestore();
+        }
+        expect((await recovery.recoverSession(store.keyForSession(session)))?.session.messages.map(message => message.text))
+            .toEqual(['durable message']);
         expect(readFileSync(transcriptPath, 'utf8')).toMatch(/\n$/u);
-        expect(readdirSync(join(rootDir, 'archive'))).toEqual([]);
+    });
+
+    it.each([
+        'EACCES',
+        'EBUSY',
+    ])('keeps a healthy transcript recoverable after a %s read failure', async (code) => {
+        const persistence = createPersistence();
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'healthy message',
+        });
+        await store.flushPersistenceForTests();
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        const originalContents = readFileSync(transcriptPath, 'utf8');
+        const onError = vi.fn();
+        const recovery = createPersistence(persistence.rootDir, {onError});
+        const read = vi.spyOn(chatFiles, 'readFile').mockRejectedValue(Object.assign(new Error('Read refused'), {code}));
+        try {
+            expect(await recovery.recoverSessions()).toEqual([]);
+            await expect(recovery.recoverSession(store.keyForSession(session))).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+            expect(readFileSync(transcriptPath, 'utf8')).toBe(originalContents);
+            expect(readdirSync(persistence.archiveDir)).toEqual([]);
+            expect(onError).toHaveBeenCalledWith(expect.stringContaining('Failed to recover'), expect.objectContaining({
+                code: 'write-failed',
+                retryable: true,
+            }));
+        } finally {
+            read.mockRestore();
+        }
+        expect((await recovery.recoverSessions()).flatMap(record => record.session.messages.map(message => message.text)))
+            .toEqual(['healthy message']);
+    });
+
+    it('removes a recovery staging file when replacement fails and keeps the destination', () => {
+        const rootDir = createTempRoot();
+        const destination = join(rootDir, 'blocked.jsonl');
+        mkdirSync(destination);
+        writeFileSync(join(destination, 'keep'), 'original');
+        const storage = new AssistantChatSnapshotStorage<{text: string}, 1>({
+            blobsDir: join(rootDir, 'blobs'),
+            maxSessionBytes: 1024,
+            createTooLargeError: (_key, message) => new Error(message),
+            parseRecord: () => null,
+        });
+
+        expect(() => storage.writeBoundedSnapshotSync(destination, {
+            schemaVersion: 1,
+            type: 'session-snapshot',
+            key: 'session',
+            writtenAt: '2026-10-10T00:00:00.000Z',
+            session: {text: 'recovered'},
+        }, 'session')).toThrow();
+        expect(readFileSync(join(destination, 'keep'), 'utf8')).toBe('original');
+        expect(readdirSync(rootDir).sort()).toEqual([
+            'blobs',
+            'blocked.jsonl',
+        ]);
     });
 
     it('deeply rejects and quarantines malformed nested recovery payloads', async () => {

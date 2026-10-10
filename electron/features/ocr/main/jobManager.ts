@@ -23,6 +23,7 @@ import type {
     IOcrCompleteResult,
     IOcrErrorEnvelope,
     IOcrProgress,
+    IOcrModelDownloadProgress,
     IOcrSearchablePdfOptions,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
@@ -303,8 +304,17 @@ export async function handleOcrCreateSearchablePdfAsync(
                 projection,
             },
             run: async (registry) => {
+                const onModelDownloadProgress = (modelDownload: IOcrModelDownloadProgress) => {
+                    const latest = ocrJobs.get(requestId, toOcrActor(context))?.progress;
+                    if (latest) registry.publish({
+                        ...latest,
+                        phase: 'model-prep',
+                        phaseProgress: undefined,
+                        modelDownload,
+                    });
+                };
                 try {
-                    await prepareLanguageModelsForJob(pages, registry.signal);
+                    await prepareLanguageModelsForJob(pages, registry.signal, onModelDownloadProgress);
                 } catch (error) {
                     started.resolve(createOcrQueueFailure(
                         requestId,
@@ -323,7 +333,10 @@ export async function handleOcrCreateSearchablePdfAsync(
                     pages,
                     options,
                     paths: await resolveOcrPipelinePaths(),
-                    prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {signal}),
+                    prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {
+                        signal,
+                        onProgress: onModelDownloadProgress,
+                    }),
                     signal: registry.signal,
                     log: pipelineLog,
                     publish: progress => registry.publish({

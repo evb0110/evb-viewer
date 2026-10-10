@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -6,7 +8,6 @@ import {
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     createDocumentOpeningPageFrame,
-    resolveDocumentOpeningPageMargin,
     resolveDocumentOpeningPageShellId,
 } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
@@ -41,7 +42,6 @@ function createAuthority(
     return createDocumentOpeningPageFrame({
         instanceId: 'chassis-test',
         openSurface: surface,
-        readRendererKind: () => 'pdfjs',
         ...(readLayoutRevision ? {readLayoutRevision} : {}),
         readPolicy: () => ({
             fitMode: 'width',
@@ -60,14 +60,6 @@ describe('documentOpeningPageFrame', () => {
         expect(resolveDocumentOpeningPageShellId('chassis-b', 7)).not.toBe(
             resolveDocumentOpeningPageShellId('chassis-a', 7),
         );
-    });
-
-    it('uses one shared page gutter for every renderer before and after handoff', () => {
-        expect(resolveDocumentOpeningPageMargin(pdfGeometry, 'pdfjs')).toBe(DOCUMENT_PAGE_GUTTER_PX);
-        expect(resolveDocumentOpeningPageMargin({
-            ...pdfGeometry,
-            documentId: '/documents/scan.djvu',
-        }, 'page-source')).toBe(DOCUMENT_PAGE_GUTTER_PX);
     });
 
     it('commits the exact PDF page shell synchronously from trusted geometry and the live chassis viewport', () => {
@@ -187,7 +179,6 @@ describe('documentOpeningPageFrame', () => {
         createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -271,7 +262,6 @@ describe('documentOpeningPageFrame', () => {
         createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -362,7 +352,6 @@ describe('documentOpeningPageFrame', () => {
         createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -426,18 +415,101 @@ describe('documentOpeningPageFrame', () => {
 
     it('uses the page-source frame policy for DjVu documents', () => {
         const surface = createDocumentOpenSurfaceSession();
+        let zoomMode: 'fit-width' | 'custom' = 'fit-width';
+        const viewport = document.createElement('div');
+        Object.defineProperties(viewport, {
+            offsetWidth: {value: 1_018},
+            clientWidth: {value: 1_000},
+        });
         const generation = surface.begin({
             documentId: '/documents/scan.djvu',
             documentRevision: 'pending',
         }, {
             ...pdfGeometry,
             documentId: '/documents/scan.djvu',
+            pageNumber: 7,
+        }, 7);
+        const authority = createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 2,
+                zoomMode,
+                continuousScroll: true,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+            readViewport: () => viewport,
         });
 
-        expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
+        expect(authority.prepareOpeningPageFrame(generation)).toBe(true);
         expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
             width: '960px',
             height: '1280px',
+        });
+        zoomMode = 'custom';
+        surface.navigate(createPageNavigationRequest(7, 'restore', {
+            page: 7,
+            pageXFraction: 0.4,
+            pageYFraction: 0.2375,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center',
+        }));
+        expect(authority.prepareOpeningPageFrame(generation)).toBe(true);
+        // The old 800 px viewport had the page at 20 px. The final horizontal
+        // scrollbar makes it 782 px high, so restoration places it at 11 px.
+        expect(authority.shell.value?.style).toMatchObject({
+            width: '1200px',
+            height: '1600px',
+            top: '11px',
+        });
+    });
+
+    it('keeps a DjVu first page at its layout top when the restored point would scroll above the document', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: '/documents/scan.djvu',
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            documentId: '/documents/scan.djvu',
+            pageNumber: 1,
+        }, 1);
+        // The restore's scroll is clamped at the document start, so the page's
+        // top sits at its gutter, not at the viewport's middle.
+        surface.navigate(createPageNavigationRequest(1, 'restore', {
+            page: 1,
+            pageXFraction: 0.5,
+            pageYFraction: 0,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center',
+        }));
+
+        expect(createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 2,
+                zoomMode: 'custom',
+                continuousScroll: true,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation)).toBe(true);
+        expect(surface.snapshot.value.openingPageFrame?.style).toMatchObject({
+            width: '1200px',
+            height: '1600px',
+            top: `${String(DOCUMENT_PAGE_GUTTER_PX)}px`,
         });
     });
 

@@ -1,6 +1,6 @@
 use evb_scan_cleanup::{
-    png::decode_gray, split::LayoutClassification, BinarizationMode, CleanupOptions, LayoutMode,
-    OutputMode,
+    io::png::decode_gray, split::LayoutClassification, BinarizationMode, CleanupOptions,
+    LayoutMode, OutputMode,
 };
 use scan_primitives::{BinaryImage, ComponentMap, GrayImage, Rect};
 use serde::Deserialize;

@@ -794,6 +794,18 @@ const agentRendererAckSchema = v.pipe(
     v.readonly(),
 );
 
+const agentAnnotationRefMessage = 'Annotation reference requires at least one non-blank stableKey, annotationId, or id.';
+const agentAnnotationIdentifierSchema = v.pipe(v.string(), v.regex(/\S/, agentAnnotationRefMessage));
+export const AGENT_ANNOTATION_REF_SCHEMA = v.union([
+    v.looseObject({stableKey: agentAnnotationIdentifierSchema}),
+    v.looseObject({annotationId: agentAnnotationIdentifierSchema}),
+    v.looseObject({id: agentAnnotationIdentifierSchema}),
+], agentAnnotationRefMessage);
+
+export function parseAgentAnnotationRef(input: Record<string, unknown>) {
+    return v.parse(AGENT_ANNOTATION_REF_SCHEMA, input);
+}
+
 export const AGENT_MCP_CODEX_REGISTRATION_STATE_SCHEMA = agentMcpCodexRegistrationStateSchema;
 export const AGENT_MCP_INTEGRATION_STATUS_SCHEMA = agentMcpIntegrationStatusSchema;
 export const AGENT_MCP_INTEGRATION_UPDATE_RESULT_SCHEMA = agentMcpIntegrationUpdateResultSchema;

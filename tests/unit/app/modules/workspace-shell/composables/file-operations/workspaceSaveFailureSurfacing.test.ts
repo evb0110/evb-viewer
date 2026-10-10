@@ -520,6 +520,50 @@ describe('workspace save failure surfacing', () => {
         }));
     });
 
+    it.each([
+        false,
+        true,
+    ])('the changed-original Save As action belongs to its document (replaced: %s)', async replaced => {
+        let publishedPath = '';
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            saveWorkingCopy: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+                failure: {
+                    channel: 'file:saveStructured',
+                    operation: 'saveFileStructured',
+                    phase: 'publish-original',
+                    reason: 'original-changed' as const,
+                },
+            })),
+            saveWorkingCopyAs: vi.fn(async () => {
+                publishedPath = '/tmp/recovered.pdf';
+                return {
+                    success: true,
+                    outPath: requireDocumentRef(publishedPath),
+                    saveMode: 'save_as_rewrite' as const,
+                    didSaveAs: true,
+                };
+            }),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        await expect(service.handleSave()).resolves.toBe(false);
+        const action = toastAddMock.mock.calls[0]?.[0].actions[0];
+        expect(action.label).toBe('toolbar.saveAs');
+        if (replaced) reopenSameDocument(deps);
+        action.onClick();
+        if (replaced) {
+            // Let any incorrectly queued save finish before checking its output.
+            await service.handleSave();
+            expect(publishedPath).toBe('');
+        } else {
+            await vi.waitFor(() => expect(publishedPath).toBe('/tmp/recovered.pdf'));
+        }
+    });
+
     it('clears the failure state once a later save succeeds', async () => {
         const validatePdfPath = vi.fn(async () => ({
             isValid: false,

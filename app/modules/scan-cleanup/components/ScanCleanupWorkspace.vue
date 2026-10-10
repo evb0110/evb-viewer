@@ -195,10 +195,12 @@ import {
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     getScanCleanupPageOverride,
     isDefaultScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPageLayout,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import type {IScanCleanupTabSessionState} from '@app/modules/workspace-shell/public';
 import ScanCleanupPreviewPane from '@app/modules/scan-cleanup/components/preview/PreviewShell.vue';

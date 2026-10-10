@@ -3,7 +3,6 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type {
     IWorkspaceOpenFailure,
     IWorkspaceToolbarSnapshot,
@@ -17,7 +16,6 @@ import {
     type IWorkspaceDocumentView,
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import {
     didOpenDocument,
     type TDocumentOpenOutcome,
@@ -39,11 +37,7 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     documentView: IWorkspaceDocumentView;
     openSurface: IDocumentOpenSurfaceSession;
     isShown: () => boolean;
-    fileName: TReadableRef<string | null>;
-    originalPath: TReadableRef<TDocumentRef | null>;
     isDjvuMode: TReadableRef<boolean>;
-    djvuSourcePath: TReadableRef<TDocumentRef | null>;
-    documentRevisionInfo: TReadableRef<IDocumentRevisionInfo | null>;
     isDirty: TReadableRef<boolean>;
     openBatchProgress: TReadableRef<{
         processed: number;
@@ -70,8 +64,8 @@ interface IUseWorkspaceDocumentLifecycleOptions {
 /**
  * Connects one DocumentWorkspace to its document controller and its tab's view. Every open
  * runs as a controller transaction that ends when the viewer presents the
- * document or reports why it could not; the workspace writes identity, dirty
- * state and view state through controller methods.
+ * document or reports why it could not; the workspace writes dirty state
+ * and view state through controller methods.
  */
 export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLifecycleOptions) => {
     const session = options.documentSession;
@@ -90,15 +84,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     let checkingOpenSource = false;
     const recent = useRecentFiles();
 
-    watch(() => {
-        const djvuSource = options.isDjvuMode.value ? options.djvuSourcePath.value : null;
-        return {
-            fileName: djvuSource ? getDocumentRefBaseName(djvuSource) ?? options.fileName.value : options.fileName.value,
-            originalPath: djvuSource ?? options.originalPath.value,
-            isDjvu: options.isDjvuMode.value,
-            revisionInfo: options.documentRevisionInfo.value,
-        };
-    }, document => session.commitDocument(document));
     watch(options.isDirty, dirty => session.setDirty(dirty));
     watch(options.toolbarSnapshot, toolbar => view.publishToolbarSnapshot(toolbar), {immediate: true});
     watch(options.openBatchProgress, (progress) => {
@@ -179,7 +164,7 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                         documentId: String(path ?? id),
                         documentRevision: `open-intent:${id}`,
                         provisional: true,
-                    }, request.kind === 'restore' ? Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)) : 1,
+                    }, request.kind === 'restore' ? view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1 : 1,
                     shape ?? null, request.kind === 'open' && !request.carriesView ? {
                         seed: view => seedOpeningPreflight(session, view),
                         shown: !hadDocument,
@@ -190,10 +175,12 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
                     }
                 }
                 const accepted = await run();
-                if (!accepted) {
-                    session.markFailed(options.readOpenFailure());
-                } else if (transactionId && activeOpen.value?.id === transactionId) {
-                    acceptedTransactionId.value = transactionId;
+                if (activeOpen.value?.id === id) {
+                    if (accepted) {
+                        acceptedTransactionId.value = id;
+                    } else {
+                        session.markFailed(options.readOpenFailure());
+                    }
                 }
                 return accepted;
             });
@@ -225,13 +212,9 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         return presented;
     }
 
-    // A view of a document that is already open (a split's second view, or a
-    // view that remounted in another pane) has no open transaction of its own.
-    // Its surface starts at the page its view state names, as an open would.
-    // A tab that owns a document it has not loaded here (a restored session,
-    // a cold tab, a transferred tab) opens it when shown, at the page it was
-    // left on. This restore is the open's only transaction: a nested one
-    // would supersede it, and releasing it would reopen the surface at page 1.
+    // A remounted view starts from its retained place through the same opening
+    // initializer. An unloaded document restores in one transaction; nesting
+    // another would supersede it and reopen its surface at page 1.
     function presentWhenShown() {
         const current = snapshot.value;
         const path = current.identity.originalPath;
@@ -240,11 +223,11 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         }
         if (hasDocument.value) {
             if (options.openSurface.snapshot.value.phase === 'idle') {
-                options.openSurface.begin({
+                beginOpenSurfaceWithPageShape(options.openSurface, {
                     documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
                     documentRevision: `open-intent:view:${view.tabId}`,
                     provisional: true,
-                }, null, Math.max(1, Math.trunc(view.viewState.value.currentPage ?? 1)));
+                }, view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1, null);
             }
         } else if (path && !(current.dirty && current.recoveryWorkingCopyPath)) {
             void runOpen({

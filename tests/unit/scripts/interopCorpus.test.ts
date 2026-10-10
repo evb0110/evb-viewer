@@ -23,7 +23,8 @@ import {
 const corpusDirectory = join(process.cwd(), 'tests/fixtures/electron/interop');
 
 describe('interop corpus verifier', () => {
-    it('executes the deterministic generator and Linux rendering oracle', async () => {
+    // The Linux rendering oracle uses qpdf, Poppler and ImageMagick from the POSIX PATH.
+    it.skipIf(process.platform === 'win32')('executes the deterministic generator and Linux rendering oracle', async () => {
         const temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-interop-'));
 
         try {

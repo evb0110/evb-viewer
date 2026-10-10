@@ -35,18 +35,6 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
         return true;
     }
 
-    async function saveAsFromDriver() {
-        const viewer = options.documentViewerRef.value;
-        const fallbackPage = viewer?.getCurrentPage?.() ?? options.currentPage.value;
-        if (!await options.saveAs()) {
-            return false;
-        }
-        await nextTick();
-        await options.documentViewerRef.value?.waitForViewerLoadSettled?.();
-        options.documentViewerRef.value?.scrollToPage(fallbackPage);
-        return true;
-    }
-
     async function runEdit<T>(action: () => T | Promise<T>) {
         if (await ensureProjection('edit')) {
             return action();
@@ -65,9 +53,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
 
     return {
         ensureEditProjection: () => ensureProjection('edit'),
-        handleSaveAs: () => options.isDjvuMode.value
-            ? saveAsFromDriver()
-            : options.saveAs(),
+        handleSaveAs: options.saveAs,
         async handleExportDocx(selectedLanguages?: string[]) {
             if (options.isExportingDocx.value) {
                 options.cancelExportDocx();

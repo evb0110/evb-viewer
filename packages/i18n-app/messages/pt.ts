@@ -955,6 +955,10 @@ export default {
             'existingTextSkipped': 'Página {page}: o texto existente foi preservado.',
         },
         'preparing': 'A preparar OCR...',
+        'modelDownload': {
+            'progress': 'A transferir {language}: {received} / {total} MB ({percent}%)',
+            'retrying': 'A repetir a transferência de {language} (tentativa {attempt} de {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'A transferir modelos de idioma...',
             'pdfPrep': 'A preparar PDF...',
@@ -1725,9 +1729,11 @@ export default {
             'validation': 'O documento não passou na verificação de validade, por isso nada foi escrito.',
             'openNotes': 'Não foi possível guardar as notas abertas, por isso o documento não foi escrito.',
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',
+            'originalChanged': 'O ficheiro no disco mudou desde que o abriu. As suas alterações são mantidas. Use «Guardar como» para conservar ambas as versões.',
             'workingCopyMissing': 'A cópia temporária do documento foi removida, por isso estas alterações não podem ser guardadas. Volte a abrir o ficheiro.',
             'notCompleted': 'Não foi possível escrever o documento.',
             'permissionDenied': 'A permissão de escrita do ficheiro foi recusada. Escolha «Guardar como» para guardar as alterações noutro local.',
+            'fileBusy': 'O ficheiro está em uso por outro programa, por isso não foi possível escrevê-lo. Feche esse programa e tente novamente, ou escolha «Guardar como» para guardar as alterações noutro local.',
             'diskFull': 'O disco está cheio. Liberte espaço ou use «Guardar como» noutro disco.',
             'writeFailed': 'Não foi possível escrever o ficheiro. Verifique as permissões de escrita e o espaço livre, ou guarde-o noutro local.',
             'nativeFailure': 'O motor PDF não conseguiu aplicar as alterações. As suas edições continuam abertas aqui.',

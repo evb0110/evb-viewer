@@ -293,6 +293,72 @@ fn mode_stage_pins_mixed_line_art_soft_foreground_override() {
 }
 
 #[test]
+fn resolved_output_mode_gates_preserved_pencil_mask() {
+    // Dense dark print on paper makes Auto recommend B&W; the soft text
+    // edges then trip the fidelity veto, which moves the full page to
+    // Grayscale. The faint ring is pencil that only B&W output would keep,
+    // so it must not widen the crop of a page that is no longer B&W.
+    // A detail tile skips the recommendation and falls back to B&W in Auto,
+    // so the same ring must survive there.
+    let (width, height) = (300, 400);
+    let mut image = GrayImage::new(width, height, 255);
+    for y in (40..160).step_by(12) {
+        for x in 20..280 {
+            image.set(x, y, 60);
+            image.set(x, y + 1, 60);
+        }
+    }
+    let (center_x, center_y, radius) = (150.0_f64, 280.0_f64, 40.0_f64);
+    for y in 0..height {
+        for x in 0..width {
+            let distance = ((x as f64 - center_x).powi(2) + (y as f64 - center_y).powi(2)).sqrt();
+            if (distance - radius).abs() <= 1.0 && image.get(x, y) == 255 {
+                image.set(x, y, 225);
+            }
+        }
+    }
+    let options = CleanupOptions {
+        output_mode: crate::OutputMode::Auto,
+        source_dpi: Some(100.0),
+        ..CleanupOptions::default()
+    };
+    for (render_policy, resolved_mode, preserves_pencil) in [
+        (
+            PageRenderPolicy::COMPLETE,
+            crate::ResolvedOutputMode::Grayscale,
+            false,
+        ),
+        (
+            PageRenderPolicy::DETAIL_TILE,
+            crate::ResolvedOutputMode::Bw,
+            true,
+        ),
+    ] {
+        let output = resolve_mode_and_preservation(ModePreservationInput {
+            source_effectively_blank: false,
+            rotated: &image,
+            layout_normalized: &image,
+            analysis_rgb: None,
+            picture_mask: Some(Arc::new(BinaryImage::new(width, height))),
+            outside_tone: OutsideTonalEvidence::default(),
+            picture_tone_evidence: false,
+            text_line_count: 20,
+            protected_text_blocks: vec![],
+            independent_picture_evidence: false,
+            calibration: PageCalibration::estimate(&image, 100.0, CalibrationConfig::default()),
+            options: &options,
+            render_policy,
+            tonal_protection_mask: None,
+            tone_semantic_preservation_alpha: None,
+            semantic_preservation_alpha: None,
+            text_soft_edge_ratio: Some(0.9),
+        });
+        assert_eq!(output.resolved_output_mode, resolved_mode);
+        assert_eq!(output.faint_stroke_masks[0].is_some(), preserves_pencil);
+    }
+}
+
+#[test]
 fn mode_stage_pins_coherent_photo_preservation_and_mask_replacement() {
     let image = GrayImage::new(128, 128, 160);
     let owner = Arc::new(BinaryImage::from_fn_parallel(128, 128, |x, y| {
@@ -399,6 +465,7 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
                 effective_dpi: 150.0,
             },
             mode: ModePreservationOutput {
+                faint_stroke_masks: [None, None],
                 output_mode_recommendation: None,
                 resolved_output_mode: crate::ResolvedOutputMode::Grayscale,
                 chroma_picture_mask: None,

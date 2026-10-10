@@ -42,8 +42,6 @@ import {
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import {getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
-import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
-import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {runGuardedTask} from '@app/utils/asyncGuard';
 import {
@@ -241,17 +239,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     function resolveNavigationScrollForViewport(snapshot: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
         const container = options.viewerContainer.value;
         if (container && hasMeasurableMountedPage(container, requirePageNumber(anchor.page))) {
-            const scroll = resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
-            const spread = getCurrentSpreadRenderedBoundsFromDom({
-                container,
-                pageNumber: requirePageNumber(anchor.page),
-                viewMode: options.viewMode.value,
-                totalPages: options.numPages.value,
-            });
-            scroll.left = spread && spread.width <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
-                ? 0
-                : scroll.left;
-            return scroll;
+            return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
         }
         return resolveScrollForViewport(snapshot, anchor);
     }
@@ -494,21 +482,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             await nextTick();
             requireIntentDocument(intent, signal);
             refreshGeometry();
-        },
-        postArrival: async (request, signal) => {
-            if (!signal.aborted) {
-                await options.onNavigationPostArrival?.(request, signal);
-            }
-            if (signal.aborted) {
-                return;
-            }
-            const container = options.viewerContainer.value;
-            if (container && request.postArrival) {
-                container.dispatchEvent(new CustomEvent('pdf-navigation-post-arrival', {detail: {
-                    effect: request.postArrival,
-                    request,
-                }}));
-            }
         },
         clearDemand: intentId => {
             resolvedTargets.delete(intentId);

@@ -1,4 +1,5 @@
 import type { ShallowRef } from 'vue';
+import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import { isEqual } from 'es-toolkit/predicate';
 import {
     createDefaultWorkspaceToolbarSnapshot,
@@ -17,9 +18,12 @@ export interface IWorkspaceDocumentView {
     readonly tabId: string;
     readonly toolbarSnapshot: Readonly<ShallowRef<IWorkspaceToolbarSnapshot>>;
     readonly viewState: Readonly<ShallowRef<ITabViewSessionState>>;
+    readonly readingAnchor: Readonly<ShallowRef<IPdfSemanticAnchor | null>>;
     readonly mountedWorkspace: Readonly<ShallowRef<IWorkspaceExpose | null>>;
     publishToolbarSnapshot(snapshot: IWorkspaceToolbarSnapshot): void;
     applyViewState(state: ITabViewSessionState): void;
+    /** Retains this view's current place before its presentation is replaced. */
+    captureReadingAnchor(): IPdfSemanticAnchor | null;
     /** The mounted workspace, or null once the document has failed or the view was removed. */
     whenMounted(): Promise<IWorkspaceExpose | null>;
 }
@@ -47,9 +51,17 @@ export function createWorkspaceDocumentView(tabId: string, options: {
 }): IWorkspaceDocumentViewRecord {
     const toolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
     const viewState = shallowRef(options.seed?.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
+    const readingAnchor = shallowRef<IPdfSemanticAnchor | null>(null);
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     let retired = false;
+
+    function captureReadingAnchor() {
+        if (mountedWorkspace.value) {
+            readingAnchor.value = mountedWorkspace.value.captureReadingAnchor?.() ?? null;
+        }
+        return readingAnchor.value;
+    }
 
     function settleMountWaiters(workspace: IWorkspaceExpose | null) {
         for (const resolve of mountWaiters) {
@@ -62,6 +74,8 @@ export function createWorkspaceDocumentView(tabId: string, options: {
         tabId,
         toolbarSnapshot,
         viewState,
+        readingAnchor,
+        captureReadingAnchor,
         mountedWorkspace,
         publishToolbarSnapshot(next) {
             if (!isEqual(toolbarSnapshot.value, next)) {
@@ -95,12 +109,14 @@ export function createWorkspaceDocumentView(tabId: string, options: {
             if (mountedWorkspace.value !== workspace) {
                 return false;
             }
+            captureReadingAnchor();
             mountedWorkspace.value = null;
             return true;
         },
         settleMountWaiters,
         retire() {
             retired = true;
+            readingAnchor.value = null;
             mountedWorkspace.value = null;
             settleMountWaiters(null);
         },

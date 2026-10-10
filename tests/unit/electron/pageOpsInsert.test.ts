@@ -16,7 +16,9 @@ import {
     writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import {
+    dirname, join,
+} from 'path';
 import type * as NodeCrypto from 'node:crypto';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
@@ -293,7 +295,7 @@ describe('page-ops insert service', () => {
 
             expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
                 [sourcePath],
-                expect.stringMatching(/\/insert-source-fixed-output-id\.pdf$/u),
+                join(workDir, 'insert-source-fixed-output-id.pdf'),
                 expect.objectContaining({signal: controller.signal}),
             );
             expect(runNativeToolCommandMock.mock.calls[0]?.[2]).toEqual(expect.objectContaining(options));
@@ -418,7 +420,7 @@ describe('page-ops insert service', () => {
 
         expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
             sourcePaths,
-            expect.stringMatching(/\/insert-source-fixed-output-id\.pdf$/u),
+            join(dirname(sourcePaths[0]!), 'insert-source-fixed-output-id.pdf'),
             {},
         );
         expect(createPdfFromInputPathsMock).not.toHaveBeenCalled();
@@ -429,7 +431,7 @@ describe('page-ops insert service', () => {
 
         expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
             sourcePaths,
-            expect.stringMatching(/\/insert-source-fixed-output-id\.pdf$/u),
+            join(dirname(sourcePaths[0]!), 'insert-source-fixed-output-id.pdf'),
             {},
         );
         expect(createPdfFromInputPathsMock).not.toHaveBeenCalled();

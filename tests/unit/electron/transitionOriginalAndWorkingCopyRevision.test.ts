@@ -226,7 +226,6 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
         const witness = await captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7);
         expect(witness).not.toBeNull();
-        await witness?.close();
 
         await appendFile(originalPath, '-external-change');
         await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
@@ -765,11 +764,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }]});
 
         const recoveredWitness = await captureOriginalPathSaveWitness(workingCopyPath, originalPath, 22);
-        try {
-            expect(recoveredWitness).toBeNull();
-        } finally {
-            await recoveredWitness?.close();
-        }
+        expect(recoveredWitness).toBeNull();
         await expect(readFile(originalPath)).resolves.toEqual(externalBytes);
         await expect(readFile(workingCopyPath)).resolves.toEqual(unsavedWorkingBytes);
     });

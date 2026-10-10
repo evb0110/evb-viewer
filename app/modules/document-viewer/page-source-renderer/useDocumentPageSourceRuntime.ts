@@ -1,4 +1,6 @@
 import { useResizeObserver } from '@vueuse/core';
+import { clamp } from 'es-toolkit/math';
+import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import {
     createDocumentWheelZoomHandler,
@@ -1088,33 +1090,6 @@ export const useDocumentPageSourceRuntime = (options: {
             alignPageBottom: interaction.event.deltaY < 0,
         });
     }
-    function positionPage(pageNumber: number) {
-        const normalized = Math.max(1, Math.min(
-            source.value?.pageCount ?? 1,
-            Math.trunc(pageNumber),
-        ));
-        void nextTick(() => {
-            const container = viewerContainer.value;
-            if (!container) {
-                return;
-            }
-            const intent = viewportWritePort.beginIntent(
-                `page-source-initial-position:${String(normalized)}:${String(transitions.loadGeneration.value)}`,
-            );
-            viewportWritePort.apply(container, {
-                intent,
-                reason: 'source-initial-page-position',
-                top: props.value.continuousScroll
-                    ? Math.max(
-                        0,
-                        (pageTops.value[normalized - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
-                            - DOCUMENT_PAGE_GUTTER_PX,
-                    )
-                    : 0,
-            });
-            layoutLifecycle.refreshLayoutTransactionAnchor();
-        });
-    }
     function scrollToPage(
         pageNumber: number,
         options: Parameters<IDocumentViewerExpose['scrollToPage']>[1] = {},
@@ -1176,10 +1151,29 @@ export const useDocumentPageSourceRuntime = (options: {
                 if (ticket && !chassisAuthority?.openSurface.isNavigationCurrent(ticket)) {
                     return;
                 }
+                const anchor = ticket?.request.target.kind === 'page' ? ticket.request.target.anchor : null;
+                const container = viewerContainer.value;
+                // Opening hides overflow until arrival. Project into the final
+                // client box, including a wide page's horizontal scrollbar.
+                const restored = anchor ? resolveDocumentZoomAnchorScroll({
+                    clientWidth: container.clientWidth,
+                    clientHeight: container.offsetHeight - (container.scrollWidth > container.clientWidth
+                        ? container.offsetWidth - container.clientWidth
+                        : 0),
+                    scrollLeft: container.scrollLeft,
+                    scrollTop: container.scrollTop,
+                }, zoomAnchorPageLayouts.value, {
+                    pageIndex: targetPage - 1,
+                    xRatio: anchor.pageXFraction,
+                    yRatio: anchor.pageYFraction,
+                    viewportXRatio: anchor.viewportXFraction,
+                    viewportYRatio: anchor.viewportYFraction,
+                }) : null;
                 chassisAuthority?.viewportWritePort.apply(viewerContainer.value, {
                     intent,
                     reason: 'source-neutral-page-navigation',
-                    top: props.value.continuousScroll
+                    ...(restored ? {left: restored.left} : {}),
+                    top: restored?.top ?? (props.value.continuousScroll
                         ? Math.max(
                             0,
                             (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
@@ -1187,7 +1181,7 @@ export const useDocumentPageSourceRuntime = (options: {
                         )
                         : options.alignPageBottom
                             ? Math.max(0, (pageHeights.value[targetPage - 1] ?? 0) + DOCUMENT_PAGE_GUTTER_PX * 2 - viewerContainer.value.clientHeight)
-                            : 0,
+                            : 0),
                 });
                 layoutLifecycle.refreshLayoutTransactionAnchor();
             }
@@ -1201,11 +1195,21 @@ export const useDocumentPageSourceRuntime = (options: {
         });
     }
     watch(
-        () => chassisAuthority?.openSurface.navigationTicket.value ?? null,
-        (ticket) => {
+        () => [
+            chassisAuthority?.openSurface.navigationTicket.value ?? null,
+            source.value,
+            pageMetrics.value,
+            viewerContainer.value,
+        ] as const,
+        ([
+            ticket,
+            activeSource,
+            metrics,
+            container,
+        ]) => {
             if (
                 !ticket
-                || ticket.request.source === 'restore'
+                || !activeSource || metrics.length !== activeSource.pageCount || !container
                 || lastProjectedNavigationSignal === ticket.signal
                 || !('page' in ticket.request.target)
             ) {
@@ -1328,7 +1332,11 @@ export const useDocumentPageSourceRuntime = (options: {
             renderPage,
             resetMetricPublication: metricPublication.clear,
             scheduleRender: scheduleRender.schedule,
-            positionPage,
+            positionPage: (page) => {
+                if (!chassisAuthority?.openSurface.navigationTicket.value) {
+                    scrollToPage(page, {navigationSource: 'restore'});
+                }
+            },
             setSource: (nextSource) => {
                 source.value = nextSource;
             },
@@ -1480,6 +1488,17 @@ export const useDocumentPageSourceRuntime = (options: {
             getCurrentPage: () => props.value.currentPage,
             waitForViewerLoadSettled: () => loadSettled,
             scrollToPage,
+            captureReadingAnchor: (): IPdfSemanticAnchor | null => {
+                const anchor = captureSuspendedViewportAnchor();
+                return anchor ? {
+                    page: anchor.pageIndex + 1,
+                    pageXFraction: clamp(anchor.xRatio, 0, 1),
+                    pageYFraction: clamp(anchor.yRatio, 0, 1),
+                    viewportXFraction: anchor.viewportXRatio ?? 0.5,
+                    viewportYFraction: anchor.viewportYRatio ?? 0.5,
+                    affinity: 'center',
+                } : null;
+            },
             invalidatePages: (pages: readonly number[]) => pages.forEach(page => void renderPage(page)),
             requestScrollToCurrentResult: () => scrollToPage(props.value.currentPage),
             captureScrollSnapshot: () => ({page: chassisAuthority?.currentPage.value ?? props.value.currentPage}),

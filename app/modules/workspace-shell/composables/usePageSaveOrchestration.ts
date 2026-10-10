@@ -5,7 +5,6 @@ import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/p
 import type {
     IPdfBookmarkEntry, IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
-import type {IScrollSnapshot} from '@app/types/pdfUi';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
@@ -23,18 +22,10 @@ import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {hasViewerShapeChanges} from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 
-type TPageSaveViewer = IPdfViewerExpose & {
-    captureScrollSnapshot?: () => IScrollSnapshot | null;
-    restoreScrollSnapshot?: (
-        snapshot: IScrollSnapshot | null,
-        options?: {fallbackPage?: number | null},
-    ) => void;
-};
-
 interface IPageSaveOrchestrationDeps {
     pdfData: Ref<Uint8Array | null>;
     pdfDocument: ShallowRef<IPdfDocument | null>;
-    pdfViewerRef: Ref<TPageSaveViewer | null>;
+    pdfViewerRef: Ref<IPdfViewerExpose | null>;
     openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'> | undefined;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
@@ -171,15 +162,13 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
             preparePostSaveReload: () => {
-                const scrollSnapshot = deps.pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
-                const pageToRestore = resolvePdfReloadPage(scrollSnapshot?.anchorPage ?? deps.currentPage.value);
                 const reloadWaiter = createPdfReloadWaiter({
                     pdfDocument: deps.pdfDocument,
                     pdfViewerRef: deps.pdfViewerRef,
                     ...(deps.openSurface ? {openSurface: deps.openSurface} : {}),
                     resetSearchCache: deps.resetSearchCache,
-                    pageToRestore,
-                    restoreScroll: true,
+                    pageToRestore: resolvePdfReloadPage(deps.currentPage.value),
+                    restoreScroll: false,
                 });
                 return {
                     promise: reloadWaiter.promise,

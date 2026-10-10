@@ -195,7 +195,12 @@ describe('web deploy assets check', () => {
                 'utf8',
             );
             await expect(validateNodeServerBoot({projectRoot: tempRoot})).resolves.toBeUndefined();
-            await expect(readFile(shutdownMarker, 'utf8')).resolves.toBe('closed');
+            // Node terminates Windows children directly; POSIX SIGTERM handlers do not run.
+            if (process.platform === 'win32') {
+                await expect(readFile(shutdownMarker, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+            } else {
+                await expect(readFile(shutdownMarker, 'utf8')).resolves.toBe('closed');
+            }
         } finally {
             await rm(tempRoot, {
                 force: true,

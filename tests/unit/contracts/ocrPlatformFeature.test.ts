@@ -15,6 +15,41 @@ const channels = OCR_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = OCR_PLATFORM_FEATURE.eventChannels;
 
 describe('OCR platform feature', () => {
+    it('carries model byte progress and retry state through the existing progress contract', () => {
+        const progressSchema = OCR_PLATFORM_FEATURE.events.onProgress.payload;
+        const payload = {
+            requestId: 'ocr-download',
+            currentPage: 1,
+            processedCount: 0,
+            totalPages: 1,
+            phase: 'model-prep',
+            modelDownload: {
+                languageCode: 'lat',
+                receivedBytes: 2_000_000,
+                totalBytes: 101_402_885,
+                attempt: 2,
+                maxAttempts: 3,
+                retrying: true,
+            },
+        };
+        expect(v.parse(progressSchema, payload)).toEqual(payload);
+        for (const invalid of [
+            {receivedBytes: -1},
+            {totalBytes: 0},
+            {attempt: 0},
+            {receivedBytes: Number.NaN},
+            {languageCode: 'unknown'},
+        ]) {
+            expect(v.safeParse(progressSchema, {
+                ...payload,
+                modelDownload: {
+                    ...payload.modelDownload,
+                    ...invalid,
+                },
+            }).success).toBe(false);
+        }
+    });
+
     it('keeps optional catalog arguments in their declared slots', () => {
         const revision = parseDocumentRevisionToken('drt1:ocr-fixture');
         if (revision === null) throw new Error('fixture revision must be valid');

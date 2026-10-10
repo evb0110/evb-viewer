@@ -1,4 +1,8 @@
-import {constants} from 'node:fs';
+import {
+    constants,
+    mkdtempSync,
+    writeFileSync,
+} from 'node:fs';
 import {
     mkdtemp,
     readFile,
@@ -9,6 +13,8 @@ import {
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -21,18 +27,30 @@ import {
 } from '@scripts/ci/stageExactPdfFixture';
 
 describe('issue 136 CI coverage contracts', () => {
-    it('falls back to a bounded stream when Linux clone staging is unsupported', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'evb-issue-136-clone-'));
-        const source = join(root, 'source.pdf');
-        const target = join(root, 'target.pdf');
-        const cloneModes: number[] = [];
+    describe('clone fallback', () => {
+        let root: string;
+        let source: string;
+        let target: string;
+        beforeEach(() => {
+            root = mkdtempSync(join(tmpdir(), 'evb-issue-136-clone-'));
+            source = join(root, 'source.pdf');
+            target = join(root, 'target.pdf');
+            writeFileSync(source, 'fixture bytes');
+        });
+        afterEach(async () => {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        });
 
-        try {
-            await writeFile(source, 'fixture bytes');
+        it('falls back to a bounded stream when Linux clone staging is unsupported', async () => {
+            const cloneModes: number[] = [];
+
             const result = await copyExactPdfFixture(source, target, {copyFileImpl: async (from, to, mode) => {
                 cloneModes.push(mode ?? 0);
                 if (mode === constants.COPYFILE_FICLONE_FORCE) {
-                    await writeFile(to, 'partial clone');
+                    writeFileSync(to, 'partial clone');
                     throw Object.assign(new Error('clone unsupported'), {code: 'ENOTSUP'});
                 }
                 await writeFile(to, await readFile(from));
@@ -41,12 +59,7 @@ describe('issue 136 CI coverage contracts', () => {
             expect(result.mode).toBe('stream');
             expect(cloneModes).toContain(constants.COPYFILE_FICLONE_FORCE);
             await expect(readFile(target, 'utf8')).resolves.toBe('fixture bytes');
-        } finally {
-            await rm(root, {
-                force: true,
-                recursive: true,
-            });
-        }
+        });
     });
 
     it('does not turn an unsupported clone into a green clone-only result', async () => {

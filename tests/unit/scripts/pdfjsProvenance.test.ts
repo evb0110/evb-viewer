@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import {
+    basename,
     join,
     resolve,
 } from 'node:path';
@@ -125,11 +126,9 @@ describe('PDF.js provenance attack fixtures', () => {
         try {
             execFileSync('tar', [
                 '-czf',
-                archive,
-                '-C',
-                root,
+                basename(archive),
                 'package/file.js',
-            ]);
+            ], {cwd: root});
             expect(inspectArchive(archive)).toEqual([{
                 type: 'file',
                 size: 7,
@@ -166,40 +165,39 @@ describe('PDF.js provenance attack fixtures', () => {
         ],
     ];
 
-    it.each(archiveFixtures)('rejects %s archive entries', async (kind, prepare) => {
-        if (kind === 'fifo' && process.platform === 'win32') {
-            return;
-        }
-        const root = await fixtureRoot();
-        const archive = join(root, `${kind}.tgz`);
-        try {
-            await prepare(root);
-            const args = kind === 'duplicate'
-                ? [
-                    '-czf',
-                    archive,
-                    '-C',
-                    root,
-                    'package/file.js',
-                    'package/file.js',
-                ]
-                : [
-                    '-czf',
-                    archive,
-                    '-C',
-                    root,
-                    'package/file.js',
-                    `package/${kind === 'symlink' ? 'link' : kind}`,
-                ];
-            execFileSync('tar', args);
-            expect(() => inspectArchive(archive)).toThrow(/unsupported entry type|duplicate/u);
-        } finally {
-            await rm(root, {
-                recursive: true,
-                force: true,
-            });
-        }
-    });
+    for (const [
+        kind,
+        prepare,
+    ] of archiveFixtures) {
+        // mkfifo is POSIX-only; tar's file, link and duplicate-entry checks still run on Windows.
+        it.skipIf(process.platform === 'win32' && kind === 'fifo')(`rejects ${kind} archive entries`, async () => {
+            const root = await fixtureRoot();
+            const archive = join(root, `${kind}.tgz`);
+            try {
+                await prepare(root);
+                const args = kind === 'duplicate'
+                    ? [
+                        '-czf',
+                        basename(archive),
+                        'package/file.js',
+                        'package/file.js',
+                    ]
+                    : [
+                        '-czf',
+                        basename(archive),
+                        'package/file.js',
+                        `package/${kind === 'symlink' ? 'link' : kind}`,
+                    ];
+                execFileSync('tar', args, {cwd: root});
+                expect(() => inspectArchive(archive)).toThrow(/unsupported entry type|duplicate/u);
+            } finally {
+                await rm(root, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        });
+    }
 
     it('rejects manifest traversal, duplicates, and backup artifacts', () => {
         const row = 'a'.repeat(64);

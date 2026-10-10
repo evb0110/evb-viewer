@@ -1,4 +1,12 @@
-import {randomUUID} from 'node:crypto';
+import {
+    createHash, randomUUID,
+} from 'node:crypto';
+import {
+    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber,
+} from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {createCanvas} from '@napi-rs/canvas';
+import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import {
     copyFileSync,
     existsSync,
@@ -37,6 +45,7 @@ import {
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
+    openAnnotationsTab,
     openPdfInApp,
     clickVisibleToolbarButton,
     goToPageViaToolbar,
@@ -63,6 +72,216 @@ async function openCleanup(session: ReturnType<typeof sessionFixture.getSession>
 }
 
 describe('scan cleanup required page ops', () => {
+    it('keeps editable notes and markup aligned without baking their appearances into pixels', async () => {
+        const evidence = join(process.cwd(), '.devkit', 'tmp', `cleanup-note-geometry-${randomUUID()}`);
+        const session = await sessionFixture.restart({extraEnv: {EVB_SCAN_CLEANUP_EVIDENCE_DIR: evidence}});
+        const fixture = await createLargeScannedFixturePdf('scan-cleanup-notes.pdf', 3, 0, 0.125, {runOwner: `${session.name}-notes`});
+        const source = await PDFDocument.load(readFileSync(fixture));
+        for (const page of source.getPages()) page.scale(0.1, 0.1);
+        const plainPath = join(dirname(fixture), 'scan-cleanup-without-notes.pdf');
+        writeFileSync(plainPath, await source.save());
+        for (const [
+            index,
+            page,
+        ] of source.getPages().entries()) {
+            const note = source.context.register(source.context.obj({
+                Type: 'Annot',
+                Subtype: 'Text',
+                Rect: [
+                    8,
+                    45,
+                    12,
+                    49,
+                ],
+                P: page.ref,
+                Contents: PDFHexString.fromText(`Cleanup note Ω page ${index + 1}`),
+            }));
+            const markup = source.context.register(source.context.obj({
+                Type: 'Annot',
+                Subtype: 'Highlight',
+                Rect: [
+                    8,
+                    37,
+                    35,
+                    41,
+                ],
+                P: page.ref,
+                QuadPoints: [
+                    8,
+                    41,
+                    35,
+                    41,
+                    8,
+                    37,
+                    35,
+                    37,
+                ],
+                C: [
+                    1,
+                    1,
+                    0,
+                ],
+                Contents: PDFHexString.fromText(`Cleanup highlight ${index + 1}`),
+            }));
+            page.node.set(PDFName.of('Annots'), source.context.obj([
+                note,
+                markup,
+            ]));
+        }
+        writeFileSync(fixture, await source.save());
+        const inspect = async (path: string) => {
+            const saved = await PDFDocument.load(readFileSync(path), {updateMetadata: false});
+            const document = await pdfjs.getDocument({
+                data: new Uint8Array(readFileSync(path)),
+                ...createPdfjsNodeDocumentOptions(),
+            }).promise;
+            try {
+                const pages = [];
+                for (let number = 1; number <= document.numPages; number += 1) {
+                    const page = await document.getPage(number);
+                    const viewport = page.getViewport({scale: 2});
+                    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+                    await Reflect.apply(page.render, page, [{
+                        canvas,
+                        canvasContext: canvas.getContext('2d'),
+                        viewport,
+                        annotationMode: pdfjs.AnnotationMode.DISABLE,
+                    }]).promise;
+                    pages.push({
+                        annotations: await page.getAnnotations(),
+                        rects: (saved.getPage(number - 1).node.Annots()?.asArray() ?? []).map(ref => {
+                            const rect = saved.context.lookup(ref, PDFDict).lookup(PDFName.of('Rect'), PDFArray);
+                            return rect.asArray().map((_value, index) => rect.lookup(index, PDFNumber).asNumber());
+                        }),
+                        pixels: createHash('sha256').update(canvas.toBuffer('image/png')).digest('hex'),
+                    });
+                    page.cleanup();
+                }
+                return pages;
+            } finally { await document.loadingTask.destroy(); }
+        };
+        const sourcePages = await inspect(fixture);
+        const outputs = [];
+        for (const path of [
+            fixture,
+            plainPath,
+        ]) {
+            if (path === plainPath) await session.resetForE2E();
+            await session.command('windowResize', [
+                1280,
+                900,
+            ]);
+            await openPdfInApp(session.page, path, 90_000);
+            await waitForPdfLoaded(session.page, 90_000);
+            await waitForViewerInteractive(session.page, 90_000);
+            await session.page.evaluate(async () => window.electronAPI!.scanCleanup!.updateSettings!({settingsPatch: {
+                layoutMode: 'force-single',
+                crop: false,
+                matchPageSize: true,
+                pageAlignment: 'center',
+                marginsMm: {
+                    leftMm: 2,
+                    topMm: 2,
+                    rightMm: 2,
+                    bottomMm: 2,
+                },
+                firstRunGuidanceDismissed: true,
+            }}));
+            await openCleanup(session);
+            const quality = await session.page.$('[role="checkbox"][aria-label="Preserve original quality (no rasterization)"]');
+            if (await quality?.evaluate(node => node.getAttribute('aria-checked') === 'true')) await clickAsUser(session.page, quality!);
+            await clickAsUser(session.page, '[role="radio"][aria-label="Grayscale"]');
+            await clickAsUser(session.page, '.scan-cleanup-toolbar-primary-action');
+            await waitForFunctionInPage(session.page, () => {
+                const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues?.(['originalPath']);
+                return typeof state?.originalPath === 'string' && state.originalPath.endsWith('— cleaned.pdf');
+            }, {timeout: 180_000});
+            const state = await readWorkspaceStateValues(session.page, ['originalPath']);
+            expect(typeof state.originalPath).toBe('string');
+            const pages = await inspect(String(state.originalPath));
+            outputs.push(pages);
+            if (path === fixture) {
+                const plan: {pages: Array<{matrix: number[]}>} = JSON.parse(readFileSync(join(evidence, 'source-text-layer.json'), 'utf8'));
+                expect(pages).toHaveLength(3);
+                for (const [
+                    index,
+                    page,
+                ] of pages.entries()) {
+                    expect(page.annotations.map(annotation => [
+                        annotation.subtype,
+                        annotation.contentsObj?.str,
+                    ]))
+                        .toEqual(sourcePages[index]!.annotations.map(annotation => [
+                            annotation.subtype,
+                            annotation.contentsObj?.str,
+                        ]));
+                    const [
+                        a,
+                        b,
+                        c,
+                        d,
+                        e,
+                        f,
+                    ] = plan.pages[index]!.matrix;
+                    for (const ordinal of page.annotations.keys()) {
+                        const [
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                        ] = sourcePages[index]!.rects[ordinal]!;
+                        const corners = [
+                            [
+                                x1,
+                                y1,
+                            ],
+                            [
+                                x1,
+                                y2,
+                            ],
+                            [
+                                x2,
+                                y1,
+                            ],
+                            [
+                                x2,
+                                y2,
+                            ],
+                        ].map(([
+                            x,
+                            y,
+                        ]) => [
+                            a! * x! + c! * y! + e!,
+                            b! * x! + d! * y! + f!,
+                        ]);
+                        const expected = [
+                            Math.min(...corners.map(point => point[0]!)),
+                            Math.min(...corners.map(point => point[1]!)),
+                            Math.max(...corners.map(point => point[0]!)),
+                            Math.max(...corners.map(point => point[1]!)),
+                        ];
+                        page.rects[ordinal]!.forEach((value: number, coordinate: number) => expect(value).toBeCloseTo(expected[coordinate]!, 4));
+                    }
+                }
+                await waitForPdfLoaded(session.page, 90_000);
+                await waitForViewerInteractive(session.page, 90_000);
+                await openAnnotationsTab(session.page);
+                await clickFoundAsUser(session.page, (text: string) => [...document.querySelectorAll('.editor-pane.is-active .note-item')]
+                    .find(item => item.querySelector('.note-item-text')?.textContent?.trim() === text)?.querySelector('.note-item-content'),
+                'Cleanup note Ω page 1', {
+                    count: 2,
+                    description: 'cleaned note card',
+                });
+                await session.page.waitForSelector('textarea.note-window__textarea', {
+                    visible: true,
+                    timeout: 20_000,
+                });
+                expect(await session.page.$eval('textarea.note-window__textarea', node => (node as HTMLTextAreaElement).value)).toBe('Cleanup note Ω page 1');
+            }
+        }
+        expect(outputs[0]!.map(page => page.pixels)).toEqual(outputs[1]!.map(page => page.pixels));
+    }, 300_000);
+
     it.each([
         'Black and white',
         'Grayscale',

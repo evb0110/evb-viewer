@@ -22,6 +22,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {resolve} from 'node:path';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import {createAbortError} from '@electron/utils/abort';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
@@ -258,7 +259,7 @@ describe('registerDjvuIpcAdapter', () => {
                 sender: event.sender,
                 senderId: 1,
             }),
-            '/tmp/missing.djvu',
+            resolve('/tmp/missing.djvu'),
         );
     });
 

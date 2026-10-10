@@ -5,6 +5,7 @@ pub(crate) struct Input<'a> {
     pub analysis_scale_x: f64,
     pub analysis_scale_y: f64,
     pub analysis_picture_mask: Option<&'a BinaryImage>,
+    pub faint_stroke_masks: [Option<&'a BinaryImage>; 2],
     pub tone_picture_mask: Option<&'a BinaryImage>,
     pub text_mask: Option<&'a BinaryImage>,
     pub text_vicinity_mask: Option<&'a BinaryImage>,
@@ -19,6 +20,7 @@ pub(crate) struct Output {
     pub analysis_working: GrayImage,
     pub analysis_picture_working: Option<BinaryImage>,
     pub manual_picture_crop_authority: Option<BinaryImage>,
+    pub faint_stroke_masks: [Option<BinaryImage>; 2],
     pub text_tone_diagnostics: Option<TextToneDiagnostics>,
     pub local_scale_x: f64,
     pub local_scale_y: f64,
@@ -90,6 +92,9 @@ pub(crate) fn prepare(input: Input<'_>) -> Output {
         analysis_working,
         analysis_picture_working,
         manual_picture_crop_authority,
+        faint_stroke_masks: input
+            .faint_stroke_masks
+            .map(|mask| mask.map(|mask| crop_binary(mask, analysis_region))),
         text_tone_diagnostics,
     }
 }

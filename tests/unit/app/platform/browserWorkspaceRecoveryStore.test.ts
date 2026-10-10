@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -18,10 +19,13 @@ import {
     FakeLockManager,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {
+    BROWSER_LIVE_LEASES_STORE,
     DB_NAME,
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
+import * as liveLeases from '@app/platform/browser/browserDocumentLeaseStore';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requirePaneId} from '@contracts/editorPanes';
@@ -58,19 +62,24 @@ const checkpoint: IWorkspaceCheckpoint = {
 };
 
 describe('browserWorkspaceRecoveryStore', () => {
+    let recoveryDbFactory: FakeIndexedDbFactory;
+
     beforeEach(() => {
         vi.unstubAllGlobals();
-        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        recoveryDbFactory = new FakeIndexedDbFactory();
+        vi.stubGlobal('indexedDB', recoveryDbFactory);
         // Node provides Web Locks; these cases are a browser without them,
         // where the owner's heartbeat age decides a claim.
         vi.stubGlobal('navigator', {});
     });
 
     it('publishes and clears only committed recovery checkpoints', async () => {
-        await expect(saveBrowserWorkspaceRecovery('window:1', 0, checkpoint, [
+        const recovery = browserWindowTabsCapability.browserRecovery;
+        if (!recovery) throw new Error('Browser recovery capability is unavailable');
+        await expect(recovery.save('window:1', 0, checkpoint, [
             requireDocumentRef('browser://documents/recovery.pdf'),
             requireDocumentRef('browser://documents/not-in-checkpoint.pdf'),
-        ])).resolves.toEqual({
+        ], [requireDocumentRef('browser://documents/source.pdf')])).resolves.toEqual({
             saved: true,
             generation: 1,
         });
@@ -84,12 +93,34 @@ describe('browserWorkspaceRecoveryStore', () => {
             updatedAt: expect.any(Number),
         });
 
-        await expect(clearBrowserWorkspaceRecovery('window:1', 1))
-            .resolves.toEqual({
+        await browserWindowTabsCapability.acknowledgeWorkspaceCheckpoint();
+        await expect(recovery.load('window:1')).resolves.toEqual(expect.objectContaining({
+            checkpoint,
+            snapshotRefs: ['browser://documents/recovery.pdf'],
+        }));
+
+        const database = recoveryDbFactory.getDatabase(DB_NAME);
+        if (!database) throw new Error('Recovery database is unavailable');
+        const release = vi.spyOn(liveLeases, 'releaseBrowserDocumentLiveLease')
+            .mockRejectedValueOnce(new Error('Lease release failed'));
+        try {
+            await expect(recovery.clear('window:1', 1)).resolves.toEqual({
                 saved: true,
                 generation: 0,
             });
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({status: 'active'});
+            await expect(recovery.clear('window:1', 0)).resolves.toEqual({
+                saved: true,
+                generation: 0,
+            });
+        } finally {
+            release.mockRestore();
+        }
         await expect(loadBrowserWorkspaceRecovery('window:1')).resolves.toBeNull();
+        expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
+            status: 'dead',
+            protectedDependencies: [],
+        });
     });
 
     it('isolates concurrent window owners and rejects stale owner generations', async () => {
@@ -305,6 +336,39 @@ describe('browserWorkspaceRecoveryStore', () => {
             vi.stubGlobal('navigator', {locks});
         });
 
+        it('publishes the new owner lease and sweeps a failed old release after lock handoff', async () => {
+            vi.resetModules();
+            const {browserWindowTabsCapability: tabs} = await import('@app/platform/browserWindowTabs');
+            const {holdLeaseOwnerLock} = await import('@app/platform/browser/browserDocumentLeaseStore');
+            const {sweepBrowserDocumentMaintenance} = await import('@app/platform/browser/browserDocumentMaintenance');
+            const recovery = tabs.browserRecovery;
+            if (!recovery) throw new Error('Browser recovery capability is unavailable');
+            const refs = [requireDocumentRef('browser://documents/recovery.pdf')];
+            const sources = [requireDocumentRef('browser://documents/source.pdf')];
+            await recovery.save('window:1', 0, checkpoint, refs, sources);
+            const database = recoveryDbFactory.getDatabase(DB_NAME);
+            if (!database) throw new Error('Recovery database is unavailable');
+            database.rejectNextTransaction(new Error('Lease release failed'));
+            await expect(recovery.load('window:other')).resolves.toBeNull();
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({status: 'active'});
+
+            await holdLeaseOwnerLock('window:other');
+            await recovery.save('window:other', 0, checkpoint, refs, sources);
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:other')).toMatchObject({
+                ownerId: 'window:other',
+                generation: 1,
+                status: 'active',
+                protectedDependencies: [{ref: sources[0]}],
+            });
+            await sweepBrowserDocumentMaintenance(new Map());
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
+                status: 'dead',
+                protectedDependencies: [],
+            });
+            await expect(recovery.load('window:1')).resolves.toEqual(expect.objectContaining({checkpoint}));
+        });
+
         it('does not take over a journal whose owner still holds its lease lock, however old', async () => {
             const now = vi.spyOn(Date, 'now').mockReturnValue(0);
             try {
@@ -385,5 +449,177 @@ describe('browserWorkspaceRecoveryStore', () => {
                 'window:c',
             ]).toContain(records[0]?.ownerId);
         });
+    });
+});
+
+// T2: an inherited window.name does not authorize clearing another tab's journal.
+describe('browser recovery without Web Locks', () => {
+    beforeEach(() => {
+        vi.resetModules();
+        vi.useFakeTimers();
+        vi.setSystemTime(100_000);
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        vi.stubGlobal('navigator', {});
+        const events = new EventTarget();
+        const session = new Map<string, string>();
+        vi.stubGlobal('window', {
+            name: 'evb-viewer-window:321',
+            location: {href: 'http://localhost:3235/'},
+            history: {
+                state: null,
+                replaceState: vi.fn(),
+            },
+            sessionStorage: {
+                getItem: (key: string) => session.get(key) ?? null,
+                setItem: (key: string, value: string) => session.set(key, value),
+                removeItem: (key: string) => session.delete(key),
+            },
+            addEventListener: events.addEventListener.bind(events),
+            removeEventListener: events.removeEventListener.bind(events),
+            dispatchEvent: events.dispatchEvent.bind(events),
+            setTimeout,
+            clearTimeout,
+        });
+        vi.stubGlobal('document', {title: 'EVB Viewer'});
+        vi.stubGlobal('BroadcastChannel', class {
+            addEventListener() {}
+            removeEventListener() {}
+            postMessage() {}
+            close() {}
+        });
+        vi.stubGlobal('performance', {getEntriesByType: () => [{type: 'navigate'}]});
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it.each([
+        [
+            true,
+            'navigate',
+        ],
+        [
+            false,
+            'navigate',
+        ],
+        [
+            true,
+            'reload',
+        ],
+        [
+            false,
+            'reload',
+        ],
+    ])('preserves a silent original journal and its next save (channel: %s, navigation: %s)', async (hasChannel, navigationType) => {
+        if (!hasChannel) vi.stubGlobal('BroadcastChannel', undefined);
+        vi.stubGlobal('performance', {getEntriesByType: () => [{type: navigationType}]});
+        const store = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        const refs = [requireDocumentRef('browser://documents/recovery.pdf')];
+        await store.saveBrowserWorkspaceRecovery('window:321', 0, checkpoint, refs);
+        const before = await store.loadBrowserWorkspaceRecovery('window:321');
+        const tabs = await import('@app/platform/browserWindowTabs');
+        const claim = tabs.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        expect(tabs.getBrowserWindowRecoveryOwnerId()).not.toBe('window:321');
+        await vi.advanceTimersByTimeAsync(70);
+        const recovered = await claim;
+        const ownerId = tabs.getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) throw new Error('The duplicate has no recovery owner');
+        // Closing a clean duplicate must only clear its own empty journal.
+        await store.clearBrowserWorkspaceRecovery(ownerId, recovered ? before!.generation : 0);
+        await expect(store.loadBrowserWorkspaceRecovery('window:321')).resolves.toEqual(before);
+        await expect(store.saveBrowserWorkspaceRecovery('window:321', before!.generation, checkpoint, refs))
+            .resolves.toEqual({
+                saved: true,
+                generation: 2,
+            });
+        expect(recovered).toBeNull();
+        expect(ownerId).not.toBe('window:321');
+    });
+
+    it('recovers a fresh journal on an ordinary same-tab reload', async () => {
+        const store = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        const refs = [requireDocumentRef('browser://documents/recovery.pdf')];
+        const tabs = await import('@app/platform/browserWindowTabs');
+        window.name = '';
+        const ownerId = tabs.getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) throw new Error('The original has no recovery owner');
+        await store.saveBrowserWorkspaceRecovery(ownerId, 0, checkpoint, refs);
+        window.dispatchEvent(Object.assign(new Event('pagehide'), {persisted: false}));
+        vi.stubGlobal('window', {
+            name: window.name,
+            location: window.location,
+            history: window.history,
+            sessionStorage: window.sessionStorage,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            setTimeout,
+            clearTimeout,
+        });
+        vi.stubGlobal('performance', {getEntriesByType: () => [{type: 'reload'}]});
+        vi.resetModules();
+        const reloadedTabs = await import('@app/platform/browserWindowTabs');
+        const claim = reloadedTabs.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(claim).resolves.toEqual(checkpoint);
+        expect(reloadedTabs.getBrowserWindowRecoveryOwnerId()).toBe(ownerId);
+        await expect(store.saveBrowserWorkspaceRecovery(ownerId, 1, checkpoint, refs))
+            .resolves.toEqual({
+                saved: true,
+                generation: 2,
+            });
+        // A duplicate can copy the reloaded tab's name and session storage,
+        // but the departure ownership was consumed before that tab became active.
+        vi.stubGlobal('window', {
+            name: window.name,
+            location: window.location,
+            history: window.history,
+            sessionStorage: window.sessionStorage,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            setTimeout,
+            clearTimeout,
+        });
+        vi.resetModules();
+        const duplicate = await import('@app/platform/browserWindowTabs');
+        const duplicateClaim = duplicate.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(duplicateClaim).resolves.toBeNull();
+        const duplicateOwner = duplicate.getBrowserWindowRecoveryOwnerId();
+        if (!duplicateOwner) throw new Error('The duplicate has no recovery owner');
+        await store.clearBrowserWorkspaceRecovery(duplicateOwner, 0);
+        await expect(store.saveBrowserWorkspaceRecovery(ownerId, 2, checkpoint, refs))
+            .resolves.toEqual({
+                saved: true,
+                generation: 3,
+            });
+    });
+
+    it('recovers an expired inherited owner through the orphan claim transaction', async () => {
+        const store = await import('@app/platform/browser/browserWorkspaceRecoveryStore');
+        await store.saveBrowserWorkspaceRecovery('window:321', 0, checkpoint, [requireDocumentRef('browser://documents/recovery.pdf')]);
+        vi.setSystemTime(100_001);
+        await store.saveBrowserWorkspaceRecovery('window:999', 0, {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                fileName: 'newer-orphan.pdf',
+            }],
+        }, [requireDocumentRef('browser://documents/recovery.pdf')]);
+        vi.setSystemTime(130_001);
+        const tabs = await import('@app/platform/browserWindowTabs');
+        const claim = tabs.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(claim).resolves.toEqual(checkpoint);
+        const ownerId = tabs.getBrowserWindowRecoveryOwnerId();
+        expect(ownerId).not.toBe('window:321');
+        await expect(store.loadBrowserWorkspaceRecovery('window:321')).resolves.toBeNull();
+        await expect(store.loadBrowserWorkspaceRecovery(ownerId!)).resolves.toMatchObject({
+            checkpoint,
+            generation: 2,
+            leaseRevision: 2,
+        });
+        await expect(store.loadBrowserWorkspaceRecovery('window:999')).resolves.toMatchObject({generation: 1});
     });
 });

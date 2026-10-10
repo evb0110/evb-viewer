@@ -12,10 +12,10 @@ import {
 import {spawnSync} from 'node:child_process';
 import {
     lstat,
-    open,
     stat,
 } from 'fs/promises';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {readFileChunk} from '@electron/file-access/readFileChunk';
 import { createKeyedSerialQueue } from '@electron/utils/createKeyedSerialQueue';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
@@ -338,60 +338,29 @@ async function createOriginalFileContentFingerprint(
 ) {
     try {
         signal?.throwIfAborted();
-        const handle = await open(originalPath, 'r');
-        try {
-            const before = await handle.stat({bigint: true});
-            const namedBefore = await lstat(originalPath, {bigint: true});
-            if (!Number.isSafeInteger(Number(before.size))
-                || !expectationMatchesStat(expectation, before)
-                || !expectationMatchesStat(expectation, namedBefore)) {
-                return undefined;
-            }
-            const hash = createOriginalFileContentFingerprintHash(Number(before.size));
-            const buffer = Buffer.allocUnsafe(Math.max(
-                1,
-                Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES),
-            ));
-            let offset = 0;
-            while (offset < Number(before.size)) {
-                signal?.throwIfAborted();
-                const length = Math.min(buffer.byteLength, Number(before.size) - offset);
-                let readOffset = 0;
-                while (readOffset < length) {
-                    const {bytesRead} = await handle.read(
-                        buffer,
-                        readOffset,
-                        length - readOffset,
-                        offset + readOffset,
-                    );
-                    if (bytesRead <= 0) {
-                        return undefined;
-                    }
-                    hash.update(buffer.subarray(readOffset, readOffset + bytesRead));
-                    readOffset += bytesRead;
-                }
-                offset += length;
-            }
-            const after = await handle.stat({bigint: true});
-            const pathStat = await stat(originalPath, {bigint: true});
-            const namedAfter = await lstat(originalPath, {bigint: true});
-            signal?.throwIfAborted();
-            if (
-                !expectationMatchesStat(expectation, after)
-                || !expectationMatchesStat(expectation, pathStat)
-                || !expectationMatchesStat(expectation, namedAfter)
-                || after.size !== before.size
-                || after.dev !== before.dev
-                || after.ino !== before.ino
-                || after.mtimeNs !== before.mtimeNs
-                || after.ctimeNs !== before.ctimeNs
-            ) {
-                return undefined;
-            }
-            return `sha256-full-v1:${hash.digest('hex')}`;
-        } finally {
-            await handle.close().catch(() => undefined);
+        const before = await lstat(originalPath, {bigint: true});
+        if (!Number.isSafeInteger(Number(before.size)) || !expectationMatchesStat(expectation, before)) {
+            return undefined;
         }
+        const hash = createOriginalFileContentFingerprintHash(Number(before.size));
+        const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES)));
+        let offset = 0;
+        while (offset < Number(before.size)) {
+            signal?.throwIfAborted();
+            const length = Math.min(buffer.byteLength, Number(before.size) - offset);
+            const bytesRead = await readFileChunk(originalPath, buffer.subarray(0, length), offset);
+            if (bytesRead <= 0) {
+                return undefined;
+            }
+            hash.update(buffer.subarray(0, bytesRead));
+            offset += bytesRead;
+        }
+        const after = await lstat(originalPath, {bigint: true});
+        signal?.throwIfAborted();
+        return expectationMatchesStat(expectation, after)
+            && expectationMatchesStat(createOriginalFileExpectationFromStat(before), after)
+            ? `sha256-full-v1:${hash.digest('hex')}`
+            : undefined;
     } catch {
         return undefined;
     }

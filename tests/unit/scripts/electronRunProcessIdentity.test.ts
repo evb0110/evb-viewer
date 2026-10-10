@@ -17,7 +17,8 @@ import {
 function snapshot(overrides: Partial<IProcessIdentitySnapshot> = {}): IProcessIdentitySnapshot {
     return {
         pid: 72_000,
-        platform: process.platform,
+        // The default snapshots model ps/lsof output; Windows CIM cases override this.
+        platform: 'linux',
         command: '',
         cwd: projectRoot,
         environment: '',
@@ -69,9 +70,9 @@ describe('electron run process identity', () => {
         };
         expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session=${sessionName} start`}), expectation)).toBe(true);
         expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs ${join(projectRoot, 'scripts', 'electronRun.ts')} --session=${sessionName} start`}), expectation)).toBe(true);
-        expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs scripts/electronRun.ts --session=${sessionName} start`}), expectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs ${join('scripts', 'electronRun.ts')} --session=${sessionName} start`}), expectation)).toBe(true);
         expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session ${sessionName} start`}), expectation)).toBe(true);
-        expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs scripts/electronRun.ts -s ${sessionName} start`}), expectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs ${join('scripts', 'electronRun.ts')} -s ${sessionName} start`}), expectation)).toBe(true);
         expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session=${sessionName}-reused start`}), expectation)).toBe(false);
         expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session ${sessionName}-reused start`}), expectation)).toBe(false);
         expect(matchesSessionProcessIdentity(snapshot({command: '/usr/bin/sleep 3600'}), expectation)).toBe(false);

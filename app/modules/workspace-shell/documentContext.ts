@@ -580,7 +580,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pdfData,
         // A split restore reopens its payload as the tab's open transaction.
         openFileWithViewerLifecycle: file.openFileInDocumentTransaction,
-        waitForPdfReload: pdfHistory.waitForPdfReload,
+        preparePdfReloadWaiter: pdfHistory.preparePdfReloadWaiter,
         loadPdfFromPath: file.loadPdfFromPath,
         documentRevisionToken,
         getNativeSaveTransactionOptions: saveService.getNativeSaveTransactionOptions,

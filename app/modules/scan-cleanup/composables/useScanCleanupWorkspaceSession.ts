@@ -4,25 +4,25 @@ import {
     createScanCleanupPaperCohortTally,
     resolveScanCleanupInkReferenceHeightPoints,
     resolveScanCleanupSheetRect,
-} from '@contracts/scan-cleanup/scanCleanupPaperCohort';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    IScanCleanupPlacementAnchorSample,
-    TScanCleanupPlacementAnchorsByPage,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
-    resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_OUTPUT_HALVES,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    type IScanCleanupPlacementAnchorSample,
+    type TScanCleanupPlacementAnchorsByPage,
+    resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
     usesScanCleanupInkAlignment,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';

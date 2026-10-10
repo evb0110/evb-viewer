@@ -955,6 +955,10 @@ export default {
             'existingTextSkipped': 'Página {page}: o texto existente foi preservado.',
         },
         'preparing': 'Preparando OCR...',
+        'modelDownload': {
+            'progress': 'Baixando {language}: {received} / {total} MB ({percent}%)',
+            'retrying': 'Tentando baixar {language} novamente (tentativa {attempt} de {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Baixando modelos de idioma...',
             'pdfPrep': 'Preparando PDF...',
@@ -1725,9 +1729,11 @@ export default {
             'validation': 'O documento não passou na verificação de validade, então nada foi gravado.',
             'openNotes': 'Não foi possível salvar as notas abertas, então o documento não foi gravado.',
             'documentChanged': 'O documento mudou antes de o salvamento terminar, então nada foi gravado.',
+            'originalChanged': 'O arquivo no disco mudou desde que você o abriu. Suas alterações são mantidas. Use «Salvar como» para manter as duas versões.',
             'workingCopyMissing': 'A cópia temporária do documento foi removida, então estas alterações não podem ser salvas. Abra o arquivo novamente.',
             'notCompleted': 'Não foi possível gravar o documento.',
             'permissionDenied': 'A permissão para gravar o arquivo foi negada. Escolha «Salvar como» para salvar as alterações em outro local.',
+            'fileBusy': 'O arquivo está em uso por outro programa, por isso não foi possível gravá-lo. Feche esse programa e tente novamente, ou escolha «Salvar como» para salvar as alterações em outro local.',
             'diskFull': 'O disco está cheio. Libere espaço ou use «Salvar como» em outro disco.',
             'writeFailed': 'Não foi possível gravar o arquivo. Verifique as permissões de gravação e o espaço livre, ou salve-o em outro local.',
             'nativeFailure': 'O mecanismo PDF não conseguiu aplicar as alterações. Suas edições continuam abertas aqui.',

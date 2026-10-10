@@ -12,18 +12,20 @@ import type {
 } from '@contracts/scan-cleanup/ipc';
 import {
     getScanCleanupPageOverride,
+    SCAN_CLEANUP_OUTPUT_HALVES,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPlacementAnchorResolution,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
-    SCAN_CLEANUP_OUTPUT_HALVES,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS} from '@contracts/scan-cleanup/inputLimits';
 import {
     addScanCleanupPaperCohortRect,
     createScanCleanupPaperCohortTally,
     resolveScanCleanupInkReferenceHeightPoints,
     resolveScanCleanupSheetRect,
-} from '@contracts/scan-cleanup/scanCleanupPaperCohort';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
 const POINTS_PER_MM = 72 / 25.4;

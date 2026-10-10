@@ -350,18 +350,18 @@ export const useWorkspaceFileLifecycleController = (
     }
 
     // A moved tab's document: it brings its own view.
-    function openFileInDocumentTransaction(result: TOpenFileResult) {
+    function openFileInDocumentTransaction(result: TOpenFileResult, transactionId?: string) {
         return openInDocumentTransaction({
             ...describeOpenResult(result),
             carriesView: true,
+            transactionId,
         }, () => openFileWithViewerLifecycle(result));
     }
 
-    // The conversion keeps its modal progress until the converted PDF is
-    // shown; the focus it then gives back lands on that PDF's live controls.
+    // Conversion restores the retained reading view before returning focus.
     function openConvertedDjvuPdf(path: TDocumentRef, openOptions?: IPdfRasterDisplayProfileOpenOptions) {
         return openInDocumentTransaction({
-            kind: 'open',
+            kind: 'restore',
             target: describeDocumentTarget(path),
         }, () => openFileDirectWithViewerLifecycle(path, openOptions));
     }

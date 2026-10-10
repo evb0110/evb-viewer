@@ -12,7 +12,7 @@ import type {
     TScanCleanupLayoutByPage,
     TScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {scanCleanupMatchedCanvasOverridesSignature} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {scanCleanupMatchedCanvasOverridesSignature} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     resolveScanCleanupProvisionalDocumentCanvas,
     scanCleanupDocumentCanvasSignature,

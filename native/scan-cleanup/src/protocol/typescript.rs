@@ -76,7 +76,7 @@ fn generated() -> String {
     declarations.visit::<super::manifest_v3::ManifestV3>();
     declarations.preserve_optional_null = false;
     declarations.visit::<crate::engine::page_workflow::PageResultMetadata>();
-    declarations.visit::<crate::pipeline::CleanupMetadata>();
+    declarations.visit::<crate::engine::render::CleanupMetadata>();
     declarations.visit::<super::progress::ProgressEnvelope>();
     declarations.visit::<super::result::ResultEnvelope>();
     let mut output = String::from(

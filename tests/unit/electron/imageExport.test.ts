@@ -263,6 +263,10 @@ const {
 } = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 
 const UTIF = utifModule;
+const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
+const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
+const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
+const realAtomicReplace = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
 
 function computePdftoppmRasterSize(args: string[]): IRenderedRasterSize {
     const scaleToIndex = args.indexOf('-scale-to');
@@ -885,8 +889,25 @@ describe('image export', () => {
         mocks.pdfPageCount = 6_000;
         mocks.pageSizeOverrides[1] = hugePageSize;
 
+        // Observe the planned DPI at the renderer boundary, then settle the
+        // export before cleanup. Rendering and publishing 6,000 real files
+        // adds no coverage of the streamed-metadata planning regression.
+        const renderStopped = new Error('DPI planning observed');
+        const defaultRunCommand = mocks.runCommand.getMockImplementation()!;
+        mocks.runCommand.mockImplementation(async (
+            command: string,
+            args: string[],
+            options?: {onStdout?: (chunk: string) => void},
+        ) => {
+            if (command === '/mock/pdftoppm') {
+                mocks.requestedRenderDpis.push(Number.parseFloat(String(args[args.indexOf('-r') + 1])));
+                throw renderStopped;
+            }
+            return defaultRunCommand(command, args, options);
+        });
+
         const outputPath = join(tempDir, 'huge-first-page.png');
-        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(6_000);
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).rejects.toBe(renderStopped);
 
         const ppmHeaderReserveBytes = 64 * 1024;
         const maxRenderDimension = Math.floor(Math.sqrt(
@@ -896,6 +917,7 @@ describe('image export', () => {
         expect(hugePageSafeDpi).toBeLessThan(300);
         expect(mocks.requestedRenderDpis.length).toBeGreaterThan(0);
         expect(mocks.requestedRenderDpis.every(dpi => dpi === hugePageSafeDpi)).toBe(true);
+        expect(readdirSync(tempDir)).toEqual([]);
     }, 60_000);
 
     it('uses the default export DPI when the source-resolution probe fails', async () => {
@@ -937,7 +959,7 @@ describe('image export', () => {
         const expectedEnv = {
             POPPLER_DATADIR: '/mock/poppler/share/poppler',
             FONTCONFIG_PATH: '/mock/poppler/etc/fonts',
-            FONTCONFIG_FILE: '/mock/poppler/etc/fonts/fonts.conf',
+            FONTCONFIG_FILE: join(mocks.popplerFontConfigDir, 'fonts.conf'),
         };
         const pdfimagesCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdfimages');
         expect(pdfimagesCall?.[2]).toMatchObject({env: expectedEnv});
@@ -1147,8 +1169,8 @@ describe('image export', () => {
             secondOutputPath,
         ]);
 
-        expect(Buffer.byteLength(firstOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
-        expect(Buffer.byteLength(secondOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
+        expect(Buffer.byteLength(basename(firstOutputPath), 'utf8')).toBeLessThanOrEqual(255);
+        expect(Buffer.byteLength(basename(secondOutputPath), 'utf8')).toBeLessThanOrEqual(255);
         expect(firstOutputPath).not.toBe(secondOutputPath);
     });
 
@@ -1390,19 +1412,16 @@ describe('image export', () => {
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {
         const {
             PDFDocument, rgb,
-        } = await vi.importActual<typeof TPdfLib>('pdf-lib');
-        const nativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
-        const toolPaths = nativeTools.resolvePdfNativeToolPaths({
+        } = realPdfLib;
+        const toolPaths = realNativeTools.resolvePdfNativeToolPaths({
             isPackaged: true,
             nativeToolsBase: join(process.cwd(), 'resources'),
             platformArch: `${process.platform}-${process.arch}`,
         });
-        const fs = await vi.importActual<typeof FsPromises>('fs/promises');
-        const atomic = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
-        mocks.stat.mockImplementation(fs.stat);
-        mocks.rename.mockImplementation(fs.rename);
-        mocks.makeSiblingTempPath.mockImplementation(atomic.makeSiblingTempPath);
-        mocks.atomicReplace.mockImplementation(atomic.atomicReplace);
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
         mocks.popplerDataDir = toolPaths.popplerDataDir;
         mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
         const run = promisify(execFile);

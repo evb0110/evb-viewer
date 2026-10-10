@@ -14,15 +14,17 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
-    resolveScanCleanupOutputPlacement,
     SCAN_CLEANUP_OUTPUT_HALVES,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    resolveScanCleanupOutputPlacement,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     beginScanCleanupAttempt,
     cancelScanCleanup,

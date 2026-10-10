@@ -637,7 +637,7 @@ mod moved_tests {
                 source.set(x, y, 40);
             }
         }
-        fs::write(&input, crate::png::encode_gray(&source).unwrap()).unwrap();
+        fs::write(&input, crate::io::png::encode_gray(&source).unwrap()).unwrap();
         let manifest = ManifestV3 {
             version: crate::protocol::manifest_v3::VERSION,
             operation: crate::protocol::manifest_v3::Operation::Analyze,

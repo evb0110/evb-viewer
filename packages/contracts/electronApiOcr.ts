@@ -19,6 +19,7 @@ import {
     isEpochMs, type TEpochMs,
 } from '@contracts/timestamps';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
+import {OCR_MODEL_CODES} from '@contracts/ocrLanguages';
 import * as v from 'valibot';
 
 export const OCR_PROGRESS_EVENT_CHANNEL = 'ocr:progress';
@@ -272,6 +273,16 @@ export const OCR_PROGRESS_STATUSES = [
 ] as const;
 export type TOcrProgressStatus = typeof OCR_PROGRESS_STATUSES[number];
 
+export const OCR_MODEL_DOWNLOAD_PROGRESS_SCHEMA = v.object({
+    languageCode: v.picklist(OCR_MODEL_CODES),
+    receivedBytes: safeIntegerSchema(0),
+    totalBytes: safeIntegerSchema(1),
+    attempt: safeIntegerSchema(1),
+    maxAttempts: safeIntegerSchema(1),
+    retrying: v.boolean(),
+});
+export type IOcrModelDownloadProgress = v.InferOutput<typeof OCR_MODEL_DOWNLOAD_PROGRESS_SCHEMA>;
+
 export const OCR_PROGRESS_SCHEMA = v.object({
     requestId: requestIdSchema,
     currentPage: v.pipe(v.number(), v.finite()),
@@ -281,6 +292,7 @@ export const OCR_PROGRESS_SCHEMA = v.object({
     phaseProgress: v.optional(v.pipe(v.number(), v.finite())),
     activePages: v.optional(v.array(v.pipe(v.number(), v.finite()))),
     languageCode: v.optional(v.string()),
+    modelDownload: v.optional(OCR_MODEL_DOWNLOAD_PROGRESS_SCHEMA),
     status: v.optional(v.picklist(OCR_PROGRESS_STATUSES)),
     error: v.optional(v.string()),
 });

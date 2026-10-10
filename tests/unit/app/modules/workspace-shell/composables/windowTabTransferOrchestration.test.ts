@@ -18,6 +18,11 @@ import type {
 } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import {useWorkspaceSplitPayload} from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { requireTabId } from '@contracts/windowTabs';
 import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
@@ -36,6 +41,7 @@ import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/p
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import { cast } from '@tests/helpers/cast';
+import {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
 
 const transferAckMock = vi.hoisted(() => vi.fn(async (_ack: {
     transferId: string;
@@ -150,7 +156,7 @@ describe('window tab transfer orchestration helpers', () => {
         expect(shouldCloseSourceWindowAfterTransfer(1, false)).toBe(false);
     });
 
-    it('rejects a transfer after its workspace mount fails and proceeds to the next queued transfer', async () => {
+    it('rejects each failed target without making another transfer wait for its mount', async () => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         onTestFinished(() => {
             vi.unstubAllGlobals();
@@ -244,6 +250,9 @@ describe('window tab transfer orchestration helpers', () => {
         const firstTransfer = transfers.handleIncomingTabTransfer(makeTransfer('transfer-failed-mount'));
         await mountWaiterStarted.promise;
         const secondTransfer = transfers.handleIncomingTabTransfer(makeTransfer('transfer-next'));
+        await secondTransfer;
+        expect(transferAckMock.mock.calls.map(([ack]) => ack.transferId)).toEqual(['transfer-next']);
+        expect(tabs.value.map(tab => tab.id)).toEqual(['incoming-1']);
         sessions.get('incoming-1')?.markFailed({
             message: 'Workspace chunk failed',
             failure: null,
@@ -260,16 +269,226 @@ describe('window tab transfer orchestration helpers', () => {
             ack.success,
         ])).toEqual([
             [
-                'transfer-failed-mount',
+                'transfer-next',
                 false,
             ],
             [
-                'transfer-next',
+                'transfer-failed-mount',
                 false,
             ],
         ]);
         expect(createdTabs).toBe(2);
     });
+
+    it.each([
+        'another document',
+        'the same file reopened',
+        'a new revision',
+        'no replacement',
+        'another document before presentation',
+        'the same file reopened before presentation',
+    ])(
+        'keeps view restoration and acknowledgement on the opened document with %s', async (replacement) => {
+            vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+            onTestFinished(() => {vi.unstubAllGlobals();});
+            transferAckMock.mockClear();
+            const pane = {
+                paneId: 'pane-1',
+                tabIds: ['tab-1'],
+                activeTabId: 'tab-1',
+            };
+            const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+            const a = requireDocumentRef('/docs/a.pdf');
+            const beforePresentation = replacement.endsWith('before presentation');
+            const b = replacement.startsWith('the same file reopened') ? a : requireDocumentRef('/docs/b.pdf');
+            const originalPath = ref(a);
+            const zoom = ref(0.8);
+            const aPresented = Promise.withResolvers<undefined>();
+            const page = ref(1);
+            const viewer = ref({scrollToPage: (value: number) => {page.value = value;}});
+            const surface = shallowRef(cast({
+                generation: 0,
+                identity: null,
+                phase: 'idle',
+                presentation: 'pending',
+            }));
+            const viewport = shallowRef(cast({lifecycle: 'empty'}));
+            let reload: Promise<void> | null = null;
+            const preparePdfReloadWaiter = (pageToRestore: number) => {
+                const waiter = createPdfReloadWaiter({
+                    pdfDocument: shallowRef(null),
+                    pdfViewerRef: viewer,
+                    openSurface: cast({
+                        snapshot: surface,
+                        viewportSession: viewport,
+                    }),
+                    resetSearchCache: () => undefined,
+                    pageToRestore,
+                });
+                reload = waiter.promise;
+                return waiter;
+            };
+            const document = {
+                fileName: 'a.pdf',
+                originalPath: a,
+                isDjvu: false,
+                revisionInfo: {
+                    version: 1 as const,
+                    documentRef: a,
+                    authority: 'electron-working-copy' as const,
+                    token: requireDocumentRevisionToken('revision-1'),
+                    contentRevision: 1,
+                    mintedAt: requireEpochMs(1),
+                },
+            };
+            const split = useWorkspaceSplitPayload(cast({
+                originalPath,
+                totalPages: ref(12),
+                currentPage: page,
+                preparePdfReloadWaiter,
+                openFileWithViewerLifecycle: async (_result: TOpenFileResult, transactionId?: string) => {
+                    const opened = await controller.runOpen({
+                        kind: 'open',
+                        target: {originalPath: a},
+                        transactionId,
+                    }, async () => {
+                        if (beforePresentation) {
+                            aPresented.resolve(undefined);
+                        } else {
+                            surface.value = cast({
+                                generation: 1,
+                                identity: {
+                                    documentId: a,
+                                    documentRevision: 'a-ready',
+                                },
+                                phase: 'canvas-committed',
+                                presentation: 'committed',
+                            });
+                            controller.commitDocument(document);
+                            controller.markPresented();
+                        }
+                        return true;
+                    });
+                    aPresented.resolve(undefined);
+                    return {status: opened ? 'opened' : 'cancelled'};
+                },
+            }));
+            let outcome: TDocumentOpenOutcome | null = null;
+            controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({
+                restoreViewState: state => {zoom.value = state.zoom ?? zoom.value;},
+                restoreSplitPayload: async (...args) => {
+                    outcome = await split.restoreSplitPayload(...args);
+                    return outcome;
+                },
+            }));
+            const transfers = useWindowTabTransfers({
+                activePaneId: ref('pane-1'),
+                panes: ref([pane]),
+                tabs: ref([{id: 'tab-1'}]),
+                layout: ref(null),
+                createTab: () => {throw new Error('The incoming transfer must use the empty tab');},
+                getPaneById: () => pane,
+                getTabById: () => ({id: 'tab-1'}),
+                getPaneByTabId: () => pane,
+                activatePane: () => undefined,
+                activateTab: () => undefined,
+                removeTabFromState: () => undefined,
+                cleanupEmptyPanes: () => undefined,
+                closeTabInState: () => undefined,
+                documentSessions: cast({getSession: () => controller}),
+                workspaceRestoreTracker: {
+                    start: () => undefined,
+                    finish: () => undefined,
+                },
+                handleCloseTab: async () => undefined,
+                handoffActiveTabBeforeClose: async () => undefined,
+            });
+            const incoming = transfers.handleIncomingTabTransfer(cast({
+                transferId: 'transfer-a',
+                sourceWindowId: 2,
+                targetWindowId: 1,
+                tab: {
+                    fileName: 'a.pdf',
+                    originalPath: a,
+                    isDirty: true,
+                    isDjvu: false,
+                },
+                payload: {
+                    kind: 'pdfSnapshot',
+                    snapshotPath: a,
+                    originalPath: a,
+                    isDirty: true,
+                    currentPage: 6,
+                    viewState: {
+                        zoom: 2,
+                        effectiveZoom: 2,
+                        zoomMode: 'custom',
+                        viewMode: 'single',
+                        viewRotation: 0,
+                        showSidebar: false,
+                        continuousScroll: true,
+                    },
+                },
+            }));
+            // B can claim its open before A's open wrapper has even returned,
+            // or replace its revision while A is waiting for page placement.
+            await aPresented.promise;
+            if (replacement === 'a new revision') {
+                controller.commitDocument({
+                    ...document,
+                    revisionInfo: {
+                        ...document.revisionInfo,
+                        token: requireDocumentRevisionToken('revision-2'),
+                        contentRevision: 2,
+                    },
+                });
+            } else if (replacement !== 'no replacement') {
+                await controller.runOpen({
+                    kind: 'open',
+                    target: {originalPath: b},
+                }, async () => {
+                    originalPath.value = b;
+                    controller.commitDocument({
+                        ...document,
+                        originalPath: b,
+                        revisionInfo: null,
+                    });
+                    controller.markPresented();
+                    return true;
+                });
+            }
+            if (beforePresentation) await incoming;
+            surface.value = cast({
+                generation: replacement === 'no replacement' ? 1 : 2,
+                identity: {
+                    documentId: originalPath.value,
+                    documentRevision: replacement === 'no replacement' ? 'a-ready' : 'b-ready',
+                },
+                phase: 'ready',
+                presentation: 'committed',
+                committedViewport: {pageNumber: 1},
+            });
+            viewport.value = cast({lifecycle: 'ready'});
+            await incoming;
+            await reload;
+            expect(page.value).toBe(replacement === 'no replacement' ? 6 : 1);
+            const superseded = replacement !== 'no replacement';
+            expect(zoom.value).toBe(superseded ? 0.8 : 2);
+            expect(outcome).toMatchObject({status: superseded ? 'cancelled' : 'opened'});
+            expect(controller.snapshot.value.identity.originalPath).toBe(
+                replacement.startsWith('another document') ? b : a,
+            );
+            expect(originalPath.value).toBe(replacement.startsWith('another document') ? b : a);
+            expect(transferAckMock.mock.calls.map(([ack]) => ({
+                transferId: ack.transferId,
+                success: ack.success,
+            })))
+                .toEqual([{
+                    transferId: 'transfer-a',
+                    success: !superseded,
+                }]);
+        },
+    );
 
     // Sweep #845 item 9: Merge This Window Into captures every tab without
     // activating it. Two linked views of one document each go at their own page.

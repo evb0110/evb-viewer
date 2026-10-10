@@ -57,6 +57,7 @@ import {
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
 
@@ -165,6 +166,29 @@ export function createBrowserDocumentsCapability(
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
+        recovery: {
+            async createSnapshot(fileName, data, sourceRef) {
+                const ref = await browserDocumentStore.createStoredDocument(fileName, data, {
+                    mimeType: 'application/pdf',
+                    kind: 'working',
+                    retention: 'durable',
+                    saveKind: 'pdf',
+                    ...(sourceRef ? {sourceRef} : {}),
+                });
+                try {
+                    return {
+                        ref,
+                        revisionToken: (await fileCapability.getDocumentRevision(ref)).token,
+                    };
+                } catch (error) {
+                    await browserDocumentStore.cleanupDetachedDocument(ref).catch(() => undefined);
+                    throw error;
+                }
+            },
+            async cleanupSnapshot(ref) {
+                await browserDocumentStore.cleanupDetachedDocument(ref);
+            },
+        },
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
         ...(fileCapability.createManagedTempFileHandle

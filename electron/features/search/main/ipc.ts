@@ -41,10 +41,10 @@ export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRe
         documentRevision,
         ...(isWorkingCopyDocumentPath(pdfPath) ? {workingCopyPath: pdfPath} : {}),
         readPageCount: (signal: AbortSignal) => readPdfPageCount(pdfPath, signal),
-        readPages: (signal: AbortSignal, pageCount: number | undefined) => streamPdfPageTexts(pdfPath, {
+        readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) => streamPdfPageTexts(pdfPath, {
             signal,
             ...(pageCount === undefined ? {} : {lastPage: pageCount}),
-        }),
+        }, onProgress),
     };
 }
 

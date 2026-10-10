@@ -45,11 +45,13 @@ import { getErrorMessage } from '@electron/utils/error';
 import { hashFileSha256 } from '@electron/utils/hashFileSha256';
 import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
+import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 import {
     AVAILABLE_OCR_LANGUAGES,
     getOcrModelSourcePath,
     isAvailableOcrLanguageCode,
     OCR_LANGUAGE_MODEL_SHA256,
+    OCR_LANGUAGE_MODEL_BYTES,
     OCR_MODEL_CODES,
     type TOcrLanguageCode,
     type TOcrModelCode,
@@ -88,11 +90,15 @@ const NETWORK_UNREACHABLE_CODES = new Set([
     'ERR_NETWORK_CHANGED',
 ]);
 
-interface IEnsureTessdataLanguagesOptions {signal?: AbortSignal;}
+interface IEnsureTessdataLanguagesOptions {
+    signal?: AbortSignal;
+    onProgress?: (progress: IOcrModelDownloadProgress) => void;
+}
 interface ISharedDownloadTask {
     promise: Promise<void>;
     controller: AbortController;
-    waiterIds: Set<symbol>;
+    waiters: Map<symbol, IEnsureTessdataLanguagesOptions['onProgress']>;
+    progress?: IOcrModelDownloadProgress;
 }
 
 interface IVerifiedModel {
@@ -745,12 +751,16 @@ async function writeDownloadResponseBody(
     response: Response,
     tempPath: string,
     stallTimeout: ReturnType<typeof createTimedAbortSignal>,
+    onBytes: (receivedBytes: number) => void,
 ) {
+    let receivedBytes = 0;
     await pipeline(
         Readable.fromWeb(response.body as NodeReadableStream),
         async function* (chunks: AsyncIterable<Uint8Array>) {
             for await (const chunk of chunks) {
                 stallTimeout.restart();
+                receivedBytes += chunk.byteLength;
+                onBytes(receivedBytes);
                 yield chunk;
             }
         },
@@ -760,15 +770,27 @@ async function writeDownloadResponseBody(
 }
 
 async function downloadLanguageModelAttempt(
-    languageCode: string,
+    languageCode: TOcrModelCode,
     languageUrl: string,
     runtimeDir: string,
     modelPath: string,
     tempPath: string,
     attempt: number,
-    signal?: AbortSignal,
+    options: IEnsureTessdataLanguagesOptions,
 ) {
+    const {
+        signal, onProgress,
+    } = options;
     throwIfAborted(signal);
+    const progress = {
+        languageCode,
+        receivedBytes: 0,
+        totalBytes: OCR_LANGUAGE_MODEL_BYTES[languageCode],
+        attempt,
+        maxAttempts: DOWNLOAD_RETRIES,
+        retrying: false,
+    };
+    onProgress?.(progress);
     const stallTimeout = createTimedAbortSignal(DOWNLOAD_STALL_TIMEOUT_MS, signal);
     try {
         log.info(`Downloading OCR model ${languageCode} (attempt ${attempt}/${DOWNLOAD_RETRIES})`);
@@ -784,7 +806,10 @@ async function downloadLanguageModelAttempt(
 
         stallTimeout.restart();
         await mkdir(runtimeDir, { recursive: true });
-        await writeDownloadResponseBody(response, tempPath, stallTimeout);
+        await writeDownloadResponseBody(response, tempPath, stallTimeout, receivedBytes => onProgress?.({
+            ...progress,
+            receivedBytes,
+        }));
         // Verification reads the local file; only the caller can cancel it.
         stallTimeout.cleanup();
         throwIfAborted(signal);
@@ -792,15 +817,6 @@ async function downloadLanguageModelAttempt(
         const validation = validateTraineddataFile(tempPath);
         if (!validation.valid) {
             throw new Error(validation.error ?? 'Downloaded model is not a readable traineddata file');
-        }
-        if (!isOcrLanguageModelCode(languageCode)) {
-            throw new LanguageModelDownloadError(
-                `OCR language model "${languageCode}" failed SHA-256 verification.`,
-                {
-                    retryable: false,
-                    code: 'CHECKSUM_MISMATCH',
-                },
-            );
         }
         const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode];
         const actualSha256 = await hashFileSha256(tempPath, signal);
@@ -841,10 +857,10 @@ async function downloadLanguageModelAttempt(
 }
 
 async function waitBeforeDownloadRetry(
-    languageCode: string,
+    languageCode: TOcrModelCode,
     attempt: number,
     error: LanguageModelDownloadError,
-    signal?: AbortSignal,
+    options: IEnsureTessdataLanguagesOptions,
 ) {
     if (!error.retryable) {
         throw error;
@@ -861,11 +877,19 @@ async function waitBeforeDownloadRetry(
     }
 
     log.warn(`Download retry scheduled for OCR model ${languageCode}: ${error.message}`);
-    await delayWithAbort(RETRY_DELAY_MS * attempt, signal);
+    options.onProgress?.({
+        languageCode,
+        receivedBytes: 0,
+        totalBytes: OCR_LANGUAGE_MODEL_BYTES[languageCode],
+        attempt: attempt + 1,
+        maxAttempts: DOWNLOAD_RETRIES,
+        retrying: true,
+    });
+    await delayWithAbort(RETRY_DELAY_MS * attempt, options.signal);
 }
 
 async function downloadLanguageModel(
-    languageCode: string,
+    languageCode: TOcrModelCode,
     runtimeDir: string,
     options: IEnsureTessdataLanguagesOptions = {},
 ) {
@@ -888,7 +912,7 @@ async function downloadLanguageModel(
                 modelPath,
                 tempPath,
                 attempt,
-                options.signal,
+                options,
             );
             log.info(`Downloaded OCR model ${languageCode} (${Math.round(downloadedSize / (1024 * 1024))}MB)`);
             return;
@@ -900,7 +924,7 @@ async function downloadLanguageModel(
                 languageCode,
                 attempt,
                 classifyDownloadError(languageCode, err),
-                options.signal,
+                options,
             );
         }
     }
@@ -945,9 +969,9 @@ function releaseDownloadWaiter(
     waiterId: symbol,
     task: ISharedDownloadTask,
 ) {
-    task.waiterIds.delete(waiterId);
+    task.waiters.delete(waiterId);
     if (
-        task.waiterIds.size === 0
+        task.waiters.size === 0
         && inFlightDownloads.get(languageCode) === task
         && !task.controller.signal.aborted
     ) {
@@ -955,8 +979,19 @@ function releaseDownloadWaiter(
     }
 }
 
+function notifyDownloadProgress(
+    listener: IEnsureTessdataLanguagesOptions['onProgress'],
+    progress: IOcrModelDownloadProgress,
+) {
+    try {
+        listener?.(progress);
+    } catch (error) {
+        log.warn(`OCR model download progress listener failed: ${getErrorMessage(error)}`);
+    }
+}
+
 async function ensureLanguageModel(
-    languageCode: string,
+    languageCode: TOcrModelCode,
     runtimeDir: string,
     options: IEnsureTessdataLanguagesOptions = {},
 ) {
@@ -964,8 +999,9 @@ async function ensureLanguageModel(
     const waiterId = Symbol(languageCode);
     const pending = inFlightDownloads.get(languageCode);
     if (pending) {
-        pending.waiterIds.add(waiterId);
+        pending.waiters.set(waiterId, options.onProgress);
         try {
+            if (pending.progress) notifyDownloadProgress(options.onProgress, pending.progress);
             await waitForPromiseOrAbort(pending.promise, options.signal);
         } finally {
             releaseDownloadWaiter(languageCode, waiterId, pending);
@@ -975,8 +1011,15 @@ async function ensureLanguageModel(
 
     const task: ISharedDownloadTask = {
         controller: new AbortController(),
-        waiterIds: new Set([waiterId]),
+        waiters: new Map([[
+            waiterId,
+            options.onProgress,
+        ]]),
         promise: Promise.resolve(),
+    };
+    const onProgress = (progress: IOcrModelDownloadProgress) => {
+        task.progress = progress;
+        for (const listener of task.waiters.values()) notifyDownloadProgress(listener, progress);
     };
     task.promise = (async () => {
         let releaseSlot: (() => void) | null = null;
@@ -988,7 +1031,10 @@ async function ensureLanguageModel(
             const restored = await restoreBundledLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
             if (!restored && !await verifyInstalledLanguageModel(languageCode, modelPath, task.controller.signal)) {
                 releaseSlot = await acquireGlobalModelDownloadSlot(task.controller.signal);
-                await downloadLanguageModel(languageCode, runtimeDir, {signal: task.controller.signal});
+                await downloadLanguageModel(languageCode, runtimeDir, {
+                    signal: task.controller.signal,
+                    onProgress,
+                });
             }
         } finally {
             releaseSlot?.();

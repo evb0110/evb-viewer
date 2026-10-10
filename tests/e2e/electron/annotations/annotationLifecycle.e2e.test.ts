@@ -1602,6 +1602,16 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 } satisfies ICanonicalEntityGeometry;
             })
         ), entitySelector);
+        const waitForRestingGeometry = (ids: string[]) => page.waitForFunction((annotationIds: string[]) => annotationIds.every(annotationId => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+            );
+            return entity !== null
+                && !entity.matches(':hover')
+                && entity.getAnimations().every(animation => (
+                    animation.playState !== 'running' && !animation.pending
+                ));
+        }), {timeout: 10_000}, ids);
         const waitForSelectedCount = async (count: number) => {
             await page.waitForFunction((expected: number) => (
                 document.querySelectorAll(
@@ -1694,6 +1704,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             // compare the annotation position rather than hover styling.
             await page.mouse.move(0, 0);
             await expectEditorLayerFocused(`${kind} ${entity.id}`);
+            await waitForRestingGeometry([entity.id]);
             const before = (await readGeometry()).find(candidate => candidate.id === entity.id);
             if (!before) {
                 throw new Error(`Canonical entity geometry was not readable: ${entity.id}`);
@@ -1784,16 +1795,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // capturing the mixed baseline so undo compares canonical geometry,
         // rather than a transient hover transform.
         await page.mouse.move(0, 0);
-        await page.waitForFunction((ids: string[]) => ids.every(annotationId => {
-            const entity = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
-            );
-            return entity !== null
-                && !entity.matches(':hover')
-                && entity.getAnimations().every(animation => (
-                    animation.playState !== 'running' && !animation.pending
-                ));
-        }), {timeout: 10_000}, [
+        await waitForRestingGeometry([
             first.id,
             second.id,
         ]);

@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {join} from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {
     assertGithubActionsYamlSyntax,
@@ -15,9 +16,9 @@ describe('GitHub Actions YAML syntax', () => {
     it('parses every checked-in workflow and composite action', async () => {
         const files = await checkGithubActionsSyntax();
 
-        expect(files).toContain('.github/workflows/ci.yml');
-        expect(files).toContain('.github/workflows/release.yml');
-        expect(files).toContain('.github/actions/upload-electron-e2e-artifacts/action.yml');
+        expect(files).toContain(join('.github', 'workflows', 'ci.yml'));
+        expect(files).toContain(join('.github', 'workflows', 'release.yml'));
+        expect(files).toContain(join('.github', 'actions', 'upload-electron-e2e-artifacts', 'action.yml'));
     });
 
     it('reports the source location for an unquoted colon scalar regression', () => {

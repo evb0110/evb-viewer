@@ -44,7 +44,6 @@ export interface IDocumentNavigationRequest {
     target: TDocumentNavigationTarget;
     alignment: 'page-top' | 'page-bottom' | 'rect-center' | 'keep-visible';
     readiness: 'metrics' | 'page-canvas' | 'text-layer' | 'annotation-editor';
-    postArrival?: 'search-highlight' | 'annotation-pulse' | 'flash';
     source: 'toolbar' | 'wheel' | 'search' | 'bookmark' | 'annotation' | 'thumbnail' | 'activation' | 'restore';
     supersession: 'latest-wins';
 }

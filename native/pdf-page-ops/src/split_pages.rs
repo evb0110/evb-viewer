@@ -36,7 +36,7 @@ fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_crop_rect(rect: SplitCropRect) -> Result<PdfRect> {
+pub(crate) fn validate_crop_rect(rect: SplitCropRect) -> Result<PdfRect> {
     if !rect.x.is_finite()
         || !rect.y.is_finite()
         || !rect.width.is_finite()
@@ -205,16 +205,13 @@ fn collect_content_streams(
 /// The annotation entries that are page coordinates: every one of them is a
 /// flat list of (x, y) pairs in the same user space as the content.
 ///
-/// `Rect` carries the box an appearance stream is mapped into, so an annotation
-/// that has an `/AP` follows its rectangle without its stream being touched.
-/// The rest are the geometry an annotation with no appearance stream is drawn
-/// from — which is what the app writes — and leaving them behind would put an
-/// ink stroke or a line somewhere its own rectangle no longer is.
+/// `Rect`, appearance placement, and point arrays share the same transform.
+/// Moving only the rectangle leaves a rotated appearance or an ink stroke
+/// in its old orientation.
 /// Whether an array of this length is the shape PDF defines for its key.
 type AnnotationArrayShape = fn(usize) -> bool;
 
-const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 5] = [
-    (b"Rect", |len| len == 4),
+const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 4] = [
     (b"QuadPoints", |len| len % 8 == 0),
     // Line endpoints, and the leader line of a callout: four numbers, or six
     // when the callout bends once.
@@ -228,31 +225,28 @@ const ANNOTATION_POINT_KEYS: [(&[u8], AnnotationArrayShape); 5] = [
 /// entry — is refused rather than half-transformed: the annotation is left
 /// exactly as it was instead of being corrupted into a shape no reader accepts.
 fn transformed_point_array(
-    document: &Document,
+    document: &impl PdfObjectSource,
     values: &[Object],
-    transform: SplitContentTransform,
+    matrix: [f64; 6],
     shape_is_valid: impl Fn(usize) -> bool,
 ) -> Option<Vec<Object>> {
     if values.is_empty() || values.len() % 2 != 0 || !shape_is_valid(values.len()) {
         return None;
     }
     values
-        .iter()
-        .enumerate()
-        .map(|(index, value)| {
-            // A coordinate is allowed to be an indirect object of its own, and
-            // reading only the direct form would refuse the whole annotation.
-            let (_, value) = document.dereference(value).ok()?;
-            let number = f64::from(value.as_float().ok()?);
-            if !number.is_finite() {
-                return None;
+        .chunks_exact(2)
+        .flat_map(|pair| {
+            let point = (|| {
+                let x = f64::from(document.resolved(&pair[0]).ok()?.as_float().ok()?);
+                let y = f64::from(document.resolved(&pair[1]).ok()?.as_float().ok()?);
+                let tx = matrix[0] * x + matrix[2] * y + matrix[4];
+                let ty = matrix[1] * x + matrix[3] * y + matrix[5];
+                (tx.is_finite() && ty.is_finite()).then_some([number_object(tx), number_object(ty)])
+            })();
+            match point {
+                Some(point) => point.map(Some),
+                None => [None, None],
             }
-            let offset = if index % 2 == 0 {
-                transform.translate_x
-            } else {
-                transform.translate_y
-            };
-            Some(number_object(number * transform.scale + offset))
         })
         .collect()
 }
@@ -261,9 +255,9 @@ fn transformed_point_array(
 /// transformed one stroke at a time. A stroke this tool cannot read leaves the
 /// whole list alone: a half-moved drawing is worse than one that did not move.
 fn transformed_ink_list(
-    document: &Document,
+    document: &impl PdfObjectSource,
     strokes: &[Object],
-    transform: SplitContentTransform,
+    matrix: [f64; 6],
 ) -> Option<Vec<Object>> {
     if strokes.is_empty() {
         return None;
@@ -271,9 +265,9 @@ fn transformed_ink_list(
     strokes
         .iter()
         .map(|stroke| {
-            let (_, stroke) = document.dereference(stroke).ok()?;
+            let stroke = document.resolved(stroke).ok()?;
             let points =
-                transformed_point_array(document, stroke.as_array().ok()?, transform, |_| true)?;
+                transformed_point_array(document, stroke.as_array().ok()?, matrix, |_| true)?;
             Some(Object::Array(points))
         })
         .collect()
@@ -284,12 +278,259 @@ fn transformed_ink_list(
 /// write indirect arrays, and reading only the direct form leaves those
 /// coordinates where the untransformed content used to be.
 fn annotation_array(
-    document: &Document,
+    document: &impl PdfObjectSource,
     annotation: &Dictionary,
     key: &[u8],
 ) -> Option<Vec<Object>> {
-    let (_, resolved) = document.dereference(annotation.get(key).ok()?).ok()?;
+    let resolved = document.resolved(annotation.get(key).ok()?).ok()?;
     resolved.as_array().ok().cloned()
+}
+
+/// Share the page-ops coordinate writer with raster cleanup's affine overlay.
+/// Rectangles are bounds of all four transformed corners; markup retains its
+/// point order, including rotations and shear.
+pub(crate) fn transform_annotation_geometry(
+    document: &mut Document,
+    annotation: &mut Dictionary,
+    matrix: [f64; 6],
+    base: Option<&Document>,
+    page_rotation: i64,
+) -> Result<()> {
+    let source = AppendedRevision::from_documents(base.unwrap_or(document), document);
+    let old_rect = annotation_array(&source, annotation, b"Rect")
+        .and_then(|rect| parse_rect(&Object::Array(rect)).ok());
+    if let Some(rect) = old_rect {
+        crate::text_box_font::transform_editor_geometry(
+            &source,
+            annotation,
+            rect,
+            matrix,
+            page_rotation,
+        )?;
+        annotation.set(
+            "Rect",
+            rect_object(PdfMatrix::from_values(matrix).bounds(rect)),
+        );
+    }
+    for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
+        if let Some(values) = annotation_array(&source, annotation, key) {
+            if let Some(points) = transformed_point_array(&source, &values, matrix, shape_is_valid)
+            {
+                annotation.set(key.to_vec(), Object::Array(points));
+            }
+        }
+    }
+    if let Some(strokes) = annotation_array(&source, annotation, b"InkList") {
+        if let Some(ink) = transformed_ink_list(&source, &strokes, matrix) {
+            annotation.set("InkList", ink);
+        }
+    }
+    if let (Some(rect), Ok(appearance)) = (old_rect, annotation.get(b"AP")) {
+        let appearance = appearance.clone();
+        annotation.set(
+            "AP",
+            transform_appearance(
+                document,
+                base,
+                &appearance,
+                rect,
+                PdfMatrix::from_values(matrix),
+                0,
+            )?,
+        );
+    }
+    Ok(())
+}
+
+/// Resolve navigation through the destination page's geometry, independently
+/// of the page which owns the annotation. A split must identify one output.
+pub(crate) fn remap_internal_destination(
+    source: &Document,
+    destination: &Object,
+    pages: &[crate::text_layer::OverlayPage<'_>],
+) -> Result<Object> {
+    let mut destination = source.dereference(destination)?.1.as_array()?.clone();
+    let source_page = destination
+        .first()
+        .ok_or("Missing internal destination page")?
+        .as_reference()?;
+    let mode = source
+        .dereference(
+            destination
+                .get(1)
+                .ok_or("Missing internal destination mode")?,
+        )?
+        .1
+        .as_name()?;
+    let coordinate = |index: usize| -> Result<Option<f64>> {
+        let value = source
+            .dereference(
+                destination
+                    .get(index)
+                    .ok_or("Missing destination coordinate")?,
+            )?
+            .1;
+        if value.is_null() {
+            return Ok(None);
+        }
+        let value = f64::from(value.as_float()?);
+        if !value.is_finite() {
+            return Err("Non-finite destination coordinate".into());
+        }
+        Ok(Some(value))
+    };
+    let point = match mode {
+        b"XYZ" if destination.len() == 5 => [coordinate(2)?, coordinate(3)?],
+        b"FitH" | b"FitBH" if destination.len() == 3 => [None, coordinate(2)?],
+        b"FitV" | b"FitBV" if destination.len() == 3 => [coordinate(2)?, None],
+        b"Fit" | b"FitB" if destination.len() == 2 => [None, None],
+        b"FitR" if destination.len() == 6 => [None, None],
+        _ => return Err("overlay-text cannot resolve an internal destination".into()),
+    };
+    let transform = |matrix: [f64; 6], point: [Option<f64>; 2]| {
+        let term = |factor: f64, value: Option<f64>| {
+            if factor == 0.0 {
+                Some(0.0)
+            } else {
+                value.map(|value| factor * value)
+            }
+        };
+        [
+            term(matrix[0], point[0])
+                .zip(term(matrix[2], point[1]))
+                .map(|(x, y)| x + y + matrix[4]),
+            term(matrix[1], point[0])
+                .zip(term(matrix[3], point[1]))
+                .map(|(x, y)| x + y + matrix[5]),
+        ]
+    };
+    let points = if mode == b"FitR" {
+        let (left, bottom, right, top) = (
+            coordinate(2)?,
+            coordinate(3)?,
+            coordinate(4)?,
+            coordinate(5)?,
+        );
+        if [left, bottom, right, top].iter().any(Option::is_none) {
+            return Err("Missing FitR destination coordinate".into());
+        }
+        vec![[left, bottom], [left, top], [right, bottom], [right, top]]
+    } else {
+        vec![point]
+    };
+    let mut outputs = pages.iter().filter(|page| page.0 == source_page);
+    let first = outputs
+        .next()
+        .ok_or("overlay-text references an unmapped source page or tree")?;
+    let selected = if outputs.next().is_none() {
+        first
+    } else {
+        let mut matches = Vec::new();
+        for output in pages.iter().filter(|page| page.0 == source_page) {
+            let (matrix, view) = match output.2.source_region {
+                Some(region) => (region.matrix, validate_crop_rect(region.rect)?),
+                None => (output.2.matrix, output.3),
+            };
+            if points.iter().all(|point| {
+                let [x, y] = transform(matrix, *point);
+                x.is_none_or(|x| x >= view.x1 && x <= view.x2)
+                    && y.is_none_or(|y| y >= view.y1 && y <= view.y2)
+            }) {
+                matches.push(output);
+            }
+        }
+        match matches.as_slice() {
+            [output] => *output,
+            [] => {
+                return Err(
+                    "overlay-text cannot resolve an internal destination to an output region"
+                        .into(),
+                )
+            }
+            _ => return Err("overlay-text has an ambiguous internal destination".into()),
+        }
+    };
+    let matrix = selected.2.matrix;
+    let [x, y] = transform(matrix, point);
+    let nullable = |value: Option<f64>| -> Result<Object> {
+        match value {
+            Some(value) if value.is_finite() => Ok(number_object(value)),
+            Some(_) => Err("Non-finite transformed destination coordinate".into()),
+            None => Ok(Object::Null),
+        }
+    };
+    let mut values = match mode {
+        b"XYZ" => {
+            if point.iter().any(Option::is_some) && x.is_none() && y.is_none() {
+                return Err(
+                    "overlay-text cannot represent the transformed partial destination".into(),
+                );
+            }
+            vec![
+                "XYZ".into(),
+                nullable(x)?,
+                nullable(y)?,
+                nullable(coordinate(4)?)?,
+            ]
+        }
+        b"FitH" | b"FitBH" => {
+            if matrix[1] == 0.0 {
+                vec![Object::Name(mode.to_vec()), nullable(y)?]
+            } else if matrix[0] == 0.0 {
+                vec![
+                    Object::Name(if mode == b"FitH" {
+                        b"FitV".to_vec()
+                    } else {
+                        b"FitBV".to_vec()
+                    }),
+                    nullable(x)?,
+                ]
+            } else {
+                return Err(
+                    "overlay-text cannot represent the transformed horizontal destination".into(),
+                );
+            }
+        }
+        b"FitV" | b"FitBV" => {
+            if matrix[2] == 0.0 {
+                vec![Object::Name(mode.to_vec()), nullable(x)?]
+            } else if matrix[3] == 0.0 {
+                vec![
+                    Object::Name(if mode == b"FitV" {
+                        b"FitH".to_vec()
+                    } else {
+                        b"FitBH".to_vec()
+                    }),
+                    nullable(y)?,
+                ]
+            } else {
+                return Err(
+                    "overlay-text cannot represent the transformed vertical destination".into(),
+                );
+            }
+        }
+        b"FitR" => {
+            let rect = PdfRect {
+                x1: coordinate(2)?.ok_or("Missing FitR left")?,
+                y1: coordinate(3)?.ok_or("Missing FitR bottom")?,
+                x2: coordinate(4)?.ok_or("Missing FitR right")?,
+                y2: coordinate(5)?.ok_or("Missing FitR top")?,
+            };
+            let bounds = PdfMatrix::from_values(matrix).bounds(rect);
+            vec![
+                "FitR".into(),
+                nullable(Some(bounds.x1))?,
+                nullable(Some(bounds.y1))?,
+                nullable(Some(bounds.x2))?,
+                nullable(Some(bounds.y2))?,
+            ]
+        }
+        _ => vec![Object::Name(mode.to_vec())],
+    };
+    destination.clear();
+    destination.push(Object::Reference(selected.1));
+    destination.append(&mut values);
+    Ok(Object::Array(destination))
 }
 
 /// The page's annotation list, whether the page holds the array itself or
@@ -334,21 +575,23 @@ fn transform_annotations(
             continue;
         };
         let mut copy = dictionary;
-        for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
-            let Some(values) = annotation_array(document, &copy, key) else {
-                continue;
-            };
-            if let Some(points) =
-                transformed_point_array(document, &values, transform, shape_is_valid)
-            {
-                copy.set(key.to_vec(), Object::Array(points));
-            }
-        }
-        if let Some(strokes) = annotation_array(document, &copy, b"InkList") {
-            if let Some(ink) = transformed_ink_list(document, &strokes, transform) {
-                copy.set(b"InkList".to_vec(), Object::Array(ink));
-            }
-        }
+        transform_annotation_geometry(
+            document,
+            &mut copy,
+            [
+                transform.scale,
+                0.0,
+                0.0,
+                transform.scale,
+                transform.translate_x,
+                transform.translate_y,
+            ],
+            None,
+            page.get(b"Rotate")
+                .ok()
+                .and_then(|value| value.as_i64().ok())
+                .unwrap_or(0),
+        )?;
         transformed.push(Object::Reference(document.add_object(copy)));
     }
     page.set("Annots", Object::Array(transformed));
@@ -462,20 +705,23 @@ fn transform_annotations_incremental(
             continue;
         };
         let mut copy = dictionary;
-        for (key, shape_is_valid) in ANNOTATION_POINT_KEYS {
-            let Some(values) = annotation_array(base, &copy, key) else {
-                continue;
-            };
-            if let Some(points) = transformed_point_array(base, &values, transform, shape_is_valid)
-            {
-                copy.set(key.to_vec(), Object::Array(points));
-            }
-        }
-        if let Some(strokes) = annotation_array(base, &copy, b"InkList") {
-            if let Some(ink) = transformed_ink_list(base, &strokes, transform) {
-                copy.set(b"InkList".to_vec(), Object::Array(ink));
-            }
-        }
+        transform_annotation_geometry(
+            target,
+            &mut copy,
+            [
+                transform.scale,
+                0.0,
+                0.0,
+                transform.scale,
+                transform.translate_x,
+                transform.translate_y,
+            ],
+            Some(base),
+            page.get(b"Rotate")
+                .ok()
+                .and_then(|value| value.as_i64().ok())
+                .unwrap_or(0),
+        )?;
         transformed.push(Object::Reference(target.add_object(copy)));
     }
     page.set("Annots", Object::Array(transformed));
@@ -995,5 +1241,195 @@ mod optional_content_traversal_tests {
         document.trailer.set("Root", catalog_id);
 
         assert!(has_valid_oc_properties(&document, catalog_id).unwrap());
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PdfMatrix {
+    pub(crate) a: f64,
+    pub(crate) b: f64,
+    pub(crate) c: f64,
+    pub(crate) d: f64,
+    pub(crate) e: f64,
+    pub(crate) f: f64,
+}
+
+impl PdfMatrix {
+    pub(crate) const IDENTITY: Self = Self {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
+
+    pub(crate) fn from_values(values: [f64; 6]) -> Self {
+        Self {
+            a: values[0],
+            b: values[1],
+            c: values[2],
+            d: values[3],
+            e: values[4],
+            f: values[5],
+        }
+    }
+
+    pub(crate) fn from_operation(operation: &lopdf::content::Operation) -> Option<Self> {
+        let values = operation
+            .operands
+            .iter()
+            .map(|operand| object_to_f64(operand).ok())
+            .collect::<Option<Vec<_>>>()?;
+        let values: [f64; 6] = values.try_into().ok()?;
+        Some(Self::from_values(values))
+    }
+
+    pub(crate) fn concat(self, rhs: Self) -> Self {
+        Self {
+            a: self.a * rhs.a + self.c * rhs.b,
+            b: self.b * rhs.a + self.d * rhs.b,
+            c: self.a * rhs.c + self.c * rhs.d,
+            d: self.b * rhs.c + self.d * rhs.d,
+            e: self.a * rhs.e + self.c * rhs.f + self.e,
+            f: self.b * rhs.e + self.d * rhs.f + self.f,
+        }
+    }
+
+    pub(crate) fn translation(x: f64, y: f64) -> Self {
+        Self {
+            e: x,
+            f: y,
+            ..Self::IDENTITY
+        }
+    }
+
+    pub(crate) fn transform(self, x: f64, y: f64) -> (f64, f64) {
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
+    }
+
+    pub(crate) fn operands(self) -> Vec<Object> {
+        [self.a, self.b, self.c, self.d, self.e, self.f]
+            .into_iter()
+            .map(number_object)
+            .collect()
+    }
+
+    pub(crate) fn local_horizontal_offset(self, line: Self) -> Option<f64> {
+        let determinant = line.a * line.d - line.b * line.c;
+        if determinant.abs() <= f64::EPSILON {
+            return None;
+        }
+        let delta_x = self.e - line.e;
+        let delta_y = self.f - line.f;
+        Some((delta_x * line.d - line.c * delta_y) / determinant)
+    }
+}
+
+impl PdfMatrix {
+    pub(crate) fn bounds(self, rect: PdfRect) -> PdfRect {
+        let points = [
+            (rect.x1, rect.y1),
+            (rect.x1, rect.y2),
+            (rect.x2, rect.y1),
+            (rect.x2, rect.y2),
+        ]
+        .map(|(x, y)| self.transform(x, y));
+        PdfRect {
+            x1: points.iter().map(|p| p.0).fold(f64::INFINITY, f64::min),
+            y1: points.iter().map(|p| p.1).fold(f64::INFINITY, f64::min),
+            x2: points.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max),
+            y2: points.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max),
+        }
+    }
+}
+
+/// Copy appearance containers per annotation so a shared form cannot be moved
+/// twice. Stream resources retain their existing identity in the same revision.
+fn transform_appearance(
+    target: &mut Document,
+    base: Option<&Document>,
+    object: &Object,
+    rect: PdfRect,
+    matrix: PdfMatrix,
+    depth: usize,
+) -> Result<Object> {
+    if depth > 3 {
+        return Err("Annotation appearance is nested beyond its supported shape".into());
+    }
+    let source = AppendedRevision::from_documents(base.unwrap_or(target), target);
+    let object = source.resolved(object)?.clone();
+    match object {
+        Object::Stream(mut stream) => {
+            let bbox = parse_rect(source.resolved(stream.dict.get(b"BBox")?)?)?;
+            let appearance_matrix = match stream.dict.get(b"Matrix") {
+                Ok(value) => PdfMatrix::from_values(
+                    source
+                        .resolved(value)?
+                        .as_array()?
+                        .iter()
+                        .map(object_to_f64)
+                        .collect::<Result<Vec<_>>>()?
+                        .try_into()
+                        .map_err(|_| "Appearance Matrix must contain six numbers")?,
+                ),
+                Err(_) => PdfMatrix::IDENTITY,
+            };
+            let bounds = appearance_matrix.bounds(bbox);
+            if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
+                return Err("Invalid annotation appearance bounds".into());
+            }
+            let sx = rect.width() / bounds.width();
+            let sy = rect.height() / bounds.height();
+            let placement = PdfMatrix::from_values([
+                sx,
+                0.0,
+                0.0,
+                sy,
+                rect.x1 - sx * bounds.x1,
+                rect.y1 - sy * bounds.y1,
+            ]);
+            let composed = matrix.concat(placement);
+            if ![
+                composed.a, composed.b, composed.c, composed.d, composed.e, composed.f,
+            ]
+            .iter()
+            .all(|value| value.is_finite())
+            {
+                return Err("Invalid transformed annotation appearance".into());
+            }
+            // A transformed form's bounding box need not fill the transformed
+            // annotation rectangle (for example a rotated form under shear).
+            // Clip in the new rectangle, so PDF's appearance-to-Rect fitting
+            // does not apply another scale to the transformed source form.
+            stream.start_position = None;
+            let source_form = target.add_object(stream);
+            let content = format!(
+                "q {} {} {} {} {} {} cm /EVBSourceAppearance Do Q",
+                number_to_content(composed.a),
+                number_to_content(composed.b),
+                number_to_content(composed.c),
+                number_to_content(composed.d),
+                number_to_content(composed.e),
+                number_to_content(composed.f)
+            );
+            Ok(Object::Reference(target.add_object(Stream::new(dictionary! {
+                "Type" => "XObject", "Subtype" => "Form", "BBox" => rect_object(matrix.bounds(rect)),
+                "Resources" => dictionary! {"XObject" => dictionary! {"EVBSourceAppearance" => source_form}},
+            }, content.into_bytes()))))
+        }
+        Object::Dictionary(mut dict) => {
+            for (key, value) in dict.clone().iter() {
+                dict.set(
+                    key.clone(),
+                    transform_appearance(target, base, value, rect, matrix, depth + 1)?,
+                );
+            }
+            Ok(Object::Dictionary(dict))
+        }
+        _ => Err("Unsupported annotation appearance shape".into()),
     }
 }

@@ -3959,7 +3959,7 @@ mod tests {
     }
 
     fn binary_fixture(bytes: &[u8]) -> BinaryImage {
-        let gray = crate::png::decode_gray(bytes, 1_000_000, 2_000).unwrap();
+        let gray = crate::io::png::decode_gray(bytes, 1_000_000, 2_000).unwrap();
         let mut binary = BinaryImage::new(gray.width(), gray.height());
         for y in 0..gray.height() {
             for x in 0..gray.width() {
@@ -6053,7 +6053,7 @@ mod tests {
 
     #[test]
     fn niqqud_page_is_untouched_when_rescue_stays_within_budget() {
-        let raw = crate::png::decode_gray(
+        let raw = crate::io::png::decode_gray(
             include_bytes!("../tests/fixtures/glyphs/hebrew-bhs-p126-niqqud-input.png"),
             1_000_000,
             2_000,

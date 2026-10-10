@@ -274,6 +274,22 @@ export function resolveScanCleanupTextLayerInstruction(
         sourcePageIndex: output.sourcePageNumber - 1,
         outputPageIndex,
         matrix,
+        ...(metadata.sourceRegion === undefined ? {} : {sourceRegion: {
+            rect: {
+                x: metadata.sourceRegion.xPx,
+                y: metadata.sourceRegion.yPx,
+                width: metadata.sourceRegion.widthPx,
+                height: metadata.sourceRegion.heightPx,
+            },
+            matrix: [
+                canonicalNumber(pixelXFromPdfX),
+                canonicalNumber(pixelYFromPdfX),
+                canonicalNumber(pixelXFromPdfY),
+                canonicalNumber(pixelYFromPdfY),
+                canonicalNumber(sourceOrigin.x),
+                canonicalNumber(sourceOrigin.y),
+            ],
+        }}),
         ...(metadata.half !== undefined && metadata.half !== 'full'
             ? {filterToOutputPage: true}
             : {}),

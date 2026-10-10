@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -22,6 +23,10 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 }
 
 describe('document viewport resize anchor', () => {
+    afterEach(() => {
+        document.body.replaceChildren();
+    });
+
     it('uses the usable viewport centre excluding borders and scrollbar gutters', () => {
         const viewport = document.createElement('div');
         const page = document.createElement('section');

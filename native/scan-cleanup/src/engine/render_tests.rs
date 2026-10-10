@@ -118,6 +118,7 @@ mod tests {
                 trusted_selection_applied: true,
                 illumination_normalized: true,
                 text_tone_diagnostics: None,
+                faint_stroke_masks: Default::default(),
                 binarization_mode: None,
                 binarization_diagnostics: None,
                 ink_consistency_diagnostics: None,
@@ -6366,6 +6367,142 @@ mod tests {
         .remove(0);
         assert_eq!(detail.image.to_gray().as_ref(), &expected);
         assert_eq!(detail.metadata.text_tone_diagnostics, Some(diagnostics));
+    }
+
+    #[test]
+    fn detail_tiles_replay_full_page_pencil_and_show_through_decisions() {
+        // #1338's 300-DPI title page and shallow verso glyphs.
+        let mut source = GrayImage::new(1700, 2400, 224);
+        let mut glyph = |left, top, ink| {
+            for y in top..top + 90 {
+                for x in left..left + 70 {
+                    if x < left + 14 || x >= left + 56 || y < top + 12 {
+                        source.set(x, y, ink);
+                    }
+                }
+            }
+        };
+        for (top, count) in [(600, 8), (900, 6), (1200, 9)] {
+            for column in 0..count {
+                glyph(300 + column * 120, top, 40);
+            }
+        }
+        for column in 0..3 {
+            glyph(1150 + column * 120, 1500, 208);
+        }
+        for x in 1150..=1530 {
+            let y = (940.0 + 40.0 * ((x - 1150) as f64 * 18.0 / 380.0).sin()).round() as usize;
+            for row in y - 1..=y + 1 {
+                source.set(x, row, 175);
+            }
+        }
+        for horizontal in [true, false] {
+            let mut blurred = GrayImage::new(source.width(), source.height(), 224);
+            for y in 0..source.height() {
+                for x in 0..source.width() {
+                    let mut sum = 0u32;
+                    for (offset, weight) in [1, 4, 6, 4, 1].into_iter().enumerate() {
+                        let sample_x = if horizontal {
+                            x as isize + offset as isize - 2
+                        } else {
+                            x as isize
+                        };
+                        let sample_y = if horizontal {
+                            y as isize
+                        } else {
+                            y as isize + offset as isize - 2
+                        };
+                        sum += u32::from(source.get(
+                            sample_x.clamp(0, source.width() as isize - 1) as usize,
+                            sample_y.clamp(0, source.height() as isize - 1) as usize,
+                        )) * weight;
+                    }
+                    blurred.set(x, y, ((sum + 8) / 16) as u8);
+                }
+            }
+            source = blurred;
+        }
+        let options = CleanupOptions {
+            output_mode: OutputMode::Auto,
+            layout: crate::LayoutMode::Single,
+            crop_content: false,
+            match_page_size: false,
+            despeckle: false,
+            margins_mm: None,
+            margins_pixels: Some([0.0; 4]),
+            manual_skew_degrees: Some(0.0),
+            ..CleanupOptions::default()
+        };
+        let base = clean_page(&source, &options, 0).unwrap().outputs.remove(0);
+        assert_eq!(base.metadata.output_mode, OutputMode::Bw);
+        let region = crate::protocol::manifest_v3::DetailPixelRect {
+            x_px: 1600.0,
+            y_px: 1700.0,
+            width_px: 1600.0,
+            height_px: 1600.0,
+        };
+        let mut source_crop = GrayImage::new(1600, 1600, 224);
+        for y in 0..source_crop.height() {
+            for x in 0..source_crop.width() {
+                source_crop.set(x, y, source.get(800 + x / 2, 850 + y / 2));
+            }
+        }
+        let plan = DetailRenderPlan {
+            base_metadata_path: "unused-in-engine-test.json".into(),
+            base_raster_path: "unused-in-engine-test.png".into(),
+            base_cleaned_raster_path: None,
+            source_crop: region.clone(),
+            full_source_width_px: 3400,
+            full_source_height_px: 4800,
+            scale: 2.0,
+            render_region: region.clone(),
+            sampled_region: region,
+        };
+        let tile = clean_detail_page_with_color(
+            DetailRenderSources {
+                source_crop: &source_crop,
+                color_source_crop: None,
+                base_source: &source,
+                base_color_source: None,
+                base_cleaned: None,
+            },
+            &CleanupOptions {
+                output_mode: OutputMode::Bw,
+                dpi: 600.0,
+                ..options
+            },
+            0,
+            &plan,
+            &base.metadata,
+            &mut PageStageTimings::default(),
+        )
+        .unwrap()
+        .outputs
+        .remove(0);
+        let kept = (880..1020)
+            .flat_map(|y| (1120..1570).map(move |x| (x, y)))
+            .filter(|&(x, y)| base.image.get(x, y) < 128)
+            .count();
+        assert!(kept > 500, "the full page must keep the pencil");
+        for y in 880..1020 {
+            for x in 1120..1570 {
+                assert_eq!(
+                    base.image.get(x, y),
+                    tile.image.get(x * 2 + 1 - 1600, y * 2 + 1 - 1700),
+                    "pencil position ({x}, {y}) changed in the tile"
+                );
+            }
+        }
+        for y in 1480..1620 {
+            for x in 1120..1570 {
+                assert_eq!(base.image.get(x, y), 255, "full-page show-through survived");
+                assert_eq!(
+                    tile.image.get(x * 2 + 1 - 1600, y * 2 + 1 - 1700),
+                    255,
+                    "detail show-through survived"
+                );
+            }
+        }
     }
 
     #[test]

@@ -1660,3 +1660,1283 @@ fn keeps_page_content_that_only_mentions_the_ocr_marker() {
         let _ = fs::remove_file(file);
     }
 }
+
+#[test]
+fn overlay_links_target_output_pages_without_copying_source_page_trees() {
+    for action in [false, true] {
+        let source = path("link-source", "pdf");
+        let input = path("link-input", "pdf");
+        let output = path("link-output", "pdf");
+        let instructions = path("link-instructions", "json");
+        let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+        let source_pages = document.get_pages().into_values().collect::<Vec<_>>();
+        for index in 0..2 {
+            let destination = vec![source_pages[1 - index].into(), "Fit".into()];
+            let mut link = dictionary! {
+                "Type" => "Annot", "Subtype" => "Link", "P" => source_pages[index],
+                "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+            };
+            if action {
+                link.set("A", dictionary! {"S" => "GoTo", "D" => destination});
+            } else {
+                link.set("Dest", destination);
+            }
+            let link_id = document.add_object(link);
+            document
+                .get_dictionary_mut(source_pages[index])
+                .unwrap()
+                .set("Annots", vec![Object::Reference(link_id)]);
+        }
+        document.save(&source).unwrap();
+        save_empty_pages(&input, 2);
+        write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]},{"sourcePageIndex":1,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        for index in 0..2 {
+            let annots = saved
+                .get_dictionary(pages[index])
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap();
+            let link = saved
+                .get_dictionary(annots[0].as_reference().unwrap())
+                .unwrap();
+            let destination = if action {
+                link.get(b"A")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"D")
+                    .unwrap()
+            } else {
+                link.get(b"Dest").unwrap()
+            };
+            assert_eq!(
+                destination.as_array().unwrap()[0].as_reference().unwrap(),
+                pages[1 - index]
+            );
+        }
+        assert_eq!(
+            saved
+                .objects
+                .values()
+                .filter(|object| object.as_dict().is_ok_and(|dictionary| dictionary
+                    .get(b"Type")
+                    .and_then(Object::as_name)
+                    .is_ok_and(|name| name == b"Page")))
+                .count(),
+            2
+        );
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() {
+    let source = path("unmapped-link-source", "pdf");
+    let input = path("unmapped-link-input", "pdf");
+    let output = path("unmapped-link-output", "pdf");
+    let instructions = path("unmapped-link-instructions", "json");
+    let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+    let pages = document.get_pages().into_values().collect::<Vec<_>>();
+    let link_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "P" => pages[0],
+        "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+        "Dest" => vec![pages[1].into(), "Fit".into()],
+    });
+    document
+        .get_dictionary_mut(pages[0])
+        .unwrap()
+        .set("Annots", vec![Object::Reference(link_id)]);
+    document.save(&source).unwrap();
+    save_empty_pages(&input, 1);
+    write(&output, b"existing output").unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("unmapped source page"));
+    assert_eq!(fs::read(&output).unwrap(), b"existing output");
+    for file in [source, input, output, instructions] {
+        let _ = remove_file(file);
+    }
+}
+
+#[test]
+fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
+    for (incremental, margin, source_region) in [
+        (false, 0, false),
+        (false, 0, true),
+        (false, 20, true),
+        (true, 0, true),
+        (true, 20, true),
+    ] {
+        let source = path("source-region-note", "pdf");
+        let input = path("source-region-target", "pdf");
+        let output = path("source-region-output", "pdf");
+        let inspected = path("source-region-inspected", "pdf");
+        let instructions = path("source-region", "json");
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page_id = document.get_pages()[&1];
+        let seam = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+            "Rect" => vec![95.into(), 45.into(), 105.into(), 55.into()],
+            "Contents" => Object::string_literal("Seam note"),
+        });
+        let root = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+            "Rect" => vec![20.into(), 30.into(), 30.into(), 40.into()],
+            "Contents" => Object::string_literal("Root note"),
+        });
+        let reply = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+            "Rect" => vec![150.into(), 30.into(), 160.into(), 40.into()],
+            "Contents" => Object::string_literal("Reply note"),
+        });
+        let popup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => reply,
+            "Rect" => vec![140.into(), 45.into(), 190.into(), 100.into()],
+            "Contents" => Object::string_literal("Reply popup"),
+        });
+        document
+            .get_dictionary_mut(reply)
+            .unwrap()
+            .set("Popup", popup);
+        let markup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => page_id,
+            "Rect" => vec![90.into(), 45.into(), 110.into(), 55.into()],
+            "QuadPoints" => vec![90.into(), 55.into(), 110.into(), 55.into(), 90.into(), 45.into(), 110.into(), 45.into()],
+            "Contents" => Object::string_literal("Cross-seam markup"),
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![seam, root, reply, popup, markup]
+                .into_iter()
+                .map(Object::Reference)
+                .collect::<Vec<_>>(),
+        );
+        document.save(&source).unwrap();
+        if incremental {
+            assert!(write_sparse_source(&input, 2, None, None) > 512 * 1024 * 1024);
+        } else {
+            let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+            for id in target.get_pages().values() {
+                target.get_dictionary_mut(*id).unwrap().set(
+                    "MediaBox",
+                    vec![
+                        0.into(),
+                        0.into(),
+                        (100 + 2 * margin).into(),
+                        (120 + 2 * margin).into(),
+                    ],
+                );
+            }
+            let target_page = target.get_pages()[&1];
+            let existing = target.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "Text", "P" => target_page,
+                "Rect" => vec![70.into(), 20.into(), 80.into(), 30.into()],
+                "Contents" => Object::string_literal("Existing target note"),
+            });
+            target
+                .get_dictionary_mut(target_page)
+                .unwrap()
+                .set("Annots", vec![Object::Reference(existing)]);
+            target.save(&input).unwrap();
+        }
+        let pages = (0..2)
+            .map(|index| {
+                let mut instruction = serde_json::json!({
+                    "sourcePageIndex":0,"outputPageIndex":index,
+                    "matrix":[1,0,0,1,margin-index*100,margin],"filterToOutputPage":true,
+                });
+                if source_region {
+                    instruction["sourceRegion"] = serde_json::json!({
+                        "rect":{"x":index*100,"y":0,"width":100,"height":120},
+                        "matrix":[1,0,0,-1,0,120],
+                    });
+                }
+                instruction
+            })
+            .collect::<Vec<_>>();
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":pages})).unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let compact = Command::new(qpdf_path())
+            .arg(&output)
+            .arg(&inspected)
+            .output()
+            .unwrap();
+        assert!(
+            compact.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compact.stderr)
+        );
+        let saved = Document::load(&inspected).unwrap();
+        let annotations = saved
+            .get_pages()
+            .values()
+            .map(|page| {
+                saved
+                    .get_dictionary(*page)
+                    .unwrap()
+                    .get(b"Annots")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|object| {
+                        let id = object.as_reference().unwrap();
+                        let annotation = saved.get_dictionary(id).unwrap();
+                        assert_eq!(annotation.get(b"P").unwrap().as_reference().unwrap(), *page);
+                        (
+                            String::from_utf8(
+                                annotation
+                                    .get(b"Contents")
+                                    .unwrap()
+                                    .as_str()
+                                    .unwrap()
+                                    .to_vec(),
+                            )
+                            .unwrap(),
+                            id,
+                        )
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            })
+            .collect::<Vec<_>>();
+        let mut expected_left = vec![
+            "Cross-seam markup",
+            "Reply note",
+            "Reply popup",
+            "Root note",
+        ];
+        if !incremental {
+            expected_left.insert(1, "Existing target note");
+            assert_eq!(
+                saved
+                    .get_dictionary(annotations[0]["Existing target note"])
+                    .unwrap()
+                    .get(b"Rect")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|number| number.as_i64().unwrap())
+                    .collect::<Vec<_>>(),
+                vec![70, 20, 80, 30]
+            );
+        }
+        assert_eq!(
+            annotations[0]
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            expected_left
+        );
+        assert_eq!(
+            annotations[1]
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["Cross-seam markup", "Seam note"]
+        );
+        let left = &annotations[0];
+        let reply = saved.get_dictionary(left["Reply note"]).unwrap();
+        assert_eq!(
+            reply.get(b"IRT").unwrap().as_reference().unwrap(),
+            left["Root note"]
+        );
+        assert_eq!(
+            reply.get(b"Popup").unwrap().as_reference().unwrap(),
+            left["Reply popup"]
+        );
+        assert_eq!(
+            saved
+                .get_dictionary(left["Reply popup"])
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            left["Reply note"]
+        );
+        assert_eq!(
+            saved
+                .objects
+                .values()
+                .filter(|object| {
+                    object
+                        .as_dict()
+                        .ok()
+                        .and_then(|dict| dict.get(b"Subtype").ok())
+                        .and_then(|subtype| subtype.as_name().ok())
+                        .is_some_and(|subtype| matches!(subtype, b"Text" | b"Popup"))
+                })
+                .count(),
+            4 + usize::from(!incremental)
+        );
+        // An ownership cycle has no terminal half. Refuse before publication.
+        for owner in [
+            root,
+            document
+                .get_dictionary(popup)
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+        ] {
+            document.get_dictionary_mut(root).unwrap().set("IRT", owner);
+            document.save(&source).unwrap();
+            write(&output, b"existing output").unwrap();
+            let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+            assert!(!result.status.success());
+            assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        }
+        document.get_dictionary_mut(root).unwrap().remove(b"IRT");
+        let mut deep_owner = root;
+        for _ in 0..128 {
+            deep_owner = document.add_object(dictionary! {
+                "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => deep_owner,
+                "Rect" => vec![150.into(), 30.into(), 160.into(), 40.into()],
+            });
+        }
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(deep_owner)]);
+        document.save(&source).unwrap();
+        write(&output, b"existing output").unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(!result.status.success());
+        assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        for file in [source, input, output, inspected, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+fn red_pixels(pdf: &Path) -> Vec<(f64, f64)> {
+    let rendered = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args(["-r", "72", "-singlefile"])
+    .arg(pdf)
+    .output()
+    .unwrap();
+    assert!(
+        rendered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rendered.stderr)
+    );
+    let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+    assert_eq!(header.next().unwrap(), b"P6");
+    let dimensions = std::str::from_utf8(header.next().unwrap()).unwrap();
+    let width: usize = dimensions
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(header.next().unwrap(), b"255");
+    header
+        .next()
+        .unwrap()
+        .chunks_exact(3)
+        .enumerate()
+        .filter(|(_, rgb)| rgb[0] > 200 && rgb[1] < 30 && rgb[2] < 30)
+        .map(|(index, _)| ((index % width) as f64, (index / width) as f64))
+        .collect()
+}
+
+#[test]
+fn overlay_legacy_point_note_thread_lands_on_one_split_half() {
+    for incremental in [false, true] {
+        let source = path("legacy-seam-note", "pdf");
+        let input = path("legacy-seam-target", "pdf");
+        let output = path("legacy-seam-output", "pdf");
+        let inspected = path("legacy-seam-inspected", "pdf");
+        let instructions = path("legacy-seam", "json");
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page_id = document.get_pages()[&1];
+        let blank_appearance = document.add_object(Stream::new(
+            dictionary! { "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()] },
+            Vec::new(),
+        ));
+        // ADR 0003 legacy marker: a FreeText with a blank appearance, a
+        // tiny rect centred on the seam, and a Popup child.
+        let root = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => vec![99.99_f32.into(), 49.99_f32.into(), 100.01_f32.into(), 50.01_f32.into()],
+            "Contents" => Object::string_literal("Legacy root"),
+            "AP" => dictionary! { "N" => blank_appearance },
+        });
+        let popup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+            "Rect" => vec![140.into(), 45.into(), 190.into(), 100.into()],
+            "Contents" => Object::string_literal("Legacy popup"),
+        });
+        document
+            .get_dictionary_mut(root)
+            .unwrap()
+            .set("Popup", popup);
+        let reply = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+            "Rect" => vec![150.into(), 30.into(), 160.into(), 40.into()],
+            "Contents" => Object::string_literal("Legacy reply"),
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![root, popup, reply]
+                .into_iter()
+                .map(Object::Reference)
+                .collect::<Vec<_>>(),
+        );
+        document.save(&source).unwrap();
+        if incremental {
+            assert!(write_sparse_source(&input, 2, None, None) > 512 * 1024 * 1024);
+        } else {
+            let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+            for id in target.get_pages().values() {
+                target
+                    .get_dictionary_mut(*id)
+                    .unwrap()
+                    .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+            }
+            target.save(&input).unwrap();
+        }
+        let pages = (0..2_i64)
+            .map(|index| {
+                serde_json::json!({
+                    "sourcePageIndex":0,"outputPageIndex":index,
+                    "matrix":[1,0,0,1,-100 * index,0],"filterToOutputPage":true,
+                    "sourceRegion":{
+                        "rect":{"x":index*100,"y":0,"width":100,"height":120},
+                        "matrix":[1,0,0,-1,0,120],
+                    },
+                })
+            })
+            .collect::<Vec<_>>();
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":pages})).unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let compact = Command::new(qpdf_path())
+            .arg(&output)
+            .arg(&inspected)
+            .output()
+            .unwrap();
+        assert!(
+            compact.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compact.stderr)
+        );
+        let saved = Document::load(&inspected).unwrap();
+        // Contents per half, in /Annots order. Duplicates stay visible.
+        let halves = saved
+            .get_pages()
+            .values()
+            .map(|page| {
+                saved
+                    .get_dictionary(*page)
+                    .unwrap()
+                    .get(b"Annots")
+                    .map_or_else(|_| Vec::new(), |annots| annots.as_array().unwrap().clone())
+                    .iter()
+                    .map(|object| {
+                        let id = object.as_reference().unwrap();
+                        let annotation = saved.get_dictionary(id).unwrap();
+                        assert_eq!(annotation.get(b"P").unwrap().as_reference().unwrap(), *page);
+                        (
+                            id,
+                            String::from_utf8(
+                                annotation
+                                    .get(b"Contents")
+                                    .unwrap()
+                                    .as_str()
+                                    .unwrap()
+                                    .to_vec(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert!(halves[0].is_empty());
+        assert_eq!(
+            halves[1]
+                .iter()
+                .map(|(_, text)| text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Legacy root", "Legacy popup", "Legacy reply"]
+        );
+        let right = &halves[1];
+        let right_root = right[0].0;
+        let right_popup = right[1].0;
+        assert_eq!(
+            saved
+                .get_dictionary(right_root)
+                .unwrap()
+                .get(b"Popup")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            right_popup
+        );
+        assert_eq!(
+            saved
+                .get_dictionary(right[2].0)
+                .unwrap()
+                .get(b"IRT")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            right_root
+        );
+        // The root must exist once: a copy left in the other half would be a
+        // second annotation with the same text.
+        assert_eq!(
+            saved
+                .objects
+                .values()
+                .filter(|object| object.as_dict().is_ok_and(|dictionary| dictionary
+                    .get(b"Contents")
+                    .and_then(Object::as_str)
+                    .is_ok_and(|text| text == b"Legacy root")))
+                .count(),
+            1
+        );
+        for file in [source, input, output, inspected, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn overlay_composes_appearance_placement_in_rewrite_and_incremental_outputs() {
+    for (incremental, flags, form_matrix, transform) in [
+        (
+            false,
+            4,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            true,
+            4,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            false,
+            20,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            false,
+            6,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            false,
+            4,
+            [
+                0.70710677,
+                0.70710677,
+                -0.70710677,
+                0.70710677,
+                35.3553385,
+                0.0,
+            ],
+            [1.0, 0.2, 0.3, 1.0, 0.0, 0.0],
+        ),
+    ] {
+        let source = path("appearance-source", "pdf");
+        let input = path("appearance-input", "pdf");
+        let output = path("appearance-output", "pdf");
+        let expected = path("appearance-expected", "pdf");
+        let instructions = path("appearance-instructions", "json");
+        let triangle = b"1 0 0 rg 0 0 m 50 0 l 0 50 l h f";
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = document.get_pages()[&1];
+        let appearance = document.add_object(Stream::new(dictionary! {
+            "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 50.into(), 50.into()],
+            "Matrix" => form_matrix.into_iter().map(|value| Object::Real(value as f32)).collect::<Vec<_>>(),
+            "Resources" => Dictionary::new(),
+        }, triangle.to_vec()));
+        let annotation = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Stamp", "P" => page,
+            "Rect" => vec![40.into(), 30.into(), 90.into(), 80.into()], "F" => flags,
+            "AP" => dictionary! {"N" => appearance},
+        });
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annotation)]);
+        document.save(&source).unwrap();
+        if incremental {
+            write_sparse_source(&input, 1, None, None);
+        } else {
+            save_empty_pages(&input, 1);
+        }
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":[{
+                "sourcePageIndex":0,"outputPageIndex":0,"matrix":transform,
+            }]}))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        // A page-content control applies the source appearance fitting, then the
+        // requested affine. It does not use the annotation writer under test.
+        let fit = if form_matrix[0] == 1.0 {
+            1.0
+        } else {
+            0.7071067933730954
+        };
+        let numbers = |values: &[f64]| {
+            values
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let content = if flags & 2 != 0 {
+            Vec::new()
+        } else {
+            format!(
+                "q {} cm {fit} 0 0 {fit} 40 30 cm {} cm {} Q",
+                numbers(&transform),
+                numbers(&form_matrix),
+                std::str::from_utf8(triangle).unwrap()
+            )
+            .into_bytes()
+        };
+        save_single_page(&expected, content, Dictionary::new());
+        let actual = red_pixels(&output);
+        let control = red_pixels(&expected);
+        if control.is_empty() {
+            assert!(actual.is_empty());
+        } else {
+            assert!(!actual.is_empty());
+            let centroid = |pixels: &[(f64, f64)]| {
+                pixels
+                    .iter()
+                    .fold((0.0, 0.0), |sum, point| (sum.0 + point.0, sum.1 + point.1))
+            };
+            let a = centroid(&actual);
+            let c = centroid(&control);
+            assert!((a.0 / actual.len() as f64 - c.0 / control.len() as f64).abs() < 0.5);
+            assert!((a.1 / actual.len() as f64 - c.1 / control.len() as f64).abs() < 0.5);
+        }
+        if !incremental {
+            let saved = Document::load(&output).unwrap();
+            let annotation = saved
+                .get_dictionary(saved.get_pages()[&1])
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            assert_eq!(
+                saved
+                    .get_dictionary(annotation)
+                    .unwrap()
+                    .get(b"F")
+                    .unwrap()
+                    .as_i64()
+                    .unwrap(),
+                flags
+            );
+        }
+        for file in [source, input, output, expected, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+fn run_text_box_command(operation: &str, input: &Path, output: &Path, mutations: Option<&Path>) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+    command
+        .args([operation, "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .args(["--modified-at", "D:19700101000000Z", "--qpdf"])
+        .arg(qpdf_path());
+    if let Some(mutations) = mutations {
+        command.arg("--mutations-file").arg(mutations);
+    }
+    let result = command.output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn overlay_preserves_editable_text_box_geometry_and_refuses_unrepresentable_affines() {
+    let blank = path("canonical-blank", "pdf");
+    let source = path("canonical-source", "pdf");
+    let mutations = path("canonical-mutations", "json");
+    save_empty_pages(&blank, 1);
+    write(&mutations, br#"{"textBoxes":[{"pageIndex":0,"stableKey":"canonical-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
+    for (incremental, matrix, expected_rotation, expected_rect, font_size) in [
+        (
+            false,
+            [1.0, 0.0, 0.0, 1.0, 5.0, 5.0],
+            0,
+            [25.0, 35.0, 65.0, 50.0],
+            6,
+        ),
+        (
+            true,
+            [1.0, 0.0, 0.0, 1.0, 5.0, 5.0],
+            0,
+            [25.0, 35.0, 65.0, 50.0],
+            6,
+        ),
+        (
+            false,
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+            270,
+            [62.5, 32.5, 102.5, 47.5],
+            6,
+        ),
+        (
+            false,
+            [2.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            0,
+            [40.0, 60.0, 120.0, 90.0],
+            12,
+        ),
+    ] {
+        let input = path("canonical-input", "pdf");
+        let output = path("canonical-output", "pdf");
+        let edited = path("canonical-edited", "pdf");
+        let instructions = path("canonical-instructions", "json");
+        let parsed = path("canonical-parse", "jsonl");
+        if incremental {
+            write_sparse_source(&input, 1, None, None);
+        } else {
+            save_empty_pages(&input, 1);
+        }
+        write(&instructions, serde_json::to_vec(&serde_json::json!({"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":matrix}]})).unwrap()).unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        run_text_box_command("parse-annotations", &output, &parsed, None);
+        let entries = fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["kind"], "text-box");
+        assert_eq!(
+            entries[0]["fontSize"].as_f64().unwrap(),
+            f64::from(font_size)
+        );
+        assert_eq!(entries[0]["rotation"], expected_rotation);
+        write(&mutations, serde_json::to_vec(&serde_json::json!({"textBoxes":[{
+            "pageIndex":0,"stableKey":"canonical-box","annotationId":format!("{}R{}", entries[0]["objectNumber"], entries[0]["generationNumber"]),
+            "text":"Edited after cleanup","rect":expected_rect,"rotation":expected_rotation,"fontSize":font_size,"color":[0,0,0],
+        }]})).unwrap()).unwrap();
+        run_text_box_command("save-mutations", &output, &edited, Some(&mutations));
+        run_text_box_command("parse-annotations", &edited, &parsed, None);
+        let saved: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&parsed).unwrap().lines().nth(1).unwrap())
+                .unwrap();
+        assert_eq!(saved["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(saved["entries"][0]["kind"], "text-box");
+        assert_eq!(saved["entries"][0]["text"], "Edited after cleanup");
+        for file in [input, output, edited, instructions, parsed] {
+            remove_file(file).unwrap();
+        }
+    }
+    let output = path("canonical-refused", "pdf");
+    let instructions = path("canonical-refused", "json");
+    write(&output, b"existing output").unwrap();
+    write(
+        &instructions,
+        br#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0.2,1,0,0]}]}"#,
+    )
+    .unwrap();
+    let result = run_overlay_text(&blank, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr)
+        .contains("cannot preserve editable text-box geometry"));
+    assert_eq!(fs::read(&output).unwrap(), b"existing output");
+    for file in [blank, source, mutations, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+fn assert_overlay_accepts_annotation_entries(entries: &[Object]) {
+    for malformed in entries {
+        let source = path("unreadable-annotation-source", "pdf");
+        let input = path("unreadable-annotation-input", "pdf");
+        let output = path("unreadable-annotation-output", "pdf");
+        let instructions = path("unreadable-annotation-plan", "json");
+        let mut doc = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = doc.get_pages()[&1];
+        let good = doc.add_object(dictionary! {"Type"=>"Annot", "Subtype"=>"Text", "P"=>page,
+            "Rect"=>vec![30.into(),30.into(),40.into(),40.into()], "Contents"=>Object::string_literal("valid note")});
+        doc.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![malformed.clone(), Object::Reference(good)]);
+        doc.save(&source).unwrap();
+        save_empty_pages(&input, 1);
+        write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,5,7],"filterToOutputPage":true}]}"#).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let annots = saved
+            .get_dictionary(saved.get_pages()[&1])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let note = annots
+            .iter()
+            .map(|a| saved.dereference(a).unwrap().1.as_dict().unwrap())
+            .find(|a| a.get(b"Contents").is_ok())
+            .unwrap();
+        assert_eq!(
+            note.get(b"Contents").unwrap().as_str().unwrap(),
+            b"valid note"
+        );
+        assert_eq!(
+            note.get(b"Rect")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n.as_float().unwrap())
+                .collect::<Vec<_>>(),
+            vec![35., 37., 45., 47.]
+        );
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_skips_unreadable_annotation_entries() {
+    assert_overlay_accepts_annotation_entries(&[
+        Object::Reference((999_999, 0)),
+        Object::Integer(42),
+    ]);
+}
+
+#[test]
+fn overlay_accepts_a_missing_annotation_subtype() {
+    assert_overlay_accepts_annotation_entries(&[Object::Dictionary(
+        dictionary! {"Rect"=>vec![10.into(),10.into(),20.into(),20.into()]},
+    )]);
+}
+
+#[test]
+fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
+    let blank = path("missing-rotation-blank", "pdf");
+    let source = path("missing-rotation-source", "pdf");
+    let output = path("missing-rotation-output", "pdf");
+    let mutations = path("missing-rotation-mutations", "json");
+    let instructions = path("missing-rotation-overlay", "json");
+    let parsed = path("missing-rotation-parsed", "jsonl");
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+    save_empty_pages(&blank, 1);
+    write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
+    let mut original = Document::load(&source).unwrap();
+    let id = original
+        .get_dictionary(original.get_pages()[&1])
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .as_reference()
+        .unwrap();
+    write(
+        &mutations,
+        serde_json::to_vec(&serde_json::json!({"geometryUpdates":[{
+            "objectNumber":id.0,"generationNumber":id.1,"pageIndex":0,
+            "markerRect":{"left":0.1,"top":0.625,"width":0.2,"height":0.125}
+        }]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let rotation_id = original.add_object(Object::Integer(0));
+    for overlay in [false, true] {
+        for rotation in [
+            None,
+            Some(Object::Integer(0)),
+            Some(Object::Reference(rotation_id)),
+            Some(Object::string_literal("invalid")),
+            Some(Object::Null),
+            Some(Object::Real(0.5)),
+        ] {
+            let invalid = matches!(
+                rotation,
+                Some(Object::String(..) | Object::Null | Object::Real(..))
+            );
+            let mut doc = original.clone();
+            if let Some(rotation) = rotation {
+                doc.get_dictionary_mut(id).unwrap().set("Rotate", rotation);
+            } else {
+                doc.get_dictionary_mut(id).unwrap().remove(b"Rotate");
+            }
+            doc.save(&source).unwrap();
+            fs::copy(&source, &output).unwrap();
+            let previous = fs::read(&output).unwrap();
+            let result = if overlay {
+                run_overlay_text(&blank, &source, &output, &instructions)
+            } else {
+                Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                    .arg("save-mutations")
+                    .arg("--input")
+                    .arg(&source)
+                    .arg("--output")
+                    .arg(&output)
+                    .arg("--mutations-file")
+                    .arg(&mutations)
+                    .args(["--append", "--modified-at", "D:19700101000000Z"])
+                    .output()
+                    .unwrap()
+            };
+            assert_eq!(
+                result.status.success(),
+                !invalid,
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            if invalid {
+                assert_eq!(fs::read(&output).unwrap(), previous);
+            } else {
+                run_text_box_command("parse-annotations", &output, &parsed, None);
+                let entries: serde_json::Value = serde_json::from_str(
+                    fs::read_to_string(&parsed).unwrap().lines().nth(1).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(entries["entries"].as_array().unwrap().len(), 1);
+                assert_eq!(entries["entries"][0]["kind"], "text-box");
+                assert_eq!(entries["entries"][0]["text"], "Editable box");
+                assert_eq!(entries["entries"][0]["rotation"], 0);
+                assert_eq!(
+                    entries["entries"][0]["rect"],
+                    serde_json::json!({
+                        "left":0.1,"top":0.625,"width":0.2,"height":0.125,
+                    })
+                );
+            }
+        }
+    }
+    for file in [blank, source, output, mutations, instructions, parsed] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_destinations_choose_the_source_region_independently_of_link_ownership() {
+    for incremental in [false, true] {
+        let source = path("split-destination-source", "pdf");
+        let input = path("split-destination-input", "pdf");
+        let output = path("split-destination-output", "pdf");
+        let inspected = path("split-destination-inspected", "pdf");
+        let instructions = path("split-destination-plan", "json");
+        let mut doc = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+        let pages = doc.get_pages().into_values().collect::<Vec<_>>();
+        doc.get_dictionary_mut(pages[1])
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 120.into()]);
+        for (index, page) in pages.iter().enumerate() {
+            let destination = vec![
+                Object::Reference(pages[1]),
+                "XYZ".into(),
+                205.into(),
+                120.into(),
+                1.into(),
+            ];
+            let mut link = dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>*page,"Rect"=>vec![30.into(),30.into(),40.into(),40.into()]};
+            if index == 0 {
+                link.set("Dest", destination);
+            } else {
+                link.set("A", dictionary! {"S"=>"GoTo","D"=>vec![Object::Reference(pages[1]),"FitR".into(),205.into(),30.into(),240.into(),60.into()]});
+            }
+            let id = doc.add_object(link);
+            doc.get_dictionary_mut(*page)
+                .unwrap()
+                .set("Annots", vec![Object::Reference(id)]);
+        }
+        doc.save(&source).unwrap();
+        if incremental {
+            write_sparse_source(&input, 3, None, None);
+        } else {
+            let mut target = save_pages(&input, (0..3).map(|_| None), Dictionary::new());
+            for page in target.get_pages().into_values() {
+                target
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("MediaBox", vec![0.into(), 0.into(), 210.into(), 120.into()]);
+            }
+            target.save(&input).unwrap();
+        }
+        write(&instructions, r#"{"pages":[
+          {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},
+          {"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,5,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":200,"height":120}}},
+          {"sourcePageIndex":1,"outputPageIndex":2,"matrix":[1,0,0,1,-195,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":200,"y":0,"width":200,"height":120}}}
+        ]}"#).unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let compact = Command::new(qpdf_path())
+            .arg(&output)
+            .arg(&inspected)
+            .output()
+            .unwrap();
+        assert!(compact.status.success());
+        let saved = Document::load(&inspected).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        for (index, page) in pages.iter().take(2).enumerate() {
+            let id = saved
+                .get_dictionary(*page)
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            let link = saved.get_dictionary(id).unwrap();
+            assert_eq!(link.get(b"P").unwrap().as_reference().unwrap(), *page);
+            let destination = if index == 0 {
+                link.get(b"Dest").unwrap()
+            } else {
+                link.get(b"A")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"D")
+                    .unwrap()
+            }
+            .as_array()
+            .unwrap();
+            assert_eq!(destination[0].as_reference().unwrap(), pages[2]);
+            assert_eq!(destination[2].as_float().unwrap(), 10.);
+            if index == 0 {
+                assert_eq!(destination[1].as_name().unwrap(), b"XYZ");
+                assert_eq!(destination[3].as_float().unwrap(), 120.);
+            } else {
+                assert_eq!(destination[1].as_name().unwrap(), b"FitR");
+                assert_eq!(destination[3].as_float().unwrap(), 30.);
+                assert_eq!(destination[4].as_float().unwrap(), 45.);
+                assert_eq!(destination[5].as_float().unwrap(), 60.);
+            }
+        }
+        assert!(saved
+            .get_dictionary(pages[2])
+            .unwrap()
+            .get(b"Annots")
+            .map_or(true, |annots| annots.as_array().unwrap().is_empty()));
+        for file in [source, input, output, inspected, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_refuses_ambiguous_destinations_before_publishing() {
+    for destination in [
+        vec!["Fit".into()],
+        vec!["XYZ".into(), Object::Null, Object::Null, Object::Null],
+        vec!["FitR".into(), 90.into(), 20.into(), 110.into(), 60.into()],
+    ] {
+        let source = path("ambiguous-destination-source", "pdf");
+        let input = path("ambiguous-destination-input", "pdf");
+        let output = path("ambiguous-destination-output", "pdf");
+        let instructions = path("ambiguous-destination-plan", "json");
+        let mut doc = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = doc.get_pages()[&1];
+        let plan = if destination[0].as_name().unwrap() == b"FitR" {
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":100,"height":120}}},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":100,"y":0,"width":100,"height":120}}}]}"#
+        } else {
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#
+        };
+        let dest = [vec![Object::Reference(page)], destination].concat();
+        let link = doc.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>page,"Rect"=>vec![30.into(),30.into(),40.into(),40.into()],"Dest"=>dest});
+        doc.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link)]);
+        doc.save(&source).unwrap();
+        save_empty_pages(&input, 2);
+        write(&output, b"existing output").unwrap();
+        write(&instructions, plan).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("internal destination"));
+        assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        assert!(atomic_output_siblings(&output).is_empty());
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_transforms_fitted_and_partial_destination_coordinates() {
+    let cases = [
+        (
+            vec!["XYZ".into(), 30.into(), 60.into(), Object::Null],
+            vec!["XYZ".into(), 60.into(), 30.into(), Object::Null],
+        ),
+        (
+            vec!["XYZ".into(), Object::Null, 60.into(), Object::Null],
+            vec!["XYZ".into(), 60.into(), Object::Null, Object::Null],
+        ),
+        (
+            vec!["FitH".into(), 60.into()],
+            vec!["FitV".into(), 60.into()],
+        ),
+        (
+            vec!["FitBH".into(), 60.into()],
+            vec!["FitBV".into(), 60.into()],
+        ),
+        (
+            vec!["FitV".into(), 30.into()],
+            vec!["FitH".into(), 30.into()],
+        ),
+        (
+            vec!["FitBV".into(), 30.into()],
+            vec!["FitBH".into(), 30.into()],
+        ),
+        (
+            vec!["FitR".into(), 10.into(), 20.into(), 40.into(), 60.into()],
+            vec!["FitR".into(), 60.into(), 10.into(), 100.into(), 40.into()],
+        ),
+        (vec!["Fit".into()], vec!["Fit".into()]),
+        (vec!["FitB".into()], vec!["FitB".into()]),
+    ];
+    for (destination, expected) in cases {
+        let source = path("fitted-destination-source", "pdf");
+        let input = path("fitted-destination-input", "pdf");
+        let output = path("fitted-destination-output", "pdf");
+        let instructions = path("fitted-destination-plan", "json");
+        let mut doc = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = doc.get_pages()[&1];
+        let link=doc.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>page,
+            "Rect"=>vec![30.into(),30.into(),40.into(),40.into()],"Dest"=>[vec![Object::Reference(page)],destination].concat()});
+        doc.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link)]);
+        doc.save(&source).unwrap();
+        save_empty_pages(&input, 1);
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[0,1,-1,0,120,0]}]}"#,
+        )
+        .unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let page = saved.get_pages()[&1];
+        let id = saved
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+        let destination = saved
+            .get_dictionary(id)
+            .unwrap()
+            .get(b"Dest")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(destination[0].as_reference().unwrap(), page);
+        assert_eq!(destination.len(), expected.len() + 1);
+        for (actual, expected) in destination.iter().skip(1).zip(expected) {
+            if let Ok(value) = expected.as_float() {
+                assert_eq!(actual.as_float().unwrap(), value);
+            } else {
+                assert_eq!(*actual, expected);
+            }
+        }
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}

@@ -19,9 +19,11 @@ import {
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     resolveScanCleanupSelection,

@@ -954,6 +954,10 @@ export default {
             'existingTextSkipped': 'Página {page}: se conservó el texto existente.',
         },
         'preparing': 'Preparando OCR...',
+        'modelDownload': {
+            'progress': 'Descargando {language}: {received} / {total} MB ({percent}%)',
+            'retrying': 'Reintentando la descarga de {language} (intento {attempt} de {attempts})',
+        },
         'progressStage': {
             'modelPrep': 'Descargando modelos de idioma...',
             'pdfPrep': 'Preparando PDF...',
@@ -1714,9 +1718,11 @@ export default {
             'validation': 'El documento no superó la comprobación de validez, así que no se escribió nada.',
             'openNotes': 'No se pudieron guardar las notas abiertas, así que el documento no se escribió.',
             'documentChanged': 'El documento cambió antes de terminar de guardar, así que no se escribió nada.',
+            'originalChanged': 'El archivo en el disco ha cambiado desde que lo abrió. Sus cambios se conservan. Use «Guardar como» para conservar ambas versiones.',
             'workingCopyMissing': 'La copia temporal del documento se eliminó, por lo que estos cambios no se pueden guardar. Vuelva a abrir el archivo.',
             'notCompleted': 'No se pudo escribir el documento.',
             'permissionDenied': 'Se ha denegado el permiso para escribir el archivo. Elige «Guardar como» para guardar los cambios en otro lugar.',
+            'fileBusy': 'El archivo está en uso por otro programa, así que no se pudo escribir. Cierra ese programa y vuelve a intentarlo, o elige «Guardar como» para guardar los cambios en otro lugar.',
             'diskFull': 'El disco está lleno. Libera espacio o usa «Guardar como» en otro disco.',
             'writeFailed': 'No se pudo escribir el archivo. Comprueba los permisos de escritura y el espacio libre, o guárdalo en otro lugar.',
             'nativeFailure': 'El motor PDF no pudo aplicar los cambios. Tus ediciones siguen abiertas aquí.',

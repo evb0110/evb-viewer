@@ -93,7 +93,6 @@ interface IViewportAuthorityDependencies {
     onPositionCommitted?(commit: IPdfViewportPositionCommit): void;
     awaitVisual(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     beforeApply?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
-    postArrival?(request: IDocumentNavigationRequest, signal: AbortSignal): Promise<void>;
     clearDemand?(intentId: string): void;
     /** A navigation ticket accepted by the shared surface but not yet submitted here. */
     hasPendingNavigationTicket?(): boolean;
@@ -387,9 +386,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 phase.value = 'awaiting-visual';
                 await awaitWithAbort(deps.awaitVisual(next, signal), signal);
                 assertCurrent(next, signal);
-            }
-            if (next.navigation && deps.postArrival) {
-                await awaitWithAbort(deps.postArrival(next.navigation, signal), signal);
             }
             assertCurrent(next, signal);
             if (next.navigationTicket && deps.reportNavigation) {

@@ -113,32 +113,11 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         getCommittedPageScale: options.getCommittedPageScale,
     });
 
-    const containerStyle = computed(() => ({
-        ...options.scaleContainerStyle.value,
-        ...(options.selectionMarkupStyle.value ?? {}),
-        '--pdf-virtual-scroll-height': `${virtualization.virtualScrollHeight.value}px`,
-    }));
-
-    const isActiveSpreadHorizontalScrollLocked = computed(() => {
+    const renderedSpreadBounds = computed(() => {
         void viewportDimensionVersion.value;
         const container = options.viewerContainer.value;
-        if (!container) {
-            return false;
-        }
-
-        const currentPage = parsePageNumber(
-            options.currentPage.value,
-            options.numPages.value,
-        );
-        if (currentPage === null) {
-            return false;
-        }
-
-        if (options.classState.zoomMode.value === 'fit-height') {
-            return options.doesFitHeightSpreadFitWidth(container, currentPage);
-        }
-
-        const renderedSpreadBounds = getCurrentSpreadRenderedBoundsFromMetrics({
+        const currentPage = parsePageNumber(options.currentPage.value, options.numPages.value);
+        return container && currentPage !== null ? getCurrentSpreadRenderedBoundsFromMetrics({
             container,
             basePageWidth: options.basePageWidth.value,
             basePageHeight: options.basePageHeight.value,
@@ -149,10 +128,28 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             effectiveScale: options.effectiveScale.value,
             getScaleForPage: virtualization.getPageLayoutScale,
             scaledMargin: options.scaledMargin.value,
-        });
+        }) : null;
+    });
 
-        return renderedSpreadBounds
-            ? renderedSpreadBounds.width <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+    const containerStyle = computed(() => ({
+        ...options.scaleContainerStyle.value,
+        ...(options.selectionMarkupStyle.value ?? {}),
+        '--pdf-virtual-scroll-height': `${virtualization.virtualScrollHeight.value}px`,
+        '--pdf-virtual-scroll-width': `${(renderedSpreadBounds.value?.width ?? 0) + options.scaledMargin.value * 2}px`,
+    }));
+
+    const isActiveSpreadHorizontalScrollLocked = computed(() => {
+        void viewportDimensionVersion.value;
+        const container = options.viewerContainer.value;
+        const currentPage = parsePageNumber(options.currentPage.value, options.numPages.value);
+        if (!container || currentPage === null) {
+            return false;
+        }
+        if (options.classState.zoomMode.value === 'fit-height') {
+            return options.doesFitHeightSpreadFitWidth(container, currentPage);
+        }
+        return renderedSpreadBounds.value
+            ? renderedSpreadBounds.value.width + options.scaledMargin.value * 2 <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
             : container.scrollWidth <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX;
     });
 

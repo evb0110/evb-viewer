@@ -224,7 +224,7 @@ describe('createExternalOpenManager', () => {
 
     it('keeps an existing trailing-whitespace command-line filename through dispatch', () => {
         const harness = createManagerHarness();
-        const exactPath = '/docs/report.pdf ';
+        const exactPath = resolve('/docs/report.pdf ');
         mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
 
         harness.manager.markBootstrapReady();

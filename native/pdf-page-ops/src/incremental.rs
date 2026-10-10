@@ -260,6 +260,7 @@ fn apply_native_mutations_internal(
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
+    validate_text_box_targets(document, mutations)?;
     if !mutations.updates.is_empty() {
         update_note_text(document, &mutations.updates, modified_at)?;
     }
@@ -435,6 +436,7 @@ fn apply_native_mutations_incremental_internal(
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
+    validate_text_box_targets(&AppendedRevision::new(incremental), mutations)?;
     if !mutations.updates.is_empty() {
         update_note_text_incremental(incremental, &mutations.updates, modified_at)?;
     }

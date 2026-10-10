@@ -1,7 +1,7 @@
 use evb_raster_io::{decode_ppm, DecodeLimits};
 use evb_scan_cleanup::{
     io::pbm::decode_p4,
-    png::{decode_gray, encode_gray, encode_rgb, RgbImage},
+    io::png::{decode_gray, encode_gray, encode_rgb, RgbImage},
     BinarizationMode, CleanupOptions, LayoutMode, ManualContentBoxes, ManualZones, MarginsMm,
     NormalizedRect, NormalizedZonePoint, NormalizedZonePolygon, OrthogonalRotation, OutputMode,
     PictureZone, PictureZoneLayer,

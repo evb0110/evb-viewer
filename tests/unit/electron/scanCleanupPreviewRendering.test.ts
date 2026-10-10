@@ -19,9 +19,12 @@ import {atomicReplace} from '@electron/utils/atomicReplace';
 import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import {
+    BASE_ANALYSIS_CACHE_BYTE_LIMIT,
     previewIdentityKey,
+    type IBasePreviewAnalysis,
     type IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {pruneBaseAnalysisCache} from '@electron/features/scan-cleanup/scanCleanupPreviewRenderingPipeline';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {decodeScanCleanupPreviewResult} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
@@ -43,6 +46,7 @@ import {
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
+import {cast} from '@tests/helpers/cast';
 
 
 
@@ -2024,5 +2028,25 @@ describe('scan cleanup preview identity', () => {
     it('keeps every page\'s exception when the matched canvas depends on it', () => {
         expect(previewIdentityKey(withSecondPage(true, 0)))
             .not.toBe(previewIdentityKey(withSecondPage(true, 90)));
+    });
+});
+
+describe('base analysis cache budget', () => {
+    it('evicts by retained mask and metadata payload, not only raster bytes', async () => {
+        const cache = new Map<string, IBasePreviewAnalysis>();
+        const canonicalRasterBytes = 2 * 1024 * 1024 - 10 * 1024;
+        const outputs = {full: {maskPng: 'x'.repeat(90 * 1024)}};
+        for (let index = 0; index < 32; index++) {
+            cache.set(String(index), cast<IBasePreviewAnalysis>({
+                retainedBytes: canonicalRasterBytes + Buffer.byteLength(JSON.stringify(outputs)),
+                outputs,
+                analysisDirectory: `unused-${String(index)}`,
+            }));
+        }
+        await pruneBaseAnalysisCache(cache, new Set(), cast({fileSystem: {rm: async () => undefined}}));
+        const retainedBytes = [...cache.values()]
+            .reduce((total, analysis) => total + analysis.retainedBytes, 0);
+        expect(retainedBytes).toBeLessThanOrEqual(BASE_ANALYSIS_CACHE_BYTE_LIMIT);
+        expect(cache.size).toBeLessThan(32);
     });
 });

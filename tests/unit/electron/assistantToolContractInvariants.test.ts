@@ -7,6 +7,7 @@ import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/mcpDefi
 import {
     MCP_TOOLS,
     validateJsonObjectAgainstSchema,
+    validateMcpToolArguments,
 } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import { ASSISTANT_MCP_TOOL_HANDLER_NAMES } from '@electron/features/agent/mcp/mcpServerCore';
 import { resolveAgentCommandRequestTimeoutMs } from '@electron/features/agent/workspaceBridge';
@@ -61,6 +62,99 @@ describe('assistant tool contract invariants', () => {
             unexpected: true,
         }, template.inputSchema)).toThrow(/advertised schema/u);
         expect(() => validateJsonObjectAgainstSchema('document.search', {query: 'needle'}, template.inputSchema)).not.toThrow();
+    });
+
+    it.each([
+        [
+            'annotation.open_note',
+            {},
+        ],
+        [
+            'annotation.focus',
+            {},
+        ],
+        [
+            'annotation.delete',
+            {},
+        ],
+        [
+            'annotation.update_note',
+            {text: ''},
+        ],
+        [
+            'annotation.update_text_markup_color',
+            {color: '#ffd54f'},
+        ],
+    ])('rejects absent and blank annotation references for %s at the MCP boundary', (id, extra) => {
+        for (const ref of [
+            {},
+            {stableKey: ''},
+            {
+                stableKey: ' \t\n',
+                annotationId: '\u00a0',
+                id: '\u2003\ufeff',
+            },
+        ]) {
+            expect(() => validateMcpToolArguments('evb_run_action', {
+                id,
+                input: {
+                    ...ref,
+                    ...extra,
+                },
+            })).toThrow(/advertised schema.*non-blank/u);
+        }
+        for (const key of [
+            'stableKey',
+            'annotationId',
+            'id',
+        ]) {
+            const input = {
+                stableKey: ' ',
+                annotationId: '',
+                id: '\t',
+                [key]: ' annotation-1 ',
+                ...extra,
+            };
+            expect(validateMcpToolArguments('evb_run_action', {
+                id,
+                input,
+            })).toEqual({
+                id,
+                input,
+            });
+        }
+    });
+
+    it('publishes required annotation inputs and non-blank identifier alternatives', () => {
+        for (const name of [
+            'evb_run_action',
+            'evb_read_action',
+        ]) {
+            const branches = MCP_TOOLS.find(tool => tool.name === name)?.inputSchema.oneOf as Array<{
+                required: string[];
+                properties: {
+                    id: {const: string};
+                    input: Record<string, unknown>
+                };
+            }>;
+            const branch = branches.find(candidate => candidate.properties.id.const === 'annotation.open_note');
+            expect(branch?.required).toContain('input');
+            expect(branch?.properties.input).toMatchObject({allOf: expect.arrayContaining([{anyOf: [
+                'stableKey',
+                'annotationId',
+                'id',
+            ].map(key => ({
+                type: 'object',
+                properties: {[key]: {
+                    type: 'string',
+                    pattern: '\\S',
+                }},
+                required: [key],
+                additionalProperties: true,
+            }))}])});
+            expect(() => validateMcpToolArguments(name, {id: 'annotation.open_note'}))
+                .toThrow(/advertised schema.*non-blank/u);
+        }
     });
 
     it('advertises the shared OCR contract and enforces replace-all acknowledgement', () => {

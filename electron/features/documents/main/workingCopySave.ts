@@ -84,12 +84,11 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
 }
 
 function getValidationSaveFailureReason(validation: IPdfValidationResult): TDocumentSaveFailureReason {
-    return validation.errors.some(error => (
-        error.includes('Original file changed on disk')
-        || error.includes('Document changed while save was being prepared')
-    ))
-        ? 'stale'
-        : 'validation-failed';
+    if (validation.errors.some(error => error.includes('Original file changed on disk'))) {
+        return 'original-changed';
+    }
+    return validation.errors.some(error => error.includes('Document changed while save was being prepared'))
+        ? 'stale' : 'validation-failed';
 }
 
 function createSaveFailureResult(

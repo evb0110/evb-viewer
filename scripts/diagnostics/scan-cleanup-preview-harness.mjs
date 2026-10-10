@@ -38,6 +38,7 @@ import {
     loadImage,
 } from '@napi-rs/canvas';
 import {tsImport} from 'tsx/esm/api';
+import {omit} from 'es-toolkit';
 import {createScanCleanupDiagnosticsManifestScope} from './scan-cleanup-diagnostics-manifest.mjs';
 import {loadGrayscaleImage} from './load-grayscale-image.mjs';
 import {
@@ -71,7 +72,11 @@ const [
         resolveCliNativeToolPath,
     },
     {detectSourceDpiDetails},
-    {createScanCleanupDetectionCacheKey},
+    {
+        createScanCleanupDetectionCacheKey,
+        resolveScanCleanupDetectionCacheEntryPath,
+    },
+    {DEFAULT_SCAN_CLEANUP_PREFERENCES},
     {
         resolvePreviewMetadataPlacement,
         toPreviewStyleRect,
@@ -84,6 +89,15 @@ const [
         commitScanCleanupPreviewPresentationSettle,
         resolveScanCleanupPreviewPresentationCommit,
     },
+    {
+        buildScanCleanupPlacementAnchorSummary,
+        resolveScanCleanupPlacementAnchorsFromResult,
+    },
+    {
+        createScanCleanupDetectionSignature,
+        createScanCleanupPlacementAnchorCalibrationSignature,
+    },
+    {createFileBackedScanCleanupDetectionResultStore},
 ] = await Promise.all([
     importTs('../../packages/scan-cleanup/core/detection.ts'),
     importTs('../../packages/scan-cleanup/core/policy/documentCanvas.ts'),
@@ -93,9 +107,13 @@ const [
     importTs('../scanCleanupCliAdapters.ts'),
     importTs('../../packages/scan-cleanup/core/sourceDpiDetection.ts'),
     importTs('../scanCleanupDetectionCache.ts'),
+    importTs('../../packages/contracts/scan-cleanup/scanCleanupSettings.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/placement.ts'),
     importTs('../../app/modules/scan-cleanup/geometry/coordinates.ts'),
     importTs('../../app/modules/scan-cleanup/composables/useScanCleanupPreviewImages.ts'),
+    importTs('../../packages/scan-cleanup/core/placementAnchors.ts'),
+    importTs('../../packages/contracts/scan-cleanup/createScanCleanupDetectionSignature.ts'),
+    importTs('../../packages/scan-cleanup/core/fileBackedResultStore.ts'),
 ]);
 
 const WEIGHT_DEVIATION_LIMIT = 0.15;
@@ -215,26 +233,8 @@ function parseArgs(argv) {
 }
 
 const defaultOptions = {
-    preserveOriginalQuality: false,
-    layoutMode: 'auto',
+    ...omit(DEFAULT_SCAN_CLEANUP_PREFERENCES, ['firstRunGuidanceDismissed']),
     outputMode: 'auto',
-    binarization: 'auto',
-    normalizeIllumination: true,
-    readingOrder: 'ltr',
-    thickness: 0,
-    crop: true,
-    matchPageSize: true,
-    pageAlignment: 'top-center',
-    marginsMm: {
-        leftMm: 5,
-        topMm: 5,
-        rightMm: 5,
-        bottomMm: 5,
-    },
-    despeckleLevel: 'normal',
-    autoDewarp: false,
-    autoDewarpDepth: undefined,
-    skipBlankPages: false,
     pageOverrides: {},
 };
 
@@ -991,9 +991,7 @@ async function loadDetection(args, tools) {
             scanCleanupBinaryPath: tools.scanCleanup,
         },
     );
-    const path = args.detectionCache.toLowerCase().endsWith('.json')
-        ? args.detectionCache
-        : join(args.detectionCache, `${cacheKey.key}.json`);
+    const path = resolveScanCleanupDetectionCacheEntryPath(args.detectionCache, cacheKey);
     const cache = JSON.parse(await readFile(path, 'utf8'));
     if (!Array.isArray(cache.results) || cache.results.length === 0) {
         throw new Error(`Detection cache has no results: ${path}`);
@@ -1002,7 +1000,36 @@ async function loadDetection(args, tools) {
         cacheKey: cacheKey.key,
         path,
         results: cache.results,
+        sourceSha256: cacheKey.sourceSha256,
     };
+}
+
+/**
+ * Derive the same document-wide ink calibration the app and CLI use, so the
+ * preview replays each page with the placement the export writes.
+ */
+async function buildPlacementAnchorSummary(args, detection) {
+    const rootDir = join(args.out, 'placement-anchor-store');
+    await mkdir(rootDir, {recursive: true});
+    const store = await createFileBackedScanCleanupDetectionResultStore({
+        rootDir,
+        pageCount: detection.results.length,
+    });
+    try {
+        for (const result of detection.results) await store.append(result);
+        return await buildScanCleanupPlacementAnchorSummary({
+            options: defaultOptions,
+            resultStore: store,
+            signal: new AbortController().signal,
+            identity: {
+                documentRevision: detection.sourceSha256,
+                detectionSignature: createScanCleanupDetectionSignature(defaultOptions),
+                calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(defaultOptions),
+            },
+        });
+    } finally {
+        await store.close();
+    }
 }
 
 async function main() {
@@ -1020,6 +1047,7 @@ async function main() {
     const suppliedFinal = process.argv.includes('--final-pdf');
     if (!suppliedFinal) await runFinalConversion(args);
     const detection = await loadDetection(args, tools);
+    const placementAnchorSummary = await buildPlacementAnchorSummary(args, detection);
     const pageSizes = detection.results.map(result => result.sourcePageMetadata).filter(Boolean);
     if (pageSizes.length !== detection.results.length) {
         throw new Error('Detection cache does not carry source geometry for every page');
@@ -1174,6 +1202,11 @@ async function main() {
                     : {preferSoftAlphaForeground: detectionResult.softAlphaForegroundRecommendation}),
                 observedLayout: detectionResult.classification,
                 ...reusablePagePlan,
+                placementAnchors: resolveScanCleanupPlacementAnchorsFromResult(
+                    placementAnchorSummary,
+                    defaultOptions,
+                    detectionResult,
+                ),
                 pageMetadataPath,
                 outputs: nativeOutputs,
                 ...(detectionResult.documentPrior === null

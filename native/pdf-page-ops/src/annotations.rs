@@ -1,5 +1,4 @@
 use super::*;
-use lopdf::dictionary;
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -910,6 +909,79 @@ pub(crate) fn text_box_name(editor: &TextBoxMutation) -> String {
     editor.stable_key.trim().to_string()
 }
 
+/// Classify existing targets before any same-save geometry or text updates.
+/// Those updates can temporarily leave canonical layout metadata stale.
+pub(crate) fn validate_text_box_targets(
+    document: &impl PdfObjectSource,
+    mutations: &NativeMutationsFile,
+) -> Result<()> {
+    if mutations.text_boxes.is_empty() {
+        return Ok(());
+    }
+    let pages = PageTreeResolver::new(document)?;
+    let mut indexes = HashMap::new();
+    for editor in &mutations.text_boxes {
+        let page_id = pages.page_id(
+            document,
+            editor
+                .page_index
+                .checked_add(1)
+                .ok_or("Invalid FreeText editor page index")?,
+        )?;
+        if let std::collections::hash_map::Entry::Vacant(entry) = indexes.entry(page_id) {
+            entry.insert(build_page_annotation_index(document, page_id)?.0);
+        }
+        let index = &indexes[&page_id];
+        let name = text_box_name(editor);
+        let id = match editor.annotation_id.as_deref() {
+            Some(id) => Some(
+                parse_pdfjs_annotation_object_id(id)
+                    .ok_or("Invalid imported FreeText annotation id")?,
+            ),
+            None => index.first_free_text_named(&name).or_else(|| {
+                mutations
+                    .geometry_updates
+                    .iter()
+                    .filter(|update| update.page_index == editor.page_index)
+                    .find_map(|update| {
+                        let id = (update.object_number, update.generation_number);
+                        document
+                            .dictionary(id)
+                            .ok()
+                            .filter(|dict| {
+                                annotation_subtype(dict) == "freetext"
+                                    && read_annotation_name(dict).as_deref() == Some(name.as_str())
+                            })
+                            .map(|_| id)
+                    })
+            }),
+        };
+        let Some(id) = id else { continue };
+        // Geometry updates may move an existing box between pages later in
+        // this save. Classification still belongs to its original page frame.
+        let source_page = if index.annotation_refs.contains(&id) {
+            page_id
+        } else {
+            find_annotation_page_from_annots(document, id)?
+        };
+        let dict = document.dictionary(id)?;
+        if annotation_subtype(dict) != "freetext" {
+            return Err("Imported FreeText target is not a FreeText annotation".into());
+        }
+        crate::annotation_parse::parse_text_box_entry(
+            document,
+            dict,
+            id,
+            u64::from(editor.page_index),
+            resolve_page_view(document, source_page)?,
+            resolve_page_rotation(document, source_page)?,
+            &name,
+        )
+        .map_err(|reason| format!("FreeText target {}R{} is read-only: {reason}", id.0, id.1))?;
+    }
+    Ok(())
+}
+
 fn resolve_text_box_target(
     document: &impl PdfObjectSource,
     page_id: ObjectId,
@@ -1247,11 +1319,13 @@ fn set_text_box_fields(
     existing_appearance: Option<Dictionary>,
     existing_default_appearance: Option<Vec<u8>>,
 ) {
-    dict.set("Rect", rect_object(rect));
-    dict.set("EVBTextGeometry", lopdf::dictionary! {
-        "Version" => 1, "Rotation" => i64::from(editor.rotation), "PageRotation" => page_rotation,
-        "Rect" => Object::Array(editor.rect.iter().map(|value| number_object(*value)).collect()),
-    });
+    crate::text_box_font::write_editor_geometry(
+        dict,
+        editor.rect,
+        i64::from(editor.rotation),
+        page_rotation,
+        rect,
+    );
     dict.set(
         "Contents",
         Object::String(
@@ -1268,16 +1342,8 @@ fn set_text_box_fields(
         write_annotation_name(dict, name);
     }
     if is_new {
-        dict.set(
-            "Border",
-            Object::Array(vec![
-                Object::Integer(0),
-                Object::Integer(0),
-                Object::Integer(0),
-            ]),
-        );
+        dict.set("Border", vec![0.into(), 0.into(), 0.into()]);
     }
-    dict.set("Rotate", Object::Integer(i64::from(editor.rotation)));
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let default_appearance = if is_new {
         format!(
@@ -2350,6 +2416,7 @@ pub(crate) fn set_rgb_color(dict: &mut Dictionary, key: &str, color: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::dictionary;
 
     #[test]
     fn indexes_text_and_named_free_text_without_page_geometry() {
