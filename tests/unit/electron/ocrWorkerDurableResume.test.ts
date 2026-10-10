@@ -4,8 +4,6 @@ import {
     writeFile,
     rm,
 } from 'node:fs/promises';
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
 import {
     afterEach,
     beforeEach,
@@ -16,6 +14,7 @@ import {
 } from 'vitest';
 import {
     createOcrWorkerPipelineHarness,
+    hasOcrWorkerPipelineTools,
     readOcrWorkerCallLog,
     type IOcrWorkerPipelineHarness,
 } from '@tests/helpers/ocrWorkerPipelineHarness';
@@ -34,18 +33,9 @@ afterEach(async () => {
         force: true,
     })));
     harnesses = [];
+    vi.unstubAllEnvs();
 });
 
-async function hasRequiredTools() {
-    const execFileAsync = promisify(execFile);
-    return Promise.all([
-        'qpdf',
-        'pdftoppm',
-        'pdftotext',
-    ].map(tool => execFileAsync('which', [tool])))
-        .then(() => true)
-        .catch(() => false);
-}
 
 async function waitForFirstCheckpoint(root: string) {
     await expect.poll(async () => {
@@ -81,7 +71,7 @@ describe('real OCR worker durable page checkpoints', () => {
                 try {
                     vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
                     await first.start('old-recipe');
-                    const scriptPath = join(first.root, 'fake-tesseract.sh');
+                    const scriptPath = join(first.root, 'fake-tesseract.cjs');
                     await writeFile(scriptPath, (await readFile(scriptPath, 'utf8')).replaceAll('checkpoint', 'newrecipe'));
                     await first.start('same-recipe');
                     const readSavedText = async () => {
@@ -117,7 +107,7 @@ describe('real OCR worker durable page checkpoints', () => {
         const pdf = await readFile(join(root, pageOne));
         pdf[0] = pdf[0]! ^ 1;
         await writeFile(join(root, pageOne), pdf);
-        const scriptPath = join(harness.root, 'fake-tesseract.sh');
+        const scriptPath = join(harness.root, 'fake-tesseract.cjs');
         await writeFile(scriptPath, (await readFile(scriptPath, 'utf8')).replaceAll('checkpoint', 'repaired'));
         await harness.start('repair');
         const repaired = JSON.parse(await readFile(join(root, pageOne.replace('.pdf', '.json')), 'utf8'));
@@ -150,7 +140,7 @@ describe('real OCR worker durable page checkpoints', () => {
     });
 
     it('restarts after page one without invoking Tesseract for that page again', async (context) => {
-        if (!await hasRequiredTools()) {
+        if (!await hasOcrWorkerPipelineTools()) {
             context.skip();
             return;
         }

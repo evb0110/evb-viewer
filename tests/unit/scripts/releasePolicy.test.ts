@@ -646,7 +646,8 @@ describe('release policy', () => {
             })).toThrow(/size mismatch/u);
         });
 
-        it('notarizes and staples DMGs before refreshing macOS updater hashes', () => {
+        // macOS codesign and xcrun fixtures are POSIX executables; notarization never runs on Windows.
+        it.skipIf(process.platform === 'win32')('notarizes and staples DMGs before refreshing macOS updater hashes', () => {
             const projectRoot = mkdtempSync(join(tmpdir(), 'evb-dmg-notary-'));
 
             try {

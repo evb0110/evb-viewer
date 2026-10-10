@@ -42,6 +42,7 @@ vi.mock('node:fs/promises', async importOriginal => {
                 const bigintStat = fileStat as BigIntStats;
                 return {
                     ...bigintStat,
+                    isFile: () => bigintStat.isFile(),
                     ctimeNs: bigintStat.ctimeNs + 1n,
                     mtimeNs: bigintStat.mtimeNs + 1n,
                 };

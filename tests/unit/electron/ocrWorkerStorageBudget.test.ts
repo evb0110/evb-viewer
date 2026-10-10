@@ -1,17 +1,18 @@
-import {execFile} from 'node:child_process';
+import {sep} from 'node:path';
 import {
     readdir,
     rm,
 } from 'node:fs/promises';
-import {promisify} from 'node:util';
 import {
     afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     createOcrWorkerPipelineHarness,
+    hasOcrWorkerPipelineTools,
     readOcrWorkerCallLog,
     type IOcrWorkerPipelineHarness,
 } from '@tests/helpers/ocrWorkerPipelineHarness';
@@ -27,22 +28,13 @@ afterEach(async () => {
         });
     }
     harness = null;
+    vi.unstubAllEnvs();
 });
 
-async function hasRequiredTools() {
-    const execFileAsync = promisify(execFile);
-    return Promise.all([
-        'qpdf',
-        'pdftoppm',
-        'pdftotext',
-    ].map(tool => execFileAsync('which', [tool])))
-        .then(() => true)
-        .catch(() => false);
-}
 
 describe('OCR worker aggregate storage enforcement', () => {
     it('aborts concurrent Tesseract growth and cleans all partial job artifacts', async (context) => {
-        if (!await hasRequiredTools()) {
+        if (!await hasOcrWorkerPipelineTools()) {
             context.skip();
             return;
         }
@@ -66,7 +58,7 @@ describe('OCR worker aggregate storage enforcement', () => {
         await expect.poll(async () => {
             const names = await readdir(harness!.root, {recursive: true});
             return names.filter(name => (
-                name.startsWith('ocr-checkpoints/')
+                name.startsWith(`ocr-checkpoints${sep}`)
                 || /^ocr-[0-9a-f-]+-(?:page|merged|poppler|qpdf|source)/u.test(name)
             ));
         }, {timeout: 5_000}).toEqual([]);

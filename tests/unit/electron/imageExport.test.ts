@@ -941,7 +941,7 @@ describe('image export', () => {
         const expectedEnv = {
             POPPLER_DATADIR: '/mock/poppler/share/poppler',
             FONTCONFIG_PATH: '/mock/poppler/etc/fonts',
-            FONTCONFIG_FILE: '/mock/poppler/etc/fonts/fonts.conf',
+            FONTCONFIG_FILE: join(mocks.popplerFontConfigDir, 'fonts.conf'),
         };
         const pdfimagesCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdfimages');
         expect(pdfimagesCall?.[2]).toMatchObject({env: expectedEnv});
@@ -1151,8 +1151,8 @@ describe('image export', () => {
             secondOutputPath,
         ]);
 
-        expect(Buffer.byteLength(firstOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
-        expect(Buffer.byteLength(secondOutputPath.split('/').at(-1) ?? '', 'utf8')).toBeLessThanOrEqual(255);
+        expect(Buffer.byteLength(basename(firstOutputPath), 'utf8')).toBeLessThanOrEqual(255);
+        expect(Buffer.byteLength(basename(secondOutputPath), 'utf8')).toBeLessThanOrEqual(255);
         expect(firstOutputPath).not.toBe(secondOutputPath);
     });
 
