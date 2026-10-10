@@ -1524,8 +1524,7 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
         semantic_preservation_alpha,
         text_soft_edge_ratio,
     } = input;
-    let mut faint_stroke_masks = [None, None];
-    let mode_recommendation = picture_mask.as_deref().map(|picture_mask| {
+    let recommendation_and_strokes = picture_mask.as_deref().map(|picture_mask| {
         let (recommendation, faint_strokes) = recommend_output_mode_with_tone(
             PreparedModeEvidence {
                 analysis: rotated,
@@ -1551,16 +1550,9 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
             text_line_count,
             text_soft_edge_ratio,
         );
-        let [preserved, rejected] = faint_strokes;
-        let auto_bw =
-            options.output_mode == OutputMode::Auto && recommendation.mode == OutputMode::Bw;
-        faint_stroke_masks = [
-            preserved.filter(|_| auto_bw || options.output_mode == OutputMode::Bw),
-            rejected.filter(|_| auto_bw),
-        ]
-        .map(|mask| mask.map(Arc::new));
-        recommendation
+        (recommendation, faint_strokes)
     });
+    let (mode_recommendation, faint_strokes) = recommendation_and_strokes.unzip();
     // Maps and dense line art often satisfy the generous picture detector
     // over almost the whole page. Restoring that full rectangle also
     // restores its gray paper. Use pixel-refined preservation when the
@@ -1579,6 +1571,13 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_, '_>) -> ModePr
         options.output_mode
     }
     .into();
+    let [preserved, rejected] = faint_strokes.unwrap_or_default();
+    let bw = resolved_output_mode == ResolvedOutputMode::Bw;
+    let faint_stroke_masks = [
+        preserved.filter(|_| bw),
+        rejected.filter(|_| bw && options.output_mode == OutputMode::Auto),
+    ]
+    .map(|mask| mask.map(Arc::new));
     let chroma_picture_mask = (resolved_output_mode == ResolvedOutputMode::Mixed)
         .then(|| independent_chroma_mask(rotated, analysis_rgb, text_line_count).map(Arc::new))
         .flatten();

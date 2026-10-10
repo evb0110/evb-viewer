@@ -293,11 +293,13 @@ fn mode_stage_pins_mixed_line_art_soft_foreground_override() {
 }
 
 #[test]
-fn vetoed_bw_recommendation_drops_preserved_pencil_mask() {
+fn resolved_output_mode_gates_preserved_pencil_mask() {
     // Dense dark print on paper makes Auto recommend B&W; the soft text
-    // edges then trip the fidelity veto, which moves the page to Grayscale.
-    // The faint ring is pencil that only B&W output would keep, so it must
-    // not widen the crop of a page that is no longer B&W.
+    // edges then trip the fidelity veto, which moves the full page to
+    // Grayscale. The faint ring is pencil that only B&W output would keep,
+    // so it must not widen the crop of a page that is no longer B&W.
+    // A detail tile skips the recommendation and falls back to B&W in Auto,
+    // so the same ring must survive there.
     let (width, height) = (300, 400);
     let mut image = GrayImage::new(width, height, 255);
     for y in (40..160).step_by(12) {
@@ -320,30 +322,40 @@ fn vetoed_bw_recommendation_drops_preserved_pencil_mask() {
         source_dpi: Some(100.0),
         ..CleanupOptions::default()
     };
-    let output = resolve_mode_and_preservation(ModePreservationInput {
-        source_effectively_blank: false,
-        rotated: &image,
-        layout_normalized: &image,
-        analysis_rgb: None,
-        picture_mask: Some(Arc::new(BinaryImage::new(width, height))),
-        outside_tone: OutsideTonalEvidence::default(),
-        picture_tone_evidence: false,
-        text_line_count: 20,
-        protected_text_blocks: vec![],
-        independent_picture_evidence: false,
-        calibration: PageCalibration::estimate(&image, 100.0, CalibrationConfig::default()),
-        options: &options,
-        render_policy: PageRenderPolicy::COMPLETE,
-        tonal_protection_mask: None,
-        tone_semantic_preservation_alpha: None,
-        semantic_preservation_alpha: None,
-        text_soft_edge_ratio: Some(0.9),
-    });
-    assert_eq!(
-        output.resolved_output_mode,
-        crate::ResolvedOutputMode::Grayscale
-    );
-    assert!(output.faint_stroke_masks[0].is_none());
+    for (render_policy, resolved_mode, preserves_pencil) in [
+        (
+            PageRenderPolicy::COMPLETE,
+            crate::ResolvedOutputMode::Grayscale,
+            false,
+        ),
+        (
+            PageRenderPolicy::DETAIL_TILE,
+            crate::ResolvedOutputMode::Bw,
+            true,
+        ),
+    ] {
+        let output = resolve_mode_and_preservation(ModePreservationInput {
+            source_effectively_blank: false,
+            rotated: &image,
+            layout_normalized: &image,
+            analysis_rgb: None,
+            picture_mask: Some(Arc::new(BinaryImage::new(width, height))),
+            outside_tone: OutsideTonalEvidence::default(),
+            picture_tone_evidence: false,
+            text_line_count: 20,
+            protected_text_blocks: vec![],
+            independent_picture_evidence: false,
+            calibration: PageCalibration::estimate(&image, 100.0, CalibrationConfig::default()),
+            options: &options,
+            render_policy,
+            tonal_protection_mask: None,
+            tone_semantic_preservation_alpha: None,
+            semantic_preservation_alpha: None,
+            text_soft_edge_ratio: Some(0.9),
+        });
+        assert_eq!(output.resolved_output_mode, resolved_mode);
+        assert_eq!(output.faint_stroke_masks[0].is_some(), preserves_pencil);
+    }
 }
 
 #[test]
