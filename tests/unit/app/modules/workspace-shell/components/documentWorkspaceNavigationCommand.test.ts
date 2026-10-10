@@ -347,7 +347,7 @@ describe('DocumentWorkspace navigation command', () => {
         for (const view of surfaceRenders.presentations.values()) view.presentDocument();
         await nextTick();
         const anchors = [...surfaceRenders.presentations.values()].map(view => view.captureReadingAnchor());
-        vi.spyOn(workspace.documentContext.saveService.isAnySaving, 'value', 'get').mockReturnValue(true);
+        vi.spyOn(workspace.documentContext.saveService.isAnySaveAdmitted, 'value', 'get').mockReturnValue(true);
 
         workspace.documentContext.file.pdfSrc.value = {...source};
         for (const view of surfaceRenders.presentations.values()) {

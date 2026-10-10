@@ -19,6 +19,8 @@ import {
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import {cast} from '@tests/helpers/cast';
 import {
     createDeferred,
     createDeps,
@@ -143,5 +145,52 @@ describe('concurrent canonical edits during workspace save', () => {
         if (capturedEdit) expect(application.store.redo()).toBe(true);
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'newer unsaved text'});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+    });
+});
+
+describe('save requests while the document lease is held', () => {
+    it.each([
+        {
+            mode: 'save',
+            indicator: 'isSaving',
+        },
+        {
+            mode: 'save-as',
+            indicator: 'isSavingAs',
+        },
+    ] as const)('keeps $mode busy while it waits for the document lease', async ({
+        mode, indicator,
+    }) => {
+        const gate = createDeferred<undefined>();
+        const {
+            deps, saveFile,
+        } = createDeps({
+            annotationDirty: ref(true),
+            runWithDocumentOperationLease: cast<NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>>(
+                async (_kind: unknown, operation: () => Promise<unknown>) => {
+                    await gate.promise;
+                    return operation();
+                },
+            ),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+        const startSave = () => mode === 'save-as' ? service.handleSaveAs() : service.handleSave();
+        const writes = () => saveFile.mock.calls.length
+            + vi.mocked(deps.saveWorkingCopy).mock.calls.length
+            + vi.mocked(deps.saveWorkingCopyAs).mock.calls.length;
+
+        const first = startSave();
+        await vi.waitFor(() => expect(deps[indicator].value).toBe(true));
+        expect(service.isAnySaving.value).toBe(true);
+        expect(service.isAnySaveAdmitted.value).toBe(false);
+
+        expect(writes()).toBe(0);
+
+        gate.resolve(undefined);
+        await expect(first).resolves.toBe(true);
+        expect(writes()).toBe(1);
+        expect(deps[indicator].value).toBe(false);
+        expect(service.isAnySaving.value).toBe(false);
+        expect(service.isAnySaveAdmitted.value).toBe(false);
     });
 });

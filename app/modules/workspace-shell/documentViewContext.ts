@@ -119,7 +119,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     // Saves capture before clearing; page mutations own their page remapping.
     watch(pdfSrc, (source, previous) => {
         const identity = openSurface.snapshot.value.identity;
-        if (!saveService.isAnySaving.value || !source || !previous || !identity || document.isOpeningDocument.value) {
+        if (!saveService.isAnySaveAdmitted.value || !source || !previous || !identity || document.isOpeningDocument.value) {
             return;
         }
         beginOpenSurfaceWithPageShape(openSurface, {
