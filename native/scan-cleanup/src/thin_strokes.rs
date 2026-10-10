@@ -14,10 +14,7 @@
 //! or a stem end is also darker than paper along its arc and must stay paper.
 //!
 //! A valley's depth is the pixel's depth below paper plus that of its darker
-//! neighbour across the line. Beside a darker stem, a near-cut ridge can
-//! instead sit on a sloping profile. Its symmetric curvature admits only a
-//! continuous bridge between pieces still disconnected after valley completion.
-//! A hairline that straddles two pixel rows splits
+//! neighbour across the line. A hairline that straddles two pixel rows splits
 //! its darkness between them; the sum measures it the same either way.
 
 use crate::{bw::paper_reference, calibration::PageCalibration};
@@ -49,7 +46,7 @@ struct ValleyContrast {
 }
 
 struct ValleyScale {
-    /// Half-width, in pixels, of the profile across a thin stroke.
+    /// Half-width, in pixels, of the profile a valley must be the minimum of.
     radius: usize,
     /// Radius of the local paper estimate; it must see past a glyph interior.
     paper_radius: usize,
@@ -99,15 +96,10 @@ pub(crate) fn restored_thin_strokes(
             && 2 * (paper - i16::from(raw.get(x, y))) >= contrast.depth
             && is_valley(raw, paper, x, y, scale.radius, contrast)
     });
-    let ridges = BinaryImage::from_fn_parallel(raw.width(), raw.height(), |x, y| {
-        !binary.get(x, y)
-            && i16::from(local_paper.get(x, y)) - i16::from(raw.get(x, y)) >= contrast.depth
-            && is_ridge(raw, x, y, scale.radius, contrast)
-    });
-    if valleys.count_black() == 0 && ridges.count_black() == 0 {
+    if valleys.count_black() == 0 {
         return none();
     }
-    bridging_valleys(binary, &valleys, &ridges, &scale)
+    bridging_valleys(binary, &valleys, &scale)
 }
 
 /// The valley contrast for this page, measured from `page_paper` down to the
@@ -195,41 +187,12 @@ fn is_valley(
     })
 }
 
-/// A weak stroke beside a dark stem need not be the profile's minimum:
-/// the stem tilts that profile. Subtract its linear slope by comparing the
-/// center with the mean of symmetric flanks, both adjacent and at the rim.
-/// Curvature at both scales keeps the added line narrow; darker flanks at
-/// twice the profile radius identify the blurred paper saddle between serifs.
-fn is_ridge(raw: &GrayImage, x: usize, y: usize, radius: usize, contrast: ValleyContrast) -> bool {
-    let center = i16::from(raw.get(x, y));
-    let sample = |(dx, dy): (isize, isize), step: isize| {
-        let sx = x.checked_add_signed(dx * step)?;
-        let sy = y.checked_add_signed(dy * step)?;
-        (sx < raw.width() && sy < raw.height()).then(|| i16::from(raw.get(sx, sy)))
-    };
-    let darker_along = |direction, sign: isize| {
-        (1..=2 * radius as isize).any(|step| {
-            sample(direction, sign * step).is_some_and(|value| center - value >= contrast.rise)
-        })
-    };
-    !DIRECTIONS
-        .iter()
-        .any(|&(_, along)| darker_along(along, 1) && darker_along(along, -1))
-        && DIRECTIONS.iter().any(|&(across, _)| {
-            let symmetric_rise =
-                |step: isize| Some(sample(across, step)? + sample(across, -step)? - 2 * center);
-            symmetric_rise(1).is_some_and(|rise| rise >= contrast.rise / radius as i16)
-                && symmetric_rise(radius as isize).is_some_and(|rise| rise >= 2 * contrast.rise)
-        })
-}
-
 /// Keeps the valley components that bridge two kept glyph parts, touch one
 /// part at two separate places, or run on as a tail. A short valley touching
 /// ink at a single place is the rim of a dot or stem end.
 fn bridging_valleys(
     binary: &BinaryImage,
     valleys: &BinaryImage,
-    ridges: &BinaryImage,
     scale: &ValleyScale,
 ) -> BinaryImage {
     #[derive(Clone, Copy)]
@@ -242,68 +205,54 @@ fn bridging_valleys(
         bottom: usize,
     }
     let ink = ComponentMap::from_binary(binary);
-    let contacts_for = |valley_map: &ComponentMap, ink: &ComponentMap| {
-        let mut contacts: Vec<Option<Contact>> = vec![None; valley_map.components().len() + 1];
-        for component in valley_map.components() {
-            for y in component.top..=component.bottom {
-                for x in component.left..=component.right {
-                    if valley_map.label_at(x, y) != component.label {
-                        continue;
-                    }
-                    for ny in y.saturating_sub(1)..=(y + 1).min(binary.height() - 1) {
-                        for nx in x.saturating_sub(1)..=(x + 1).min(binary.width() - 1) {
-                            let ink_label = ink.label_at(nx, ny);
-                            if ink_label == 0 {
-                                continue;
+    let valley_map = ComponentMap::from_binary(valleys);
+    let mut contacts: Vec<Option<Contact>> = vec![None; valley_map.components().len() + 1];
+    for component in valley_map.components() {
+        for y in component.top..=component.bottom {
+            for x in component.left..=component.right {
+                if valley_map.label_at(x, y) != component.label {
+                    continue;
+                }
+                for ny in y.saturating_sub(1)..=(y + 1).min(binary.height() - 1) {
+                    for nx in x.saturating_sub(1)..=(x + 1).min(binary.width() - 1) {
+                        if !binary.get(nx, ny) {
+                            continue;
+                        }
+                        let ink_label = ink.label_at(nx, ny);
+                        let entry = &mut contacts[component.label as usize];
+                        match entry {
+                            None => {
+                                *entry = Some(Contact {
+                                    ink_label,
+                                    bridges: false,
+                                    left: nx,
+                                    top: ny,
+                                    right: nx,
+                                    bottom: ny,
+                                });
                             }
-                            let entry = &mut contacts[component.label as usize];
-                            match entry {
-                                None => {
-                                    *entry = Some(Contact {
-                                        ink_label,
-                                        bridges: false,
-                                        left: nx,
-                                        top: ny,
-                                        right: nx,
-                                        bottom: ny,
-                                    });
-                                }
-                                Some(contact) => {
-                                    contact.bridges |= contact.ink_label != ink_label;
-                                    contact.left = contact.left.min(nx);
-                                    contact.top = contact.top.min(ny);
-                                    contact.right = contact.right.max(nx);
-                                    contact.bottom = contact.bottom.max(ny);
-                                }
+                            Some(contact) => {
+                                contact.bridges |= contact.ink_label != ink_label;
+                                contact.left = contact.left.min(nx);
+                                contact.top = contact.top.min(ny);
+                                contact.right = contact.right.max(nx);
+                                contact.bottom = contact.bottom.max(ny);
                             }
                         }
                     }
                 }
             }
         }
-        contacts
-    };
-    let valley_map = ComponentMap::from_binary(valleys);
-    let contacts = contacts_for(&valley_map, &ink);
+    }
     let separate_contacts = 2 * scale.radius + 2;
-    let kept_valleys = valley_map.retain(|component| {
+    valley_map.retain(|component| {
         contacts[component.label as usize].is_some_and(|contact| {
             contact.bridges
                 || (contact.right - contact.left).max(contact.bottom - contact.top)
                     >= separate_contacts
                 || component.area >= scale.tail_length
         })
-    });
-    // Only complete joins still missing after the strict valley pass. Removing
-    // already kept ink from the candidate lines separates a missing bridge
-    // from the parallel rim of a stem or an already complete hairline.
-    let completed = binary.or(&kept_valleys);
-    let ink = ComponentMap::from_binary(&completed);
-    let continuity_map = ComponentMap::from_binary(&valleys.or(ridges).subtract(&completed));
-    let contacts = contacts_for(&continuity_map, &ink);
-    kept_valleys.or(&continuity_map.retain(|component| {
-        contacts[component.label as usize].is_some_and(|contact| contact.bridges)
-    }))
+    })
 }
 
 #[cfg(test)]
@@ -489,11 +438,11 @@ mod tests {
     }
 
     #[test]
-    fn leaves_the_blurred_gap_between_offset_serifs_open() {
-        let mut sheet = Sheet::new(80, 60);
-        sheet.fill(10, 20, 32, 23, 1.0);
-        sheet.fill(35, 22, 57, 25, 1.0);
-        let image = sheet.scan(&[1.0, 2.0, 3.0, 4.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
+    fn leaves_the_gap_between_touching_serifs_open() {
+        let mut sheet = Sheet::new(60, 40);
+        sheet.fill(10, 20, 25, 21, 1.0);
+        sheet.fill(27, 20, 42, 21, 1.0);
+        let image = sheet.scan(&SOFT);
         let cut = threshold(&image);
         assert_eq!(
             component_count(&cut),
@@ -559,67 +508,5 @@ mod tests {
         let cut = threshold(&image);
 
         assert_eq!(complete(&cut, &image), cut);
-    }
-
-    #[test]
-    fn restores_a_blurred_diagonal_between_kept_stems_without_widening_them() {
-        let mut sheet = Sheet::new(90, 90);
-        sheet.fill(10, 10, 15, 70, 1.0);
-        sheet.fill(60, 10, 65, 70, 1.0);
-        for step in 0..=45 {
-            let y = 10 + (step as f64 * 1.2).round() as usize;
-            sheet.fill(15 + step, y, 15 + step, y + 1, 1.0);
-        }
-        let image = sheet.scan(&SOFT);
-        let cut = threshold(&image);
-        assert_eq!(component_count(&cut), 2, "the cut drops the N diagonal");
-
-        let completed = complete(&cut, &image);
-
-        assert_eq!(
-            component_count(&completed),
-            1,
-            "the diagonal must join both stems"
-        );
-        for y in 0..90 {
-            for x in 0..90 {
-                if completed.get(x, y) && !cut.get(x, y) {
-                    assert!((15..=65).contains(&x), "added ink at ({x}, {y})");
-                    let line_y = 10 + ((x - 15) as f64 * 1.2).round() as usize;
-                    assert!(y.abs_diff(line_y) <= 2, "added ink at ({x}, {y})");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn restores_the_blurred_bottom_curve_of_a_u_without_widening_its_stems() {
-        let mut sheet = Sheet::new(90, 110);
-        sheet.fill(15, 10, 20, 40, 1.0);
-        sheet.fill(60, 10, 65, 40, 1.0);
-        for y in 40..90 {
-            for x in 15..66 {
-                let radius = (x as f64 - 40.0).hypot((y as f64 - 40.0) * 0.75);
-                if (radius - 22.5).abs() <= 1.0 {
-                    sheet.fill(x, y, x, y, 1.0);
-                }
-            }
-        }
-        let image = sheet.scan(&[1.0, 2.0, 3.0, 4.0, 3.0, 2.0, 1.0]);
-        let cut = threshold(&image);
-        assert!(component_count(&cut) > 1, "the cut drops the U curve");
-
-        let completed = complete(&cut, &image);
-
-        assert_eq!(component_count(&completed), 1);
-        for y in 0..110 {
-            for x in 0..90 {
-                if completed.get(x, y) && !cut.get(x, y) {
-                    assert!(y >= 38, "added ink along a stem at ({x}, {y})");
-                    let radius = (x as f64 - 40.0).hypot((y as f64 - 40.0) * 0.75);
-                    assert!((radius - 22.5).abs() <= 2.0, "added ink at ({x}, {y})");
-                }
-            }
-        }
     }
 }
