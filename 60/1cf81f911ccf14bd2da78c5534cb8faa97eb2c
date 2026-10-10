@@ -1,0 +1,30 @@
+native/pdf-page-ops/src/annotation_parse.rs
+  s_03af048a414c3d::t_12e271011ae068 707-709
+  s_03af048a414c3d::t_a84b9b2dd320be 692-694,710
+tests/e2e/electron/annotations/interopVpsAcceptance.e2e.test.ts
+  s_03af048a414c3d::t_bfc89c4ab45060 25-29,31,34,42,245-319
+native/pdf-page-ops/src/text_box_font.rs
+  s_03af048a414c3d::t_a9ab33567b8f21 613,618-619,624,634,637,651-665
+  s_03af048a414c3d::t_a84b9b2dd320be 677-803,822-823,825-827,834-845
+  s_03af048a414c3d::t_04586bca323ab1 804-821,824,828-833
+  s_03af048a414c3d::t_12e271011ae068 666-669
+native/pdf-page-ops/src/postconditions.rs
+  s_03af048a414c3d::t_e1d3c5f9dd0128 534,539
+  s_03af048a414c3d::t_f492ca0c29eb13 250-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "601cf81f911ccf14bd2da78c5534cb8faa97eb2c",
+  "prompts": {},
+  "sessions": {
+    "s_03af048a414c3d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123aa-2c5f-76f3-a77c-b6f78329bc62",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
