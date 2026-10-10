@@ -29,6 +29,7 @@ import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runDetached } from '@app/utils/asyncGuard';
 import { useWorkspaceDocumentDriverBinding } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
@@ -115,6 +116,20 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         totalPages,
         pdfDocument,
     } = view;
+    // A save replaces the shared source without opening another document.
+    // Capture this view before the PDF session clears its old presentation;
+    // its opening restore request is the only owner of the replacement's place.
+    watch(pdfSrc, (source, previous) => {
+        const identity = openSurface.snapshot.value.identity;
+        if (!source || !previous || !identity || document.isOpeningDocument.value) {
+            return;
+        }
+        beginOpenSurfaceWithPageShape(openSurface, {
+            documentId: identity.documentId,
+            documentRevision: String(documentRevisionToken.value ?? identity.documentRevision),
+        }, documentView.captureReadingAnchor() ?? currentPage.value, null);
+    }, {flush: 'sync'});
+
     const search = useWorkspaceSearchSidebar({
         workingCopyPath,
         documentRevisionToken,
@@ -272,6 +287,21 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         documentSourceKey: computed(() => (file.isDjvuMode.value ? file.djvuSourcePath.value : null)
             ?? file.openedWorkingCopyPath.value ?? pdfSrc.value),
     });
+    // Conversion reopens the same reading session as a PDF. Its view seed
+    // survives the source reset, and cancellation withdraws the unused seed.
+    watch(() => file.conversionState.value.isConverting, (converting, _previous, onCleanup) => {
+        if (converting) {
+            documentView.captureReadingAnchor();
+            onCleanup(viewerDefaults.seedViewForSource({
+                zoom: view.zoom.value,
+                zoomMode: view.zoomMode.value,
+                continuousScroll: view.continuousScroll.value,
+                viewMode: view.viewMode.value,
+                viewRotation: view.viewRotation.value,
+            }, null));
+        }
+    }, {flush: 'sync'});
+
     usePageShortcuts({
         isActive,
         hasInteractiveDocument: computed(() => Boolean(pdfSrc.value ?? file.djvuSourcePath.value)),

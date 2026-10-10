@@ -917,7 +917,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     function reconcileIdleOpenSurfaceViewport() {
         const surface = chassisAuthority?.openSurface;
-        if (!surface) {
+        if (!surface || surface.navigationTicket.value) {
             return false;
         }
         const committedRender = reconcilePdfOpeningViewportCommit({
@@ -1100,9 +1100,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             }
             if (isPreservedSelectiveReload) {
                 applyReloadAnchor();
-                await nextTick();
-            } else if (transition.plan.isReload && currentPage.value > 1) {
-                applyReloadViewport(clampPageNumber(currentPage.value, numPages.value));
                 await nextTick();
             } else if (!transition.plan.isReload) {
                 applyReloadViewport(resolvedPageToRestore);

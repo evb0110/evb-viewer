@@ -15,6 +15,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {
+    basename,
     dirname,
     join,
 } from 'node:path';
@@ -60,6 +61,7 @@ import {
     triggerOpenPathInApp,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    goToPageViaToolbar,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     clickLatestVisibleNoteWindowClose,
@@ -95,6 +97,10 @@ import {
     waitForWorkspaceToolbarIdle,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    activatePaneByTab, splitActiveTabFromTabMenu,
+} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
@@ -605,6 +611,110 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await session?.stop();
         session = null;
     });
+
+    it('keeps each reading point when Save As reloads a linked split or single view', async () => {
+        const drifts: Array<{
+            pageBefore: number;
+            pageAfter: number;
+            dx: number;
+            dy: number;
+            widthDrift: number;
+            painted: boolean
+        }> = [];
+        // Reading points come from painted page rectangles, independently of
+        // the toolbar page indicator and the viewer's retained state.
+        const readPoints = () => Array.from(document.querySelectorAll<HTMLElement>('.editor-pane')).map(pane => {
+            const viewport = pane.querySelector<HTMLElement>('.workspace-host [data-document-viewer-chassis-viewport]');
+            if (!viewport) throw new Error('The visible pane has no viewport');
+            const box = viewport.getBoundingClientRect();
+            const x = box.left + viewport.clientLeft + viewport.clientWidth / 2;
+            const y = box.top + viewport.clientTop + viewport.clientHeight / 2;
+            const element = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]'))
+                .find(element => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.top <= y && rect.bottom > y && rect.left <= x && rect.right > x;
+                });
+            if (!element) throw new Error('No page covers the viewport centre');
+            const rect = element.getBoundingClientRect();
+            const canvas = element.querySelector<HTMLCanvasElement>('canvas');
+            return {
+                page: Number(element.dataset.page),
+                x: (x - rect.left) / rect.width,
+                y: (y - rect.top) / rect.height,
+                width: rect.width,
+                height: rect.height,
+                painted: Boolean(canvas?.width && element.classList.contains('page_container--rendered')),
+            };
+        });
+        for (const linked of [
+            true,
+            false,
+        ]) {
+            const stamp = Date.now();
+            const source = await createMultiPageTextFixturePdf(`save-as-anchor-${stamp}.pdf`, 8);
+            const destination = createFixturePath(`save-as-anchor-saved-${stamp}.pdf`);
+            session = await startElectronE2ESession(`e2e-save-as-anchor-${stamp}`, {
+                clean: true,
+                initialOpenPaths: [source],
+                extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destination},
+            });
+            const {page} = session;
+            await waitForOpenedPdf(page, source);
+            if (linked) await splitActiveTabFromTabMenu(page, 'right');
+            const panes = await page.$$eval('.editor-pane', elements => elements.map(element => (element as HTMLElement).dataset.editorPaneId!));
+            for (const [
+                index,
+                pane,
+            ] of panes.entries()) {
+                await activatePaneByTab(page, pane);
+                await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
+                await clickAsUser(page, '#editor-global-toolbar-host .zoom-controls-display');
+                await clickAsUser(page, '.zoom-chip-custom-input', {count: 3});
+                await page.keyboard.type(index === 0 ? '100' : '140');
+                await page.keyboard.press('Enter');
+                await waitForViewportQuiet(page);
+                await goToPageViaToolbar(page, index === 0 ? 2 : 4);
+                await waitForViewportQuiet(page);
+                const box = await page.$eval('.editor-pane.is-active [data-document-viewer-chassis-viewport]', element => element.getBoundingClientRect().toJSON());
+                await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+                await page.mouse.wheel({deltaY: 230});
+                await waitForViewportQuiet(page);
+            }
+            const before = await page.evaluate(readPoints);
+            expect(before.every(point => point.painted)).toBe(true);
+            expect(before.map(point => point.page)).toEqual(linked ? [
+                2,
+                4,
+            ] : [2]);
+            await clickAsUser(page, 'button[aria-label="Save options"]');
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-item'))
+                .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'Save As with independent reading points'});
+            await page.waitForFunction((name: string) => Array.from(document.querySelectorAll('.tab-label'))
+                .every(element => element.textContent?.trim() === name), {timeout: SAVE_TIMEOUT_MS}, basename(destination));
+            await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+            await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
+            await waitForViewportQuiet(page);
+            const after = await page.evaluate(readPoints);
+            expect(after).toHaveLength(before.length);
+            drifts.push(...before.map((point, index) => {
+                const saved = after[index]!;
+                return {
+                    pageBefore: point.page,
+                    pageAfter: saved.page,
+                    dx: (saved.x - point.x) * saved.width,
+                    dy: (saved.y - point.y) * saved.height,
+                    widthDrift: saved.width - point.width,
+                    painted: saved.painted,
+                };
+            }));
+            expect((await readPdfPageSnapshots(destination))).toHaveLength(8);
+            await session.stop();
+            session = null;
+        }
+        console.log('SAVE_AS_READING_POINT', JSON.stringify(drifts));
+        expect(drifts.every(point => point.painted && point.pageBefore === point.pageAfter
+            && Math.abs(point.dx) <= 1 && Math.abs(point.dy) <= 1 && Math.abs(point.widthDrift) <= 1)).toBe(true);
+    }, E2E_TIMEOUT_MS);
 
     it('warns once for encrypted saves, leaves Cancel untouched, and persists suppression', async () => {
         const cancelledPath = await createPasswordProtectedFixturePdf(

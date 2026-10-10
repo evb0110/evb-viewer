@@ -358,11 +358,10 @@ export const useWorkspaceFileLifecycleController = (
         }, () => openFileWithViewerLifecycle(result));
     }
 
-    // The conversion keeps its modal progress until the converted PDF is
-    // shown; the focus it then gives back lands on that PDF's live controls.
+    // Conversion restores the retained reading view before returning focus.
     function openConvertedDjvuPdf(path: TDocumentRef, openOptions?: IPdfRasterDisplayProfileOpenOptions) {
         return openInDocumentTransaction({
-            kind: 'open',
+            kind: 'restore',
             target: describeDocumentTarget(path),
         }, () => openFileDirectWithViewerLifecycle(path, openOptions));
     }

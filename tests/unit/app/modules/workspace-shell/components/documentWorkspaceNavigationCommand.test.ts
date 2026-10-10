@@ -25,6 +25,7 @@ import {
     documentOpenSurfaceSessionKey,
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
@@ -79,6 +80,14 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
         surfaceRenders.openSurface = inject(documentOpenSurfaceSessionKey, null);
         expose({
             scrollToPage: vi.fn(),
+            captureReadingAnchor: () => ({
+                page: 3,
+                pageXFraction: 0.42,
+                pageYFraction: 0.61,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center',
+            } satisfies IPdfSemanticAnchor),
             getViewerContainer: () => null,
             restoreReadingAnchor: (anchor: unknown) => surfaceRenders.restoreReadingAnchor?.(anchor),
             getReaderInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
@@ -294,6 +303,48 @@ async function mountDocumentWorkspace(options: {
 }
 
 describe('DocumentWorkspace navigation command', () => {
+    it('keeps the current reading point in the navigation stream when Save As reloads the source', async () => {
+        const path = requireDocumentRef('/tmp/shared.pdf');
+        const workspace = await mountDocumentWorkspace({
+            pendingDocumentPath: path,
+            openSurfaceDocument: path,
+        });
+        const source = {
+            kind: 'path' as const,
+            path,
+            size: 400,
+        };
+        workspace.documentContext.file.pdfSrc.value = source;
+        workspace.documentSession.markPresented();
+        await nextTick();
+
+        workspace.documentContext.file.pdfSrc.value = {...source};
+        await nextTick();
+
+        // Loading the replacement accepts the saved source identity. The
+        // reading point must survive that admission of the saved revision.
+        const surface = surfaceRenders.openSurface!;
+        surface.acquireSource({
+            documentId: path,
+            documentRevision: 'revision:test-navigation',
+        }, surface.snapshot.value.generation);
+        await nextTick();
+        expect(surface.snapshot.value.identity?.provisional).not.toBe(true);
+
+        expect(readToolbarNavigationTicket()?.request).toMatchObject({
+            source: 'restore',
+            target: {
+                kind: 'page',
+                page: 3,
+                anchor: {
+                    page: 3,
+                    pageXFraction: 0.42,
+                    pageYFraction: 0.61,
+                },
+            },
+        });
+    });
+
     it('does not mount the reader presentation in scan-cleanup mode', async () => {
         await mountDocumentWorkspace({
             initialSurfaceMode: 'scan-cleanup',
