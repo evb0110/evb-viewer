@@ -208,6 +208,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationLayerDiv: HTMLElement,
         viewport: ReturnType<IPdfPage['getViewport']>,
         pageNumber: number,
+        annotationCanvasMap?: Map<string, HTMLCanvasElement> | null,
         options?: IAnnotationLayerRenderOptions,
     ): Promise<TAnnotationLayer | null> {
         if (!shouldContinueLayerRender(options)) {
@@ -305,6 +306,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             div: annotationLayerDiv as HTMLDivElement,
             page: pdfPage,
             viewport,
+            annotationCanvasMap: annotationCanvasMap ?? null,
             linkService: simpleLinkService,
         });
         if (!shouldContinueLayerRender(options)) {

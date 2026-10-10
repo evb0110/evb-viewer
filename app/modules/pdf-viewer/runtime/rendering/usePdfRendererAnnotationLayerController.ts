@@ -25,7 +25,10 @@ export function isRenderCancellation(error: unknown) {
 interface IAnnotationRenderContext {
     container: HTMLElement;
     pdfPage: IPdfPage;
-    renderResult: {viewport: Parameters<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>[2];};
+    renderResult: {
+        viewport: Parameters<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>[2];
+        annotationCanvasMap: Parameters<ReturnType<typeof usePdfAnnotationLayerRenderer>['renderAnnotationLayer']>[4];
+    };
     preserveCanvasOnStale?: boolean;
 }
 
@@ -112,7 +115,10 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                 annotationLayerInstance: null,
             };
         }
-        const {viewport} = renderResult;
+        const {
+            viewport,
+            annotationCanvasMap,
+        } = renderResult;
         const annotationLayerDiv =
             container.querySelector<HTMLElement>('.annotation-layer');
         let annotationLayerInstance: TAnnotationLayerInstance = null;
@@ -137,6 +143,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
                             annotationLayerDiv,
                             viewport,
                             pageNumber,
+                            annotationCanvasMap,
                             {
                                 documentVersion: version,
                                 signal: annotationAbortController.signal,

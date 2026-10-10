@@ -20,7 +20,7 @@ function createHarness() {
 
     const renderDeferred = Promise.withResolvers<null>();
     const renderSignals: AbortSignal[] = [];
-    const annotationLayerRenderer = cast<Parameters<typeof usePdfRendererAnnotationLayerController>[0]['annotationLayerRenderer']>({renderAnnotationLayer: vi.fn((_page, _layer, _viewport, _pageNumber, renderOptions) => {
+    const annotationLayerRenderer = cast<Parameters<typeof usePdfRendererAnnotationLayerController>[0]['annotationLayerRenderer']>({renderAnnotationLayer: vi.fn((_page, _layer, _viewport, _pageNumber, _canvasMap, renderOptions) => {
         if (renderOptions?.signal) {
             renderSignals.push(renderOptions.signal);
         }
@@ -50,11 +50,14 @@ describe('usePdfRendererAnnotationLayerController', () => {
             cast<Parameters<typeof harness.controller>[3]>({
                 container: harness.container,
                 pdfPage: cast<IPdfPage>({}),
-                renderResult: {viewport: {
-                    width: 100,
-                    height: 100,
-                    rotation: 0,
-                }},
+                renderResult: {
+                    viewport: {
+                        width: 100,
+                        height: 100,
+                        rotation: 0,
+                    },
+                    annotationCanvasMap: null,
+                },
             }), () => true);
         harness.renderDeferred.reject(error);
         await expect(render).resolves.toMatchObject({
@@ -72,11 +75,14 @@ describe('usePdfRendererAnnotationLayerController', () => {
                 cast<Parameters<typeof harness.controller>[3]>({
                     container: harness.container,
                     pdfPage: cast<IPdfPage>({}),
-                    renderResult: {viewport: {
-                        width: 100,
-                        height: 100,
-                        rotation: 0,
-                    }},
+                    renderResult: {
+                        viewport: {
+                            width: 100,
+                            height: 100,
+                            rotation: 0,
+                        },
+                        annotationCanvasMap: null,
+                    },
                 }), () => true);
             await vi.advanceTimersByTimeAsync(PDF_PAGE_RENDER_TIMEOUT_MS);
             const outcome = await render;
@@ -96,11 +102,14 @@ describe('usePdfRendererAnnotationLayerController', () => {
             cast<Parameters<typeof harness.controller>[3]>({
                 container: harness.container,
                 pdfPage: cast<IPdfPage>({}),
-                renderResult: {viewport: {
-                    width: 100,
-                    height: 100,
-                    rotation: 0,
-                }},
+                renderResult: {
+                    viewport: {
+                        width: 100,
+                        height: 100,
+                        rotation: 0,
+                    },
+                    annotationCanvasMap: null,
+                },
             }), () => current);
         current = false;
         harness.renderDeferred.reject(new Error('late old document failure'));
@@ -117,11 +126,14 @@ describe('usePdfRendererAnnotationLayerController', () => {
             cast<Parameters<typeof harness.controller>[3]>({
                 container: harness.container,
                 pdfPage: cast<IPdfPage>({}),
-                renderResult: {viewport: {
-                    width: 100,
-                    height: 100,
-                    rotation: 0,
-                }},
+                renderResult: {
+                    viewport: {
+                        width: 100,
+                        height: 100,
+                        rotation: 0,
+                    },
+                    annotationCanvasMap: null,
+                },
                 textLayerDiv: null,
             }),
             () => true,

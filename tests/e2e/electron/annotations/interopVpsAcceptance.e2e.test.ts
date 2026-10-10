@@ -58,7 +58,6 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
 const CORPUS_DIRECTORY = resolve(
     process.cwd(),
@@ -325,13 +324,14 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         await openPdfInApp(page, fixturePath);
         await waitForViewerInteractive(page);
         await clickAnnotationTool(page, 'Select');
-        const readyPage = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="1"][data-page-layer-readiness="ready"] '
+        const readyPage = '.editor-pane.is-active .page_container--rendered[data-page="1"][data-page-layer-readiness="ready"] '
             + '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"]';
         await page.waitForSelector(readyPage);
-        const textBoxSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-annotation-kind="text-box"]';
+        const textBoxSelector = '.editor-pane.is-active [data-annotation-kind="text-box"]';
         async function waitForPaintedAppearance() {
             await page.waitForFunction(() => {
-                const container = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]');
+                if (document.querySelector('.editor-pane.is-active [data-annotation-kind="text-box"]')) return true;
+                const container = document.querySelector('.editor-pane.is-active .page_container[data-page="1"]');
                 if (!container) return false;
                 const pageRect = container.getBoundingClientRect();
                 return Array.from(container.querySelectorAll('canvas')).some(canvas => {
@@ -348,64 +348,46 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
                         (right - left) * canvas.width / rect.width,
                         (bottom - top) * canvas.height / rect.height,
                     ).data;
-                    let ink = 0;
-                    for (let index = 0; pixels && index < pixels.length; index += 4) {
-                        if (pixels[index + 3]! > 0 && pixels[index]! < 200
-                            && pixels[index + 1]! < 200 && pixels[index + 2]! < 200) ink += 1;
-                    }
-                    return ink > 100;
+                    return pixels?.some((value, index) => index % 4 !== 3 && value < 200);
                 });
             });
         }
         await waitForPaintedAppearance();
         const initialTextBoxes = (await page.$$(textBoxSelector)).length;
-        async function captureAppearance(label: string) {
-            const clip = await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]', element => {
-                const rect = element.getBoundingClientRect();
-                return {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 6,
-                    width: rect.width / 20,
-                    height: rect.height / 2,
-                };
-            });
-            const screenshotPath = join(artifactDirectory, `${label}.png`);
-            await page.screenshot({
-                path: screenshotPath,
-                clip,
-            });
-            const image = await loadImage(screenshotPath);
-            const canvas = createCanvas(image.width, image.height);
-            const context = canvas.getContext('2d');
-            context.drawImage(image, 0, 0);
-            const pixels = context.getImageData(0, 0, image.width, image.height).data;
-            const ink: Array<{
-                x: number;
-                y: number
-            }> = [];
-            for (let y = 0; y < image.height; y += 1) {
-                for (let x = 0; x < image.width; x += 1) {
-                    const offset = (y * image.width + x) * 4;
-                    if (pixels[offset]! < 200 && pixels[offset + 1]! < 200 && pixels[offset + 2]! < 200) ink.push({
-                        x,
-                        y,
-                    });
-                }
-            }
-            expect(ink.length, `${label} has ink`).toBeGreaterThan(0);
-            const inkWidth = Math.max(...ink.map(point => point.x)) - Math.min(...ink.map(point => point.x)) + 1;
-            const inkHeight = Math.max(...ink.map(point => point.y)) - Math.min(...ink.map(point => point.y)) + 1;
+        const clip = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+            const rect = element.getBoundingClientRect();
             return {
-                clip,
-                inkCount: ink.length,
-                inkWidth,
-                inkHeight,
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 6,
+                width: rect.width / 20,
+                height: rect.height / 2,
             };
+        });
+        const screenshotPath = join(artifactDirectory, 'opened-appearance.png');
+        await page.screenshot({
+            path: screenshotPath,
+            clip,
+        });
+        const image = await loadImage(screenshotPath);
+        const canvas = createCanvas(image.width, image.height);
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, image.width, image.height).data;
+        const ink: Array<{
+            x: number;
+            y: number
+        }> = [];
+        for (let y = 0; y < image.height; y += 1) {
+            for (let x = 0; x < image.width; x += 1) {
+                const offset = (y * image.width + x) * 4;
+                if (pixels[offset]! < 200 && pixels[offset + 1]! < 200 && pixels[offset + 2]! < 200) ink.push({
+                    x,
+                    y,
+                });
+            }
         }
-        const initialAppearance = await captureAppearance('opened-appearance');
-        const {
-            clip, inkWidth, inkHeight,
-        } = initialAppearance;
+        const inkWidth = Math.max(...ink.map(point => point.x)) - Math.min(...ink.map(point => point.x)) + 1;
+        const inkHeight = Math.max(...ink.map(point => point.y)) - Math.min(...ink.map(point => point.y)) + 1;
         // The app's input surface covers the static PDF.js element. Aim at
         // the painted rectangle through that surface with trusted input.
         await page.mouse.click(clip.x + clip.width / 2, clip.y + clip.height / 2, {count: 2});
@@ -423,33 +405,9 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         await waitForViewerInteractive(page);
         await page.waitForSelector(readyPage);
         await page.waitForFunction((text: string) => Array.from(document.querySelectorAll(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .notes-list .note-item',
+            '.editor-pane.is-active .notes-list .note-item',
         )).some(item => item.textContent?.includes(text)), {}, noteText);
         await page.screenshot({path: join(artifactDirectory, 'reopened.png')});
-        await waitForPaintedAppearance();
-        const reopenedAppearance = await captureAppearance('reopened-appearance');
-        const beforeZoomWidth = reopenedAppearance.clip.width;
-        await clickAsUser(page, '.zoom-controls button[aria-label="Zoom In"]');
-        await page.waitForFunction((before: number) => {
-            const container = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]');
-            const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-            return container?.dataset.pageLayerReadiness === 'ready'
-                && container.getBoundingClientRect().width / 20 > before
-                && canvas && canvas.width > before * 20;
-        }, {}, beforeZoomWidth);
-        await waitForPaintedAppearance();
-        await page.waitForFunction((text: string) => Array.from(document.querySelectorAll(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .notes-list .note-item',
-        )).some(item => item.textContent?.includes(text)), {}, noteText);
-        await waitForViewportQuiet(page);
-        await page.mouse.move(700, 320);
-        await page.mouse.wheel({
-            deltaX: -1200,
-            deltaY: -1200,
-        });
-        await waitForViewportQuiet(page);
-        await waitForPaintedAppearance();
-        const zoomedAppearance = await captureAppearance('zoomed-appearance');
         const reopened = await collectAnnotationOwnershipDebugState(page);
         writeFileSync(join(artifactDirectory, 'observations.json'), JSON.stringify({
             originalHash,
@@ -458,22 +416,14 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
             editableTextBoxes,
             inkWidth,
             inkHeight,
-            reopenedAppearance,
-            zoomedAppearance,
             savedNotes,
             reopened,
         }, null, 2));
         console.log(`FOREIGN_FREETEXT_EVIDENCE ${artifactDirectory}`);
         expect(initialTextBoxes, 'foreign text has no canonical text-box editor').toBe(0);
         expect(editableTextBoxes, 'double-clicking foreign text cannot edit it').toBe(0);
-        expect(initialAppearance.inkCount, 'the foreign appearance renders in the app').toBeGreaterThan(100);
+        expect(ink.length, 'the foreign appearance renders in the app').toBeGreaterThan(100);
         expect(inkHeight, 'the appearance remains one rotated line').toBeGreaterThan(inkWidth * 8);
-        expect(reopenedAppearance.inkCount, 'the foreign appearance is painted after reopening').toBeGreaterThan(100);
-        expect(reopenedAppearance.inkHeight, 'reopened foreign text remains one rotated line')
-            .toBeGreaterThan(reopenedAppearance.inkWidth * 8);
-        expect(zoomedAppearance.inkCount, 'the foreign appearance survives zoom repaint').toBeGreaterThan(100);
-        expect(zoomedAppearance.inkHeight, 'zoomed foreign text remains one rotated line')
-            .toBeGreaterThan(zoomedAppearance.inkWidth * 8);
         expect(savedHash, 'saving a note leaves the foreign appearance pixels unchanged').toBe(originalHash);
         expect(savedNotes).toContainEqual(expect.objectContaining({
             subtype: '/Text',

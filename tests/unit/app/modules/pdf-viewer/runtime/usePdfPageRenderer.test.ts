@@ -180,6 +180,7 @@ function createHarness() {
     const renderResult = {
         canvas,
         viewport: page.getViewport({scale: 1}),
+        annotationCanvasMap: null,
         scaleX: 1,
         scaleY: 1,
         rawDims: {

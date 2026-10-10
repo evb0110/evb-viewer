@@ -305,7 +305,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const sourceMaxPixels = resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, demand.pageNumber);
             const render = await canvasRenderer.prepareCanvasRender(page, scale, {
                 ...(intent ? {contentIntent: intent} : {}),
-                hiddenAnnotationIds: () => pageRenderer.canvasHiddenAnnotationIds.value,
+                hiddenAnnotationIds: pageRenderer.canvasHiddenAnnotationIds.value,
                 ...(job.renderOptions.maxCanvasPixels === undefined
                     ? {}
                     : {maxCanvasPixels: job.renderOptions.maxCanvasPixels}),
@@ -506,7 +506,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderOptions.maxCanvasPixels ?? '',
                 pageRenderOptions.openSurfaceGeneration ?? '',
                 pageRenderOptions.openSurfaceRevision ?? '',
-                pageRenderer.annotationProjectionReady.value,
             ].join(':');
             // An in-flight raster is already scale-current within tolerance.
             // Keep its key so float drift in a recomputed fit cannot orphan it.
@@ -1286,6 +1285,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     return {
         ...pageRenderer,
         renderVisiblePages,
+        cancelInFlightRenders,
         preparePageRotationPreview,
         cancelPageRotationPreview,
         releaseUnmountedPage: (pageNumber: TPageNumber) => clearAuthoritativePage(pageNumber),

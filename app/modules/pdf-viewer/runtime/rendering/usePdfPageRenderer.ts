@@ -612,6 +612,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                         renderResult: {
                             canvas,
                             viewport: pageViewport,
+                            annotationCanvasMap: null,
                             scaleX: canvas.width / pageViewport.width,
                             scaleY: canvas.height / pageViewport.height,
                             rawDims: pageViewport.rawDims as {

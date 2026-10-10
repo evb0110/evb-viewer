@@ -13,11 +13,11 @@ import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page
 import type { TPdfPageOperationSettlementCapture } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type { TPdfViewRotation } from '@contracts/shared';
 import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
-import { until } from '@vueuse/core';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<IPdfPage['getViewport']>;
+    annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
     rawDims: {
@@ -40,9 +40,7 @@ interface IRenderCanvasOptions {
     maxCanvasPixels?: number;
     sourceMaxPixels?: number;
     onRenderTask?: (task: ICancelableRenderTask) => void;
-    // A getter is read once the projection is ready, so the raster hides the
-    // ids the store owns at that moment rather than when the render was queued.
-    hiddenAnnotationIds?: Set<string> | (() => Set<string>);
+    hiddenAnnotationIds?: Set<string>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
     contentIntent?: TPdfPageRenderContentIntent;
     reserveSurface?: ((bytes: number) => {release: () => void;} | null) | undefined;
@@ -96,10 +94,17 @@ export const usePdfCanvasRenderer = (deps: {
         canvas.remove();
     }
 
-    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'surfaceReservation'>) {
-        renderResult.surfaceReservation?.release();
-        renderResult.surfaceReservation = undefined;
+    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap'>) {
+        const resultWithReservation = renderResult as Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'surfaceReservation'>;
+        resultWithReservation.surfaceReservation?.release();
+        resultWithReservation.surfaceReservation = undefined;
         cleanupCanvas(renderResult.canvas);
+        renderResult.annotationCanvasMap?.forEach((annotationCanvas) => {
+            if (annotationCanvas !== renderResult.canvas) {
+                cleanupCanvas(annotationCanvas);
+            }
+        });
+        renderResult.annotationCanvasMap?.clear();
     }
 
     function isValidViewportSize(width: number, height: number) {
@@ -207,41 +212,34 @@ export const usePdfCanvasRenderer = (deps: {
         ] : undefined;
     }
 
-    async function createAnnotationRenderOptions(pageNumber: number, options?: IRenderCanvasOptions) {
-        // The raster paints foreign appearances and must not paint an owned one,
-        // so it waits for the canonical store's PDF refs. A projection still
-        // pending after the page-stage budget paints without appearances; the
-        // ownership refresh repaints the page once the projection is ready.
-        const ready = await withPageStageTimeout(
-            until(() => toValue(deps.annotationProjectionReady ?? true)).toBe(true, {timeout: PDF_PAGE_RENDER_TIMEOUT_MS}),
-            {
-                pageNumber: requirePageNumber(pageNumber),
-                stage: 'canvas-prepare',
-                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
-            },
-            () => shouldContinueCanvasPreparation(options),
-            undefined,
-            undefined,
-            undefined,
-            options?.pageRenderCoordination?.signal,
-        ).catch((error: unknown) => {
-            if (error instanceof Error && error.name === 'PdfPageRenderTimeoutError') {
-                return false;
-            }
-            throw error;
-        });
-        if (!ready) {
+    function createAnnotationRenderOptions(
+        options?: IRenderCanvasOptions,
+    ) {
+        if (
+            options?.contentIntent === 'canvas-only-buffer'
+            || options?.contentIntent === 'canvas-only-refine'
+        ) {
             return {
+                annotationCanvasMap: null,
+                // Buffer and refinement canvases have no annotation layer to
+                // receive PDF.js appearance canvases. Keep annotations in the
+                // committed raster so foreign appearances remain visible.
+                annotationMode: AnnotationMode.ENABLE_FORMS,
+                hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(options.hiddenAnnotationIds),
+            };
+        }
+        if (toValue(deps.annotationProjectionReady ?? true) === false) {
+            return {
+                annotationCanvasMap: null,
                 annotationMode: AnnotationMode?.DISABLE ?? 0,
                 hiddenAnnotationIds: undefined,
             };
         }
-        const hidden = typeof options?.hiddenAnnotationIds === 'function'
-            ? options.hiddenAnnotationIds()
-            : options?.hiddenAnnotationIds;
+        const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
         return {
-            annotationMode: AnnotationMode.ENABLE,
-            hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(hidden),
+            annotationCanvasMap,
+            annotationMode: AnnotationMode.ENABLE_FORMS,
+            hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(options?.hiddenAnnotationIds),
         };
     }
 
@@ -293,7 +291,19 @@ export const usePdfCanvasRenderer = (deps: {
             return null;
         }
 
-        const annotationOptions = await createAnnotationRenderOptions(pdfPage.pageNumber, options).catch((error: unknown) => {
+        const annotationOptions = await withPageStageTimeout(
+            Promise.resolve(createAnnotationRenderOptions(options)),
+            {
+                pageNumber: requirePageNumber(pdfPage.pageNumber),
+                stage: 'canvas-prepare',
+                timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
+            },
+            () => shouldContinueCanvasPreparation(options),
+            undefined,
+            options?.onRenderStall,
+            undefined,
+            options?.pageRenderCoordination?.signal,
+        ).catch((error: unknown) => {
             if (error instanceof Error && error.name === 'AbortError') {
                 return null;
             }
@@ -328,6 +338,9 @@ export const usePdfCanvasRenderer = (deps: {
             transform: createOutputTransform(canvasScale),
             viewport,
             annotationMode: annotationOptions.annotationMode,
+            ...(annotationOptions.annotationCanvasMap
+                ? {annotationCanvasMap: annotationOptions.annotationCanvasMap}
+                : {}),
             ...(annotationOptions.hiddenAnnotationIds
                 ? {hiddenAnnotationIds: annotationOptions.hiddenAnnotationIds}
                 : {}),
@@ -338,6 +351,7 @@ export const usePdfCanvasRenderer = (deps: {
         return {
             canvas,
             viewport,
+            annotationCanvasMap: annotationOptions.annotationCanvasMap,
             scaleX: canvasScale.scaleX,
             scaleY: canvasScale.scaleY,
             rawDims,

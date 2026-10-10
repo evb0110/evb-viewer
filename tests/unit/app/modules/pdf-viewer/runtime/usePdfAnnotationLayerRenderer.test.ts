@@ -78,15 +78,21 @@ describe('usePdfAnnotationLayerRenderer', () => {
             noHTML: false,
         }]);
         const annotationLayerDiv = document.createElement('div');
+        const annotationCanvasMap = new Map<string, HTMLCanvasElement>([[
+            'stamp-1',
+            document.createElement('canvas'),
+        ]]);
 
         await renderer.renderAnnotationLayer(
             pdfPage as never,
             annotationLayerDiv,
             viewport as never,
             1,
+            annotationCanvasMap,
         );
 
         expect(annotationLayerCtor).toHaveBeenCalledWith(expect.objectContaining({
+            annotationCanvasMap,
             div: annotationLayerDiv,
             page: pdfPage,
             viewport,
@@ -266,6 +272,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
                 rotation: 0,
             } as never,
             1,
+            null,
             {signal: abortController.signal},
         ).catch(error => error as Error);
         await Promise.resolve();
