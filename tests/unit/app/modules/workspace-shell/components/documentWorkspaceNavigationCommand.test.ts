@@ -38,6 +38,8 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
 import { seedOpeningSource } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import DocumentWorkspace from '@app/modules/workspace-shell/components/DocumentWorkspace.vue';
+import DocumentSessionHost from '@app/modules/workspace-shell/components/DocumentSessionHost.vue';
 
 const recentReadingViews = vi.hoisted(() => ({
     readingView: vi.fn(),
@@ -200,9 +202,6 @@ async function mountDocumentWorkspace(options: {
     hiddenSecondView?: boolean;
     detachDocumentView?: TDocumentViewDetach;
 } = {}) {
-    const { default: DocumentWorkspace } = await import(
-        '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
-    );
     const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
     const documentView = documentSession.getView('tab-1')!;
     if (options.hiddenSecondView) {
@@ -233,9 +232,6 @@ async function mountDocumentWorkspace(options: {
             return () => h('div', slots.default?.({}) ?? []);
         },
     });
-    const { default: DocumentSessionHost } = await import(
-        '@app/modules/workspace-shell/components/DocumentSessionHost.vue'
-    );
     let registry: ReturnType<typeof provideDocumentContextRegistry> | null = null;
     const app = createApp(defineComponent({setup() {
         registry = provideDocumentContextRegistry();
@@ -275,9 +271,11 @@ async function mountDocumentWorkspace(options: {
     }
     const host = document.createElement('div');
     document.body.append(host);
-    app.mount(host);
+    // Register cleanup before mounting so a failed or timed-out mount cannot
+    // leave a workspace rendering into the next case.
     mountedApp = app;
     mountedHost = host;
+    app.mount(host);
     // The viewer chassis is an async chunk the shell requests while mounting.
     // Settling it here keeps its import from resolving after the environment
     // has been torn down.
