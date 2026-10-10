@@ -2236,10 +2236,17 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
     let source = path("missing-rotation-source", "pdf");
     let output = path("missing-rotation-output", "pdf");
     let mutations = path("missing-rotation-mutations", "json");
+    let instructions = path("missing-rotation-overlay", "json");
+    let parsed = path("missing-rotation-parsed", "jsonl");
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
     save_empty_pages(&blank, 1);
     write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
     run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
-    let original = Document::load(&source).unwrap();
+    let mut original = Document::load(&source).unwrap();
     let id = original
         .get_dictionary(original.get_pages()[&1])
         .unwrap()
@@ -2258,47 +2265,85 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
         .unwrap(),
     )
     .unwrap();
-    for invalid in [false, true] {
-        let mut doc = original.clone();
-        if invalid {
-            doc.get_dictionary_mut(id)
-                .unwrap()
-                .set("Rotate", Object::string_literal("invalid"));
-        } else {
-            doc.get_dictionary_mut(id).unwrap().remove(b"Rotate");
-        }
-        doc.save(&source).unwrap();
-        fs::copy(&source, &output).unwrap();
-        let previous = fs::read(&output).unwrap();
-        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .arg("save-mutations")
-            .arg("--input")
-            .arg(&source)
-            .arg("--output")
-            .arg(&output)
-            .arg("--mutations-file")
-            .arg(&mutations)
-            .args(["--append", "--modified-at", "D:19700101000000Z"])
-            .output()
-            .unwrap();
-        assert_eq!(
-            result.status.success(),
-            !invalid,
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        if invalid {
-            assert_eq!(fs::read(&output).unwrap(), previous);
-        } else {
-            assert!(Document::load(&output)
-                .unwrap()
-                .get_dictionary(id)
-                .unwrap()
-                .get(b"EVBTextGeometry")
-                .is_ok());
+    let rotation_id = original.add_object(Object::Integer(0));
+    for (overlay, rotations) in [
+        (false, vec![None, Some(Object::string_literal("invalid"))]),
+        (
+            true,
+            vec![
+                None,
+                Some(Object::Integer(0)),
+                Some(Object::Reference(rotation_id)),
+                Some(Object::string_literal("invalid")),
+                Some(Object::Null),
+                Some(Object::Real(0.5)),
+            ],
+        ),
+    ] {
+        for rotation in rotations {
+            let invalid = matches!(
+                rotation,
+                Some(Object::String(..) | Object::Null | Object::Real(..))
+            );
+            let mut doc = original.clone();
+            if let Some(rotation) = rotation {
+                doc.get_dictionary_mut(id).unwrap().set("Rotate", rotation);
+            } else {
+                doc.get_dictionary_mut(id).unwrap().remove(b"Rotate");
+            }
+            doc.save(&source).unwrap();
+            fs::copy(&source, &output).unwrap();
+            let previous = fs::read(&output).unwrap();
+            let result = if overlay {
+                run_overlay_text(&blank, &source, &output, &instructions)
+            } else {
+                Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                    .arg("save-mutations")
+                    .arg("--input")
+                    .arg(&source)
+                    .arg("--output")
+                    .arg(&output)
+                    .arg("--mutations-file")
+                    .arg(&mutations)
+                    .args(["--append", "--modified-at", "D:19700101000000Z"])
+                    .output()
+                    .unwrap()
+            };
+            assert_eq!(
+                result.status.success(),
+                !invalid,
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            if invalid {
+                assert_eq!(fs::read(&output).unwrap(), previous);
+            } else if overlay {
+                run_text_box_command("parse-annotations", &output, &parsed, None);
+                let entries: serde_json::Value = serde_json::from_str(
+                    fs::read_to_string(&parsed).unwrap().lines().nth(1).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(entries["entries"].as_array().unwrap().len(), 1);
+                assert_eq!(entries["entries"][0]["kind"], "text-box");
+                assert_eq!(entries["entries"][0]["text"], "Editable box");
+                assert_eq!(entries["entries"][0]["rotation"], 0);
+                assert_eq!(
+                    entries["entries"][0]["rect"],
+                    serde_json::json!({
+                        "left":0.1,"top":0.625,"width":0.2,"height":0.125,
+                    })
+                );
+            } else {
+                assert!(Document::load(&output)
+                    .unwrap()
+                    .get_dictionary(id)
+                    .unwrap()
+                    .get(b"EVBTextGeometry")
+                    .is_ok());
+            }
         }
     }
-    for file in [blank, source, output, mutations] {
+    for file in [blank, source, output, mutations, instructions, parsed] {
         remove_file(file).unwrap();
     }
 }

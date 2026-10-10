@@ -588,25 +588,24 @@ pub(crate) fn geometry(source: PdfRect, rotation: i64, page_rotation: i64) -> Re
     };
     let center_x = source.x1 + source.width() / 2.0;
     let center_y = source.y1 + source.height() / 2.0;
-    let visual_width = f64::abs(a) * width + f64::abs(c) * height;
-    let visual_height = f64::abs(b) * width + f64::abs(d) * height;
+    let matrix = [
+        a,
+        b,
+        c,
+        d,
+        center_x - a * width / 2.0 - c * height / 2.0,
+        center_y - b * width / 2.0 - d * height / 2.0,
+    ];
     Ok(Geometry {
-        bounds: PdfRect {
-            x1: center_x - visual_width / 2.0,
-            y1: center_y - visual_height / 2.0,
-            x2: center_x + visual_width / 2.0,
-            y2: center_y + visual_height / 2.0,
-        },
+        bounds: crate::split_pages::PdfMatrix::from_values(matrix).bounds(PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: width,
+            y2: height,
+        }),
         width,
         height,
-        matrix: [
-            a,
-            b,
-            c,
-            d,
-            center_x - a * width / 2.0 - c * height / 2.0,
-            center_y - b * width / 2.0 - d * height / 2.0,
-        ],
+        matrix,
     })
 }
 
@@ -640,7 +639,10 @@ pub(crate) fn transform_editor_geometry(
     if annotation.get(b"EVBTextGeometry").is_err() {
         return Ok(());
     }
-    let rotation = annotation.get(b"Rotate")?.as_i64()?.rem_euclid(360);
+    let rotation = document
+        .resolved(annotation.get(b"Rotate").unwrap_or(&Object::Integer(0)))?
+        .as_i64()?
+        .rem_euclid(360);
     let (source, rotation) =
         stored_editor_geometry(document, annotation, visible, rotation, page_rotation)?;
     let original = geometry(source, rotation, page_rotation)?;
@@ -674,10 +676,7 @@ pub(crate) fn transform_editor_geometry(
         let tokens = crate::annotations::tokenize_default_appearance(&bytes);
         for (index, &(start, end)) in tokens.iter().enumerate().rev() {
             if &bytes[start..end] == b"Tf" {
-                let &(start, end) = index
-                    .checked_sub(1)
-                    .and_then(|index| tokens.get(index))
-                    .ok_or("Missing text-box font size")?;
+                let &(start, end) = tokens[..index].last().ok_or("Missing text-box font size")?;
                 let size = std::str::from_utf8(&bytes[start..end])?.parse::<f64>()? * scale;
                 if !size.is_finite() || size <= 0.0 || size > 512.0 {
                     return Err("Transformed text-box font size is unsupported".into());
