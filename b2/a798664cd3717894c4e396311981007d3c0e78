@@ -1,0 +1,31 @@
+tests/unit/electron/assistantChatSessionStore.test.ts
+  s_ddde1053323a60::t_22796ea521d695 47-48
+  s_ddde1053323a60::t_7bfa95c1d13387 44,836-837,839-844,846-854,856-866
+  s_ddde1053323a60::t_e4479a10adac5a 815-816,855
+tests/unit/electron/workingCopy.test.ts
+  s_ddde1053323a60::t_e4479a10adac5a 360
+  s_ddde1053323a60::t_7bfa95c1d13387 74-81,324-326,328-330,332-333,336,345
+tests/unit/app/platform/browserWorkspaceRecoveryStore.test.ts
+  s_ddde1053323a60::t_e4479a10adac5a 28,104-107,111-113,115-118,339-369
+app/platform/browserWindowTabs.ts
+  s_ddde1053323a60::t_7bfa95c1d13387 1005,1011,1029-1030
+electron/features/agent/assistantChatPersistence.ts
+  s_ddde1053323a60::t_9625429f4e8fc5 604-605,661
+  s_ddde1053323a60::t_1d08c15f23d6d7 91,586,588,591,593-596,626,631-633,639-641,660,972,976-984,1131,1145-1149,1151,1161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b2a798664cd3717894c4e396311981007d3c0e78",
+  "prompts": {},
+  "sessions": {
+    "s_ddde1053323a60": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-6d6a-7762-81c4-096ef6ad50dd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
