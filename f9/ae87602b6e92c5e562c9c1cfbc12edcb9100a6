@@ -1,0 +1,28 @@
+app/types/workspaceExpose.ts
+  s_ddde1053323a60::t_d705af347d326c 296-297,300
+tests/unit/app/modules/workspace-shell/composables/windowTabTransferOrchestration.test.ts
+  s_ddde1053323a60::t_50d23acca2e26f 282-287,397-404,411-415,429-436
+  s_ddde1053323a60::t_751a08add2f948 21-25,288-289,291-301,304-331,333-396,405-410,416-419,421-428,437-438
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_ddde1053323a60::t_d705af347d326c 363-364,367
+tests/e2e/electron/navigation/moveTabViewState.e2e.test.ts
+  s_ddde1053323a60::t_1212bef25bf55a 21
+  s_ddde1053323a60::t_67b4dfa9252db4 25-29,91,101,271-278,280-300,304,307-312,314-316,318-327,334-352,354,356,361,368-376
+  s_ddde1053323a60::t_50d23acca2e26f 22-24,357-360
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f9ae87602b6e92c5e562c9c1cfbc12edcb9100a6",
+  "prompts": {},
+  "sessions": {
+    "s_ddde1053323a60": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1224a-6d6a-7762-81c4-096ef6ad50dd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
