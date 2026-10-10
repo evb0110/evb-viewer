@@ -96,12 +96,6 @@ export interface IScanCleanupLosslessRunContext {
     onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
 }
 
-function resolveLosslessDpiSource(
-    source: IScanCleanupPageRasterSource,
-): IScanCleanupPageRasterSource {
-    return source;
-}
-
 async function readLosslessPageSizeBatch(
     pageSizeStore: IPdfPageSizeStore,
     pageNumbers: readonly number[],
@@ -156,11 +150,10 @@ export async function runLosslessScanCleanup(
     // is handed another page's box writes a wrong document rather than a
     // failing one. This entry is reachable directly, not only through the
     // conversion run that already admitted its geometry.
-    const dpiSource = resolveLosslessDpiSource(dpiDetails);
     if (!paths.pdfPageOpsBinary) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
-    const documentDpi = resolveSourceDpi(dpiSource.documentDpi);
+    const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
     const resolveRasterPlan = (pageNumber: number, detected?: IDetectedPageRaster) => {
         const dpi = resolveSourceDpi(detected?.dpi, documentDpi);
         return {
@@ -254,13 +247,13 @@ export async function runLosslessScanCleanup(
         ]));
         const batchRasterByNumber = new Map(await Promise.all(batchPageNumbers.map(async pageNumber => [
             pageNumber,
-            await dpiSource.getPageRaster(pageNumber),
+            await dpiDetails.getPageRaster(pageNumber),
         ] as const)));
         for (const [
             pageNumber,
             raster,
         ] of batchRasterByNumber) {
-            dpiSource.recordPageRaster?.(pageNumber, raster);
+            dpiDetails.recordPageRaster?.(pageNumber, raster);
         }
         const rasterPlans = batchPageNumbers.map(pageNumber => resolveRasterPlan(
             pageNumber,
@@ -454,8 +447,8 @@ export async function runLosslessScanCleanup(
     // A source that has no compact-layer probe is still a valid page raster
     // source. Only an explicit incomplete result proves that automatic source
     // budgeting cannot be trusted.
-    const compactLayeredPageCountComplete = dpiSource.compactLayeredPageCountComplete !== false;
-    const compactLayeredPageCount = dpiSource.compactLayeredPageCount ?? 0;
+    const compactLayeredPageCountComplete = dpiDetails.compactLayeredPageCountComplete !== false;
+    const compactLayeredPageCount = dpiDetails.compactLayeredPageCount ?? 0;
     if (
         fullDocumentRun
         && request.options.outputMode === 'auto'
@@ -617,6 +610,7 @@ export async function runLosslessScanCleanup(
         commandLabel: 'evb-pdf-page-ops(split-pages:scan-cleanup)',
         timeoutMs: 10 * 60 * 1000,
         log,
+        ...(context.onRecoveryPending === undefined ? {} : {onTerminationProof: context.onRecoveryPending}),
     });
     emitProgress('assembling', allOutputs.length, allOutputs.length);
     const [

@@ -2,6 +2,7 @@ import {
     mkdtemp,
     readFile,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -13,6 +14,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {
@@ -264,4 +266,97 @@ describe('runLosslessScanCleanup', () => {
         expect(sourceDpi.compactLayeredPageCount).toBe(compactLayeredPages.size);
         expect(sourceDpi.compactLayeredPageCountComplete).toBeUndefined();
     }, 30_000);
+
+    it('hands an unproven split-pages termination to the recovery owner and keeps its inputs', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-lossless-split-proof-test-'));
+        roots.push(root);
+        const sourcePdfPath = join(root, 'source.pdf');
+        const stagedPdfPath = join(root, 'staged.pdf');
+        await writeFile(sourcePdfPath, '%PDF-lossless-source');
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: 1,
+            getPage: vi.fn(async pageNumber => pageGeometry(pageNumber)),
+            readRange: vi.fn(async () => [pageGeometry(1)]),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
+        const sourceDpi: IScanCleanupPageRasterSource = {
+            detected: true,
+            documentDpi: 300,
+            getPageRaster: vi.fn(() => ({
+                dpi: 300,
+                width: 2_550,
+                height: 3_300,
+            })),
+        };
+        const proof = Promise.withResolvers<boolean>();
+        const onRecoveryPending = vi.fn();
+        const renderRaster: IRunScanCleanupPipelineDependencies['renderPage'] = async (
+            _paths,
+            _log,
+            _pageNumber,
+            _source,
+            outputPath,
+        ) => {
+            await writeFile(outputPath, 'P6\n1 1\n255\n\0\0\0');
+        };
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: vi.fn(async () => 1),
+            getPageSizeStore: vi.fn(async () => pageSizeStore),
+            detectSourceDpi: vi.fn(async () => sourceDpi),
+            renderPage: renderRaster,
+            renderPagePpm: renderRaster,
+            runSidecar: vi.fn(async (_binaryPath, manifestPath, _signal, _log, onProgress) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify(analysisMetadata()));
+                onProgress({
+                    stage: 'page-complete',
+                    completedPages: 1,
+                    totalPages: 1,
+                    pageNumber: 1,
+                });
+            }),
+            runCommand: vi.fn(async (_command, args, commandOptions) => {
+                if (args[0] === 'split-pages') {
+                    commandOptions?.onTerminationProof?.(proof.promise);
+                    throw markUnprovenNativeTermination(new Error('split-pages still alive'), 'pending proof');
+                }
+                await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }),
+            getAvailableScratchBytes: vi.fn(async () => null),
+            hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
+        };
+
+        await expect(runLosslessScanCleanup(
+            {
+                sourcePdfPath,
+                outputPdfPath: join(root, 'output.pdf'),
+                options,
+            },
+            paths(root),
+            sourcePdfPath,
+            [],
+            resolveScanCleanupPageScopeLazy(undefined, 1),
+            pageSizeStore,
+            sourceDpi,
+            root,
+            stagedPdfPath,
+            new AbortController().signal,
+            vi.fn<TEmitScanCleanupProgress>(),
+            vi.fn<TScanCleanupLog>(),
+            policy,
+            dependencies,
+            {onRecoveryPending},
+        )).rejects.toThrow('split-pages still alive');
+
+        expect(onRecoveryPending).toHaveBeenCalledOnce();
+        expect(onRecoveryPending.mock.calls[0]![0]).toBe(proof.promise);
+        await expect(stat(join(root, 'split-pages.json'))).resolves.toBeDefined();
+        await expect(stat(root)).resolves.toBeDefined();
+    });
 });
