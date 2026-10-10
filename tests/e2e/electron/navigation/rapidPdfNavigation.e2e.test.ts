@@ -34,6 +34,7 @@ import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
     requireWorkspaceCommand,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
@@ -1486,6 +1487,135 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         });
 
         expect(chassisCurrentPage).toBe('2');
+    }, 70_000);
+
+    // Owner report 2026-10-10: in paged mode at about 350%, Zoom In and
+    // Command-wheel threw the reader onto the previous page. The hidden
+    // neighbours stay mounted at a fixed offset that a page wider than two
+    // viewports overlaps, and the zoom anchor was read from one of them.
+    it('keeps the page and the point under the pointer when zooming a paged page wider than the window', async () => {
+        const session = sessionFixture.getSession();
+        if (!pageJumpReady) {
+            throw new Error('Page-jump suite setup did not complete');
+        }
+        const layoutBefore = await getWorkspaceToolbarSnapshot(session.page);
+        const client = await session.page.createCDPSession();
+        const readPointUnder = (fraction: {
+            x: number;
+            y: number;
+        }) => session.page.evaluate((point: {
+            x: number;
+            y: number;
+        }) => {
+            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+            if (!viewport) {
+                return null;
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const x = viewportRect.left + viewport.clientWidth * point.x;
+            const y = viewportRect.top + viewport.clientHeight * point.y;
+            const contains = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+            };
+            const shown = viewport.querySelector<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)');
+            const shownRect = shown?.getBoundingClientRect();
+            return {
+                clientX: x,
+                clientY: y,
+                hiddenPageUnderPoint: Array.from(viewport.querySelectorAll<HTMLElement>('.page_container--buffered')).some(contains),
+                page: Number(shown?.dataset.page) || null,
+                pageXFraction: shownRect ? (x - shownRect.left) / shownRect.width : null,
+                pageYFraction: shownRect ? (y - shownRect.top) / shownRect.height : null,
+                pageWiderThanTwoWindows: (shownRect?.width ?? 0) > window.innerWidth * 2,
+                toolbarPage: (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
+            };
+        }, fraction);
+        const expectSamePoint = (
+            before: Awaited<ReturnType<typeof readPointUnder>>,
+            after: Awaited<ReturnType<typeof readPointUnder>>,
+        ) => {
+            const diagnostics = JSON.stringify({
+                after,
+                before,
+            });
+            expect(after?.page, diagnostics).toBe(5);
+            expect(after?.toolbarPage, diagnostics).toBe(5);
+            expect(Math.abs((after?.pageXFraction ?? 0) - (before?.pageXFraction ?? 1)), diagnostics).toBeLessThan(0.01);
+            expect(Math.abs((after?.pageYFraction ?? 0) - (before?.pageYFraction ?? 1)), diagnostics).toBeLessThan(0.01);
+        };
+
+        try {
+            await jumpToPageAndWaitForCanvas(session, 5);
+            await waitForToolbarCurrentPage(session, 5);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
+            await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [4]);
+            await waitForWorkspaceToolbarSnapshot(session.page, {
+                currentPage: 5,
+                effectiveZoom: 4,
+            });
+            expect(await waitForVisiblePageCanvas(session, 5, 15_000)).toBe(true);
+            // The reader pans to the left part of the page, where the hidden
+            // neighbours sit under the viewport centre.
+            const centre = await readPointUnder({
+                x: 0.5,
+                y: 0.5,
+            });
+            await client.send('Input.dispatchMouseEvent', {
+                type: 'mouseWheel',
+                x: centre?.clientX ?? 0,
+                y: centre?.clientY ?? 0,
+                deltaX: -100_000,
+                deltaY: 0,
+                pointerType: 'mouse',
+            });
+            await waitForAnimationFrames(session.page, 3);
+
+            const beforeButton = await readPointUnder({
+                x: 0.5,
+                y: 0.5,
+            });
+            expect(beforeButton, JSON.stringify(beforeButton)).toMatchObject({
+                page: 5,
+                pageWiderThanTwoWindows: true,
+            });
+            expect(beforeButton?.pageXFraction ?? 1, JSON.stringify(beforeButton)).toBeLessThan(0.5);
+            await clickVisibleToolbarButton(session.page, 'Zoom In');
+            await waitForWorkspaceToolbarSnapshot(session.page, {minEffectiveZoom: 4.05});
+            await waitForAnimationFrames(session.page, 3);
+            expectSamePoint(beforeButton, await readPointUnder({
+                x: 0.5,
+                y: 0.5,
+            }));
+
+            const pointer = {
+                x: 0.3,
+                y: 0.3,
+            };
+            const beforeWheel = await readPointUnder(pointer);
+            expect(beforeWheel?.pageXFraction ?? 1, JSON.stringify(beforeWheel)).toBeLessThan(0.5);
+            const zoomBeforeWheel = (await getWorkspaceToolbarSnapshot(session.page))?.effectiveZoom ?? 0;
+            for (let packet = 0; packet < 3; packet += 1) {
+                await client.send('Input.dispatchMouseEvent', {
+                    type: 'mouseWheel',
+                    x: beforeWheel?.clientX ?? 0,
+                    y: beforeWheel?.clientY ?? 0,
+                    deltaX: 0,
+                    deltaY: -40,
+                    // Command-wheel on macOS, Control-wheel elsewhere.
+                    modifiers: process.platform === 'darwin' ? 4 : 2,
+                    pointerType: 'mouse',
+                });
+                await delay(16);
+            }
+            await waitForWorkspaceToolbarSnapshot(session.page, {minEffectiveZoom: zoomBeforeWheel + 0.05});
+            await waitForAnimationFrames(session.page, 3);
+            expectSamePoint(beforeWheel, await readPointUnder(pointer));
+        } finally {
+            await client.detach().catch(() => undefined);
+            await restoreViewerLayout(session, layoutBefore);
+        }
     }, 70_000);
 
     it('renders the final page after twenty rapid next-page clicks', async () => {

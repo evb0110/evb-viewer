@@ -9,9 +9,7 @@ export {
 export {
     canScrollWithinPageBounds, resolveWheelDirection, resolveWheelTargetPage,
 } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
-export {
-    captureDocumentViewportResizeAnchor, resolveDocumentViewportResizeAnchorPosition, type IDocumentViewportResizeAnchor,
-} from '@app/modules/document-viewer/runtime/documentViewportResizeAnchor';
+export { captureDocumentViewportResizeAnchor } from '@app/modules/document-viewer/runtime/captureDocumentViewportResizeAnchor';
 export { clampClientPointToRect } from '@app/modules/document-viewer/region-geometry/clampClientPointToRect';
 export {
     clampDocumentFitScale, clampDocumentManualZoom, type IDocumentZoomLimits,
