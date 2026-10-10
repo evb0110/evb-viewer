@@ -649,42 +649,41 @@ fn faint_stroke_masks(image: &GrayImage, luminance: LuminanceEvidence) -> [Optio
             })
         })
     };
+    let shallow: Vec<_> = map.components().iter().map(shallow).collect();
     let widths = map.maximum_values_by_component(
         &scan_primitives::distance::squared_euclidean_distance(&marks.invert()),
     );
-    let minimum_curve = (image.width().min(image.height()) / 24).max(24);
     let preserved = map.retain(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         let (span, minor) = (width.max(height), width.min(height));
         let belongs = |x, y| map.label_at(x, y) == component.label;
-        // Curved contours travel across both axes; rectilinear glyphs have only
-        // a few corners. Stroke diameter stays below a quarter of the minor extent.
-        let curved = (component.top..=component.bottom)
-            .flat_map(|y| (component.left..=component.right).map(move |x| (x, y)))
-            .filter(|&(x, y)| {
-                x > 0
-                    && y > 0
-                    && x + 1 < image.width()
-                    && y + 1 < image.height()
-                    && belongs(x, y)
-                    && belongs(x - 1, y) != belongs(x + 1, y)
-                    && belongs(x, y - 1) != belongs(x, y + 1)
-            })
-            .count();
-        shallow(component)
-            && span >= 24
+        // Curvature scales with this contour's bounds, not the surrounding page.
+        // Rectilinear glyphs have few corners; stroke diameter is bounded first.
+        shallow[component.label as usize - 1]
             && minor.saturating_mul(8) >= span
             && (widths[component.label as usize] as usize).saturating_mul(64)
                 <= minor.saturating_mul(minor)
-            && curved >= minimum_curve
             && component.left > 0
             && component.top > 0
             && component.right + 1 < image.width()
             && component.bottom + 1 < image.height()
             && !is_leaf_edge_strip(component, image.width(), image.height())
+            && {
+                let curved = (component.top..=component.bottom)
+                    .flat_map(|y| (component.left..=component.right).map(move |x| (x, y)))
+                    .filter(|&(x, y)| {
+                        belongs(x, y)
+                            && belongs(x - 1, y) != belongs(x + 1, y)
+                            && belongs(x, y - 1) != belongs(x, y + 1)
+                    })
+                    .count();
+                curved.saturating_mul(2) >= width.saturating_add(height)
+            }
     });
-    let rejected = map.retain(shallow).subtract(&preserved);
+    let rejected = map
+        .retain(|component| shallow[component.label as usize - 1])
+        .subtract(&preserved);
     [preserved, rejected].map(|mask| (mask.count_black() > 0).then_some(mask))
 }
 

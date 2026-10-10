@@ -112,8 +112,8 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
     use scan_primitives::{GrayImage, Point};
 
     // Issue #1338's full-size 300 DPI title page, including the scanner blur.
-    let blur = |source: &GrayImage| {
-        let kernel = [1u32, 4, 6, 4, 1];
+    let blur = |source: &GrayImage, kernel: &[u32]| {
+        let divisor = kernel.iter().sum::<u32>().pow(2);
         let mut horizontal = vec![0u32; source.width() * source.height()];
         for y in 0..source.height() {
             for x in 0..source.width() {
@@ -121,7 +121,9 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
                     .iter()
                     .enumerate()
                     .map(|(i, weight)| {
-                        let column = (x + i).saturating_sub(2).min(source.width() - 1);
+                        let column = (x + i)
+                            .saturating_sub(kernel.len() / 2)
+                            .min(source.width() - 1);
                         weight * u32::from(source.get(column, y))
                     })
                     .sum();
@@ -134,11 +136,13 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
                     .iter()
                     .enumerate()
                     .map(|(i, weight)| {
-                        let row = (y + i).saturating_sub(2).min(source.height() - 1);
+                        let row = (y + i)
+                            .saturating_sub(kernel.len() / 2)
+                            .min(source.height() - 1);
                         weight * horizontal[row * source.width() + x]
                     })
                     .sum();
-                output.set(x, y, ((sum + 128) / 256) as u8);
+                output.set(x, y, ((sum + divisor / 2) / divisor) as u8);
             }
         }
         output
@@ -165,6 +169,82 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
         margins_mm: None,
         ..CleanupOptions::default()
     };
+    // Issue #1345: small pencil rings must not depend on the surrounding page size.
+    for dpi in [150.0, 300.0] {
+        let scale = if dpi == 150.0 { 1 } else { 2 };
+        let mut page = GrayImage::new(1240 * scale, 1754 * scale, 224);
+        for (top, glyphs) in [(350, 7), (600, 6), (850, 8), (1100, 7)] {
+            for glyph in 0..glyphs {
+                let left = 160 + glyph * 65;
+                for y in top * scale..(top + 60) * scale {
+                    for x in left * scale..(left + 40) * scale {
+                        if x < (left + 9) * scale
+                            || x >= (left + 31) * scale
+                            || y < (top + 8) * scale
+                        {
+                            page.set(x, y, 40);
+                        }
+                    }
+                }
+            }
+        }
+        let mut rings = Vec::new();
+        for (radius, row) in [(10, 400), (20, 700), (40, 1000)] {
+            for column in [900, 1050] {
+                let (cx, cy) = (column * scale, row * scale);
+                let mut pixels = Vec::new();
+                for y in cy - radius - 2..=cy + radius + 2 {
+                    for x in cx - radius - 2..=cx + radius + 2 {
+                        let distance = (x as f64 - cx as f64).hypot(y as f64 - cy as f64);
+                        if (distance - radius as f64).abs() <= 1.0 {
+                            page.set(x, y, 194);
+                            pixels.push((x, y));
+                        }
+                    }
+                }
+                rings.push((radius, cx, cy, pixels));
+            }
+        }
+        let cleaned = clean_page(
+            &blur(&page, &[1, 2, 1]),
+            &CleanupOptions {
+                dpi,
+                ..options.clone()
+            },
+            0,
+        )
+        .unwrap();
+        let output = &cleaned.outputs[0].image;
+        assert!(
+            output.bilevel().is_some(),
+            "{dpi} DPI rings changed Auto to grayscale"
+        );
+        for (radius, cx, cy, pixels) in rings {
+            let kept = pixels
+                .iter()
+                .filter(|&&(x, y)| output.get(x, y) < 200)
+                .count();
+            if dpi == 150.0 {
+                assert_eq!(kept, pixels.len(), "radius {radius}: faint ring lost ink");
+            }
+            // The 300 DPI render maps the canonical 150 DPI contour. Pixel
+            // counts may differ with sampling, but every arc must remain visible.
+            let mut arcs = [false; 8];
+            for (x, y) in pixels {
+                if output.get(x, y) < 200 {
+                    let arc = usize::from(x >= cx) * 4
+                        + usize::from(y >= cy) * 2
+                        + usize::from(x.abs_diff(cx) >= y.abs_diff(cy));
+                    arcs[arc] = true;
+                }
+            }
+            assert!(
+                arcs.iter().all(|&kept| kept),
+                "{dpi} DPI radius {radius}: ring lost an arc"
+            );
+            assert_eq!(output.get(cx, cy), 255, "radius {radius}: ring filled in");
+        }
+    }
     for value in [190, 175, 160] {
         let mut page = print.clone();
         for x in 1150..=1530 {
@@ -173,7 +253,7 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
                 page.set(x, row, value);
             }
         }
-        let page = blur(&page);
+        let page = blur(&page, &[1, 4, 6, 4, 1]);
         let note_depth = (895..986)
             .flat_map(|y| (1150..=1530).map(move |x| (x, y)))
             .map(|(x, y)| 224 - page.get(x, y))
@@ -228,9 +308,9 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
                 }
             }
         }
-        let verso = blur(&blur(&verso));
+        let verso = blur(&blur(&verso, &[1, 4, 6, 4, 1]), &[1, 4, 6, 4, 1]);
         let verso_depth = 224 - verso.data().iter().min().unwrap();
-        let mut control = blur(&print);
+        let mut control = blur(&print, &[1, 4, 6, 4, 1]);
         for (ink, &back) in control.data_mut().iter_mut().zip(verso.data()) {
             let depth = (u32::from(224 - back) * u32::from(note_depth)
                 + u32::from(verso_depth) / 2)
@@ -280,7 +360,7 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
                 }
             }
         }
-        let mut page = blur(&page);
+        let mut page = blur(&page, &[1, 4, 6, 4, 1]);
         if rail {
             for y in 40..2360 {
                 for x in 0..5 {
@@ -309,7 +389,7 @@ fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() 
                     }
                 }
             }
-            let verso = blur(&blur(&verso));
+            let verso = blur(&blur(&verso, &[1, 4, 6, 4, 1]), &[1, 4, 6, 4, 1]);
             for (ink, &back) in page.data_mut().iter_mut().zip(verso.data()) {
                 *ink = (*ink).min(back);
             }
